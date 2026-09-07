@@ -57,13 +57,34 @@ layer's blast radius.
 
 ## Install
 
+As root, on Alpine or Debian/Ubuntu. The same command installs and updates:
+
     curl -fsSL https://raw.githubusercontent.com/nebuloss/claudication/main/scripts/install.sh | sh
 
-One static binary with the UI inside it, for linux, darwin and freebsd on
-amd64/arm64 (plus arm and riscv64 on linux); Windows builds are on the
-[releases page](https://github.com/nebuloss/claudication/releases). The script
-verifies the download against the release checksums and refuses to install one
-that does not match. `VERSION=` pins a tag, `BINDIR=` chooses where it lands.
+It fetches the binary for the machine's architecture, verifies it against the
+release checksums, installs a service (systemd or OpenRC), starts it, and waits
+until it answers on `/health` — reporting the last log lines rather than a
+timeout if it does not.
+
+On a first install it also **claims the gateway**: a fresh one has no admin
+account and the first person to reach the port takes it, which on a headless
+box is a window nobody is watching. The script closes it by setting a random
+password and printing it once. `SET_PASSWORD=0` opts out.
+
+Re-running is an update. It stops the service, replaces the binary, rewrites
+the unit and starts it again; the state directory, the admin account and the
+connected Claude accounts are left alone.
+
+    VERSION=v0.2.0   pin a release instead of taking the newest
+    LISTEN=…         what the service binds (default 0.0.0.0:8317)
+    STATE_DIR=…      where credentials live (default /var/lib/claudication)
+    SERVICE_NAME=…   run more than one on a host
+
+Everything is one static binary with the UI inside it. Builds are published for
+linux, darwin and freebsd on amd64/arm64, plus arm and riscv64 on linux;
+Windows binaries are on the [releases
+page](https://github.com/nebuloss/claudication/releases) but the install script
+is POSIX sh and does not cover them.
 
 ## Build
 
