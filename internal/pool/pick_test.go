@@ -94,8 +94,8 @@ func TestPickUsesAnUnknownAccount(t *testing.T) {
 	}
 }
 
-// Cooldown outranks everything: an account that just failed sits out whatever
-// its quota says.
+// An account that just failed sits out whatever its quota says, for as long as
+// another one can serve.
 func TestPickSkipsCoolingAccounts(t *testing.T) {
 	p := newTestPool()
 	candidates := []store.Account{
@@ -132,12 +132,55 @@ func TestPickServesEvenWhenEverythingLooksExhausted(t *testing.T) {
 	}
 }
 
-func TestPickFindsNothingWhenAllAreCooling(t *testing.T) {
+// Observed against the real upstream: it returned 429 and then served a 200
+// half a second later. A rate-limit refusal is a statement about one request,
+// not about the next minute — so with nothing else available, ask it rather
+// than inventing a refusal the client cannot read a retry-after out of.
+func TestPickServesWhenEverythingIsCooling(t *testing.T) {
 	p := newTestPool()
 	candidates := []store.Account{account("only", 0, "allowed")}
 	p.coolDown("only", time.Minute)
 
-	if _, ok := p.pick(candidates); ok {
-		t.Error("pick returned a cooling account")
+	got, ok := p.pick(candidates)
+	if !ok {
+		t.Fatal("a sole cooling account turned a blip into an outage")
+	}
+	if got.ID != "only" {
+		t.Errorf("picked %s", got.ID)
+	}
+}
+
+// Cooling down still does its real job: it moves traffic off an account for as
+// long as another one can take it.
+func TestPickPrefersAHealthyAccountOverACoolingOne(t *testing.T) {
+	p := newTestPool()
+	candidates := []store.Account{
+		account("first", 0, "allowed"),
+		account("second", 50, "allowed"),
+	}
+	p.coolDown("first", time.Minute)
+
+	got, _ := p.pick(candidates)
+	if got.ID != "second" {
+		t.Errorf("picked %s, want second while first cools", got.ID)
+	}
+}
+
+// When every account is cooling, the one that recovers soonest is the best bet.
+func TestPickTakesTheSoonestToRecover(t *testing.T) {
+	p := newTestPool()
+	candidates := []store.Account{
+		account("first", 0, "allowed"),
+		account("second", 0, "allowed"),
+	}
+	p.coolDown("first", 10*time.Minute)
+	p.coolDown("second", 5*time.Second)
+
+	got, ok := p.pick(candidates)
+	if !ok {
+		t.Fatal("found nothing")
+	}
+	if got.ID != "second" {
+		t.Errorf("picked %s, want the one recovering soonest", got.ID)
 	}
 }

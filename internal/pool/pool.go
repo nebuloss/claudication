@@ -216,7 +216,27 @@ func (p *Pool) pick(candidates []store.Account) (store.Account, bool) {
 		}
 		return a, true
 	}
-	return store.Account{}, false
+
+	// Third pass: everything is cooling down. Serve from whichever recovers
+	// soonest rather than refusing.
+	//
+	// The same argument as the quota pass, and observed rather than assumed:
+	// the upstream returned 429 and then served a 200 half a second later, so
+	// a rate-limit refusal is a statement about one request, not about the
+	// next minute. Cooling an account down is the right way to *prefer*
+	// another one; with a single account it would otherwise turn a blip into
+	// an outage, and hand the client our invented overloaded_error instead of
+	// the upstream's own 429 — which is the body Claude Code reads to decide
+	// whether to retry.
+	best, found := store.Account{}, false
+	var soonest time.Time
+	for _, a := range candidates {
+		until := p.stateOf(a.ID).cooldownUntil
+		if !found || until.Before(soonest) {
+			best, soonest, found = a, until, true
+		}
+	}
+	return best, found
 }
 
 // outOfRoom reports whether the upstream has said this account cannot serve.
