@@ -9,7 +9,7 @@ listen: "127.0.0.1:8317"
 
 # Durable state: the SQLite database lives here. Defaults to
 # $XDG_STATE_HOME/claudication (or ~/.local/state/claudication), and /var/lib/claudication in a
-# container. claudication refuses to start if this is not writable.
+# deployment. claudication refuses to start if this is not writable.
 # state-dir: "/var/lib/claudication"
 
 # CIDRs or bare IPs whose X-Forwarded-For header we honour. Leave empty and

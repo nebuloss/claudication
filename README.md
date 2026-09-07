@@ -65,11 +65,6 @@ amd64/arm64 (plus arm and riscv64 on linux); Windows builds are on the
 verifies the download against the release checksums and refuses to install one
 that does not match. `VERSION=` pins a tag, `BINDIR=` chooses where it lands.
 
-Or the container:
-
-    docker run -p 8317:8317 -v claudication:/var/lib/claudication \
-      ghcr.io/nebuloss/claudication:latest
-
 ## Build
 
 Go 1.26+ (`golang.org/x/crypto` requires it) and Node for the UI. The binary is
@@ -227,10 +222,19 @@ only ids containing `claude` or `anthropic`.
 
 ## Deploy
 
-`deploy/claudication.service` for systemd, `Dockerfile` for a distroless non-root
-image. The state directory must be a real volume — claudication refuses to start if it
-is not writable, which turns "tokens vanish on container recreate" into a
-startup error instead of silent data loss.
+`deploy/claudication.service` for systemd, with the hardening a single-purpose
+daemon should have: its own user, `ProtectSystem=strict`, a `SystemCallFilter`,
+and a `TimeoutStopSec` longer than the drain grace so a stop does not sever a
+stream mid-frame.
+
+The state directory has to be writable and claudication refuses to start if it
+is not, which turns "the tokens were on a layer that got thrown away" into a
+startup error rather than silent data loss.
+
+No container image is published. The binary is static and has no runtime
+dependencies, so a `FROM scratch` image is three lines if you want one — but
+shipping and signing one for a tool that installs as a single file was
+overhead with nothing on the other side of it.
 
 ## Roadmap
 

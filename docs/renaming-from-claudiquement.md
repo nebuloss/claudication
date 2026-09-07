@@ -18,7 +18,6 @@ If you never ran the old build, you can ignore this file.
 | Database file | `claudiquement.db` | `claudication.db` |
 | State directory | `~/.local/state/claudiquement`<br>`/var/lib/claudiquement` | `~/.local/state/claudication`<br>`/var/lib/claudication` |
 | systemd unit | `claudiquement.service` | `claudication.service` |
-| Container image | `ghcr.io/nebuloss/claudiquement` | `ghcr.io/nebuloss/claudication` |
 
 The environment prefix spells the name out rather than contracting it: there
 are six variables, and a shorter prefix saves nothing worth guessing at.

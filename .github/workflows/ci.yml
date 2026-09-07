@@ -77,18 +77,3 @@ jobs:
           name: claudication-${{ github.sha }}
           path: dist/release/
           retention-days: 14
-
-  image:
-    name: container image
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # Built but not pushed: this exists to catch Dockerfile rot on a PR, and
-      # publishing is the release workflow's job.
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
