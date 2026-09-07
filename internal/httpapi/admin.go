@@ -573,8 +573,29 @@ func (s *Server) handleRefreshAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(acct)})
 }
 
+// handleDeleteAccount hands the credential back before forgetting it.
+//
+// Revoking first is the order the client's own /logout uses, and it is the
+// only order that can work: once the row is gone the refresh token is gone
+// with it, and there is nothing left to revoke. Forgetting a credential is not
+// the same as releasing it — an account removed here used to stay live
+// upstream until it aged out on its own.
 func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	// Best-effort, and deliberately not fatal. The operator asked for this
+	// account to be gone; an upstream that is down, slow or has already
+	// forgotten the token must not be able to prevent that.
+	if tokens, err := s.store.AccountTokens(r.Context(), s.sealer, id); err == nil {
+		if err := oauth.RevokeAnthropic(r.Context(), s.httpClient,
+			tokens.RefreshToken, oauth.AnthropicClientID); err != nil {
+			s.log.Warn("could not revoke the refresh token upstream; deleting locally anyway",
+				"account", id, "err", err)
+		} else {
+			s.log.Info("refresh token revoked upstream", "account", id)
+		}
+	}
+
 	if err := s.store.DeleteAccount(r.Context(), id); errors.Is(err, store.ErrAccountNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "no such account")
 		return
@@ -582,5 +603,6 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
+	s.log.Info("account removed", "account", id, "ip", clientIPFrom(r.Context()))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
