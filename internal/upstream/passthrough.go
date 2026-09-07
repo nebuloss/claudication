@@ -42,7 +42,7 @@ var hopByHop = map[string]bool{
 // forwarded verbatim. It never parses what it does not need to, which is what
 // keeps it working with capabilities that do not exist yet.
 type Relay struct {
-	Pool    *pool.Pool
+	Pool    accountPool
 	Client  *http.Client
 	Log     *slog.Logger
 	BaseURL string
@@ -53,6 +53,18 @@ type Relay struct {
 type bodyTee interface {
 	feed(chunk []byte)
 	done()
+}
+
+// accountPool is what the relay needs from the pool.
+//
+// An interface rather than the concrete type so the retry and refusal paths —
+// the part of Lane A the contract is strictest about — can be exercised
+// without a database and a live provider behind them. *pool.Pool satisfies it.
+type accountPool interface {
+	Acquire(ctx context.Context, provider string, exclude map[string]bool) (pool.Lease, error)
+	ReportFailure(id string, kind pool.FailureKind, detail string)
+	ReportSuccess(id string)
+	Refresh(ctx context.Context, id string) error
 }
 
 // Result describes what happened, for logging and stats.
@@ -79,6 +91,33 @@ type Usage struct {
 
 const maxAttempts = 3
 
+// maxRefusalBytes bounds the error body held while retrying. An error envelope
+// is a few hundred bytes; this is slack, not a budget.
+const maxRefusalBytes = 1 << 20
+
+// refusal is an upstream response we set aside in order to try another
+// account. If there is no other account, it is what the client gets: the
+// upstream already said why, in the words the client knows how to read.
+type refusal struct {
+	status int
+	header http.Header
+	body   []byte
+}
+
+// replay writes a set-aside response verbatim.
+func replay(w http.ResponseWriter, f *refusal, res *Result) {
+	for name, values := range f.header {
+		if hopByHop[strings.ToLower(name)] {
+			continue
+		}
+		w.Header()[name] = append([]string(nil), values...)
+	}
+	w.WriteHeader(f.status)
+	n, _ := w.Write(f.body)
+	res.Status = f.status
+	res.BytesOut = int64(n)
+}
+
 // Do runs the request, retrying on another account when the failure is the
 // account's fault rather than the caller's.
 //
@@ -94,11 +133,26 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	var res Result
 	tried := map[string]bool{}
 
+	// The last refusal we retried past, held so that running out of accounts
+	// answers with the upstream's own words rather than ours.
+	var last *refusal
+
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		res.Attempts = attempt
 
 		lease, err := r.Pool.Acquire(req.Context(), provider, tried)
 		if err != nil {
+			// Nothing left to try. If an upstream already refused this
+			// request, that refusal is the answer: it names the limit and
+			// carries the reset, and Claude Code decides what to do next by
+			// reading it. Replacing it with our own "every connected account
+			// is rate limited" throws away the only part the client can act
+			// on — and hides, for instance, that a per-model weekly limit was
+			// reached while every other model still works.
+			if last != nil {
+				replay(w, last, &res)
+				return res
+			}
 			res.Err = err
 			return res
 		}
@@ -126,8 +180,20 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 
 		kind, retryable := pool.ClassifyStatus(resp.StatusCode)
 		if retryable && attempt < maxAttempts {
-			detail := peekError(resp)
+			// Read it out rather than discarding it: nothing has reached the
+			// client yet, so this response is still a usable answer if the
+			// retry has nowhere to go.
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxRefusalBytes))
 			resp.Body.Close()
+			last = &refusal{
+				status: resp.StatusCode,
+				header: resp.Header.Clone(),
+				body:   raw,
+			}
+			detail := strings.TrimSpace(string(raw))
+			if len(detail) > 4096 {
+				detail = detail[:4096]
+			}
 
 			// A 401 usually means the access token aged out rather than the
 			// account being broken; refresh once and let the same account
@@ -155,6 +221,11 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 		return res
 	}
 
+	// Every attempt was refused and retryable. Same argument as above: answer
+	// with the last thing the upstream actually said.
+	if last != nil {
+		replay(w, last, &res)
+	}
 	return res
 }
 
@@ -258,12 +329,6 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result) {
 			return
 		}
 	}
-}
-
-// peekError reads a bounded prefix of an error body for logging.
-func peekError(resp *http.Response) string {
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return strings.TrimSpace(string(raw))
 }
 
 // peekErrorAndRestore reads the error body for logging and puts it back, so
