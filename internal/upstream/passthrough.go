@@ -42,10 +42,13 @@ var hopByHop = map[string]bool{
 // forwarded verbatim. It never parses what it does not need to, which is what
 // keeps it working with capabilities that do not exist yet.
 type Relay struct {
-	Pool    accountPool
-	Client  *http.Client
-	Log     *slog.Logger
-	BaseURL string
+	Pool accountPool
+	// Attribution prepends Claude Code's system block when the caller did not.
+	// Off means non-Claude-Code clients reach haiku and nothing above it.
+	Attribution bool
+	Client      *http.Client
+	Log         *slog.Logger
+	BaseURL     string
 }
 
 // bodyTee reads a copy of the relayed bytes to recover the usage figures.
@@ -128,6 +131,12 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	base := r.BaseURL
 	if base == "" {
 		base = AnthropicBaseURL
+	}
+
+	// Once, before the first attempt: a retry has to send the same bytes, and
+	// a body that already leads with an accepted block comes back untouched.
+	if r.Attribution {
+		body = EnsureAttribution(body)
 	}
 
 	var res Result

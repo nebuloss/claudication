@@ -49,11 +49,12 @@ type Config struct {
 	StateDir string `yaml:"state-dir"`
 	// TrustedProxies are CIDRs whose X-Forwarded-For we honour. Empty means
 	// we never trust the header and always use the socket peer address.
-	TrustedProxies []string       `yaml:"trusted-proxies"`
-	Log            LogConfig      `yaml:"log"`
-	Limits         LimitsConfig   `yaml:"limits"`
-	Usage          UsageConfig    `yaml:"usage"`
-	Shutdown       ShutdownConfig `yaml:"shutdown"`
+	TrustedProxies []string          `yaml:"trusted-proxies"`
+	Log            LogConfig         `yaml:"log"`
+	Limits         LimitsConfig      `yaml:"limits"`
+	Passthrough    PassthroughConfig `yaml:"passthrough"`
+	Usage          UsageConfig       `yaml:"usage"`
+	Shutdown       ShutdownConfig    `yaml:"shutdown"`
 }
 
 type LogConfig struct {
@@ -71,6 +72,18 @@ type LimitsConfig struct {
 	// MaxBodyBytes caps request bodies. Large-context traffic is legitimately
 	// big, so the default is generous but not unbounded.
 	MaxBodyBytes int64 `yaml:"max-body-bytes"`
+}
+
+type PassthroughConfig struct {
+	// ClaudeCodeAttribution prepends Claude Code's attribution block to the
+	// system array when the caller did not send one.
+	//
+	// On by default, because without it the subscription backend refuses opus
+	// and sonnet to anything that is not Claude Code — as a 429 that claims to
+	// be a rate limit and is not. It is the one place Lane A edits a request
+	// body, so it is a switch rather than a silent behaviour: turn it off to
+	// get strict passthrough and haiku-only for other clients.
+	ClaudeCodeAttribution bool `yaml:"claude-code-attribution"`
 }
 
 type UsageConfig struct {
@@ -119,8 +132,9 @@ func Defaults() Config {
 			AnonPerMinute:     60,
 			MaxBodyBytes:      256 << 20, // 256 MiB
 		},
-		Usage:    UsageConfig{RetentionDays: 30, ReportDays: 7},
-		Shutdown: ShutdownConfig{Grace: Duration(120 * time.Second)},
+		Passthrough: PassthroughConfig{ClaudeCodeAttribution: true},
+		Usage:       UsageConfig{RetentionDays: 30, ReportDays: 7},
+		Shutdown:    ShutdownConfig{Grace: Duration(120 * time.Second)},
 	}
 }
 
@@ -177,6 +191,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("CLAUDICATION_LOG_FORMAT"); v != "" {
 		cfg.Log.Format = v
+	}
+	if v := os.Getenv("CLAUDICATION_CLAUDE_CODE_ATTRIBUTION"); v != "" {
+		cfg.Passthrough.ClaudeCodeAttribution = v != "0" && !strings.EqualFold(v, "false")
 	}
 	if v := os.Getenv("CLAUDICATION_REQUESTS_PER_MINUTE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

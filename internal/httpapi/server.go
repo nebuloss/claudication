@@ -76,8 +76,9 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 
 	s.pool = pool.New(st, sealer, s.httpClient, log)
 	s.relay = &upstream.Relay{
-		Pool: s.pool,
-		Log:  log,
+		Pool:        s.pool,
+		Log:         log,
+		Attribution: cfg.Passthrough.ClaudeCodeAttribution,
 		// Relayed inference gets its own client with NO client-level timeout:
 		// a streaming response legitimately runs for many minutes, and a
 		// Timeout here would sever it mid-flight. The per-request context

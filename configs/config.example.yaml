@@ -44,3 +44,18 @@ usage:
   retention-days: 30
   # The window the admin UI summarises by default. Clamped to retention.
   report-days: 7
+
+# Lane A forwards request bodies unchanged, with exactly one exception.
+passthrough:
+  # Anthropic's subscription backend refuses opus and sonnet unless Claude
+  # Code's attribution block is the FIRST system block. It refuses them as a
+  # 429 rate_limit_error carrying no rate-limit headers, so it reads as quota
+  # exhaustion and is not — haiku is served at the same moment.
+  #
+  # On by default, so a client that is not Claude Code can reach the models the
+  # subscription pays for. A request that already leads with the block is
+  # forwarded byte for byte and never rewritten.
+  #
+  # Set false for strict passthrough: bodies are never edited, and other
+  # clients get haiku only.
+  claude-code-attribution: true
