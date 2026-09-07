@@ -1,0 +1,266 @@
+@import "tailwindcss";
+
+/* Material Design 3 tokens, seeded from a clay #C96442 — the family the
+   upstream this gateway fronts is dressed in, so the tool reads as belonging
+   beside it rather than as a generic dashboard.
+
+   Tailwind 4 emits utilities as var() references, so redefining the same
+   variables under prefers-color-scheme below flips the whole theme without
+   duplicating a single utility class. */
+@theme {
+  /* Clay #C96442 is the accent, not the atmosphere. The surfaces below are
+     near-neutral on purpose: seeded straight from the clay hue, every card,
+     border and background came out a tint of the same red and the accent had
+     nothing to stand against. A faint warm cast is enough to keep it warm. */
+  --color-primary: #8f4c33;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #ffdbd0;
+  --color-on-primary-container: #3a0b01;
+
+  /* Secondary and tertiary are real hues rather than two more clays — the old
+     primary-container and secondary-container were the same #ffdbd0, so a
+     tonal button and a filled one were indistinguishable. */
+  --color-secondary: #4a6572;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #d3e4ec;
+  --color-on-secondary-container: #0b1f28;
+
+  --color-tertiary: #4d6b52;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #cfe9d3;
+  --color-on-tertiary-container: #0a2011;
+
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #410002;
+
+  /* MD3 leaves both of these undefined; a gateway whose whole job is reporting
+     whether a credential works needs a success, and a quota meter needs a
+     warning that is not the same colour as an accent. */
+  --color-success: #3b6939;
+  --color-on-success: #ffffff;
+  --color-success-container: #bcf0b4;
+  --color-on-success-container: #002105;
+
+  --color-warning: #8a5300;
+  --color-on-warning: #ffffff;
+  --color-warning-container: #ffdeb0;
+  --color-on-warning-container: #2b1700;
+
+  --color-surface: #faf9f7;
+  --color-on-surface: #1c1b19;
+  --color-surface-variant: #e8e5e1;
+  --color-on-surface-variant: #4a4643;
+
+  --color-surface-lowest: #ffffff;
+  --color-surface-low: #f5f3f0;
+  --color-surface-container: #efedea;
+  --color-surface-high: #e8e5e1;
+  --color-surface-highest: #e1ddd8;
+
+  --color-outline: #79746e;
+  /* One step darker than the MD3 default: at NV80 a divider measured 1.4:1
+     against the surfaces it separates, which on a page made of stacked cards
+     is indistinguishable from no divider at all. */
+  --color-outline-variant: #a8a29b;
+
+  /* Categorical series colours, for charts where the bar identifies a model, a
+     key or an account rather than a magnitude. Fixed order, never cycled, and
+     validated as a set against the card surface — worst adjacent CVD ΔE 9.1,
+     normal-vision ΔE 19.6. Four sit under 3:1 on the light surface, which the
+     relief rule permits because every bar carries a visible label and value. */
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+  --color-series-4: #eda100;
+  --color-series-5: #e87ba4;
+  --color-series-6: #008300;
+  --color-series-7: #4a3aa7;
+  --color-series-8: #e34948;
+
+  /* MD3 shape scale */
+  --radius-md3-xs: 4px;
+  --radius-md3-s: 8px;
+  --radius-md3-m: 12px;
+  --radius-md3-l: 16px;
+  --radius-md3-xl: 28px;
+  --radius-md3-full: 9999px;
+}
+
+/* Light is the base palette on bare :root; dark is redefined twice — in the
+   prefers-color-scheme query (guarded so an explicit light choice still wins)
+   and on [data-theme="dark"], so the in-app toggle overrides the OS in both
+   directions and "auto" needs no JavaScript at all: it stamps nothing and lets
+   the media query decide.
+
+   The duplication is the price of that. It is the same shape the other
+   projects here use, and worth more than one definition would be. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --color-primary: #ffb59d;
+    --color-on-primary: #55200a;
+    --color-primary-container: #72351e;
+    --color-on-primary-container: #ffdbd0;
+
+    --color-secondary: #a8cad9;
+    --color-on-secondary: #0f333f;
+    --color-secondary-container: #33474f;
+    --color-on-secondary-container: #cfe6ef;
+
+    --color-tertiary: #a8d0ac;
+    --color-on-tertiary: #14361c;
+    --color-tertiary-container: #33503a;
+    --color-on-tertiary-container: #cfe9d3;
+
+    --color-error: #ffb4ab;
+    --color-on-error: #690005;
+    --color-error-container: #93000a;
+    --color-on-error-container: #ffdad6;
+
+    --color-success: #a1d399;
+    --color-on-success: #0a390c;
+    --color-success-container: #235024;
+    --color-on-success-container: #bcf0b4;
+
+    --color-warning: #f0bb70;
+    --color-on-warning: #472a00;
+    --color-warning-container: #663d00;
+    --color-on-warning-container: #ffdeb0;
+
+    --color-surface: #141312;
+    --color-on-surface: #e9e5e1;
+    --color-surface-variant: #4a4643;
+    --color-on-surface-variant: #c9c4be;
+
+    --color-surface-lowest: #0e0d0c;
+    --color-surface-low: #1c1a19;
+    --color-surface-container: #211f1d;
+    --color-surface-high: #2b2926;
+    --color-surface-highest: #363330;
+
+    --color-outline: #948e87;
+    --color-outline-variant: #7a746e;
+
+    /* The same eight hues stepped for the dark surface, not an automatic
+       flip: all eight clear 3:1 here, worst adjacent CVD ΔE 8.4. */
+    --color-series-1: #3987e5;
+    --color-series-2: #d95926;
+    --color-series-3: #199e70;
+    --color-series-4: #c98500;
+    --color-series-5: #d55181;
+    --color-series-6: #008300;
+    --color-series-7: #9085e9;
+    --color-series-8: #e66767;
+  }
+}
+
+:root[data-theme="dark"] {
+color-scheme: dark;
+
+  --color-primary: #ffb59d;
+  --color-on-primary: #55200a;
+  --color-primary-container: #72351e;
+  --color-on-primary-container: #ffdbd0;
+
+  --color-secondary: #a8cad9;
+  --color-on-secondary: #0f333f;
+  --color-secondary-container: #33474f;
+  --color-on-secondary-container: #cfe6ef;
+
+  --color-tertiary: #a8d0ac;
+  --color-on-tertiary: #14361c;
+  --color-tertiary-container: #33503a;
+  --color-on-tertiary-container: #cfe9d3;
+
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+
+  --color-success: #a1d399;
+  --color-on-success: #0a390c;
+  --color-success-container: #235024;
+  --color-on-success-container: #bcf0b4;
+
+  --color-warning: #f0bb70;
+  --color-on-warning: #472a00;
+  --color-warning-container: #663d00;
+  --color-on-warning-container: #ffdeb0;
+
+  --color-surface: #141312;
+  --color-on-surface: #e9e5e1;
+  --color-surface-variant: #4a4643;
+  --color-on-surface-variant: #c9c4be;
+
+  --color-surface-lowest: #0e0d0c;
+  --color-surface-low: #1c1a19;
+  --color-surface-container: #211f1d;
+  --color-surface-high: #2b2926;
+  --color-surface-highest: #363330;
+
+  --color-outline: #948e87;
+  --color-outline-variant: #7a746e;
+
+  /* The same eight hues stepped for the dark surface, not an automatic
+     flip: all eight clear 3:1 here, worst adjacent CVD ΔE 8.4. */
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+  --color-series-4: #c98500;
+  --color-series-5: #d55181;
+  --color-series-6: #008300;
+  --color-series-7: #9085e9;
+  --color-series-8: #e66767;
+}
+
+html {
+  /* color-scheme is what makes form controls, scrollbars and the caret follow
+     the theme; without it they stay light on a dark page. The dark blocks
+     above override it. */
+  color-scheme: light;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* MD3 state layers: interaction is expressed as a translucent overlay of the
+   content colour, not by swapping the background. 8% hover, 12% pressed. */
+@utility state-layer {
+  position: relative;
+  isolation: isolate;
+}
+@utility state-layer {
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: currentColor;
+    opacity: 0;
+    transition: opacity 150ms cubic-bezier(0.2, 0, 0, 1);
+    pointer-events: none;
+  }
+  &:hover::after {
+    opacity: 0.08;
+  }
+  &:active::after {
+    opacity: 0.12;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

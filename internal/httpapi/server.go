@@ -1,0 +1,328 @@
+// Package httpapi serves claudication's HTTP surface.
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/nebuloss/claudication/internal/config"
+	"github.com/nebuloss/claudication/internal/oauth"
+	"github.com/nebuloss/claudication/internal/pool"
+	"github.com/nebuloss/claudication/internal/secret"
+	"github.com/nebuloss/claudication/internal/store"
+	"github.com/nebuloss/claudication/internal/upstream"
+	"github.com/nebuloss/claudication/internal/version"
+)
+
+type Server struct {
+	cfg            config.Config
+	log            *slog.Logger
+	store          *store.Store
+	keyLimiter     *limiter
+	anonLimiter    *limiter
+	trustedProxies []*net.IPNet
+	httpServer     *http.Server
+	stopSweeper    chan struct{}
+	sealer         *secret.Sealer
+	pool           *pool.Pool
+	relay          *upstream.Relay
+	pending        *oauth.Pending
+	sessions       *sessions
+	httpClient     *http.Client
+	startedAt      time.Time
+
+	mu   sync.Mutex
+	addr string
+}
+
+// Addr reports the bound address once Run has started listening. Empty before
+// then. Useful for tests and for logging when the port is ephemeral.
+func (s *Server) Addr() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.addr
+}
+
+func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Sealer) (*Server, error) {
+	trusted, err := parseTrustedProxies(cfg.TrustedProxies)
+	if err != nil {
+		return nil, fmt.Errorf("trusted-proxies: %w", err)
+	}
+
+	s := &Server{
+		cfg:            cfg,
+		log:            log,
+		store:          st,
+		keyLimiter:     newLimiter(),
+		anonLimiter:    newLimiter(),
+		trustedProxies: trusted,
+		stopSweeper:    make(chan struct{}),
+		sealer:         sealer,
+		pending:        oauth.NewPending(15 * time.Minute),
+		sessions:       newSessions(),
+		startedAt:      time.Now(),
+		// Upstream calls made by the gateway itself: token exchange, refresh,
+		// credential probes. Short timeout, because these are all small.
+		httpClient: &http.Client{Timeout: 60 * time.Second},
+	}
+
+	s.pool = pool.New(st, sealer, s.httpClient, log)
+	s.relay = &upstream.Relay{
+		Pool: s.pool,
+		Log:  log,
+		// Relayed inference gets its own client with NO client-level timeout:
+		// a streaming response legitimately runs for many minutes, and a
+		// Timeout here would sever it mid-flight. The per-request context
+		// carries the real deadline instead.
+		Client: &http.Client{
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				MaxIdleConnsPerHost:   32,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   15 * time.Second,
+				ExpectContinueTimeout: time.Second,
+				// Streaming responses must not be buffered by the transport.
+				ForceAttemptHTTP2:  true,
+				DisableCompression: false,
+			},
+		},
+	}
+
+	s.httpServer = &http.Server{
+		Addr:    cfg.Listen,
+		Handler: s.routes(),
+		// No WriteTimeout: responses are long-lived SSE streams and a write
+		// deadline would sever them mid-flight. ReadHeaderTimeout still
+		// protects against slowloris on the request side.
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+	}
+	return s, nil
+}
+
+func (s *Server) routes() http.Handler {
+	mux := http.NewServeMux()
+
+	// Unauthenticated: liveness only, with no information about accounts,
+	// models or configuration.
+	mux.HandleFunc("GET /health", s.handleHealth)
+
+	// Claude Code sends a best-effort connection-warming probe here. The
+	// gateway contract says it may be rejected, but answering it costs
+	// nothing and saves a confusing 404 in the logs.
+	mux.HandleFunc("HEAD /api/hello", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Lane A: the Anthropic-native passthrough.
+	mux.Handle("GET /v1/models", s.requireAPIKey(http.HandlerFunc(s.handleModels)))
+	mux.Handle("POST /v1/messages", s.requireAPIKey(http.HandlerFunc(s.handleMessages)))
+	mux.Handle("POST /v1/messages/count_tokens", s.requireAPIKey(http.HandlerFunc(s.handleCountTokens)))
+
+	// Admin API. Setup and sign-in are outside requireAdmin: a gateway with no
+	// password yet has nothing to authenticate against.
+	mux.HandleFunc("GET /admin/setup", s.handleSetupStatus)
+	mux.HandleFunc("POST /admin/setup", s.handleSetup)
+	mux.HandleFunc("POST /admin/session", s.handleAdminLogin)
+	mux.HandleFunc("DELETE /admin/session", s.handleAdminLogout)
+	mux.HandleFunc("GET /admin/session", s.handleTokenSession)
+
+	admin := func(h http.HandlerFunc) http.Handler { return s.requireAdmin(h) }
+	mux.Handle("GET /admin/me", admin(s.handleAdminMe))
+	mux.Handle("POST /admin/password", admin(s.handleChangePassword))
+	mux.Handle("POST /admin/account/delete", admin(s.handleDeleteAdminAccount))
+	mux.Handle("GET /admin/accounts", admin(s.handleListAccounts))
+	mux.Handle("POST /admin/accounts/order", admin(s.handleReorderAccounts))
+	mux.Handle("POST /admin/accounts/oauth/start", admin(s.handleOAuthStart))
+	mux.Handle("POST /admin/accounts/oauth/complete", admin(s.handleOAuthComplete))
+	mux.Handle("POST /admin/accounts/{id}/test", admin(s.handleTestAccount))
+	mux.Handle("POST /admin/accounts/{id}/refresh", admin(s.handleRefreshAccount))
+	mux.Handle("POST /admin/accounts/{id}/usage", admin(s.handleRefreshUsage))
+	mux.Handle("DELETE /admin/accounts/{id}", admin(s.handleDeleteAccount))
+
+	// Client API keys — the credential a Claude Code points at the gateway.
+	mux.Handle("GET /admin/keys", admin(s.handleListKeys))
+	mux.Handle("POST /admin/keys", admin(s.handleCreateKey))
+	mux.Handle("POST /admin/keys/{id}/revoke", admin(s.handleRevokeKey))
+	mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
+
+	mux.Handle("GET /admin/overview", admin(s.handleOverview))
+	mux.Handle("GET /admin/usage", admin(s.handleUsage))
+	mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
+
+	// Anything under an API prefix that did not match above is a client error,
+	// and it has to say so in the client's own language. Without these, an
+	// unknown /v1/... path would fall through to the UI's catch-all and answer
+	// a web page, which parses as neither JSON nor an explanation.
+	for _, prefix := range []string{"/v1/", "/admin/", "/api/"} {
+		mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
+			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+		})
+	}
+
+	// The admin UI, built by Vite and embedded in the binary, served at the
+	// origin root: typing the host opens it. The API keeps its own prefixes, so
+	// this catch-all can only ever reach a path none of them claimed.
+	//
+	// A ?token= magic link is consumed here so the credential is exchanged for
+	// a cookie before any asset is served.
+	//
+	// Registered without a method on purpose: "GET /" and "/v1/" are neither
+	// more specific than the other, which is precisely what ServeMux panics on.
+	// A method-less "/" is the most general pattern there is, so every API
+	// prefix above is a strict subset of it and nothing conflicts.
+	ui := s.staticHandler()
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+			return
+		}
+		// no-referrer so a ?token= link cannot leak to Anthropic when the
+		// consent tab opens; nosniff because we serve JS from the same origin
+		// as user-supplied account data.
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if s.tokenLogin(w, r, "/") {
+			return
+		}
+		ui.ServeHTTP(w, r)
+	}))
+
+	var h http.Handler = mux
+	h = s.withBodyLimit(h)
+	h = s.withRecovery(h)
+	h = s.withAccessLog(h)
+	h = s.withRequestContext(h)
+	return h
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"status":  "ok",
+		"version": version.Version,
+	})
+}
+
+// handleModels answers the discovery request by relaying Anthropic's own model
+// list, so it stays correct as models come and go.
+//
+// The contract pins the shape hard: Claude Code sends GET /v1/models?limit=1000
+// with a 3-second timeout, treats any redirect as failure, and keeps only ids
+// containing "claude" or "anthropic". A slow or failing gateway breaks
+// discovery silently, so this never propagates an upstream error — it answers
+// with an empty list and lets the client fall back to its built-in models.
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Comfortably inside the client's 3-second budget.
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	body, err := s.fetchModels(ctx, r.URL.RawQuery)
+	if err != nil {
+		s.log.Debug("model discovery falling back to an empty list", "err", err)
+		_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []any{}})
+		return
+	}
+	_, _ = w.Write(body)
+}
+
+func (s *Server) fetchModels(ctx context.Context, rawQuery string) ([]byte, error) {
+	lease, err := s.pool.Acquire(ctx, "anthropic", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	url := upstream.AnthropicBaseURL + "/v1/models"
+	if rawQuery != "" {
+		url += "?" + rawQuery
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+lease.AccessToken)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upstream models returned %d", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+}
+
+// Run serves until ctx is cancelled, then drains within the configured grace
+// period.
+//
+// Both SIGINT and SIGTERM reach this through ctx. auth2api handles only
+// SIGINT, so every `docker stop` and `systemctl stop` kills it before its
+// buffers flush and severs in-flight streams mid-frame.
+func (s *Server) Run(ctx context.Context) error {
+	ln, err := net.Listen("tcp", s.cfg.Listen)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", s.cfg.Listen, err)
+	}
+
+	s.mu.Lock()
+	s.addr = ln.Addr().String()
+	s.mu.Unlock()
+
+	go s.keyLimiter.runSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
+	go s.anonLimiter.runSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
+	go s.runUsagePruner()
+	go s.runUsagePoller(ctx)
+
+	errCh := make(chan error, 1)
+	go func() {
+		s.log.Info("listening",
+			"addr", ln.Addr().String(),
+			"version", version.Version,
+			"state_dir", s.cfg.StateDir)
+		if err := s.httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case err := <-errCh:
+		close(s.stopSweeper)
+		return err
+	case <-ctx.Done():
+	}
+
+	grace := s.cfg.Shutdown.Grace.D()
+	s.log.Info("shutting down", "grace", grace.String())
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), grace)
+	defer cancel()
+
+	err = s.httpServer.Shutdown(shutdownCtx)
+	close(s.stopSweeper)
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		s.log.Warn("grace period expired with requests still in flight")
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("shutdown: %w", err)
+	}
+	s.log.Info("shutdown complete")
+	return nil
+}

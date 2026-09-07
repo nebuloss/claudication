@@ -1,0 +1,15 @@
+/dist/
+/claudication
+/internal/httpapi/webdist/*
+!/internal/httpapi/webdist/.gitkeep
+/web/node_modules/
+/web/dist/
+/state/
+config.yaml
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+
+# Local agent/editor tooling, not project source.
+/.serena/

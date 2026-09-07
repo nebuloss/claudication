@@ -1,0 +1,38 @@
+[Unit]
+Description=claudication - multi-provider LLM gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/claudication serve -config /etc/claudication/config.yaml
+Restart=on-failure
+RestartSec=2s
+
+# SIGTERM is the default KillSignal; claudication drains in-flight streams within its
+# configured grace period, so give systemd more patience than that grace.
+KillSignal=SIGTERM
+TimeoutStopSec=150s
+
+User=claudication
+Group=claudication
+StateDirectory=claudication
+Environment=CLAUDICATION_STATE_DIR=/var/lib/claudication
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

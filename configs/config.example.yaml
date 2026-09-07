@@ -1,0 +1,46 @@
+# claudication configuration. Every field is optional; this file shows the defaults.
+#
+# This file is READ-ONLY to claudication. It is never rewritten, so your comments
+# survive. Client credentials are NOT configured here - they live in the state
+# database and are created with `claudication keys add -name NAME`.
+
+# Bind address. Use 0.0.0.0:8317 to accept connections from the network.
+listen: "127.0.0.1:8317"
+
+# Durable state: the SQLite database lives here. Defaults to
+# $XDG_STATE_HOME/claudication (or ~/.local/state/claudication), and /var/lib/claudication in a
+# container. claudication refuses to start if this is not writable.
+# state-dir: "/var/lib/claudication"
+
+# CIDRs or bare IPs whose X-Forwarded-For header we honour. Leave empty and
+# claudication always uses the socket peer address, so a client cannot spoof its way
+# past rate limits. Set this when running behind nginx or another ingress,
+# otherwise every client shares one rate-limit bucket.
+trusted-proxies: []
+#   - "10.0.50.0/24"
+
+log:
+  level: "info"   # debug | info | warn | error
+  format: "json"  # json | text
+
+limits:
+  # Default per-API-key budget. Override per key with `claudication keys add -rpm N`.
+  requests-per-minute: 600
+  # Per-IP budget for requests that have not authenticated yet.
+  anon-per-minute: 60
+  # Maximum request body. Large-context traffic is legitimately big.
+  max-body-bytes: 268435456  # 256 MiB
+
+shutdown:
+  # How long in-flight requests may finish after SIGINT/SIGTERM. Streaming
+  # responses are long-lived, so this is deliberately generous.
+  grace: "120s"
+
+# Per-request history, for the Usage tab. The gateway records one row per
+# proxied request: which key, which account, which model, how many tokens.
+usage:
+  # How long rows are kept. 0 turns recording off entirely, for an operator
+  # who would rather the gateway remember nothing.
+  retention-days: 30
+  # The window the admin UI summarises by default. Clamped to retention.
+  report-days: 7

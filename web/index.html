@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fff8f6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a110f" media="(prefers-color-scheme: dark)" />
+
+    <!--
+      Dark Reader honours this and leaves the page alone. That is the correct
+      answer here rather than a snub: the UI ships a real Material 3 dark
+      palette, and Dark Reader's filter would invert an already-dark page into
+      mud while flattening the token colours it was designed around. The theme
+      control in the header does the job the extension would be doing.
+    -->
+    <meta name="darkreader-lock" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>claudication</title>
+
+    <!--
+      Applied before the first paint, or a light frame flashes on a dark
+      machine on every load. Only an explicit choice is stamped: with nothing
+      stored the CSS media query decides, so "auto" needs no JavaScript.
+    -->
+    <script>
+      try {
+        var t = localStorage.getItem('claudication.theme')
+        if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t
+      } catch (e) {
+        /* private windows and blocked site data both throw on access */
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

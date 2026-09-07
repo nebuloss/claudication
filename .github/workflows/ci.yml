@@ -1,0 +1,94 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Nothing here writes anything back.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fmt, vet, test, typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # go.mod is the single source of the version, so bumping it here is
+          # not a second thing to remember.
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: make web-deps
+
+      # go.mod and go.sum must already agree with the imports. -diff fails
+      # rather than rewriting, so CI reports the drift instead of hiding it.
+      - name: go mod tidy is a no-op
+        run: go mod tidy -diff
+
+      # The race detector needs cgo; the release build deliberately does not.
+      - run: make check
+
+  build:
+    name: cross-compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Unshallow, or `git describe` has no tags to describe against and
+          # every artifact calls itself "dev".
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: make web-deps
+
+      # Every release platform, from one runner: the binary is pure Go, so
+      # cross-compiling costs nothing and a broken target is caught here rather
+      # than at tag time.
+      - run: make dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claudication-${{ github.sha }}
+          path: dist/release/
+          retention-days: 14
+
+  image:
+    name: container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built but not pushed: this exists to catch Dockerfile rot on a PR, and
+      # publishing is the release workflow's job.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
