@@ -152,7 +152,6 @@ func (s *Server) routes() http.Handler {
 	// Client API keys — the credential a Claude Code points at the gateway.
 	mux.Handle("GET /admin/keys", admin(s.handleListKeys))
 	mux.Handle("POST /admin/keys", admin(s.handleCreateKey))
-	mux.Handle("POST /admin/keys/{id}/revoke", admin(s.handleRevokeKey))
 	mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
 
 	mux.Handle("GET /admin/overview", admin(s.handleOverview))

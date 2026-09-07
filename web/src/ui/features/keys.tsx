@@ -5,7 +5,6 @@ import {
   Banner,
   Card,
   CardTitle,
-  Chip,
   CopyField,
   Empty,
   Field,
@@ -97,17 +96,9 @@ export default function Keys({ onExpired }: { onExpired: () => void }) {
         ) : (
           <Table head={['Name', 'Key', 'Requests', 'Tokens', 'Last used', 'Limit', '']}>
             {data.keys.map((k) => (
-              <tr
-                key={k.id}
-                className={`border-b border-outline-variant last:border-0 ${
-                  k.revoked ? 'opacity-60' : ''
-                }`}
-              >
+              <tr key={k.id} className="border-b border-outline-variant last:border-0">
                 <td className="px-2 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-on-surface">{k.name}</span>
-                    {k.revoked && <Chip tone="error">revoked</Chip>}
-                  </div>
+                  <div className="text-on-surface">{k.name}</div>
                   <div className="text-xs text-on-surface-variant">
                     created {ago(k.created_at)}
                   </div>
@@ -120,15 +111,7 @@ export default function Keys({ onExpired }: { onExpired: () => void }) {
                   {k.rpm_limit > 0 ? `${k.rpm_limit}/min` : 'default'}
                 </td>
                 <td className="px-2 py-3">
-                  <div className="flex justify-end gap-1">
-                    {!k.revoked && (
-                      <TextButton
-                        disabled={busy === k.id}
-                        onClick={() => void act(k.id, () => api.revokeKey(k.id))}
-                      >
-                        Revoke
-                      </TextButton>
-                    )}
+                  <div className="flex justify-end">
                     <TextButton
                       tone="error"
                       disabled={busy === k.id}
@@ -144,8 +127,8 @@ export default function Keys({ onExpired }: { onExpired: () => void }) {
         )}
 
         <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">
-          Revoking keeps the row, so past usage still resolves to a name. Deleting removes it
-          outright; the history keeps the name it was recorded under.
+          Deleting stops a key working immediately and cannot be undone. The Usage tab keeps
+          showing what it spent, under the name it was recorded with.
         </p>
       </Card>
     </div>

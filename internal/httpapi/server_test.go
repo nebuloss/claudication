@@ -178,7 +178,7 @@ func TestModelsRequiresAuth(t *testing.T) {
 	}
 }
 
-func TestRevokedKeyIsRejected(t *testing.T) {
+func TestDeletedKeyIsRejected(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
@@ -188,7 +188,7 @@ func TestRevokedKeyIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RevokeKey(ctx, key.ID); err != nil {
+	if err := st.DeleteKey(ctx, key.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -200,7 +200,7 @@ func TestRevokedKeyIsRejected(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401 for a revoked key", resp.StatusCode)
+		t.Errorf("status = %d, want 401 for a deleted key", resp.StatusCode)
 	}
 }
 

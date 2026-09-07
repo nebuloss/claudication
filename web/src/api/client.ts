@@ -90,8 +90,6 @@ export interface ApiKey {
   display: string
   created_at: string
   last_used_at?: string
-  revoked_at?: string
-  revoked: boolean
   rpm_limit: number
   requests: number
   tokens: number
@@ -159,7 +157,7 @@ export interface Overview {
   usage_enabled: boolean
   ready: boolean
   accounts: { total: number; usable: number; needs_reauth_soon: number }
-  keys: { total: number; active: number }
+  keys: { total: number }
   last_24h?: UsageTotals
 }
 
@@ -313,9 +311,6 @@ export const api = {
       name,
       rpm_limit: rpmLimit,
     }),
-
-  revokeKey: (id: string) =>
-    request<unknown>('POST', `/admin/keys/${encodeURIComponent(id)}/revoke`),
 
   deleteKey: (id: string) => request<unknown>('DELETE', `/admin/keys/${encodeURIComponent(id)}`),
 

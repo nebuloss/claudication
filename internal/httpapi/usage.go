@@ -186,13 +186,9 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not read keys")
 		return
 	}
-	active := 0
-	for _, k := range keys {
-		if !k.Revoked() {
-			active++
-		}
-	}
-	out["keys"] = map[string]any{"total": len(keys), "active": active}
+	// Every key that exists is usable: withdrawing one deletes it, so there is
+	// no second count to keep.
+	out["keys"] = map[string]any{"total": len(keys)}
 
 	// The headline numbers only; the Usage tab is where the breakdown lives.
 	if s.cfg.Usage.Enabled() {

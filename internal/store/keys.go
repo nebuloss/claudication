@@ -30,12 +30,9 @@ type APIKey struct {
 	Prefix      string
 	CreatedAt   time.Time
 	LastUsedAt  *time.Time
-	RevokedAt   *time.Time
 	RPMLimit    int
 	TokenBudget int64
 }
-
-func (k APIKey) Revoked() bool { return k.RevokedAt != nil }
 
 // Display is the operator-facing short form, e.g. "clc_1a2b3c4d5e6f…".
 func (k APIKey) Display() string { return KeyPrefix + k.Prefix + "…" }
@@ -98,16 +95,16 @@ func (s *Store) Authenticate(ctx context.Context, plaintext string) (APIKey, err
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, prefix, hash, created_at, last_used_at, revoked_at, rpm_limit, token_budget
+		`SELECT id, name, prefix, hash, created_at, last_used_at, rpm_limit, token_budget
 		   FROM api_keys WHERE prefix = ?`, body[:prefixLen])
 
 	var (
 		key                   APIKey
 		storedHash, createdAt string
-		lastUsed, revoked     sql.NullString
+		lastUsed              sql.NullString
 	)
 	err := row.Scan(&key.ID, &key.Name, &key.Prefix, &storedHash, &createdAt,
-		&lastUsed, &revoked, &key.RPMLimit, &key.TokenBudget)
+		&lastUsed, &key.RPMLimit, &key.TokenBudget)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Spend a comparison anyway so a miss costs about the same as a hit.
 		subtle.ConstantTimeCompare([]byte(hashKey(plaintext)), make([]byte, 64))
@@ -127,11 +124,6 @@ func (s *Store) Authenticate(ctx context.Context, plaintext string) (APIKey, err
 			key.LastUsedAt = &t
 		}
 	}
-	if revoked.Valid {
-		if t, err := time.Parse(time.RFC3339, revoked.String); err == nil {
-			key.RevokedAt = &t
-		}
-	}
 	return key, nil
 }
 
@@ -145,7 +137,7 @@ func (s *Store) TouchKey(ctx context.Context, id string) {
 
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, prefix, created_at, last_used_at, revoked_at, rpm_limit, token_budget
+		`SELECT id, name, prefix, created_at, last_used_at, rpm_limit, token_budget
 		   FROM api_keys ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
@@ -155,12 +147,12 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 	var keys []APIKey
 	for rows.Next() {
 		var (
-			key               APIKey
-			createdAt         string
-			lastUsed, revoked sql.NullString
+			key       APIKey
+			createdAt string
+			lastUsed  sql.NullString
 		)
 		if err := rows.Scan(&key.ID, &key.Name, &key.Prefix, &createdAt,
-			&lastUsed, &revoked, &key.RPMLimit, &key.TokenBudget); err != nil {
+			&lastUsed, &key.RPMLimit, &key.TokenBudget); err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
 		key.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
@@ -169,40 +161,16 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 				key.LastUsedAt = &t
 			}
 		}
-		if revoked.Valid {
-			if t, err := time.Parse(time.RFC3339, revoked.String); err == nil {
-				key.RevokedAt = &t
-			}
-		}
 		keys = append(keys, key)
 	}
 	return keys, rows.Err()
 }
 
-// RevokeKey marks a key unusable. Revocation is preserved rather than deleted
-// so historical attribution keeps resolving.
-func (s *Store) RevokeKey(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
-		time.Now().UTC().Format(time.RFC3339), id)
-	if err != nil {
-		return fmt.Errorf("revoke api key: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("revoke api key: %w", err)
-	}
-	if n == 0 {
-		return ErrKeyNotFound
-	}
-	return nil
-}
-
-// DeleteKey removes a key outright.
+// DeleteKey removes a key. It is the only way to withdraw one.
 //
-// Revoking is the usual move and keeps attribution resolving; this is for
-// clearing out a key that was a mistake. Usage rows carry a copy of the name,
-// so history survives the row going away.
+// There is no separate revoke: revocation was one-way, so it was a delete that
+// left a row behind. Usage rows carry their own copy of the key name, so the
+// history a revoked row was supposedly preserving survives this anyway.
 func (s *Store) DeleteKey(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ?`, id)
 	if err != nil {

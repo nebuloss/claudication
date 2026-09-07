@@ -86,7 +86,7 @@ export default function Overview({
             value={data.accounts.usable}
             hint={`of ${data.accounts.total} connected`}
           />
-          <Stat label="API keys" value={data.keys.active} hint={`of ${data.keys.total} created`} />
+          <Stat label="API keys" value={data.keys.total} hint="in use" />
           <Stat
             label="Requests 24h"
             value={day ? compact(day.requests) : '—'}

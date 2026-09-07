@@ -123,7 +123,7 @@ Five tabs, at the gateway's own address:
 **Overview** — whether the proxy can serve a request, and the base URL plus
 snippets to point Claude Code or curl at it. **Claude accounts** — the OAuth
 accounts the pool draws on, in priority order, each showing its 5-hour and
-7-day subscription usage. **API keys** — mint, revoke and delete the
+7-day subscription usage. **API keys** — mint and withdraw the
 credentials clients present, with the traffic each one accounted for.
 **Usage** — totals, breakdowns by day, model, key and account, and the last
 fifty requests with the upstream's own error text. **Settings** — the admin
@@ -233,7 +233,6 @@ state database, not in config.
 | `POST /admin/accounts/{id}/{test,refresh}` | admin | Probe or refresh.  |
 | `POST /admin/accounts/{id}/usage` | admin | Re-read the subscription usage. |
 | `GET,POST /admin/keys` | admin | Client API keys.                           |
-| `POST /admin/keys/{id}/revoke` | admin | Disable one, keeping its history.  |
 | `GET /admin/usage` | admin | Totals and breakdowns over a window.          |
 | `GET /admin/requests` | admin | The last N proxied requests.                |
 

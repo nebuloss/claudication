@@ -85,29 +85,28 @@ func TestAuthenticateRejects(t *testing.T) {
 	}
 }
 
-func TestRevoke(t *testing.T) {
-	ctx := context.Background()
+// Deleting is the only way to withdraw a key, and it has to actually stop the
+// credential rather than mark it.
+func TestDeleteKey(t *testing.T) {
 	st := newTestStore(t)
+	ctx := context.Background()
 
 	key, plaintext, err := st.CreateKey(ctx, "laptop", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RevokeKey(ctx, key.ID); err != nil {
-		t.Fatalf("RevokeKey: %v", err)
+	if err := st.DeleteKey(ctx, key.ID); err != nil {
+		t.Fatalf("DeleteKey: %v", err)
 	}
 
-	// Revoked keys still authenticate at the store layer; the HTTP layer is
-	// what refuses them, so attribution for past traffic keeps resolving.
-	got, err := st.Authenticate(ctx, plaintext)
-	if err != nil {
-		t.Fatalf("Authenticate after revoke: %v", err)
+	if _, err := st.Authenticate(ctx, plaintext); !errors.Is(err, ErrKeyNotFound) {
+		t.Errorf("Authenticate after delete = %v, want ErrKeyNotFound", err)
 	}
-	if !got.Revoked() {
-		t.Error("key should report as revoked")
+	if err := st.DeleteKey(ctx, key.ID); !errors.Is(err, ErrKeyNotFound) {
+		t.Errorf("second DeleteKey = %v, want ErrKeyNotFound", err)
 	}
-	if err := st.RevokeKey(ctx, "nope"); !errors.Is(err, ErrKeyNotFound) {
-		t.Errorf("RevokeKey(unknown) = %v, want ErrKeyNotFound", err)
+	if err := st.DeleteKey(ctx, "nope"); !errors.Is(err, ErrKeyNotFound) {
+		t.Errorf("DeleteKey(unknown) = %v, want ErrKeyNotFound", err)
 	}
 }
 

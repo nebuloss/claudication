@@ -150,8 +150,8 @@ export function OutlinedButton({
  * The lightest button that is still visibly a button.
  *
  * MD3 text buttons carry no boundary at all, which reads fine on a marketing
- * page and badly in a table of actions: "Revoke  Delete" looked like two words
- * until you hovered them. The outline is what makes them findable, and it uses
+ * page and badly in a table of actions, where a bare "Delete" read as a label
+ * until you hovered it. The outline is what makes them findable, and it uses
  * `outline` rather than `outline-variant` because a control boundary is
  * exactly the case that wants 3:1. What separates this from OutlinedButton is
  * now the ink, not the presence of an edge.

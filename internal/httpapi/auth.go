@@ -68,11 +68,6 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
 		}
-		if key.Revoked() {
-			writeError(w, http.StatusUnauthorized, "authentication_error", "API key has been revoked")
-			return
-		}
-
 		rpm := key.RPMLimit
 		if rpm == 0 {
 			rpm = s.cfg.Limits.RequestsPerMinute

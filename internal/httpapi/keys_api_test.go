@@ -73,12 +73,14 @@ func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
 		t.Error("the listing leaks the full key")
 	}
 
-	// Revoke, and the credential stops working immediately.
-	rev := postJSON(t, base, http.MethodPost, "/admin/keys/"+created.Key.ID+"/revoke", nil, cookie)
-	rev.Body.Close()
-	if rev.StatusCode != http.StatusOK {
-		t.Fatalf("revoke: status = %d, want 200", rev.StatusCode)
+	// Delete, and the credential stops working immediately. There is no
+	// separate revoke: it could not be undone either, so it was this twice.
+	del := postJSON(t, base, http.MethodDelete, "/admin/keys/"+created.Key.ID, nil, cookie)
+	del.Body.Close()
+	if del.StatusCode != http.StatusOK {
+		t.Fatalf("delete: status = %d, want 200", del.StatusCode)
 	}
+
 	req, _ = http.NewRequest(http.MethodGet, base+"/v1/models", nil)
 	req.Header.Set("X-Api-Key", created.Plaintext)
 	resp, err = http.DefaultClient.Do(req)
@@ -87,22 +89,15 @@ func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("revoked key: status = %d, want 401", resp.StatusCode)
+		t.Errorf("deleted key: status = %d, want 401", resp.StatusCode)
 	}
 
-	// Revoking twice is not an error the operator caused; it is a 404 because
-	// there is nothing left to revoke.
-	again := postJSON(t, base, http.MethodPost, "/admin/keys/"+created.Key.ID+"/revoke", nil, cookie)
+	// Deleting twice is not the operator's mistake; there is simply nothing
+	// left to delete.
+	again := postJSON(t, base, http.MethodDelete, "/admin/keys/"+created.Key.ID, nil, cookie)
 	again.Body.Close()
 	if again.StatusCode != http.StatusNotFound {
-		t.Errorf("second revoke: status = %d, want 404", again.StatusCode)
-	}
-
-	// Delete.
-	del := postJSON(t, base, http.MethodDelete, "/admin/keys/"+created.Key.ID, nil, cookie)
-	del.Body.Close()
-	if del.StatusCode != http.StatusOK {
-		t.Fatalf("delete: status = %d, want 200", del.StatusCode)
+		t.Errorf("second delete: status = %d, want 404", again.StatusCode)
 	}
 	list = getWithCookie(t, base, "/admin/keys", cookie)
 	listed.Keys = nil

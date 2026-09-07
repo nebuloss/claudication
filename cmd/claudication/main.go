@@ -69,7 +69,7 @@ Usage:
   claudication login-url                   Mint a single-use UI sign-in link
   claudication keys add -name NAME         Mint a client API key
   claudication keys list                   List API keys
-  claudication keys revoke -id ID          Revoke an API key
+  claudication keys delete -id ID          Withdraw an API key
   claudication version                     Print build information
 
 Environment:
@@ -266,7 +266,7 @@ func readPassword(prompt string) (string, error) {
 
 func cmdKeys(args []string) error {
 	if len(args) == 0 {
-		return errors.New("keys: expected add, list or revoke")
+		return errors.New("keys: expected add, list or delete")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -321,12 +321,8 @@ func cmdKeys(args []string) error {
 			return nil
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tKEY\tCREATED\tLAST USED\tRPM\tSTATUS")
+		fmt.Fprintln(w, "ID\tNAME\tKEY\tCREATED\tLAST USED\tRPM")
 		for _, k := range keys {
-			status := "active"
-			if k.Revoked() {
-				status = "revoked"
-			}
 			last := "never"
 			if k.LastUsedAt != nil {
 				last = k.LastUsedAt.Format(time.RFC3339)
@@ -335,20 +331,20 @@ func cmdKeys(args []string) error {
 			if k.RPMLimit > 0 {
 				rpm = fmt.Sprint(k.RPMLimit)
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				k.ID, k.Name, k.Display(), k.CreatedAt.Format(time.RFC3339), last, rpm, status)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				k.ID, k.Name, k.Display(), k.CreatedAt.Format(time.RFC3339), last, rpm)
 		}
 		return w.Flush()
 
-	case "revoke":
-		fs := flag.NewFlagSet("keys revoke", flag.ContinueOnError)
+	case "delete":
+		fs := flag.NewFlagSet("keys delete", flag.ContinueOnError)
 		configPath := fs.String("config", "", "path to config.yaml (optional)")
-		id := fs.String("id", "", "key id to revoke (required)")
+		id := fs.String("id", "", "key id to delete (required)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if *id == "" {
-			return errors.New("keys revoke: -id is required")
+			return errors.New("keys delete: -id is required")
 		}
 		_, st, _, err := openState(ctx, *configPath)
 		if err != nil {
@@ -356,10 +352,10 @@ func cmdKeys(args []string) error {
 		}
 		defer st.Close()
 
-		if err := st.RevokeKey(ctx, *id); err != nil {
+		if err := st.DeleteKey(ctx, *id); err != nil {
 			return err
 		}
-		fmt.Printf("Revoked key %s\n", *id)
+		fmt.Printf("Deleted key %s\n", *id)
 		return nil
 
 	default:

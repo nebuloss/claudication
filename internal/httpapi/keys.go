@@ -21,8 +21,6 @@ type keyJSON struct {
 	Display    string `json:"display"`
 	CreatedAt  string `json:"created_at"`
 	LastUsedAt string `json:"last_used_at,omitempty"`
-	RevokedAt  string `json:"revoked_at,omitempty"`
-	Revoked    bool   `json:"revoked"`
 	RPMLimit   int    `json:"rpm_limit"`
 	// Traffic over the reporting window, so a key nobody uses is visible.
 	Requests int64 `json:"requests"`
@@ -35,16 +33,12 @@ func toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
 		Name:      k.Name,
 		Display:   k.Display(),
 		CreatedAt: k.CreatedAt.UTC().Format(time.RFC3339),
-		Revoked:   k.Revoked(),
 		RPMLimit:  k.RPMLimit,
 		Requests:  use.Requests,
 		Tokens:    use.InputTokens + use.OutputTokens + use.CacheTokens,
 	}
 	if k.LastUsedAt != nil {
 		out.LastUsedAt = k.LastUsedAt.UTC().Format(time.RFC3339)
-	}
-	if k.RevokedAt != nil {
-		out.RevokedAt = k.RevokedAt.UTC().Format(time.RFC3339)
 	}
 	return out
 }
@@ -113,23 +107,8 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRevokeKey disables a key but keeps the row, so past usage still
-// resolves to a name rather than to an id nobody recognises.
-func (s *Server) handleRevokeKey(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	switch err := s.store.RevokeKey(r.Context(), id); {
-	case errors.Is(err, store.ErrKeyNotFound):
-		writeError(w, http.StatusNotFound, "not_found", "no such key, or it is already revoked")
-		return
-	case err != nil:
-		s.log.Error("revoke api key", "err", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not revoke the key")
-		return
-	}
-	s.log.Info("api key revoked", "id", id, "ip", clientIPFrom(r.Context()))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
-}
-
+// handleDeleteKey withdraws a key. There is no revoke beside it: revocation
+// could not be undone either, so it was this under another name.
 func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch err := s.store.DeleteKey(r.Context(), id); {
