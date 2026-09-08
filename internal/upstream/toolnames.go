@@ -317,7 +317,11 @@ func (n *nameRestorer) tail() []byte {
 }
 
 func (n *nameRestorer) restore(b []byte) []byte {
-	if !bytes.Contains(b, []byte(`"`+mcpClientStyle)) {
+	// Gated on the field, not on any particular name. Keying this on the MCP
+	// prefix meant every other rewritten name was sent out and never put back:
+	// the client asked for `todowrite`, got `todowrite_` in the tool_use, and
+	// could not match it to a tool it had declared.
+	if !bytes.Contains(b, []byte(`"name":"`)) {
 		return b
 	}
 	for sent, original := range n.rev {

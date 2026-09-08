@@ -302,3 +302,25 @@ func TestRewriteRefusedToolNamesWillNotMergeOntoAnExistingTodoWrite(t *testing.T
 		t.Errorf("names changed: %v", got)
 	}
 }
+
+// The restore gate used to key on the MCP prefix, so every other rewritten
+// name went out and never came back — the client asked for `todowrite`, got
+// `todowrite_` in the tool_use, and could not match it to a tool it declared.
+func TestNameRestorerPutsBackNamesThatAreNotMCP(t *testing.T) {
+	rev := map[string]string{"todowrite_": "todowrite"}
+
+	for _, body := range []string{
+		`{"content":[{"type":"tool_use","id":"toolu_1","name":"todowrite_","input":{}}]}`,
+		"event: content_block_start\n" +
+			`data: {"type":"content_block_start","index":1,"content_block":` +
+			`{"type":"tool_use","id":"toolu_1","name":"todowrite_","input":{}}}` + "\n\n",
+	} {
+		got := restoreAll(rev, body)
+		if !strings.Contains(got, `"name":"todowrite"`) {
+			t.Errorf("name was not restored: %s", got)
+		}
+		if strings.Contains(got, `"name":"todowrite_"`) {
+			t.Errorf("upstream name still present: %s", got)
+		}
+	}
+}
