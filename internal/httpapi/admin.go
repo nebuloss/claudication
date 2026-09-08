@@ -281,7 +281,7 @@ func (s *Server) tokenLogin(w http.ResponseWriter, r *http.Request, redirectTo s
 		return true
 	}
 
-	if _, err := s.issueSession(w); err != nil {
+	if _, err := s.issueSession(w, r); err != nil {
 		s.log.Error("create admin session", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not start a session")
 		return true

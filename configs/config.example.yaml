@@ -14,10 +14,23 @@ listen: "127.0.0.1:8317"
 
 # CIDRs or bare IPs whose X-Forwarded-For header we honour. Leave empty and
 # claudication always uses the socket peer address, so a client cannot spoof its way
-# past rate limits. Set this when running behind nginx or another ingress,
-# otherwise every client shares one rate-limit bucket.
+# past rate limits.
+#
+# SET THIS if anything fronts the gateway — nginx, Nginx Proxy Manager,
+# Traefik, Caddy, a tunnel. Every request then arrives from the proxy, so
+# without it:
+#
+#   - every client shares one anonymous rate-limit bucket, and one scanner
+#     burning 60 requests locks everyone out of sign-in;
+#   - the access log records the proxy, so requests cannot be told apart;
+#   - the session cookie is never marked Secure, because the gateway cannot
+#     tell that the browser's half of the connection was HTTPS.
+#
+# The value is the address the *proxy* connects from, not the client's. Take it
+# from the "ip" field in the access log while the proxy is in use.
 trusted-proxies: []
-#   - "10.0.50.0/24"
+#   - "10.0.50.1"      # a single proxy
+#   - "10.0.50.0/24"   # or the network it sits on
 
 log:
   level: "info"   # debug | info | warn | error

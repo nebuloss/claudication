@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -61,7 +62,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.log.Info("admin account created", "ip", ip)
-	s.startSession(w, "setup")
+	s.startSession(w, r, "setup")
 }
 
 // handleChangePassword requires the current password even though the caller
@@ -98,7 +99,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	// point of changing it.
 	s.sessions.destroyAll()
 	s.log.Info("admin password changed", "ip", ip)
-	s.startSession(w, "password change")
+	s.startSession(w, r, "password change")
 }
 
 // handleDeleteAdminAccount returns the gateway to its first-run state.
@@ -166,7 +167,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication_error", "incorrect password")
 		return
 	}
-	s.startSession(w, "password")
+	s.startSession(w, r, "password")
 }
 
 func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +189,7 @@ func (s *Server) handleAdminMe(w http.ResponseWriter, r *http.Request) {
 // issueSession mints a session and sets the cookie, leaving the caller to
 // decide what the response body is — the password endpoints answer with JSON,
 // a sign-in link answers with a redirect.
-func (s *Server) issueSession(w http.ResponseWriter) (time.Time, error) {
+func (s *Server) issueSession(w http.ResponseWriter, r *http.Request) (time.Time, error) {
 	token, expires, err := s.sessions.create()
 	if err != nil {
 		return time.Time{}, err
@@ -200,16 +201,46 @@ func (s *Server) issueSession(w http.ResponseWriter) (time.Time, error) {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  expires,
-		// Secure is not set: the gateway is commonly reached over plain HTTP on
-		// a LAN or through an SSH tunnel, where a Secure cookie would never be
-		// sent and sign-in would silently fail.
+		// Secure follows the connection rather than being fixed either way.
+		//
+		// Hard-coding it false was right for the common case and wrong for the
+		// deployment most likely to be exposed: behind a TLS-terminating proxy
+		// the browser speaks HTTPS the whole way, and the session cookie was
+		// still marked as safe to send in clear. Hard-coding it true would be
+		// worse — on a LAN or through an SSH tunnel the cookie would never be
+		// sent at all and sign-in would fail with nothing to show for it.
+		Secure: overTLS(r, s.trustedProxies),
 	})
 	return expires, nil
 }
 
+// overTLS reports whether the browser's connection was encrypted.
+//
+// r.TLS covers terminating TLS ourselves, which nothing does today.
+// X-Forwarded-Proto covers the real case, and is read only from a trusted
+// proxy — otherwise any client could set it and pin a Secure cookie onto a
+// plain-HTTP session, locking itself out.
+func overTLS(r *http.Request, trusted []*net.IPNet) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if len(trusted) == 0 {
+		return false
+	}
+	peer := peerIP(r)
+	if peer == nil || !ipInAny(peer, trusted) {
+		return false
+	}
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if i := strings.IndexByte(proto, ','); i >= 0 {
+		proto = proto[:i] // the client-facing hop is the left-most
+	}
+	return strings.EqualFold(strings.TrimSpace(proto), "https")
+}
+
 // startSession issues the cookie and answers with when it lapses.
-func (s *Server) startSession(w http.ResponseWriter, how string) {
-	expires, err := s.issueSession(w)
+func (s *Server) startSession(w http.ResponseWriter, r *http.Request, how string) {
+	expires, err := s.issueSession(w, r)
 	if err != nil {
 		s.log.Error("create admin session", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not start a session")
