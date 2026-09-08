@@ -23,7 +23,7 @@ func TestSnapshotIsCompleteWhileWritesContinue(t *testing.T) {
 	defer st.Close()
 	ctx := context.Background()
 
-	if _, _, err := st.CreateKey(ctx, "before", 60, 250_000); err != nil {
+	if _, _, err := st.CreateKey(ctx, "before", KeyLimits{RPMLimit: 60, TokenBudget: 250_000}); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 200 {

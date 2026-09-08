@@ -1,0 +1,15 @@
+-- A key's rate limit gains a period, so the number can mean what it says.
+--
+-- rpm_limit was requests per minute and nothing else, so an operator who wanted
+-- "two hundred an hour" had to divide it down to three a minute — which is not
+-- the same limit. Three a minute refuses a burst of ten in twenty seconds; two
+-- hundred an hour permits it and then runs out. The bucket already had both a
+-- rate and a burst, and flattening the period conflated them.
+--
+-- Seconds rather than an enum, because the limiter takes a duration and the UI
+-- offering minute/hour/day is a choice about presentation rather than about
+-- what the gateway can enforce.
+--
+-- Existing keys keep exactly the behaviour they had: 60 seconds, with whatever
+-- rpm_limit they already carried.
+ALTER TABLE api_keys ADD COLUMN rate_period_s INTEGER NOT NULL DEFAULT 60;

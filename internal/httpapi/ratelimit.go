@@ -25,10 +25,15 @@ func newLimiter() *limiter {
 	return &limiter{buckets: make(map[string]*bucket), now: time.Now}
 }
 
-// allow consumes one token for key, refilling at perMinute tokens per minute.
-// A perMinute of zero or less disables limiting for that caller.
-func (l *limiter) allow(key string, perMinute int) bool {
-	return l.take(key, perMinute, true)
+// allow consumes one token for key, refilling at count tokens per period.
+// A count of zero or less disables limiting for that caller.
+func (l *limiter) allow(key string, count int, period time.Duration) bool {
+	return l.take(key, count, period, true)
+}
+
+// allowPerMinute is the common case, and what the anonymous budget uses.
+func (l *limiter) allowPerMinute(key string, perMinute int) bool {
+	return l.allow(key, perMinute, time.Minute)
 }
 
 // peek reports whether a token is available without spending one.
@@ -40,15 +45,26 @@ func (l *limiter) allow(key string, perMinute int) bool {
 // budget never reaches the database) and allow runs afterwards, on the requests
 // that turned out to be anonymous.
 func (l *limiter) peek(key string, perMinute int) bool {
-	return l.take(key, perMinute, false)
+	return l.take(key, perMinute, time.Minute, false)
 }
 
-func (l *limiter) take(key string, perMinute int, spend bool) bool {
-	if perMinute <= 0 {
+// take is the bucket itself: burst is the whole allowance, and it refills over
+// one period.
+//
+// The period matters, and flattening it to a per-minute rate was not the same
+// limit. "Two hundred an hour" divided down to three a minute refuses a burst
+// of ten in twenty seconds, which is exactly what two hundred an hour is
+// supposed to permit; the bucket already had a rate and a burst, and one number
+// conflated them.
+func (l *limiter) take(key string, count int, period time.Duration, spend bool) bool {
+	if count <= 0 {
 		return true
 	}
-	rate := float64(perMinute) / 60.0 // tokens per second
-	burst := float64(perMinute)
+	if period <= 0 {
+		period = time.Minute
+	}
+	rate := float64(count) / period.Seconds() // tokens per second
+	burst := float64(count)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()

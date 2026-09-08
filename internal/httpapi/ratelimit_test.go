@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"testing"
+
+	"claudication/internal/store"
 )
 
 // The anonymous budget is for requests that have not authenticated. Spending it
@@ -17,7 +19,7 @@ func TestAuthenticatedTrafficIsNotBilledToTheAnonymousBudget(t *testing.T) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	_, plaintext, err := st.CreateKey(context.Background(), "busy", 0, 0)
+	_, plaintext, err := st.CreateKey(context.Background(), "busy", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,11 +86,11 @@ func TestPeekDoesNotSpendAToken(t *testing.T) {
 		}
 	}
 	for i := range 3 {
-		if !l.allow("ip", 3) {
+		if !l.allowPerMinute("ip", 3) {
 			t.Fatalf("allow refused at %d, want the full budget still available", i)
 		}
 	}
-	if l.allow("ip", 3) {
+	if l.allowPerMinute("ip", 3) {
 		t.Error("allow granted a fourth token from a budget of 3")
 	}
 	if l.peek("ip", 3) {

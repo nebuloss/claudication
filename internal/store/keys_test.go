@@ -22,7 +22,7 @@ func TestCreateAndAuthenticate(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
 
-	key, plaintext, err := st.CreateKey(ctx, "laptop", 0, 0)
+	key, plaintext, err := st.CreateKey(ctx, "laptop", KeyLimits{})
 	if err != nil {
 		t.Fatalf("CreateKey: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestPlaintextIsNotStored(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
 
-	_, plaintext, err := st.CreateKey(ctx, "laptop", 0, 0)
+	_, plaintext, err := st.CreateKey(ctx, "laptop", KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestAuthenticateRejects(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
 
-	_, plaintext, err := st.CreateKey(ctx, "laptop", 0, 0)
+	_, plaintext, err := st.CreateKey(ctx, "laptop", KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestDeleteKey(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	key, plaintext, err := st.CreateKey(ctx, "laptop", 0, 0)
+	key, plaintext, err := st.CreateKey(ctx, "laptop", KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestListKeys(t *testing.T) {
 		t.Fatalf("empty store: keys=%d err=%v", len(keys), err)
 	}
 	for _, n := range []string{"a", "b"} {
-		if _, _, err := st.CreateKey(ctx, n, 0, 0); err != nil {
+		if _, _, err := st.CreateKey(ctx, n, KeyLimits{}); err != nil {
 			t.Fatal(err)
 		}
 	}

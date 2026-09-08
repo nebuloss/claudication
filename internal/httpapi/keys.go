@@ -22,6 +22,10 @@ type keyJSON struct {
 	CreatedAt  string `json:"created_at"`
 	LastUsedAt string `json:"last_used_at,omitempty"`
 	RPMLimit   int    `json:"rpm_limit"`
+	// RatePeriodS is what rpm_limit is per, in seconds. 60 unless an operator
+	// chose otherwise; the name keeps its history rather than pretending the
+	// column was always general.
+	RatePeriodS int `json:"rate_period_s"`
 	// TokenBudget is the ceiling per rolling day, 0 for unlimited; SpentToday
 	// is what has been counted against it. Both are reported so the UI can show
 	// how close a key is rather than only whether it has already been refused.
@@ -39,6 +43,7 @@ func toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
 		Display:     k.Display(),
 		CreatedAt:   k.CreatedAt.UTC().Format(time.RFC3339),
 		RPMLimit:    k.RPMLimit,
+		RatePeriodS: int(k.Period().Seconds()),
 		TokenBudget: k.TokenBudget,
 		Requests:    use.Requests,
 		Tokens:      use.InputTokens + use.OutputTokens + use.CacheTokens,
@@ -94,34 +99,58 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// keyLimitsBody is what create and update both accept.
+type keyLimitsBody struct {
+	Name        string `json:"name"`
+	RPMLimit    int    `json:"rpm_limit"`
+	RatePeriodS int    `json:"rate_period_s"`
+	TokenBudget int64  `json:"token_budget"`
+}
+
+// decodeKeyLimits reads and validates the shared body, writing the refusal
+// itself. Returns false when it has answered.
+func decodeKeyLimits(w http.ResponseWriter, r *http.Request) (string, store.KeyLimits, bool) {
+	var body keyLimitsBody
+	if !decodeJSON(w, r, &body) {
+		return "", store.KeyLimits{}, false
+	}
+	name := strings.TrimSpace(body.Name)
+	switch {
+	case name == "":
+		writeError(w, http.StatusBadRequest, "invalid_request", "a name is required")
+		return "", store.KeyLimits{}, false
+	case body.RPMLimit < 0:
+		writeError(w, http.StatusBadRequest, "invalid_request",
+			"rpm_limit cannot be negative (0 means the global default)")
+		return "", store.KeyLimits{}, false
+	case body.TokenBudget < 0:
+		writeError(w, http.StatusBadRequest, "invalid_request",
+			"token_budget cannot be negative (0 means unlimited)")
+		return "", store.KeyLimits{}, false
+	case body.RatePeriodS < 0 || body.RatePeriodS > 7*24*3600:
+		// A week is already far past anything a rate limit usefully means, and
+		// an unbounded period is a bucket that refills so slowly it is really a
+		// lifetime quota wearing a rate limit's name.
+		writeError(w, http.StatusBadRequest, "invalid_request",
+			"rate_period_s must be between 0 and one week")
+		return "", store.KeyLimits{}, false
+	}
+	return name, store.KeyLimits{
+		RPMLimit:    body.RPMLimit,
+		RatePeriod:  time.Duration(body.RatePeriodS) * time.Second,
+		TokenBudget: body.TokenBudget,
+	}, true
+}
+
 // handleCreateKey mints a key and returns the plaintext — once, here, and
 // never again. The store keeps only sha256(key) and a lookup prefix.
 func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Name        string `json:"name"`
-		RPMLimit    int    `json:"rpm_limit"`
-		TokenBudget int64  `json:"token_budget"`
-	}
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	body.Name = strings.TrimSpace(body.Name)
-	if body.Name == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "a name is required")
-		return
-	}
-	if body.RPMLimit < 0 {
-		writeError(w, http.StatusBadRequest, "invalid_request",
-			"rpm_limit cannot be negative (0 means the global default)")
-		return
-	}
-	if body.TokenBudget < 0 {
-		writeError(w, http.StatusBadRequest, "invalid_request",
-			"token_budget cannot be negative (0 means unlimited)")
+	name, limits, ok := decodeKeyLimits(w, r)
+	if !ok {
 		return
 	}
 
-	key, plaintext, err := s.store.CreateKey(r.Context(), body.Name, body.RPMLimit, body.TokenBudget)
+	key, plaintext, err := s.store.CreateKey(r.Context(), name, limits)
 	if err != nil {
 		s.log.Error("create api key", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not create the key")
@@ -139,32 +168,13 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 // handleUpdateKey changes a key's name, rate limit or token budget. The secret
 // is not touched, so nothing that already holds the key has to be told anything.
 func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Name        string `json:"name"`
-		RPMLimit    int    `json:"rpm_limit"`
-		TokenBudget int64  `json:"token_budget"`
-	}
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	body.Name = strings.TrimSpace(body.Name)
-	if body.Name == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "a name is required")
-		return
-	}
-	if body.RPMLimit < 0 {
-		writeError(w, http.StatusBadRequest, "invalid_request",
-			"rpm_limit cannot be negative (0 means the global default)")
-		return
-	}
-	if body.TokenBudget < 0 {
-		writeError(w, http.StatusBadRequest, "invalid_request",
-			"token_budget cannot be negative (0 means unlimited)")
+	name, limits, ok := decodeKeyLimits(w, r)
+	if !ok {
 		return
 	}
 
 	id := r.PathValue("id")
-	switch err := s.store.UpdateKey(r.Context(), id, body.Name, body.RPMLimit, body.TokenBudget); {
+	switch err := s.store.UpdateKey(r.Context(), id, name, limits); {
 	case errors.Is(err, store.ErrKeyNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "no such key")
 		return
@@ -177,9 +187,9 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	// next request rather than up to a refresh interval later — an operator
 	// raising a budget to unblock a client should not have to wait.
 	s.budgets.forget(id)
-	s.log.Info("api key updated", "id", id, "name", body.Name,
-		"rpm_limit", body.RPMLimit, "token_budget", body.TokenBudget,
-		"ip", clientIPFrom(r.Context()))
+	s.log.Info("api key updated", "id", id, "name", name,
+		"rpm_limit", limits.RPMLimit, "rate_period", limits.Period().String(),
+		"token_budget", limits.TokenBudget, "ip", clientIPFrom(r.Context()))
 
 	keys, err := s.store.ListKeys(r.Context())
 	if err == nil {

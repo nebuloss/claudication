@@ -28,7 +28,7 @@ func TestATokenBudgetIsEnforced(t *testing.T) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	key, plaintext, err := st.CreateKey(context.Background(), "capped", 0, 1000)
+	key, plaintext, err := st.CreateKey(context.Background(), "capped", store.KeyLimits{TokenBudget: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestAnUnlimitedKeyIsNeverRefusedForItsBudget(t *testing.T) {
 	defer func() { cancel(); <-done }()
 
 	// 0 is unlimited, and is what CreateKey is given when nobody chooses.
-	key, plaintext, err := st.CreateKey(context.Background(), "open", 0, 0)
+	key, plaintext, err := st.CreateKey(context.Background(), "open", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestSpendOutsideTheWindowDoesNotCount(t *testing.T) {
 	_, st, _ := newTestServer(t)
 	ctx := context.Background()
 
-	key, _, err := st.CreateKey(ctx, "rolling", 0, 1000)
+	key, _, err := st.CreateKey(ctx, "rolling", store.KeyLimits{TokenBudget: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,11 +122,11 @@ func TestBudgetsArePerKey(t *testing.T) {
 	_, st, _ := newTestServer(t)
 	ctx := context.Background()
 
-	a, _, err := st.CreateKey(ctx, "a", 0, 1000)
+	a, _, err := st.CreateKey(ctx, "a", store.KeyLimits{TokenBudget: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _, err := st.CreateKey(ctx, "b", 0, 1000)
+	b, _, err := st.CreateKey(ctx, "b", store.KeyLimits{TokenBudget: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestTheBudgetCacheCreditsSpendBetweenRefreshes(t *testing.T) {
 	_, st, _ := newTestServer(t)
 	ctx := context.Background()
 
-	key, _, err := st.CreateKey(ctx, "cached", 0, 10_000)
+	key, _, err := st.CreateKey(ctx, "cached", store.KeyLimits{TokenBudget: 10_000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestTheBudgetCacheCreditsSpendBetweenRefreshes(t *testing.T) {
 func TestForgettingAKeyDropsItsCachedSpend(t *testing.T) {
 	_, st, _ := newTestServer(t)
 	ctx := context.Background()
-	key, _, err := st.CreateKey(ctx, "edited", 0, 1000)
+	key, _, err := st.CreateKey(ctx, "edited", store.KeyLimits{TokenBudget: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestAnUnreadableBudgetFailsOpen(t *testing.T) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	_, plaintext, err := st.CreateKey(context.Background(), "broken", 0, 1000)
+	_, plaintext, err := st.CreateKey(context.Background(), "broken", store.KeyLimits{TokenBudget: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}

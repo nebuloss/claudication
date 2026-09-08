@@ -287,6 +287,19 @@ func cmdVacuum(args []string) error {
 	return nil
 }
 
+// shortPeriod renders a rate limit's period the way a person says it.
+func shortPeriod(d time.Duration) string {
+	switch d {
+	case time.Minute:
+		return "min"
+	case time.Hour:
+		return "hour"
+	case 24 * time.Hour:
+		return "day"
+	}
+	return d.String()
+}
+
 func humanBytes(n int64) string {
 	switch {
 	case n >= 1<<30:
@@ -390,7 +403,9 @@ func cmdKeys(args []string) error {
 		fs := flag.NewFlagSet("keys add", flag.ContinueOnError)
 		configPath := fs.String("config", "", "path to config.yaml (optional)")
 		name := fs.String("name", "", "human-readable name for the key (required)")
-		rpm := fs.Int("rpm", 0, "per-key requests per minute (0 = use the global default)")
+		rpm := fs.Int("rpm", 0, "per-key request allowance (0 = use the global default)")
+		ratePeriod := fs.Duration("rate-period", time.Minute,
+			"what -rpm is measured over (1m, 1h, 24h)")
 		budget := fs.Int64("token-budget", 0,
 			"tokens this key may spend per rolling 24 hours (0 = unlimited)")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -406,7 +421,11 @@ func cmdKeys(args []string) error {
 		}
 		defer st.Close()
 
-		key, plaintext, err := st.CreateKey(ctx, *name, *rpm, *budget)
+		key, plaintext, err := st.CreateKey(ctx, *name, store.KeyLimits{
+			RPMLimit:    *rpm,
+			RatePeriod:  *ratePeriod,
+			TokenBudget: *budget,
+		})
 		if err != nil {
 			return err
 		}
@@ -443,7 +462,7 @@ func cmdKeys(args []string) error {
 			}
 			rpm := "default"
 			if k.RPMLimit > 0 {
-				rpm = fmt.Sprint(k.RPMLimit)
+				rpm = fmt.Sprintf("%d/%s", k.RPMLimit, shortPeriod(k.Period()))
 			}
 			// Spelled out rather than shown as 0, which reads as "none allowed"
 			// where it means the opposite.

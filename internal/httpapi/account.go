@@ -42,7 +42,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIPFrom(r.Context())
-	if !s.anonLimiter.allow("setup:"+ip, s.cfg.Limits.AnonPerMinute) {
+	if !s.anonLimiter.allowPerMinute("setup:"+ip, s.cfg.Limits.AnonPerMinute) {
 		writeError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
 		return
 	}
@@ -78,7 +78,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIPFrom(r.Context())
-	if !s.anonLimiter.allow("passwd:"+ip, s.cfg.Limits.AnonPerMinute) {
+	if !s.anonLimiter.allowPerMinute("passwd:"+ip, s.cfg.Limits.AnonPerMinute) {
 		writeError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
 		return
 	}
@@ -145,7 +145,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIPFrom(r.Context())
-	if !s.anonLimiter.allow("admin-login:"+ip, s.cfg.Limits.AnonPerMinute) {
+	if !s.anonLimiter.allowPerMinute("admin-login:"+ip, s.cfg.Limits.AnonPerMinute) {
 		writeError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
 		return
 	}

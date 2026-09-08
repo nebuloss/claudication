@@ -155,12 +155,12 @@ func TestTheAnonymousBudgetIsPerClientBehindAProxy(t *testing.T) {
 		// And the budget actually follows the distinction.
 		l := newLimiter()
 		for range 3 {
-			l.allow("198.51.100.7", 3)
+			l.allowPerMinute("198.51.100.7", 3)
 		}
-		if l.allow("198.51.100.7", 3) {
+		if l.allowPerMinute("198.51.100.7", 3) {
 			t.Error("the noisy client was not throttled")
 		}
-		if !l.allow("198.51.100.8", 3) {
+		if !l.allowPerMinute("198.51.100.8", 3) {
 			t.Error("a quiet client was throttled by its neighbour's traffic")
 		}
 	})

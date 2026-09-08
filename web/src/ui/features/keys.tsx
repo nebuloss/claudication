@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api, messageOf, type ApiKey } from '../../api/client'
 import { useLoader } from '../hooks'
+import type { ReactNode } from 'react'
 import {
   Banner,
   Card,
@@ -8,6 +9,7 @@ import {
   Empty,
   Field,
   Modal,
+  Segmented,
   FilledButton,
   OutlinedButton,
   Spinner,
@@ -157,9 +159,9 @@ export default function Keys({
             setEditing('')
             setActionError('')
           }}
-          onSave={(name, rpm, tokenBudget) =>
+          onSave={(name, rpm, periodS, tokenBudget) =>
             void act(edited.id, async () => {
-              await api.updateKey(edited.id, name, rpm, tokenBudget)
+              await api.updateKey(edited.id, name, rpm, periodS, tokenBudget)
               setEditing('')
             })
           }
@@ -186,8 +188,23 @@ const BUDGET_STEPS = [
 ]
 const RPM_STEPS = [10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000]
 
+/**
+ * What the request count is measured over.
+ *
+ * A real period rather than arithmetic in the browser. "Two hundred an hour"
+ * converted to three a minute is a different limit: it refuses a burst of ten
+ * in twenty seconds, which is exactly what two hundred an hour should permit.
+ * The gateway stores the period and the bucket refills over it.
+ */
+const RATE_PERIODS = [
+  { id: '60', label: 'minute', seconds: 60 },
+  { id: '3600', label: 'hour', seconds: 3600 },
+  { id: '86400', label: 'day', seconds: 86_400 },
+]
+
 const DEFAULT_BUDGET = 1_000_000
 const DEFAULT_RPM_CHOICE = 200
+const DEFAULT_PERIOD_S = 60
 
 /**
  * A limit that can be switched off, and adjusted when it is on.
@@ -209,6 +226,8 @@ function LimitControl({
   onChange,
   off,
   format,
+  tone,
+  children,
 }: {
   label: string
   sliderLabel: string
@@ -220,19 +239,34 @@ function LimitControl({
   /** What it means to have this switched off. */
   off: string
   format: (v: number) => string
+  /** Which container role tints the section when the limit is on. */
+  tone: 'primary' | 'tertiary'
+  /** Anything the limit needs beyond an amount, such as a period. */
+  children?: ReactNode
 }) {
   const on = value > 0
+  // Tinted when it is doing something, plain when it is not — so which limits
+  // are actually set is legible before reading a word of it. Off is deliberately
+  // the quiet state rather than a second colour competing for attention.
+  const skin = on
+    ? tone === 'primary'
+      ? 'border-primary/40 bg-primary-container/30'
+      : 'border-tertiary/40 bg-tertiary-container/30'
+    : 'border-outline-variant bg-surface-low'
   return (
-    <div className="flex flex-col gap-3 rounded-[var(--radius-md3-m)] border border-outline-variant p-4">
+    <div className={`flex flex-col gap-3 rounded-[var(--radius-md3-m)] border p-4 ${skin}`}>
       <Switch checked={on} onChange={(v) => onChange(v ? whenOn : 0)} label={label} />
       {on ? (
-        <StepSlider
-          label={sliderLabel}
-          steps={steps}
-          value={value}
-          onChange={onChange}
-          format={format}
-        />
+        <>
+          <StepSlider
+            label={sliderLabel}
+            steps={steps}
+            value={value}
+            onChange={onChange}
+            format={format}
+          />
+          {children}
+        </>
       ) : (
         <p className="m-0 text-xs text-on-surface-variant">{off}</p>
       )}
@@ -273,6 +307,73 @@ function Budget({ budget, spent }: { budget: number; spent: number }) {
  * edit at all — a typo in a name, or a limit set too low, should not cost a trip
  * round every client holding the key.
  */
+function KeyLimitFields({
+  defaultRpm,
+  rpm,
+  setRpm,
+  periodS,
+  setPeriodS,
+  budget,
+  setBudget,
+}: {
+  defaultRpm: number
+  rpm: number
+  setRpm: (v: number) => void
+  periodS: number
+  setPeriodS: (v: number) => void
+  budget: number
+  setBudget: (v: number) => void
+}) {
+  const period = RATE_PERIODS.find((p) => p.seconds === periodS) ?? RATE_PERIODS[0]
+  return (
+    <>
+      <LimitControl
+        tone="primary"
+        label="Limit how often this key can make requests"
+        sliderLabel={`Requests per ${period.label}`}
+        steps={RPM_STEPS}
+        value={rpm}
+        whenOn={DEFAULT_RPM_CHOICE}
+        onChange={setRpm}
+        off={`Uses the gateway's own limit of ${compact(defaultRpm)} a minute.`}
+        format={(v) => `${compact(v)} / ${period.label}`}
+      >
+        <Segmented
+          label="Period"
+          value={String(periodS)}
+          onChange={(v) => setPeriodS(Number(v))}
+          options={RATE_PERIODS.map((p) => ({
+            id: p.id,
+            label: `per ${p.label}`,
+            content: `per ${p.label}`,
+          }))}
+        />
+        <p className="m-0 text-xs text-on-primary-container">
+          The whole allowance is available at once and refills over the period, so{' '}
+          {compact(rpm)} per {period.label} permits a burst of {compact(rpm)} and then runs dry.
+        </p>
+      </LimitControl>
+
+      <LimitControl
+        tone="tertiary"
+        label="Limit how many tokens this key can spend per day"
+        sliderLabel="Tokens per day"
+        steps={BUDGET_STEPS}
+        value={budget}
+        whenOn={DEFAULT_BUDGET}
+        onChange={setBudget}
+        off="This key can spend as much as the connected accounts allow."
+        format={compact}
+      >
+        <p className="m-0 text-xs text-on-tertiary-container">
+          Counted over a rolling 24 hours, so it frees up gradually rather than all at once. Input,
+          output and cache tokens all count, because all four are billed.
+        </p>
+      </LimitControl>
+    </>
+  )
+}
+
 function EditKeyModal({
   apiKey,
   defaultRpm,
@@ -285,52 +386,36 @@ function EditKeyModal({
   defaultRpm: number
   busy: boolean
   error: string
-  onSave: (name: string, rpmLimit: number, tokenBudget: number) => void
+  onSave: (name: string, rpmLimit: number, periodS: number, tokenBudget: number) => void
   onClose: () => void
 }) {
   const [name, setName] = useState(apiKey.name)
   const [rpm, setRpm] = useState(apiKey.rpm_limit)
+  const [periodS, setPeriodS] = useState(apiKey.rate_period_s || DEFAULT_PERIOD_S)
   const [budget, setBudget] = useState(apiKey.token_budget)
 
   const valid = name.trim() !== ''
 
   return (
-    <Modal title="Edit key" size="lg" onClose={onClose}>
+    <Modal title={`Edit ${apiKey.name}`} size="lg" onClose={onClose}>
       <div className="flex flex-col gap-4">
         <Field label="Name" value={name} onChange={setName} autoFocus />
 
-        <LimitControl
-          label="Limit how many requests a minute this key can make"
-          sliderLabel="Requests per minute"
-          steps={RPM_STEPS}
-          value={rpm}
-          whenOn={DEFAULT_RPM_CHOICE}
-          onChange={setRpm}
-          off={`Uses the gateway's own limit of ${compact(defaultRpm)} a minute.`}
-          format={(v) => `${compact(v)}/min`}
+        <KeyLimitFields
+          defaultRpm={defaultRpm}
+          rpm={rpm}
+          setRpm={setRpm}
+          periodS={periodS}
+          setPeriodS={setPeriodS}
+          budget={budget}
+          setBudget={setBudget}
         />
 
-        <LimitControl
-          label="Limit how many tokens this key can spend per day"
-          sliderLabel="Tokens per day"
-          steps={BUDGET_STEPS}
-          value={budget}
-          whenOn={DEFAULT_BUDGET}
-          onChange={setBudget}
-          off="This key can spend as much as the connected accounts allow."
-          format={compact}
-        />
-
-        <p className="m-0 text-xs text-on-surface-variant">
-          The budget is counted over a rolling 24 hours, so it frees up gradually rather than all at
-          once. Input, output and cache tokens all count.
-        </p>
-
-        <div className="rounded-[var(--radius-md3-m)] bg-surface-high px-4 py-3">
+        <div className="rounded-[var(--radius-md3-m)] border border-outline-variant bg-surface-low px-4 py-3">
           <div className="mb-1 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
             Key
           </div>
-          <code className="font-mono text-xs text-on-surface-variant">{apiKey.display}</code>
+          <code className="font-mono text-xs text-on-surface">{apiKey.display}</code>
           <p className="mt-1 mb-0 text-xs text-on-surface-variant">
             Unchanged by anything here, so nothing holding it needs updating.
           </p>
@@ -345,7 +430,7 @@ function EditKeyModal({
           <FilledButton
             type="button"
             disabled={busy || !valid}
-            onClick={() => onSave(name.trim(), rpm, budget)}
+            onClick={() => onSave(name.trim(), rpm, periodS, budget)}
           >
             {busy && <Spinner />}
             {busy ? 'Saving…' : 'Save'}
@@ -366,6 +451,7 @@ function NewKey({
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [rpm, setRpm] = useState(0)
+  const [periodS, setPeriodS] = useState(DEFAULT_PERIOD_S)
   const [budget, setBudget] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -387,10 +473,11 @@ function NewKey({
     setBusy(true)
     setError('')
     try {
-      onCreated(await api.createKey(name.trim(), rpm, budget))
+      onCreated(await api.createKey(name.trim(), rpm, periodS, budget))
       setOpen(false)
       setName('')
       setRpm(0)
+      setPeriodS(DEFAULT_PERIOD_S)
       setBudget(0)
     } catch (err) {
       setError(messageOf(err))
@@ -403,25 +490,14 @@ function NewKey({
       <CardTitle>New API key</CardTitle>
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <Field label="Name" value={name} onChange={setName} autoFocus />
-        <LimitControl
-          label="Limit how many requests a minute this key can make"
-          sliderLabel="Requests per minute"
-          steps={RPM_STEPS}
-          value={rpm}
-          whenOn={DEFAULT_RPM_CHOICE}
-          onChange={setRpm}
-          off={`Uses the gateway's own limit of ${compact(defaultRpm)} a minute.`}
-          format={(v) => `${compact(v)}/min`}
-        />
-        <LimitControl
-          label="Limit how many tokens this key can spend per day"
-          sliderLabel="Tokens per day"
-          steps={BUDGET_STEPS}
-          value={budget}
-          whenOn={DEFAULT_BUDGET}
-          onChange={setBudget}
-          off="This key can spend as much as the connected accounts allow."
-          format={compact}
+        <KeyLimitFields
+          defaultRpm={defaultRpm}
+          rpm={rpm}
+          setRpm={setRpm}
+          periodS={periodS}
+          setPeriodS={setPeriodS}
+          budget={budget}
+          setBudget={setBudget}
         />
         {error !== '' && <Banner tone="error">{error}</Banner>}
         <div className="flex items-center gap-2">

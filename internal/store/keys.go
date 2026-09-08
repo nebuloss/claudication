@@ -25,13 +25,47 @@ const prefixLen = 12
 var ErrKeyNotFound = errors.New("api key not found")
 
 type APIKey struct {
-	ID          string
-	Name        string
-	Prefix      string
-	CreatedAt   time.Time
-	LastUsedAt  *time.Time
-	RPMLimit    int
+	ID         string
+	Name       string
+	Prefix     string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+	KeyLimits
+}
+
+// KeyLimits is everything about a key an operator can change without reissuing
+// it. Grouped because the three travel together through every layer, and a
+// fourth positional argument to CreateKey was already one too many.
+type KeyLimits struct {
+	// RPMLimit is how many requests are allowed per RatePeriod. Named for the
+	// column and for the common case; 0 means the gateway's own limit.
+	RPMLimit int
+	// RatePeriod is what that number is per. Zero reads as a minute, which is
+	// what every key created before periods existed meant.
+	RatePeriod time.Duration
+	// TokenBudget is the tokens allowed per rolling day; 0 means unlimited.
 	TokenBudget int64
+}
+
+// Period is RatePeriod with the default applied.
+func (l KeyLimits) Period() time.Duration {
+	if l.RatePeriod <= 0 {
+		return time.Minute
+	}
+	return l.RatePeriod
+}
+
+func (l KeyLimits) validate() error {
+	if l.RPMLimit < 0 {
+		return errors.New("the rate limit cannot be negative")
+	}
+	if l.RatePeriod < 0 {
+		return errors.New("the rate limit period cannot be negative")
+	}
+	if l.TokenBudget < 0 {
+		return errors.New("the token budget cannot be negative")
+	}
+	return nil
 }
 
 // Display is the operator-facing short form, e.g. "clc_1a2b3c4d5e6f…".
@@ -44,10 +78,13 @@ func hashKey(plaintext string) string {
 
 // CreateKey mints a credential and returns the plaintext exactly once. The
 // caller must show it to the operator immediately; it is unrecoverable after.
-func (s *Store) CreateKey(ctx context.Context, name string, rpmLimit int, tokenBudget int64) (APIKey, string, error) {
+func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (APIKey, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return APIKey{}, "", errors.New("key name must not be empty")
+	}
+	if err := limits.validate(); err != nil {
+		return APIKey{}, "", err
 	}
 
 	raw := make([]byte, 24)
@@ -63,19 +100,19 @@ func (s *Store) CreateKey(ctx context.Context, name string, rpmLimit int, tokenB
 	}
 
 	key := APIKey{
-		ID:          hex.EncodeToString(idBytes),
-		Name:        name,
-		Prefix:      body[:prefixLen],
-		CreatedAt:   time.Now().UTC(),
-		RPMLimit:    rpmLimit,
-		TokenBudget: tokenBudget,
+		ID:        hex.EncodeToString(idBytes),
+		Name:      name,
+		Prefix:    body[:prefixLen],
+		CreatedAt: time.Now().UTC(),
+		KeyLimits: limits,
 	}
 
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO api_keys (id, name, prefix, hash, created_at, rpm_limit, token_budget)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO api_keys (id, name, prefix, hash, created_at, rpm_limit, rate_period_s, token_budget)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		key.ID, key.Name, key.Prefix, hashKey(plaintext),
-		key.CreatedAt.Format(time.RFC3339), key.RPMLimit, key.TokenBudget,
+		key.CreatedAt.Format(time.RFC3339), key.RPMLimit,
+		int64(key.Period().Seconds()), key.TokenBudget,
 	); err != nil {
 		return APIKey{}, "", fmt.Errorf("insert api key: %w", err)
 	}
@@ -95,16 +132,17 @@ func (s *Store) Authenticate(ctx context.Context, plaintext string) (APIKey, err
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, prefix, hash, created_at, last_used_at, rpm_limit, token_budget
+		`SELECT id, name, prefix, hash, created_at, last_used_at, rpm_limit, rate_period_s, token_budget
 		   FROM api_keys WHERE prefix = ?`, body[:prefixLen])
 
 	var (
 		key                   APIKey
 		storedHash, createdAt string
 		lastUsed              sql.NullString
+		periodSeconds         int64
 	)
 	err := row.Scan(&key.ID, &key.Name, &key.Prefix, &storedHash, &createdAt,
-		&lastUsed, &key.RPMLimit, &key.TokenBudget)
+		&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Spend a comparison anyway so a miss costs about the same as a hit.
 		subtle.ConstantTimeCompare([]byte(hashKey(plaintext)), make([]byte, 64))
@@ -118,6 +156,7 @@ func (s *Store) Authenticate(ctx context.Context, plaintext string) (APIKey, err
 		return APIKey{}, ErrKeyNotFound
 	}
 
+	key.RatePeriod = time.Duration(periodSeconds) * time.Second
 	key.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	if lastUsed.Valid {
 		if t, err := time.Parse(time.RFC3339, lastUsed.String); err == nil {
@@ -137,7 +176,7 @@ func (s *Store) TouchKey(ctx context.Context, id string) {
 
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, prefix, created_at, last_used_at, rpm_limit, token_budget
+		`SELECT id, name, prefix, created_at, last_used_at, rpm_limit, rate_period_s, token_budget
 		   FROM api_keys ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
@@ -147,14 +186,16 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 	var keys []APIKey
 	for rows.Next() {
 		var (
-			key       APIKey
-			createdAt string
-			lastUsed  sql.NullString
+			key           APIKey
+			createdAt     string
+			lastUsed      sql.NullString
+			periodSeconds int64
 		)
 		if err := rows.Scan(&key.ID, &key.Name, &key.Prefix, &createdAt,
-			&lastUsed, &key.RPMLimit, &key.TokenBudget); err != nil {
+			&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget); err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
+		key.RatePeriod = time.Duration(periodSeconds) * time.Second
 		key.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		if lastUsed.Valid {
 			if t, err := time.Parse(time.RFC3339, lastUsed.String); err == nil {
@@ -177,20 +218,18 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 // set too low, was to delete the key and issue a new one — which means going
 // round every client that holds it. The credential is what is expensive to
 // change; its label is not.
-func (s *Store) UpdateKey(ctx context.Context, id, name string, rpmLimit int, tokenBudget int64) error {
+func (s *Store) UpdateKey(ctx context.Context, id, name string, limits KeyLimits) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return errors.New("a key needs a name")
 	}
-	if rpmLimit < 0 {
-		return errors.New("the rate limit cannot be negative")
-	}
-	if tokenBudget < 0 {
-		return errors.New("the token budget cannot be negative")
+	if err := limits.validate(); err != nil {
+		return err
 	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE api_keys SET name = ?, rpm_limit = ?, token_budget = ? WHERE id = ?`,
-		name, rpmLimit, tokenBudget, id)
+		`UPDATE api_keys SET name = ?, rpm_limit = ?, rate_period_s = ?, token_budget = ?
+		  WHERE id = ?`,
+		name, limits.RPMLimit, int64(limits.Period().Seconds()), limits.TokenBudget, id)
 	if err != nil {
 		return fmt.Errorf("update api key: %w", err)
 	}

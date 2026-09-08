@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useEscapeKey } from '../hooks'
 
 /* Material 3 primitives, shared by every screen. */
@@ -823,9 +824,17 @@ export function Modal({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+  // Rendered into document.body rather than wherever it was written.
+  //
+  // `position: fixed` is only relative to the viewport while no ancestor
+  // establishes a containing block, and a transform, a filter, or a
+  // backdrop-filter anywhere above is enough to do that — at which point a
+  // dialog written inside a panel is clipped by the panel instead of covering
+  // the page. A portal makes that impossible to get wrong by accident: this is
+  // on top of the UI because it is not inside it.
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div
         ref={panel}
         role="dialog"
@@ -833,7 +842,7 @@ export function Modal({
         aria-labelledby={titleId}
         tabIndex={-1}
         onKeyDown={trap}
-        className={`relative w-full ${
+        className={`relative my-auto w-full ${
           size === 'lg' ? 'max-w-xl' : 'max-w-md'
         } rounded-[var(--radius-md3-xl)] border border-outline bg-surface-high p-6 shadow-xl outline-none`}
       >
@@ -847,7 +856,8 @@ export function Modal({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

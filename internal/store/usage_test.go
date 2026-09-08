@@ -112,7 +112,7 @@ func TestUsageOutlivesItsKey(t *testing.T) {
 	st := usageStore(t)
 	ctx := context.Background()
 
-	key, _, err := st.CreateKey(ctx, "temporary", 0, 0)
+	key, _, err := st.CreateKey(ctx, "temporary", KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}

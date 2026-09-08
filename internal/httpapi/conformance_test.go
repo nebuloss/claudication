@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"claudication/internal/store"
 )
 
 // Conformance with Anthropic's gateway compatibility contract, for the clauses
@@ -23,7 +25,7 @@ func TestContractRoutesInferenceDespiteTheQueryString(t *testing.T) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	_, plaintext, err := st.CreateKey(context.Background(), "client", 0, 0)
+	_, plaintext, err := st.CreateKey(context.Background(), "client", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +78,7 @@ func TestContractModelDiscoveryNeitherRedirectsNorDawdles(t *testing.T) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	_, plaintext, err := st.CreateKey(context.Background(), "client", 0, 0)
+	_, plaintext, err := st.CreateKey(context.Background(), "client", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +152,7 @@ func TestContractDiscoveryFailureIsNotAnEmptyList(t *testing.T) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	_, plaintext, err := st.CreateKey(context.Background(), "client", 0, 0)
+	_, plaintext, err := st.CreateKey(context.Background(), "client", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +180,7 @@ func TestContractServesCountTokens(t *testing.T) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	_, plaintext, err := st.CreateKey(context.Background(), "client", 0, 0)
+	_, plaintext, err := st.CreateKey(context.Background(), "client", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +227,7 @@ func TestContractAcceptsEitherCredentialHeader(t *testing.T) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	_, plaintext, err := st.CreateKey(context.Background(), "client", 0, 0)
+	_, plaintext, err := st.CreateKey(context.Background(), "client", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}

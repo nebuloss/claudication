@@ -96,6 +96,8 @@ export interface ApiKey {
   created_at: string
   last_used_at?: string
   rpm_limit: number
+  /** What rpm_limit is per, in seconds. 60 unless an operator chose otherwise. */
+  rate_period_s: number
   /** Tokens allowed per rolling day; 0 means unlimited. */
   token_budget: number
   /** What has been counted against that budget so far. */
@@ -362,18 +364,26 @@ export const api = {
   },
 
   /** The plaintext comes back exactly once; nothing can retrieve it later. */
-  createKey: (name: string, rpmLimit: number, tokenBudget: number) =>
+  createKey: (name: string, rpmLimit: number, ratePeriodS: number, tokenBudget: number) =>
     request<{ key: ApiKey; plaintext: string }>('POST', '/admin/keys', {
       name,
       rpm_limit: rpmLimit,
+      rate_period_s: ratePeriodS,
       token_budget: tokenBudget,
     }),
 
   /** Rename a key or change its limit. The secret is untouched. */
-  updateKey: (id: string, name: string, rpmLimit: number, tokenBudget: number) =>
+  updateKey: (
+    id: string,
+    name: string,
+    rpmLimit: number,
+    ratePeriodS: number,
+    tokenBudget: number,
+  ) =>
     request<{ key: ApiKey }>('PATCH', `/admin/keys/${encodeURIComponent(id)}`, {
       name,
       rpm_limit: rpmLimit,
+      rate_period_s: ratePeriodS,
       token_budget: tokenBudget,
     }),
 

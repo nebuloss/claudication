@@ -156,7 +156,7 @@ func TestModelsRequiresAuth(t *testing.T) {
 		t.Fatalf("bad key: status = %d, want 401", resp.StatusCode)
 	}
 
-	_, plaintext, err := st.CreateKey(context.Background(), "test", 0, 0)
+	_, plaintext, err := st.CreateKey(context.Background(), "test", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func discover(t *testing.T, baseURL string) ([]byte, int) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	_, plaintext, err := st.CreateKey(context.Background(), "discovery", 0, 0)
+	_, plaintext, err := st.CreateKey(context.Background(), "discovery", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestDeletedKeyIsRejected(t *testing.T) {
 	defer func() { cancel(); <-done }()
 
 	ctx := context.Background()
-	key, plaintext, err := st.CreateKey(ctx, "test", 0, 0)
+	key, plaintext, err := st.CreateKey(ctx, "test", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestRateLimitPerKey(t *testing.T) {
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
 
-	_, plaintext, err := st.CreateKey(context.Background(), "test", 0, 0)
+	_, plaintext, err := st.CreateKey(context.Background(), "test", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,16 +343,16 @@ func TestLimiterRefills(t *testing.T) {
 
 	// 60/min = 1/s, burst 60. Drain it.
 	for i := 0; i < 60; i++ {
-		if !l.allow("k", 60) {
+		if !l.allowPerMinute("k", 60) {
 			t.Fatalf("request %d denied while the bucket should still be full", i)
 		}
 	}
-	if l.allow("k", 60) {
+	if l.allowPerMinute("k", 60) {
 		t.Fatal("expected denial once the bucket is empty")
 	}
 
 	l.now = func() time.Time { return base.Add(2 * time.Second) }
-	if !l.allow("k", 60) {
+	if !l.allowPerMinute("k", 60) {
 		t.Error("expected a refill after 2s")
 	}
 }
@@ -360,7 +360,7 @@ func TestLimiterRefills(t *testing.T) {
 func TestLimiterDisabledAtZero(t *testing.T) {
 	l := newLimiter()
 	for i := 0; i < 1000; i++ {
-		if !l.allow("k", 0) {
+		if !l.allowPerMinute("k", 0) {
 			t.Fatal("a limit of 0 must disable limiting")
 		}
 	}
@@ -370,7 +370,7 @@ func TestLimiterSweepEvictsIdle(t *testing.T) {
 	l := newLimiter()
 	base := time.Now()
 	l.now = func() time.Time { return base }
-	l.allow("k", 60)
+	l.allowPerMinute("k", 60)
 
 	l.now = func() time.Time { return base.Add(time.Hour) }
 	l.sweep(10 * time.Minute)
