@@ -164,6 +164,12 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 		body = EnsureAttribution(body, p)
 	}
 
+	// Likewise once: tool names the upstream would refuse outright are sent in
+	// the shape it accepts, and names is what puts them back on the way out.
+	// Nil for every request that carries no such name, which is the common
+	// case and costs one scan of the body.
+	body, names := RewriteMCPNames(body)
+
 	var res Result
 	tried := map[string]bool{}
 	// Accounts whose token we have already refreshed for this request. One
@@ -263,7 +269,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 		}
 
 		res.Status = resp.StatusCode
-		r.relay(w, resp, &res)
+		r.relay(w, resp, &res, names)
 		if res.Status == http.StatusOK && res.StreamError == "" && !res.Opaque && kind == "" {
 			r.Pool.ReportSuccess(lease.Account.ID)
 		}
@@ -353,7 +359,11 @@ func hasBeta(header, want string) bool {
 }
 
 // relay copies the upstream response to the client verbatim.
-func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result) {
+//
+// names is the only thing that can make it not verbatim: when the request had
+// tool names rewritten, the ones coming back are turned into the client's own
+// again. It is nil for every other request, and then this is a byte copy.
+func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, names map[string]string) {
 	defer resp.Body.Close()
 
 	for name, values := range resp.Header {
@@ -392,20 +402,45 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result) {
 	}
 	defer tee.done()
 
+	// Not for a body we could not read: rewriting compressed bytes would
+	// corrupt them, and Opaque already says the contents are unknown.
+	var restorer *nameRestorer
+	if len(names) > 0 && !res.Opaque {
+		restorer = &nameRestorer{rev: names}
+	}
+
+	write := func(b []byte) bool {
+		if len(b) == 0 {
+			return true
+		}
+		if _, err := w.Write(b); err != nil {
+			return false // client went away
+		}
+		_ = rc.Flush()
+		res.BytesOut += int64(len(b))
+		return true
+	}
+
 	buf := make([]byte, 32*1024)
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
-			if _, err := w.Write(buf[:n]); err != nil {
-				return // client went away
+			out := buf[:n]
+			if restorer != nil {
+				out = restorer.translate(buf[:n])
 			}
-			_ = rc.Flush()
-			res.BytesOut += int64(n)
+			if !write(out) {
+				return
+			}
 			// The tee runs after the client write and never gates it, so
-			// stats can never stall or alter the stream.
+			// stats can never stall or alter the stream. It reads what the
+			// upstream sent, not what we forwarded.
 			tee.feed(buf[:n])
 		}
 		if readErr != nil {
+			if restorer != nil {
+				write(restorer.tail())
+			}
 			if !errors.Is(readErr, io.EOF) {
 				res.Err = readErr
 			}
