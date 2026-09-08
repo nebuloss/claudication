@@ -263,6 +263,32 @@ The state directory has to be writable and claudication refuses to start if it
 is not, which turns "the tokens were on a layer that got thrown away" into a
 startup error rather than silent data loss.
 
+### Backing it up
+
+    claudication backup -out claudication-backup.tar.gz
+    claudication restore -in claudication-backup.tar.gz
+
+Two files matter: `claudication.db`, and the `secret.key` that seals every
+stored OAuth token. The database on its own restores to a list of accounts whose
+credentials cannot be decrypted, so both travel together or the backup is
+decorative.
+
+Do not use `cp` for this. The database runs in WAL mode, so at any moment
+committed data lives partly in `claudication.db` and partly in the `-wal` file
+beside it: copying one, or both without synchronisation, can produce a file that
+is torn or silently missing the account you connected a minute ago. `backup`
+takes a consistent snapshot with `VACUUM INTO` while the gateway keeps serving,
+so there is no window to schedule around.
+
+The archive holds the sealing key and the sealed tokens together, which makes it
+**exactly as sensitive as the state directory** — anyone holding it holds every
+connected Claude account. It is created 0600; keep it somewhere you would keep a
+password.
+
+`restore` refuses to overwrite an existing database unless given `-force`, and
+removes any stale `-wal` left behind so SQLite cannot replay an old log over the
+restored file. Stop the gateway before restoring.
+
 No container image is published. The binary is static and has no runtime
 dependencies, so a `FROM scratch` image is three lines if you want one — but
 shipping and signing one for a tool that installs as a single file was

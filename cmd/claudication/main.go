@@ -50,6 +50,10 @@ func run(args []string) error {
 		return cmdPasswd(args[1:])
 	case "vacuum":
 		return cmdVacuum(args[1:])
+	case "backup":
+		return cmdBackup(args[1:])
+	case "restore":
+		return cmdRestore(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println(version.String())
 		return nil
@@ -72,6 +76,8 @@ Usage:
   claudication keys add -name NAME         Mint a client API key
   claudication keys list                   List API keys
   claudication keys delete -id ID          Withdraw an API key
+  claudication backup [-out FILE]          Snapshot the state to one file
+  claudication restore -in FILE            Put a backup back
   claudication vacuum                      Compact the database, reclaiming disk
   claudication version                     Print build information
 

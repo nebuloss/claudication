@@ -516,6 +516,25 @@ func (s *Store) PruneUsage(ctx context.Context, keep time.Duration) (int64, erro
 	return n, nil
 }
 
+// Snapshot writes a consistent copy of the database to path, while the gateway
+// keeps serving.
+//
+// `cp` is not a backup here. The database runs in WAL mode, so at any moment
+// committed data lives partly in claudication.db and partly in the -wal file;
+// copying either alone, or both without synchronisation, can produce a file
+// that is torn or silently missing the most recent accounts and keys. VACUUM
+// INTO takes a read transaction and writes a whole, self-contained database —
+// already compacted, and with no -wal beside it to remember to bring along.
+//
+// The target must not exist: SQLite refuses to overwrite, and that refusal is
+// worth keeping rather than working around.
+func (s *Store) Snapshot(ctx context.Context, path string) error {
+	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, path); err != nil {
+		return fmt.Errorf("snapshot database: %w", err)
+	}
+	return nil
+}
+
 // Vacuum rewrites the database, compacting it and applying auto_vacuum to a
 // file that predates it.
 //
