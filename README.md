@@ -199,6 +199,28 @@ accepted block is never rewritten.
 Set it `false` for strict byte-for-byte passthrough, and accept that
 non-Claude-Code clients then get haiku and nothing above it.
 
+### Other requests the backend refuses on content
+
+Attribution is not the only one. A tool named `mcp_x` rather than `mcp__x`, and
+Claude Code's own `Is directory a git repo:` line inside a system prompt that
+is not Claude Code's, are both refused — with a message about billing that
+mentions neither tool names nor prompts:
+
+> Third-party apps now draw from your extra usage, not your plan limits.
+
+It is not a quota problem, and adding credit does not fix it. The relay
+rewrites both on the way out, restores the tool names on the way back, and
+labels the refusal in the request log if a third trigger ever turns up.
+
+Unpaired UTF-16 surrogates (a tool cutting its output mid-emoji), empty text
+blocks, and gzipped request bodies are handled in the same place and for the
+same reason: without it those requests cannot succeed at all.
+
+[`docs/upstream-request-pipeline.md`](docs/upstream-request-pipeline.md) has
+the measurements behind each of these, what the official client does between a
+prompt and its POST, and which signals this gateway deliberately does not
+synthesise.
+
 ## What the relay must not break
 
 Anthropic publishes a [gateway compatibility
