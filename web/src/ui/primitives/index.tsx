@@ -368,12 +368,15 @@ export function Empty({ children }: { children: ReactNode }) {
 /** Label/value pairs, dense enough to scan. */
 export function KeyValue({ items }: { items: [string, ReactNode][] }) {
   return (
-    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+    // items-baseline, because the label is 12px and the value 14px: left to
+    // stretch, each starts at the top of its own cell and the two sit visibly
+    // out of step. Baselines are what the eye reads a label/value pair by.
+    <dl className="grid grid-cols-[max-content_1fr] items-baseline gap-x-4 gap-y-1.5 text-sm">
       {items.map(([label, value]) => (
         <div key={label} className="contents">
           <dt className="text-xs font-medium tracking-wide text-on-surface-variant uppercase">
-          {label}
-        </dt>
+            {label}
+          </dt>
           <dd className="m-0 min-w-0 break-words text-on-surface">{value}</dd>
         </div>
       ))}
