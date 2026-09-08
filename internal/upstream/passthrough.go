@@ -173,6 +173,11 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	// would silently do the same substitution without saying so.
 	if fixed, n := FixLoneSurrogates(body); n > 0 {
 		body = fixed
+		// The prologue was read from the bytes we just replaced, and it holds
+		// the system array by reference. EnsureAttribution rebuilds the
+		// envelope from it, which would put the broken escape straight back —
+		// invisibly, because only the system path goes through those blocks.
+		p = Peek(body)
 		r.logger().Warn("repaired unpaired surrogate escapes in the request body; "+
 			"something upstream of this gateway is cutting text mid-character",
 			"replaced", n)

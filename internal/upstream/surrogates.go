@@ -71,7 +71,14 @@ func FixLoneSurrogates(body []byte) ([]byte, int) {
 		switch {
 		case cp >= 0xD800 && cp <= 0xDBFF:
 			// A high surrogate is only well-formed when a low one follows.
-			if low, ok := escapeAt(out, j+5); ok && low >= 0xDC00 && low <= 0xDFFF {
+			//
+			// j+6, not j+5: this escape ends at j+4, so the next one's
+			// backslash is at j+5 and its `u` — which is what escapeAt wants —
+			// is one further on. Off by one here reads every well-formed pair
+			// as two lone halves and replaces both, quietly turning every
+			// escaped emoji into two replacement characters. It still produces
+			// valid JSON, so the upstream accepts it and nothing complains.
+			if low, ok := escapeAt(out, j+6); ok && low >= 0xDC00 && low <= 0xDFFF {
 				i = j + 11
 				continue
 			}

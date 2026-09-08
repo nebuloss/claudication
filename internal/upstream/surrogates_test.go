@@ -34,15 +34,24 @@ func TestFixLoneSurrogatesRepairsAnUnpairedEscape(t *testing.T) {
 }
 
 func TestFixLoneSurrogatesLeavesWellFormedPairsAlone(t *testing.T) {
-	// A real emoji is two escapes that belong together; breaking it would
-	// corrupt text that was fine.
-	body := []byte(`{"content":"hello 😀 world"}`)
-	out, n := FixLoneSurrogates(body)
-	if n != 0 {
-		t.Errorf("replaced %d in a well-formed pair", n)
-	}
-	if string(out) != string(body) {
-		t.Errorf("body changed:\n got %s\nwant %s", out, body)
+	// Both spellings. The raw one carries no escapes at all and so proves
+	// very little; the ESCAPED pair is the one that matters, and the one an
+	// off-by-one in the lookahead silently turns into two replacement
+	// characters. That corruption still produces valid JSON, so the upstream
+	// accepts it and no probe against a live API can see it — only this can.
+	for _, body := range []string{
+		`{"content":"hello \ud83d\ude00 world"}`,
+		`{"content":"hello 😀 world"}`,
+		`{"content":"\ud83d\ude00\ud83d\ude00"}`,
+		`{"content":"\ud83d\ude00 then text"}`,
+	} {
+		out, n := FixLoneSurrogates([]byte(body))
+		if n != 0 {
+			t.Errorf("%s: replaced %d in a well-formed pair", body, n)
+		}
+		if string(out) != body {
+			t.Errorf("body changed:\n got %s\nwant %s", out, body)
+		}
 	}
 }
 
@@ -97,5 +106,19 @@ func TestFixLoneSurrogatesDoesNotMutateTheCaller(t *testing.T) {
 	}
 	if string(body) != before {
 		t.Errorf("the caller's slice was modified: %s", body)
+	}
+}
+
+func TestFixLoneSurrogatesFixesOnlyTheLoneHalfBesideAPair(t *testing.T) {
+	body := []byte(`{"a":"\ud83d\ude00 and \ud800"}`)
+	out, n := FixLoneSurrogates(body)
+	if n != 1 {
+		t.Fatalf("replaced %d, want 1 (got %s)", n, out)
+	}
+	if !strings.Contains(string(out), `\ud83d\ude00`) {
+		t.Errorf("the well-formed pair was damaged: %s", out)
+	}
+	if strings.Contains(string(out), `\ud800`) {
+		t.Errorf("the lone surrogate survived: %s", out)
 	}
 }
