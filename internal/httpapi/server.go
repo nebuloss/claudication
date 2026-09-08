@@ -28,6 +28,7 @@ type Server struct {
 	store          *store.Store
 	keyLimiter     *limiter
 	anonLimiter    *limiter
+	budgets        *budgets
 	trustedProxies []*net.IPNet
 	httpServer     *http.Server
 	stopSweeper    chan struct{}
@@ -63,6 +64,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		store:          st,
 		keyLimiter:     newLimiter(),
 		anonLimiter:    newLimiter(),
+		budgets:        newBudgets(),
 		trustedProxies: trusted,
 		stopSweeper:    make(chan struct{}),
 		sealer:         sealer,
@@ -310,6 +312,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	go s.keyLimiter.runSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
 	go s.anonLimiter.runSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
+	go s.budgets.runSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
 	go s.runUsagePruner()
 	go s.runUsagePoller(ctx)
 

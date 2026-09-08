@@ -263,6 +263,99 @@ export function ErrorState({
   )
 }
 
+/**
+ * MD3 switch: an on/off state that applies immediately, not a form value you
+ * submit. Used where the choice is "is there a limit at all" — a checkbox reads
+ * as an option, a switch reads as a state, and the second is what this is.
+ */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  label: string
+  disabled?: boolean
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-3 select-none">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-8 w-13 shrink-0 items-center rounded-[var(--radius-md3-full)] border-2 transition-colors disabled:pointer-events-none disabled:opacity-40 ${
+          checked ? 'border-primary bg-primary' : 'border-outline bg-surface-high'
+        }`}
+      >
+        <span
+          className={`absolute rounded-[var(--radius-md3-full)] transition-all ${
+            checked
+              ? 'left-[calc(100%-1.75rem)] size-6 bg-on-primary'
+              : 'left-1 size-4 bg-outline'
+          }`}
+        />
+      </button>
+      <span className="text-sm text-on-surface">{label}</span>
+    </label>
+  )
+}
+
+/**
+ * A slider over a fixed ladder of values rather than a linear range.
+ *
+ * Token budgets span orders of magnitude — ten thousand to tens of millions —
+ * so a linear slider spends nine tenths of its travel on values nobody wants
+ * and cannot land on a round number. The slider indexes into `steps` instead,
+ * which makes every position a value worth choosing.
+ */
+export function StepSlider({
+  steps,
+  value,
+  onChange,
+  format,
+  label,
+}: {
+  steps: number[]
+  value: number
+  onChange: (v: number) => void
+  format: (v: number) => string
+  label: string
+}) {
+  // A value that is not on the ladder — set through the API, or from an older
+  // release — still has to be representable, so land on the nearest step.
+  const index = steps.reduce(
+    (best, step, i) =>
+      Math.abs(step - value) < Math.abs(steps[best] - value) ? i : best,
+    0,
+  )
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs font-medium tracking-wide text-on-surface-variant uppercase">
+          {label}
+        </span>
+        <span className="font-mono text-sm tabular-nums text-on-surface">{format(value)}</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={steps.length - 1}
+        step={1}
+        value={index}
+        aria-label={label}
+        aria-valuetext={format(value)}
+        onChange={(e) => onChange(steps[Number(e.target.value)])}
+        className="h-2 w-full cursor-pointer appearance-none rounded-[var(--radius-md3-full)] bg-surface-high accent-primary"
+      />
+    </div>
+  )
+}
+
 export function Empty({ children }: { children: ReactNode }) {
   return (
     <p className="rounded-[var(--radius-md3-m)] border border-dashed border-outline-variant px-4 py-10 text-center text-sm text-on-surface-variant">

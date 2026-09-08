@@ -60,7 +60,7 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, route, upst
 			AccountID: res.AccountID, AccountEmail: res.AccountEmail,
 			Model: model, Path: route, Status: 0, Streaming: streaming,
 			Duration: elapsed, Error: res.Err.Error(),
-		})
+		}, key.TokenBudget)
 		s.relayFailure(w, r, res.Err)
 		return
 	}
@@ -77,7 +77,7 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, route, upst
 		// A stream that died after its 200 is the more specific fact, so it
 		// wins; otherwise record whatever the upstream said when it refused.
 		Error: firstNonEmpty(res.StreamError, res.UpstreamError),
-	})
+	}, key.TokenBudget)
 
 	attrs := []any{
 		"model", model,

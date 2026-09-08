@@ -88,6 +88,9 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 			writeError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
 			return
 		}
+		if !s.withinBudget(w, r, key) {
+			return
+		}
 
 		s.store.TouchKey(r.Context(), key.ID)
 		ctx := context.WithValue(r.Context(), ctxKeyAPIKey, key)

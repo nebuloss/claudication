@@ -17,7 +17,9 @@ import (
 // request. It runs with its own context because the request's is cancelled the
 // moment the client hangs up — which is exactly when a failed stream is most
 // worth recording.
-func (s *Server) recordUsage(e store.UsageEvent) {
+// budget is the key's ceiling, so an unlimited key can skip the tracker
+// entirely rather than taking its lock to discover it has nothing to update.
+func (s *Server) recordUsage(e store.UsageEvent, budget int64) {
 	if !s.cfg.Usage.Enabled() {
 		return
 	}
@@ -25,6 +27,14 @@ func (s *Server) recordUsage(e store.UsageEvent) {
 	defer cancel()
 	if err := s.store.RecordUsage(ctx, e); err != nil {
 		s.log.Warn("could not record usage", "err", err)
+		return
+	}
+	// Credit the budget tracker with what this cost, so the cached figure keeps
+	// up between refreshes rather than letting a burst through on a reading
+	// taken half a minute ago. Only for a key that has a ceiling: for every
+	// other key there is nothing to keep up with.
+	if budget > 0 && e.KeyID != "" {
+		s.budgets.add(e.KeyID, e.Tokens())
 	}
 }
 

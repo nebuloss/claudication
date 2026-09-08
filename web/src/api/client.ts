@@ -96,6 +96,10 @@ export interface ApiKey {
   created_at: string
   last_used_at?: string
   rpm_limit: number
+  /** Tokens allowed per rolling day; 0 means unlimited. */
+  token_budget: number
+  /** What has been counted against that budget so far. */
+  spent_today: number
   requests: number
   tokens: number
 }
@@ -337,23 +341,33 @@ export const api = {
 
   overview: () => request<Overview>('GET', '/admin/overview'),
 
-  listKeys: async (): Promise<{ keys: ApiKey[]; windowDays: number }> => {
-    const res = await request<{ keys: ApiKey[] | null; window_days: number }>('GET', '/admin/keys')
-    return { keys: res.keys ?? [], windowDays: res.window_days }
+  listKeys: async (): Promise<{ keys: ApiKey[]; windowDays: number; budgetHours: number }> => {
+    const res = await request<{
+      keys: ApiKey[] | null
+      window_days: number
+      budget_hours: number
+    }>('GET', '/admin/keys')
+    return {
+      keys: res.keys ?? [],
+      windowDays: res.window_days,
+      budgetHours: res.budget_hours,
+    }
   },
 
   /** The plaintext comes back exactly once; nothing can retrieve it later. */
-  createKey: (name: string, rpmLimit: number) =>
+  createKey: (name: string, rpmLimit: number, tokenBudget: number) =>
     request<{ key: ApiKey; plaintext: string }>('POST', '/admin/keys', {
       name,
       rpm_limit: rpmLimit,
+      token_budget: tokenBudget,
     }),
 
   /** Rename a key or change its limit. The secret is untouched. */
-  updateKey: (id: string, name: string, rpmLimit: number) =>
+  updateKey: (id: string, name: string, rpmLimit: number, tokenBudget: number) =>
     request<{ key: ApiKey }>('PATCH', `/admin/keys/${encodeURIComponent(id)}`, {
       name,
       rpm_limit: rpmLimit,
+      token_budget: tokenBudget,
     }),
 
   deleteKey: (id: string) => request<unknown>('DELETE', `/admin/keys/${encodeURIComponent(id)}`),

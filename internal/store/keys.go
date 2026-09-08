@@ -177,7 +177,7 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 // set too low, was to delete the key and issue a new one — which means going
 // round every client that holds it. The credential is what is expensive to
 // change; its label is not.
-func (s *Store) UpdateKey(ctx context.Context, id, name string, rpmLimit int) error {
+func (s *Store) UpdateKey(ctx context.Context, id, name string, rpmLimit int, tokenBudget int64) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return errors.New("a key needs a name")
@@ -185,8 +185,12 @@ func (s *Store) UpdateKey(ctx context.Context, id, name string, rpmLimit int) er
 	if rpmLimit < 0 {
 		return errors.New("the rate limit cannot be negative")
 	}
+	if tokenBudget < 0 {
+		return errors.New("the token budget cannot be negative")
+	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE api_keys SET name = ?, rpm_limit = ? WHERE id = ?`, name, rpmLimit, id)
+		`UPDATE api_keys SET name = ?, rpm_limit = ?, token_budget = ? WHERE id = ?`,
+		name, rpmLimit, tokenBudget, id)
 	if err != nil {
 		return fmt.Errorf("update api key: %w", err)
 	}

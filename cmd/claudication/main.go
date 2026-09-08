@@ -381,7 +381,8 @@ func cmdKeys(args []string) error {
 		configPath := fs.String("config", "", "path to config.yaml (optional)")
 		name := fs.String("name", "", "human-readable name for the key (required)")
 		rpm := fs.Int("rpm", 0, "per-key requests per minute (0 = use the global default)")
-		budget := fs.Int64("token-budget", 0, "token budget (0 = unlimited)")
+		budget := fs.Int64("token-budget", 0,
+		"tokens this key may spend per rolling 24 hours (0 = unlimited)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -424,7 +425,7 @@ func cmdKeys(args []string) error {
 			return nil
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tKEY\tCREATED\tLAST USED\tRPM")
+		fmt.Fprintln(w, "ID\tNAME\tKEY\tCREATED\tLAST USED\tRPM\tTOKENS/DAY")
 		for _, k := range keys {
 			last := "never"
 			if k.LastUsedAt != nil {
@@ -434,8 +435,14 @@ func cmdKeys(args []string) error {
 			if k.RPMLimit > 0 {
 				rpm = fmt.Sprint(k.RPMLimit)
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				k.ID, k.Name, k.Display(), k.CreatedAt.Format(time.RFC3339), last, rpm)
+			// Spelled out rather than shown as 0, which reads as "none allowed"
+			// where it means the opposite.
+			budget := "unlimited"
+			if k.TokenBudget > 0 {
+				budget = fmt.Sprint(k.TokenBudget)
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				k.ID, k.Name, k.Display(), k.CreatedAt.Format(time.RFC3339), last, rpm, budget)
 		}
 		return w.Flush()
 

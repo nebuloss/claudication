@@ -350,6 +350,48 @@ func (s *Store) KeyUsage(ctx context.Context, since time.Time) (map[string]Usage
 	return out, nil
 }
 
+// KeySpend totals what one key has spent since a point in time.
+//
+// The same four columns UsageEvent.Tokens adds up, because all four are
+// billed — a budget that ignored cache reads would let a key with a large
+// cached prefix spend most of a subscription for free, on paper.
+//
+// Bounded by time rather than by key, which is what makes it cheap enough to
+// sit on the request path: idx_usage_at narrows to the window first, and a
+// budget window holds a small slice of the table.
+func (s *Store) KeySpend(ctx context.Context, keyID string, since time.Time) (int64, error) {
+	var n int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(input_tokens + output_tokens
+		                    + cache_read_tokens + cache_write_tokens), 0)
+		   FROM usage_events WHERE at >= ? AND key_id = ?`,
+		since.UTC().Format(time.RFC3339Nano), keyID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("key spend: %w", err)
+	}
+	return n, nil
+}
+
+// OldestSpendAt is when the earliest still-counted request for a key happened,
+// so a refusal can say when the budget starts freeing up rather than telling
+// the client to guess.
+func (s *Store) OldestSpendAt(ctx context.Context, keyID string, since time.Time) (time.Time, bool) {
+	var at string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT MIN(at) FROM usage_events
+		  WHERE at >= ? AND key_id = ?
+		    AND input_tokens + output_tokens + cache_read_tokens + cache_write_tokens > 0`,
+		since.UTC().Format(time.RFC3339Nano), keyID).Scan(&at)
+	if err != nil || at == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
 // AccountUsage totals each account's traffic since a point in time, keyed by
 // account id.
 func (s *Store) AccountUsage(ctx context.Context, since time.Time) (map[string]UsageBucket, error) {

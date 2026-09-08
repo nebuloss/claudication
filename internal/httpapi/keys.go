@@ -22,6 +22,11 @@ type keyJSON struct {
 	CreatedAt  string `json:"created_at"`
 	LastUsedAt string `json:"last_used_at,omitempty"`
 	RPMLimit   int    `json:"rpm_limit"`
+	// TokenBudget is the ceiling per rolling day, 0 for unlimited; SpentToday
+	// is what has been counted against it. Both are reported so the UI can show
+	// how close a key is rather than only whether it has already been refused.
+	TokenBudget int64 `json:"token_budget"`
+	SpentToday  int64 `json:"spent_today"`
 	// Traffic over the reporting window, so a key nobody uses is visible.
 	Requests int64 `json:"requests"`
 	Tokens   int64 `json:"tokens"`
@@ -33,8 +38,9 @@ func toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
 		Name:      k.Name,
 		Display:   k.Display(),
 		CreatedAt: k.CreatedAt.UTC().Format(time.RFC3339),
-		RPMLimit:  k.RPMLimit,
-		Requests:  use.Requests,
+		RPMLimit:    k.RPMLimit,
+		TokenBudget: k.TokenBudget,
+		Requests:    use.Requests,
 		Tokens:    use.InputTokens + use.OutputTokens + use.CacheTokens,
 	}
 	if k.LastUsedAt != nil {
@@ -58,13 +64,29 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 		usage = map[string]store.UsageBucket{}
 	}
 
+	// Spend against the budget is a different window from the report above, so
+	// it takes its own pass — one grouped query for every key, rather than a
+	// lookup each. Also a nicety: a key still lists without it.
+	var spend map[string]store.UsageBucket
+	if s.cfg.Usage.Enabled() {
+		if spend, err = s.store.KeyUsage(r.Context(), time.Now().Add(-BudgetWindow)); err != nil {
+			s.log.Warn("key budget usage unavailable", "err", err)
+			spend = map[string]store.UsageBucket{}
+		}
+	}
+
 	out := make([]keyJSON, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, toKeyJSON(k, usage[k.ID]))
+		j := toKeyJSON(k, usage[k.ID])
+		if b, ok := spend[k.ID]; ok {
+			j.SpentToday = b.InputTokens + b.OutputTokens + b.CacheTokens
+		}
+		out = append(out, j)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"keys":        out,
-		"window_days": int(s.cfg.Usage.Window().Hours() / 24),
+		"keys":         out,
+		"window_days":  int(s.cfg.Usage.Window().Hours() / 24),
+		"budget_hours": int(BudgetWindow.Hours()),
 	})
 }
 
@@ -72,8 +94,9 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 // never again. The store keeps only sha256(key) and a lookup prefix.
 func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name     string `json:"name"`
-		RPMLimit int    `json:"rpm_limit"`
+		Name        string `json:"name"`
+		RPMLimit    int    `json:"rpm_limit"`
+		TokenBudget int64  `json:"token_budget"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -88,11 +111,13 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 			"rpm_limit cannot be negative (0 means the global default)")
 		return
 	}
+	if body.TokenBudget < 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request",
+			"token_budget cannot be negative (0 means unlimited)")
+		return
+	}
 
-	// token_budget is left at 0 deliberately: the column exists but nothing
-	// enforces it yet, and offering a limit that does not limit is worse than
-	// not offering one.
-	key, plaintext, err := s.store.CreateKey(r.Context(), body.Name, body.RPMLimit, 0)
+	key, plaintext, err := s.store.CreateKey(r.Context(), body.Name, body.RPMLimit, body.TokenBudget)
 	if err != nil {
 		s.log.Error("create api key", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not create the key")
@@ -107,14 +132,13 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDeleteKey withdraws a key. There is no revoke beside it: revocation
-// could not be undone either, so it was this under another name.
-// handleUpdateKey renames a key or changes its rate limit. The secret is not
-// touched, so nothing that already holds the key has to be told anything.
+// handleUpdateKey changes a key's name, rate limit or token budget. The secret
+// is not touched, so nothing that already holds the key has to be told anything.
 func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name     string `json:"name"`
-		RPMLimit int    `json:"rpm_limit"`
+		Name        string `json:"name"`
+		RPMLimit    int    `json:"rpm_limit"`
+		TokenBudget int64  `json:"token_budget"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -129,9 +153,14 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 			"rpm_limit cannot be negative (0 means the global default)")
 		return
 	}
+	if body.TokenBudget < 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request",
+			"token_budget cannot be negative (0 means unlimited)")
+		return
+	}
 
 	id := r.PathValue("id")
-	switch err := s.store.UpdateKey(r.Context(), id, body.Name, body.RPMLimit); {
+	switch err := s.store.UpdateKey(r.Context(), id, body.Name, body.RPMLimit, body.TokenBudget); {
 	case errors.Is(err, store.ErrKeyNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "no such key")
 		return
@@ -140,7 +169,13 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not update the key")
 		return
 	}
-	s.log.Info("api key updated", "id", id, "name", body.Name, "ip", clientIPFrom(r.Context()))
+	// Drop the cached spend so a raised or lowered budget takes effect on the
+	// next request rather than up to a refresh interval later — an operator
+	// raising a budget to unblock a client should not have to wait.
+	s.budgets.forget(id)
+	s.log.Info("api key updated", "id", id, "name", body.Name,
+		"rpm_limit", body.RPMLimit, "token_budget", body.TokenBudget,
+		"ip", clientIPFrom(r.Context()))
 
 	keys, err := s.store.ListKeys(r.Context())
 	if err == nil {
@@ -154,6 +189,8 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
+// handleDeleteKey withdraws a key. There is no revoke beside it: revocation
+// could not be undone either, so it was this under another name.
 func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch err := s.store.DeleteKey(r.Context(), id); {
@@ -165,6 +202,7 @@ func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not delete the key")
 		return
 	}
+	s.budgets.forget(id)
 	s.log.Info("api key deleted", "id", id, "ip", clientIPFrom(r.Context()))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

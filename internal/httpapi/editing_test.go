@@ -18,7 +18,7 @@ func TestUpdatingAKeyLeavesTheSecretAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.UpdateKey(ctx, key.ID, "laptop", 240); err != nil {
+	if err := st.UpdateKey(ctx, key.ID, "laptop", 240, 5000); err != nil {
 		t.Fatalf("UpdateKey: %v", err)
 	}
 
@@ -32,6 +32,9 @@ func TestUpdatingAKeyLeavesTheSecretAlone(t *testing.T) {
 	if got.RPMLimit != 240 {
 		t.Errorf("rpm_limit = %d, want 240", got.RPMLimit)
 	}
+	if got.TokenBudget != 5000 {
+		t.Errorf("token_budget = %d, want 5000", got.TokenBudget)
+	}
 	if got.ID != key.ID {
 		t.Errorf("id changed: %q -> %q", key.ID, got.ID)
 	}
@@ -44,13 +47,13 @@ func TestUpdatingAKeyValidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.UpdateKey(ctx, key.ID, "   ", 10); err == nil {
+	if err := st.UpdateKey(ctx, key.ID, "   ", 10, 0); err == nil {
 		t.Error("a blank name was accepted")
 	}
-	if err := st.UpdateKey(ctx, key.ID, "laptop", -1); err == nil {
+	if err := st.UpdateKey(ctx, key.ID, "laptop", -1, 0); err == nil {
 		t.Error("a negative rate limit was accepted")
 	}
-	if err := st.UpdateKey(ctx, "no-such-key", "laptop", 10); err == nil {
+	if err := st.UpdateKey(ctx, "no-such-key", "laptop", 10, 0); err == nil {
 		t.Error("updating a key that does not exist succeeded")
 	}
 }
