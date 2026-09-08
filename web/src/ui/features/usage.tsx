@@ -30,10 +30,10 @@ type View = 'requests' | 'day' | 'model' | 'account' | 'key'
 
 const VIEW_LABELS: Record<View, string> = {
   requests: 'Requests',
-  day: 'By day',
-  model: 'By model',
-  account: 'By account',
-  key: 'By key',
+  day: 'Day',
+  model: 'Model',
+  account: 'Account',
+  key: 'Key',
 }
 
 /**
