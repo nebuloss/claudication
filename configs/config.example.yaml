@@ -44,7 +44,23 @@ shutdown:
 usage:
   # How long rows are kept. 0 turns recording off entirely, for an operator
   # who would rather the gateway remember nothing.
-  retention-days: 30
+  #
+# This is the only thing bounding the event table, and it is what to lower on a
+# small disk. Measured, with the index layout as shipped, a usage event costs
+# roughly 190-250 bytes on disk including its index entry:
+#
+#     requests/day   rows at 30 days   database
+#            1,000            30,000   ~7 MB
+#           10,000           300,000   ~60-75 MB
+#           50,000         1,500,000   ~300-375 MB
+#
+# The access log is the other half and is usually the larger one: about 470
+# bytes per proxied request across two lines, bounded by logrotate at 8 x 32 MB
+# on an installed system.
+#
+# Lowering this frees space on the next daily prune. Setting it to 0 turns
+# per-request history off entirely; the Usage tab then has nothing to show.
+retention-days: 30
   # The window the admin UI summarises by default. Clamped to retention.
   report-days: 7
 

@@ -182,9 +182,19 @@ service_install() {
 # fills its disk — and the state database is on the same one.
 write_logrotate() {
   [ -d /etc/logrotate.d ] || return 0
+  # Weekly, or at 32 MB, whichever comes first. The gateway writes about 470
+  # bytes per proxied request across two lines, so a busy week is tens of
+  # megabytes and a very busy one is hundreds — on a small VM that is the whole
+  # disk, days before the weekly rotation would have caught it.
+  #
+  # maxsize rather than size: `size` replaces the time trigger outright, which
+  # would leave a quiet gateway's log unrotated indefinitely. maxsize adds a
+  # ceiling to the weekly schedule instead of replacing it, so the total is
+  # bounded at roughly 8 x 32 MB regardless of traffic.
   cat > "/etc/logrotate.d/$SERVICE_NAME" <<EOF
 $LOG_FILE {
   weekly
+  maxsize 32M
   rotate 8
   compress
   delaycompress

@@ -48,6 +48,8 @@ func run(args []string) error {
 		return cmdLoginURL(args[1:])
 	case "passwd":
 		return cmdPasswd(args[1:])
+	case "vacuum":
+		return cmdVacuum(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println(version.String())
 		return nil
@@ -70,11 +72,13 @@ Usage:
   claudication keys add -name NAME         Mint a client API key
   claudication keys list                   List API keys
   claudication keys delete -id ID          Withdraw an API key
+  claudication vacuum                      Compact the database, reclaiming disk
   claudication version                     Print build information
 
 Environment:
   CLAUDICATION_LISTEN, CLAUDICATION_STATE_DIR, CLAUDICATION_LOG_LEVEL, CLAUDICATION_LOG_FORMAT,
-  CLAUDICATION_REQUESTS_PER_MINUTE, CLAUDICATION_SECRET_KEY
+  CLAUDICATION_REQUESTS_PER_MINUTE, CLAUDICATION_SECRET_KEY,
+  CLAUDICATION_CLAUDE_CODE_ATTRIBUTION
 
 The admin UI is served at / once the gateway is running. On a fresh
 install it asks for a password. If that password is lost, "claudication
@@ -192,6 +196,73 @@ func cmdLoginURL(args []string) error {
 // old password: whoever can run this can already read the database it protects,
 // so demanding the forgotten password would lock out the one person the
 // account belongs to while stopping nobody.
+// cmdVacuum compacts the database and gives the freed space back.
+//
+// Pruning old usage events marks pages reusable but does not shrink the file,
+// so a gateway that has been busy — or one whose retention-days was lowered to
+// recover space — sits at its historical peak indefinitely. Databases created
+// from v0.5.0 onward reclaim space by themselves after each daily prune; this
+// is the one-off for a file created before that, and it is what converts it so
+// the automatic path works from then on.
+func cmdVacuum(args []string) error {
+	fs := flag.NewFlagSet("vacuum", flag.ContinueOnError)
+	configPath := fs.String("config", "", "path to config.yaml (optional)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	// No deadline worth setting: this rewrites the whole file, and how long
+	// that takes is a property of the disk. Interrupting it is safe — VACUUM
+	// is a transaction — but pointless.
+	ctx := context.Background()
+
+	_, st, _, err := openState(ctx, *configPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	mode, err := st.AutoVacuum(ctx)
+	if err != nil {
+		return err
+	}
+	if mode == 0 {
+		fmt.Println("This database predates automatic reclamation; converting it.")
+	}
+
+	fmt.Println("Compacting. The gateway should be stopped, and this needs about")
+	fmt.Println("twice the database's size free while it runs.")
+
+	before, after, err := st.Vacuum(ctx)
+	if err != nil {
+		return err
+	}
+
+	saved := before - after
+	fmt.Printf("\n  before  %s\n  after   %s\n", humanBytes(before), humanBytes(after))
+	if saved > 0 {
+		fmt.Printf("  freed   %s\n", humanBytes(saved))
+	} else {
+		fmt.Println("  freed   nothing; it was already compact")
+	}
+	if mode == 0 {
+		fmt.Println("\nFrom now on the daily prune reclaims space on its own.")
+	}
+	return nil
+}
+
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
+}
+
 func cmdPasswd(args []string) error {
 	fs := flag.NewFlagSet("passwd", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to config.yaml (optional)")

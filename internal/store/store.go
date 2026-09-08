@@ -30,11 +30,23 @@ type Store struct {
 func Open(ctx context.Context, dbPath string) (*Store, error) {
 	// WAL keeps readers from blocking the writer; busy_timeout stops a
 	// concurrent write from failing outright under load.
+	//
+	// auto_vacuum=incremental so the file can give space back. Without it
+	// SQLite keeps freed pages for reuse and the file only ever grows: pruning
+	// a month of usage events, or lowering retention-days, reclaims nothing and
+	// the database stays at its historical peak for the life of the install.
+	// "incremental" rather than "full" because full auto-vacuum reorganises on
+	// every commit, which is a cost on the write path of every relayed request;
+	// incremental does nothing until asked, and the pruner asks once a day.
+	//
+	// It only takes on an empty database. An existing one keeps whatever it was
+	// created with until it is rewritten — see Vacuum.
 	dsn := "file:" + dbPath +
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=foreign_keys(ON)" +
-		"&_pragma=synchronous(NORMAL)"
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=auto_vacuum(incremental)"
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

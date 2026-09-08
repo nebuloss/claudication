@@ -382,5 +382,60 @@ func (s *Store) PruneUsage(ctx context.Context, keep time.Duration) (int64, erro
 		return 0, fmt.Errorf("prune usage: %w", err)
 	}
 	n, _ := res.RowsAffected()
+
+	// Hand the freed pages back to the filesystem. Deleting rows only marks
+	// pages reusable, so without this the file stays at its historical peak
+	// for ever: a month of heavy traffic, or an operator lowering
+	// retention-days to recover space, would free nothing at all.
+	//
+	// A no-op on a database created before auto_vacuum was set — see Vacuum —
+	// and best-effort either way, because reclaiming space is not worth
+	// failing a prune over.
+	if n > 0 {
+		if _, err := s.db.ExecContext(ctx, `PRAGMA incremental_vacuum`); err != nil {
+			return n, nil
+		}
+	}
 	return n, nil
+}
+
+// Vacuum rewrites the database, compacting it and applying auto_vacuum to a
+// file that predates it.
+//
+// This is the one-off an existing install needs. auto_vacuum can only be set on
+// an empty database, so a gateway that has been running since before it was
+// configured keeps growing regardless; VACUUM is what converts it, and from
+// then on the daily prune keeps the file honest by itself.
+//
+// It rewrites the whole file, so it wants roughly twice the database's size
+// free and takes an exclusive lock for the duration. Run it when the gateway is
+// idle.
+func (s *Store) Vacuum(ctx context.Context) (before, after int64, err error) {
+	before, _ = s.fileSize(ctx)
+	if _, err := s.db.ExecContext(ctx, `VACUUM`); err != nil {
+		return before, before, fmt.Errorf("vacuum: %w", err)
+	}
+	after, _ = s.fileSize(ctx)
+	return before, after, nil
+}
+
+// fileSize is what SQLite thinks the database occupies, which is the figure
+// VACUUM changes.
+func (s *Store) fileSize(ctx context.Context) (int64, error) {
+	var pageCount, pageSize int64
+	if err := s.db.QueryRowContext(ctx, `PRAGMA page_count`).Scan(&pageCount); err != nil {
+		return 0, err
+	}
+	if err := s.db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize); err != nil {
+		return 0, err
+	}
+	return pageCount * pageSize, nil
+}
+
+// AutoVacuum reports the mode in force: 0 none, 1 full, 2 incremental. A zero
+// here on a long-running install is why the file never shrinks.
+func (s *Store) AutoVacuum(ctx context.Context) (int, error) {
+	var mode int
+	err := s.db.QueryRowContext(ctx, `PRAGMA auto_vacuum`).Scan(&mode)
+	return mode, err
 }

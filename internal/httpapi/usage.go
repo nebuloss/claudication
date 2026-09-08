@@ -114,10 +114,16 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 50
+	// Bounded, because the caller chooses it. The activity list asks for 50;
+	// ?limit=10000000 would otherwise load ten million rows into memory and
+	// serialise them, which a mistyped URL is enough to do. A session is
+	// needed to get here, but an operator should not be able to take their own
+	// gateway down with a typo.
+	const defaultLimit, maxLimit = 50, 1000
+	limit := defaultLimit
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
+			limit = min(n, maxLimit)
 		}
 	}
 
