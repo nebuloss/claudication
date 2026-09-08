@@ -78,7 +78,7 @@ Usage:
 Environment:
   CLAUDICATION_LISTEN, CLAUDICATION_STATE_DIR, CLAUDICATION_LOG_LEVEL, CLAUDICATION_LOG_FORMAT,
   CLAUDICATION_REQUESTS_PER_MINUTE, CLAUDICATION_SECRET_KEY,
-  CLAUDICATION_CLAUDE_CODE_ATTRIBUTION
+  CLAUDICATION_CLAUDE_CODE_ATTRIBUTION, CLAUDICATION_TRUSTED_PROXIES
 
 The admin UI is served at / once the gateway is running. On a fresh
 install it asks for a password. If that password is lost, "claudication
@@ -190,20 +190,14 @@ func cmdLoginURL(args []string) error {
 	return nil
 }
 
-// cmdPasswd sets the admin password from the shell.
-//
-// This is both first-run setup and the recovery path. It does not ask for the
-// old password: whoever can run this can already read the database it protects,
-// so demanding the forgotten password would lock out the one person the
-// account belongs to while stopping nobody.
 // cmdVacuum compacts the database and gives the freed space back.
 //
 // Pruning old usage events marks pages reusable but does not shrink the file,
 // so a gateway that has been busy — or one whose retention-days was lowered to
-// recover space — sits at its historical peak indefinitely. Databases created
-// from v0.5.0 onward reclaim space by themselves after each daily prune; this
-// is the one-off for a file created before that, and it is what converts it so
-// the automatic path works from then on.
+// recover space — sits at its historical peak indefinitely. A database created
+// with auto_vacuum reclaims space by itself after each daily prune; this is the
+// one-off for a file created before that, and it is what converts it so the
+// automatic path works from then on.
 func cmdVacuum(args []string) error {
 	fs := flag.NewFlagSet("vacuum", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to config.yaml (optional)")
@@ -263,6 +257,12 @@ func humanBytes(n int64) string {
 	return fmt.Sprintf("%d B", n)
 }
 
+// cmdPasswd sets the admin password from the shell.
+//
+// This is both first-run setup and the recovery path. It does not ask for the
+// old password: whoever can run this can already read the database it protects,
+// so demanding the forgotten password would lock out the one person the
+// account belongs to while stopping nobody.
 func cmdPasswd(args []string) error {
 	fs := flag.NewFlagSet("passwd", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to config.yaml (optional)")

@@ -207,6 +207,20 @@ func applyEnv(cfg *Config) {
 			cfg.Limits.RequestsPerMinute = n
 		}
 	}
+	// Comma-separated, because the installed service ships no config file and
+	// this is the setting a proxied deployment most needs. Without an override
+	// the only way to set it is to hand-write a config that nothing told the
+	// operator they needed — for the one option whose absence silently collapses
+	// every client into a single rate-limit bucket.
+	if v := os.Getenv("CLAUDICATION_TRUSTED_PROXIES"); v != "" {
+		var out []string
+		for _, p := range strings.Split(v, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				out = append(out, p)
+			}
+		}
+		cfg.TrustedProxies = out
+	}
 }
 
 func (c Config) validate() error {

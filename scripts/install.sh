@@ -36,6 +36,11 @@ GH_API="${GH_API:-https://api.github.com}"
 GH_DL="${GH_DL:-https://github.com}"
 VERSION="${VERSION:-}"                # install this tag instead of the newest
 LISTEN="${LISTEN:-0.0.0.0:8317}"      # what the service binds
+# Set this when something fronts the gateway (nginx, Nginx Proxy Manager,
+# Traefik, a tunnel): comma-separated CIDRs or IPs the *proxy* connects from.
+# Without it every client behind it shares one rate-limit bucket, the access
+# log cannot tell them apart, and the session cookie cannot be marked Secure.
+TRUSTED_PROXIES="${TRUSTED_PROXIES:-}"
 BOOT_TIMEOUT="${BOOT_TIMEOUT:-30}"    # seconds to wait for the first response
 SET_PASSWORD="${SET_PASSWORD:-1}"     # 0 to leave the gateway unclaimed
 QUIET="${QUIET:-0}"                   # 1 to drop the progress dots
@@ -167,7 +172,21 @@ service_hints() {
   esac
 }
 
+# The trusted-proxies line for each service file, empty when unset. Built here
+# rather than inline in the heredocs: ${VAR:+"..."} eats the quotes it looks
+# like it is emitting, and an unquoted value is a trap waiting for someone to
+# pass something with a space in it.
+trusted_env_lines() {
+  OPENRC_TRUSTED=""
+  SYSTEMD_TRUSTED=""
+  [ -n "$TRUSTED_PROXIES" ] || return 0
+  OPENRC_TRUSTED="export CLAUDICATION_TRUSTED_PROXIES=\"$TRUSTED_PROXIES\""
+  SYSTEMD_TRUSTED="Environment=CLAUDICATION_TRUSTED_PROXIES=$TRUSTED_PROXIES"
+  info "Trusting proxy: $TRUSTED_PROXIES"
+}
+
 service_install() {
+  trusted_env_lines
   case "$OS" in
     alpine) write_openrc_service ;;
     debian) write_systemd_service ;;
@@ -246,6 +265,7 @@ respawn_period=1800
 
 export CLAUDICATION_STATE_DIR="$STATE_DIR"
 export CLAUDICATION_LISTEN="$LISTEN"
+$OPENRC_TRUSTED
 
 depend() { need net; after firewall; }
 EOF
@@ -273,6 +293,7 @@ RestartSec=2s
 
 Environment=CLAUDICATION_STATE_DIR=$STATE_DIR
 Environment=CLAUDICATION_LISTEN=$LISTEN
+$SYSTEMD_TRUSTED
 
 # Responses are long-lived streams and the gateway drains them within its own
 # grace period, so give systemd more patience than that grace.
