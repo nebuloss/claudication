@@ -4,11 +4,13 @@ import { useLoader } from '../hooks'
 import {
   Bar,
   Banner,
+  ErrorModal,
   ErrorState,
   Card,
   CardTitle,
   Chip,
   Empty,
+  KeyValue,
   Spinner,
   Segmented,
   Stat,
@@ -300,7 +302,7 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
               <td className="px-2 py-2 tabular-nums whitespace-nowrap">{r.duration_ms}ms</td>
               <td className="px-2 py-2">
                 {r.error !== undefined && r.error !== '' && (
-                  <TextButton onClick={() => setShown(shown === r ? null : r)}>Why</TextButton>
+                  <TextButton onClick={() => setShown(r)}>Log</TextButton>
                 )}
               </td>
             </tr>
@@ -328,15 +330,59 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
       )}
 
       {shown !== null && shown.error !== undefined && shown.error !== '' && (
-        <div className="mt-4">
-          <p className="mt-0 mb-2 text-xs text-on-surface-variant">
-            The upstream's own words, unmodified — it is the only thing that separates an expired
-            token from a plan restriction.
-          </p>
-          <Verbatim>{shown.error}</Verbatim>
-        </div>
+        <RequestLog row={shown} onClose={() => setShown(null)} />
       )}
     </Card>
+  )
+}
+
+/**
+ * One failed request, in full.
+ *
+ * A dialog rather than a panel under the table: the row it belongs to is
+ * usually scrolled well out of view by the time the text appears below fifty
+ * others, and reading an upstream error means reading all of it — which is the
+ * one thing a strip at the bottom of a long list makes hard.
+ *
+ * The identifying columns come along because the operator opened this from a
+ * row they can no longer see, and "which request was that" is the first thing
+ * they lose.
+ */
+function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) {
+  const tokens =
+    row.input_tokens + row.output_tokens > 0
+      ? `${compact(row.input_tokens)} in / ${compact(row.output_tokens)} out`
+      : '—'
+
+  return (
+    <ErrorModal
+      title="Request log"
+      size="lg"
+      onClose={onClose}
+      message={
+        <>
+          The upstream's own words, unmodified — it is the only thing that separates an expired
+          token from a plan restriction.
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <KeyValue
+          items={[
+            ['When', <span title={row.at}>{ago(row.at)}</span>],
+            ['Status', <Chip tone={statusTone(row)}>{row.status === 0 ? 'failed' : row.status}</Chip>],
+            ['Model', dash(row.model)],
+            ['Key', dash(row.key_name)],
+            ['Account', dash(row.account_email)],
+            ['Path', row.path],
+            ['Streaming', row.streaming ? 'yes' : 'no'],
+            ['Tokens', tokens],
+            ['Took', `${row.duration_ms}ms`],
+          ]}
+        />
+        <Verbatim>{row.error ?? ''}</Verbatim>
+      </div>
+    </ErrorModal>
   )
 }
 

@@ -861,20 +861,28 @@ export function Modal({
   )
 }
 
-/** A failure worth stopping for, rather than a line of text under a field. */
+/**
+ * A failure worth stopping for, rather than a line of text under a field.
+ *
+ * `size` is passed through for the same reason Modal has it: an upstream error
+ * is wrapped JSON, and narrowing it to a confirmation's width turns the one
+ * thing worth reading into a column of fragments.
+ */
 export function ErrorModal({
   title,
   message,
   children,
   onClose,
+  size = 'md',
 }: {
   title: string
   message: ReactNode
   children?: ReactNode
   onClose: () => void
+  size?: 'md' | 'lg'
 }) {
   return (
-    <Modal title={title} onClose={onClose}>
+    <Modal title={title} onClose={onClose} size={size}>
       <div className="flex gap-4">
         <span className="grid size-10 shrink-0 place-items-center rounded-full bg-error-container text-on-error-container">
           <svg viewBox="0 0 24 24" className="size-6 fill-current" aria-hidden>
