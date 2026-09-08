@@ -37,6 +37,20 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, route, upst
 		return
 	}
 
+	// A compressed body has to be opened before anything can read it.
+	//
+	// Claude Code gzips request bodies past about 4 KB, and every pass that
+	// looks at the body — the attribution block above all — silently does
+	// nothing on bytes it cannot parse. The failure is not a parse error, it
+	// is a 429 whose message is the single word "Error": the attribution gate,
+	// which reads exactly like rate limiting and is not. Measured on the same
+	// account in the same minute, an 11 KB body was served at 200 as identity
+	// and refused at 429 gzipped.
+	if body, err = decodeBody(r, body, s.cfg.Limits.MaxBodyBytes); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
 	// Peeked once, never rewritten: the model name is for logging and routing,
 	// and the body that goes upstream is the caller's bytes unchanged.
 	prologue := upstream.Peek(body)
