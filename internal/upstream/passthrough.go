@@ -51,6 +51,16 @@ type Relay struct {
 	BaseURL     string
 }
 
+// logger is the relay's log, or one that discards. Log is optional — the
+// tests build a Relay from the two fields they need — and a warning about a
+// malformed body should not be the thing that takes the process down.
+func (r *Relay) logger() *slog.Logger {
+	if r.Log == nil {
+		return slog.New(slog.DiscardHandler)
+	}
+	return r.Log
+}
+
 // bodyTee reads a copy of the relayed bytes to recover the usage figures.
 // Implementations must never gate the write and never alter it.
 type bodyTee interface {
@@ -156,6 +166,16 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	base := r.BaseURL
 	if base == "" {
 		base = AnthropicBaseURL
+	}
+
+	// First, because it is the only pass that repairs a body the upstream
+	// would refuse outright, and because re-encoding for any of the others
+	// would silently do the same substitution without saying so.
+	if fixed, n := FixLoneSurrogates(body); n > 0 {
+		body = fixed
+		r.logger().Warn("repaired unpaired surrogate escapes in the request body; "+
+			"something upstream of this gateway is cutting text mid-character",
+			"replaced", n)
 	}
 
 	// Once, before the first attempt: a retry has to send the same bytes, and
@@ -395,7 +415,7 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 		// that rule. Relay the bytes — that part still works — but read
 		// nothing out of them and say so, rather than recording a compressed
 		// stream as zero tokens and no errors.
-		r.Log.Warn("upstream compressed a response that asked for identity; usage and stream errors are unreadable",
+		r.logger().Warn("upstream compressed a response that asked for identity; usage and stream errors are unreadable",
 			"content_encoding", enc)
 		res.Opaque = true
 		tee = nopTee{}
