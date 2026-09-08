@@ -1,16 +1,15 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strconv"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/pool"
-	"github.com/nebuloss/claudication/internal/store"
-	"github.com/nebuloss/claudication/internal/upstream"
+	"claudication/internal/pool"
+	"claudication/internal/store"
+	"claudication/internal/upstream"
 )
 
 // handleMessages is Lane A: Anthropic in, Anthropic out, byte for byte.
@@ -38,16 +37,17 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, route, upst
 		return
 	}
 
-	// Peeked, never rewritten: the model name is for logging and routing, and
-	// the body that goes upstream is the caller's bytes unchanged.
-	model, streaming := peekModel(body)
+	// Peeked once, never rewritten: the model name is for logging and routing,
+	// and the body that goes upstream is the caller's bytes unchanged.
+	prologue := upstream.Peek(body)
+	model, streaming := prologue.Model, prologue.Stream
 
 	ctx, cancel := contextWithTimeout(r, upstream.Timeout(streaming))
 	defer cancel()
 	r = r.WithContext(ctx)
 
 	started := time.Now()
-	res := s.relay.Do(w, r, "anthropic", upstreamPath, body)
+	res := s.relay.Do(w, r, "anthropic", upstreamPath, body, prologue)
 
 	elapsed := time.Since(started)
 	key, _ := APIKeyFrom(r.Context())
@@ -74,7 +74,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, route, upst
 		CacheReadTokens:  res.Usage.CacheReadTokens,
 		CacheWriteTokens: res.Usage.CacheCreationTokens,
 		Duration:         elapsed,
-		Error:            res.StreamError,
+		// A stream that died after its 200 is the more specific fact, so it
+		// wins; otherwise record whatever the upstream said when it refused.
+		Error: firstNonEmpty(res.StreamError, res.UpstreamError),
 	})
 
 	attrs := []any{
@@ -101,6 +103,15 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, route, upst
 	s.log.Info("relayed", attrs...)
 }
 
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // relayFailure answers when no bytes reached the client. The shape is
 // Anthropic's own error envelope so a Claude Code client can parse it.
 func (s *Server) relayFailure(w http.ResponseWriter, r *http.Request, err error) {
@@ -121,14 +132,4 @@ func (s *Server) relayFailure(w http.ResponseWriter, r *http.Request, err error)
 		s.log.Error("relay failed", "err", err, "request_id", requestIDFrom(r.Context()))
 		writeError(w, http.StatusBadGateway, "api_error", "upstream request failed: "+err.Error())
 	}
-}
-
-// peekModel reads the model and stream flag without disturbing the body.
-func peekModel(body []byte) (model string, streaming bool) {
-	var probe struct {
-		Model  string `json:"model"`
-		Stream bool   `json:"stream"`
-	}
-	_ = json.Unmarshal(body, &probe)
-	return probe.Model, probe.Stream
 }

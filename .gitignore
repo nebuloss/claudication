@@ -9,6 +9,10 @@ config.yaml
 *.db
 *.db-wal
 *.db-shm
+
+# secret.key seals every stored OAuth token. Committing one would publish the
+# credentials of every connected account, so the pattern is broad on purpose.
+*.key
 .DS_Store
 
 # Local agent/editor tooling, not project source.

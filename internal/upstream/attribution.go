@@ -2,6 +2,30 @@ package upstream
 
 import "encoding/json"
 
+// Prologue is everything the gateway reads out of a request body before
+// relaying it: enough to log what was asked for, choose a timeout, and decide
+// whether the attribution block needs adding.
+//
+// It is read in a single pass, and it names its fields rather than taking the
+// whole object, because the field that matters for cost is the one it leaves
+// out. `messages` is the bulk of a request — Claude Code resends the whole
+// transcript every turn — and decoding into map[string]json.RawMessage copies
+// each top-level value, so touching the envelope at all used to duplicate the
+// transcript twice per request to read a model name.
+type Prologue struct {
+	Model  string          `json:"model"`
+	Stream bool            `json:"stream"`
+	System json.RawMessage `json:"system"`
+}
+
+// Peek reads the prologue. An unparseable body yields a zero Prologue and is
+// left for the upstream to reject.
+func Peek(body []byte) Prologue {
+	var p Prologue
+	_ = json.Unmarshal(body, &p)
+	return p
+}
+
 // Claude Code's attribution block, and the gate it turns out to be.
 //
 // The subscription backend serves haiku to anything, but refuses opus and
@@ -43,18 +67,27 @@ var acceptedAttribution = map[string]bool{
 //
 // A body that cannot be parsed is returned unchanged: it is the client's to
 // get wrong, and the upstream's to reject.
-func EnsureAttribution(body []byte) []byte {
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		return body
-	}
-
-	blocks, ok := systemBlocks(envelope["system"])
+//
+// p is the prologue already read from body by Peek, so the common case — a
+// body that is already attributed, which is all of Claude Code's traffic —
+// costs no parsing at all here.
+func EnsureAttribution(body []byte, p Prologue) []byte {
+	blocks, ok := systemBlocks(p.System)
 	if !ok {
 		return body
 	}
 	if len(blocks) > 0 && acceptedAttribution[blockText(blocks[0])] {
 		return body // already attributed; leave the bytes alone
+	}
+
+	// Only now, on the rare path that actually rewrites, is the whole envelope
+	// parsed. Unmarshalling into map[string]json.RawMessage copies every
+	// top-level value, so on a Claude Code turn — which resends the entire
+	// transcript, routinely a megabyte or more — doing it up front duplicated
+	// the body before deciding it had nothing to change.
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return body
 	}
 
 	attribution, err := json.Marshal(map[string]string{

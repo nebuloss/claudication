@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/store"
-	"github.com/nebuloss/claudication/internal/version"
+	"claudication/internal/store"
+	"claudication/internal/version"
 )
 
 // recordUsage files one relayed request.
@@ -167,17 +167,28 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
 		return
 	}
-	var usable, expiring int
+	var expiring int
 	for _, a := range accounts {
-		if !a.Disabled() && !a.Expired() {
-			usable++
-		}
 		if a.NeedsReauthSoon() {
 			expiring++
 		}
 	}
+
+	// Readiness is the pool's answer, not a second guess from the account
+	// rows. Cooldowns are held in memory, so counting rows could not see them:
+	// every account could be sitting out a rate limit and this screen would
+	// still say the gateway was ready to serve.
+	status, err := s.pool.Status(r.Context(), "anthropic")
+	if err != nil {
+		s.log.Error("overview pool status", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
+		return
+	}
 	out["accounts"] = map[string]any{
-		"total": len(accounts), "usable": usable, "needs_reauth_soon": expiring,
+		"total":             len(accounts),
+		"usable":            status.Usable,
+		"cooling":           len(status.Cooling),
+		"needs_reauth_soon": expiring,
 	}
 
 	keys, err := s.store.ListKeys(r.Context())
@@ -191,14 +202,16 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	out["keys"] = map[string]any{"total": len(keys)}
 
 	// The headline numbers only; the Usage tab is where the breakdown lives.
+	// Totals rather than Usage: the five breakdowns this screen never renders
+	// were the bulk of the query behind the first page after sign-in.
 	if s.cfg.Usage.Enabled() {
-		if rep, err := s.store.Usage(r.Context(), time.Now().Add(-24*time.Hour)); err == nil {
-			out["last_24h"] = rep.Totals
+		if totals, err := s.store.Totals(r.Context(), time.Now().Add(-24*time.Hour)); err == nil {
+			out["last_24h"] = totals
 		}
 	}
 
 	// Whether the gateway can serve a request right now is not the same
 	// question as whether it has accounts: they may all be cooling down.
-	out["ready"] = usable > 0
+	out["ready"] = status.Serving != ""
 	writeJSON(w, http.StatusOK, out)
 }

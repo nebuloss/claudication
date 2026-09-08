@@ -51,6 +51,11 @@ export interface Account {
   /** Priority order, and whether this one would serve the next request. */
   position: number
   serving: boolean
+  /**
+   * When a sidelined account comes back. The pool holds cooldowns in memory,
+   * so this is empty for a healthy account and after a restart.
+   */
+  cooling_until?: string
 }
 
 export interface ProbeResult {
@@ -189,17 +194,39 @@ export function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/**
+ * How long a call to the admin API may hang before it is reported as failed.
+ *
+ * fetch has no timeout of its own, so a gateway that accepts a connection and
+ * then stops answering — mid-restart, or reachable over a tunnel that has gone
+ * away — leaves every panel spinning for ever with nothing to click. Generous,
+ * because a few of these do real work: probing an account talks to Anthropic.
+ */
+const REQUEST_TIMEOUT_MS = 30_000
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let response: Response
+  const abort = new AbortController()
+  const timer = window.setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS)
   try {
     response = await fetch(path, {
       method,
       headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
       body: body === undefined ? null : JSON.stringify(body),
       credentials: 'same-origin',
+      signal: abort.signal,
     })
   } catch (cause) {
+    if (abort.signal.aborted) {
+      throw new ApiError(
+        0,
+        'timeout',
+        `The gateway did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+      )
+    }
     throw new ApiError(0, 'network_error', `Could not reach the gateway: ${String(cause)}`)
+  } finally {
+    window.clearTimeout(timer)
   }
 
   const text = await response.text()
@@ -214,10 +241,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (!response.ok) {
     const envelope = payload as { error?: { message?: string; type?: string } } | null
+    // `||`, not `??`: text.trim() is always a string, so `??` never reaches
+    // the status fallback and an empty error body renders as an empty message —
+    // which the panels then show as their "nothing here yet" empty state.
     throw new ApiError(
       response.status,
       envelope?.error?.type ?? 'http_error',
-      envelope?.error?.message ?? text.trim() ?? `HTTP ${response.status}`,
+      envelope?.error?.message || text.trim() || `HTTP ${response.status}`,
     )
   }
   return payload as T
@@ -295,6 +325,13 @@ export const api = {
     return res.account
   },
 
+  /**
+   * Pause an account without destroying it. Deleting revokes the refresh
+   * token upstream and costs a trip through the consent flow to undo.
+   */
+  setAccountDisabled: (id: string, disabled: boolean) =>
+    request<Account>('POST', `/admin/accounts/${encodeURIComponent(id)}/disabled`, { disabled }),
+
   deleteAccount: (id: string) =>
     request<unknown>('DELETE', `/admin/accounts/${encodeURIComponent(id)}`),
 
@@ -308,6 +345,13 @@ export const api = {
   /** The plaintext comes back exactly once; nothing can retrieve it later. */
   createKey: (name: string, rpmLimit: number) =>
     request<{ key: ApiKey; plaintext: string }>('POST', '/admin/keys', {
+      name,
+      rpm_limit: rpmLimit,
+    }),
+
+  /** Rename a key or change its limit. The secret is untouched. */
+  updateKey: (id: string, name: string, rpmLimit: number) =>
+    request<{ key: ApiKey }>('PATCH', `/admin/keys/${encodeURIComponent(id)}`, {
       name,
       rpm_limit: rpmLimit,
     }),

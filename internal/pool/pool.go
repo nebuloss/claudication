@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/oauth"
-	"github.com/nebuloss/claudication/internal/secret"
-	"github.com/nebuloss/claudication/internal/store"
+	"claudication/internal/oauth"
+	"claudication/internal/secret"
+	"claudication/internal/store"
 )
 
 // FailureKind classifies why an attempt failed, which decides how long the
@@ -75,7 +75,15 @@ type health struct {
 	// refreshing is held for the duration of a token refresh so concurrent
 	// requests wait rather than each burning a refresh. Rotating refresh
 	// tokens make a double refresh actively harmful.
-	refreshing chan struct{}
+	refreshing *refreshCall
+}
+
+// refreshCall is one in-flight refresh. The error is written before done is
+// closed and read after it, so waiters learn what actually happened instead of
+// being told it succeeded and then handed the old, expired token.
+type refreshCall struct {
+	done chan struct{}
+	err  error
 }
 
 type Pool struct {
@@ -87,16 +95,23 @@ type Pool struct {
 	mu     sync.Mutex
 	states map[string]*health
 	now    func() time.Time
+
+	// exchange is the token refresh itself, injectable so the cancellation and
+	// error-propagation rules around it can be tested without a live provider.
+	// The rules are the part that has teeth: getting them wrong takes an
+	// account offline until a human redoes the browser flow.
+	exchange func(ctx context.Context, client *http.Client, refreshToken string) (oauth.Result, error)
 }
 
 func New(st *store.Store, sealer *secret.Sealer, client *http.Client, log *slog.Logger) *Pool {
 	return &Pool{
-		store:  st,
-		sealer: sealer,
-		client: client,
-		log:    log,
-		states: make(map[string]*health),
-		now:    time.Now,
+		store:    st,
+		sealer:   sealer,
+		client:   client,
+		log:      log,
+		states:   make(map[string]*health),
+		now:      time.Now,
+		exchange: oauth.RefreshAnthropic,
 	}
 }
 
@@ -109,27 +124,66 @@ func (p *Pool) stateOf(id string) *health {
 	return h
 }
 
-// Available reports how many accounts could serve a request right now.
-func (p *Pool) Available(ctx context.Context, provider string) (int, error) {
+// Status is the pool's own view of the accounts, which the store does not have:
+// cooldowns live in memory and vanish with the process.
+//
+// It exists because the admin API was answering both "is the gateway ready"
+// and "which account is serving" from the store alone. That made the readiness
+// badge unable to see a cooling account at all, and made the serving badge a
+// second, drifting implementation of pick(). Both questions are the pool's to
+// answer.
+type Status struct {
+	// Serving is the account that would take the next request, or "" if none
+	// would. Decided by pick(), so it cannot disagree with what Acquire does.
+	Serving string
+	// Cooling says when each sidelined account comes back. Absent means
+	// healthy.
+	Cooling map[string]time.Time
+	// Usable counts accounts that are neither disabled, cooling, nor out of
+	// room — the ones that could serve without the pool having to fall back.
+	Usable int
+}
+
+// Status reports what the pool would do right now, without doing it.
+func (p *Pool) Status(ctx context.Context, provider string) (Status, error) {
 	accounts, err := p.store.ListAccounts(ctx)
 	if err != nil {
-		return 0, err
+		return Status{}, err
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	candidates := candidatesFor(accounts, provider, nil)
 
+	st := Status{Cooling: map[string]time.Time{}}
+
+	p.mu.Lock()
 	now := p.now()
-	n := 0
-	for _, a := range accounts {
-		if a.Provider != provider || a.Disabled() {
+	for _, a := range candidates {
+		until := p.stateOf(a.ID).cooldownUntil
+		if until.After(now) {
+			st.Cooling[a.ID] = until
 			continue
 		}
-		if p.stateOf(a.ID).cooldownUntil.After(now) {
-			continue
+		if !outOfRoom(a) {
+			st.Usable++
 		}
-		n++
 	}
-	return n, nil
+	p.mu.Unlock()
+
+	if chosen, ok := p.pick(candidates); ok {
+		st.Serving = chosen.ID
+	}
+	return st, nil
+}
+
+// candidatesFor is the one place that decides which accounts are in play, so
+// Acquire and Status cannot answer differently.
+func candidatesFor(accounts []store.Account, provider string, exclude map[string]bool) []store.Account {
+	out := make([]store.Account, 0, len(accounts))
+	for _, a := range accounts {
+		if a.Provider == provider && !a.Disabled() && !exclude[a.ID] {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // Acquire picks an account, refreshing its token first if it has expired.
@@ -141,12 +195,7 @@ func (p *Pool) Acquire(ctx context.Context, provider string, exclude map[string]
 		return Lease{}, err
 	}
 
-	candidates := make([]store.Account, 0, len(accounts))
-	for _, a := range accounts {
-		if a.Provider == provider && !a.Disabled() && !exclude[a.ID] {
-			candidates = append(candidates, a)
-		}
-	}
+	candidates := candidatesFor(accounts, provider, exclude)
 	if len(candidates) == 0 {
 		if exclude != nil && len(exclude) > 0 {
 			return Lease{}, ErrAllCoolingUp
@@ -267,47 +316,90 @@ func (p *Pool) AccessToken(ctx context.Context, id string) (string, error) {
 	return tokens.AccessToken, nil
 }
 
+// refreshTimeout bounds the token exchange, and persistTimeout the write that
+// stores its result. The write gets its own budget rather than the remainder of
+// the exchange's, because it is the one that must not be abandoned.
+const (
+	refreshTimeout = 60 * time.Second
+	persistTimeout = 30 * time.Second
+)
+
 // Refresh exchanges the refresh token, with one in-flight refresh per account.
 //
 // Concurrency matters more than it looks: providers rotate refresh tokens, so
 // two simultaneous refreshes race and the loser's token is already spent.
+//
+// Cancellation matters for exactly the same reason, and is the sharper edge.
+// Anthropic rotates the refresh token on every exchange, so between the
+// upstream returning and the new token reaching the database there is a window
+// where the only usable credential for this account exists in this process'
+// memory. If the caller's context ends inside it — a client pressing Esc, a
+// shutdown, a request deadline — the old token is already spent upstream and
+// the new one is lost, and the account stays dead until a human redoes the
+// browser flow. So the exchange and the write run detached from the caller,
+// bounded by their own deadlines instead. A refresh is the pool's work, not the
+// requester's.
 func (p *Pool) Refresh(ctx context.Context, id string) error {
 	p.mu.Lock()
 	h := p.stateOf(id)
-	if h.refreshing != nil {
-		wait := h.refreshing
+	if call := h.refreshing; call != nil {
 		p.mu.Unlock()
 		select {
-		case <-wait:
-			return nil
+		case <-call.done:
+			// Report what the refresh actually did. Returning nil here hands
+			// the waiter a token that was never replaced, and then blames it
+			// for the 401 that follows.
+			return call.err
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
-	done := make(chan struct{})
-	h.refreshing = done
+	call := &refreshCall{done: make(chan struct{})}
+	h.refreshing = call
 	p.mu.Unlock()
 
-	defer func() {
-		p.mu.Lock()
-		h.refreshing = nil
-		p.mu.Unlock()
-		close(done)
-	}()
+	err := p.refresh(ctx, id, h)
 
-	tokens, err := p.store.AccountTokens(ctx, p.sealer, id)
+	p.mu.Lock()
+	h.refreshing = nil
+	p.mu.Unlock()
+	call.err = err
+	close(call.done)
+	return err
+}
+
+func (p *Pool) refresh(ctx context.Context, id string, h *health) error {
+	// Detached: see Refresh. Values carried on the context — request id,
+	// tracing — are kept; the caller's ability to abandon this halfway
+	// through is not.
+	ctx = context.WithoutCancel(ctx)
+
+	exchangeCtx, cancel := context.WithTimeout(ctx, refreshTimeout)
+	defer cancel()
+
+	tokens, err := p.store.AccountTokens(exchangeCtx, p.sealer, id)
 	if err != nil {
 		return err
 	}
-	res, err := oauth.RefreshAnthropic(ctx, p.client, tokens.RefreshToken)
+	res, err := p.exchange(exchangeCtx, p.client, tokens.RefreshToken)
 	if err != nil {
-		p.store.MarkAccountError(ctx, id, err.Error())
+		p.store.MarkAccountError(exchangeCtx, id, err.Error())
 		return err
 	}
+
+	// Past this line the old refresh token is spent and only the response
+	// holds a usable one. Fresh budget, and nothing that can cancel it.
+	persistCtx, cancelPersist := context.WithTimeout(ctx, persistTimeout)
+	defer cancelPersist()
+
 	// Identity is never taken from a refresh response; only the tokens are.
-	if err := p.store.UpdateAccountTokens(ctx, p.sealer, id,
+	if err := p.store.UpdateAccountTokens(persistCtx, p.sealer, id,
 		store.Tokens{AccessToken: res.AccessToken, RefreshToken: res.RefreshToken},
 		res.ExpiresAt, res.RefreshTokenExpiresAt); err != nil {
+		// The account is now in the state this function exists to avoid. Say
+		// so plainly: nothing but a human at a browser can fix it.
+		p.log.Error("token refreshed upstream but could not be stored; this account now needs re-authorisation",
+			"account", id, "err", err)
 		return err
 	}
 
@@ -331,13 +423,24 @@ func (p *Pool) Refresh(ctx context.Context, id string) error {
 	return nil
 }
 
+// bookkeepingTimeout bounds the "how did that go" writes, which happen on the
+// request path but belong to nobody's request. context.Background() would be
+// wrong twice over: database/sql waits for a free connection with no deadline
+// at all, so a slow admin query holding the pool could stall a relay
+// indefinitely, and there would be no upper bound on how long a handler sits
+// here after its client has already been answered.
+const bookkeepingTimeout = 5 * time.Second
+
 func (p *Pool) ReportSuccess(id string) {
 	p.mu.Lock()
 	h := p.stateOf(id)
 	h.cooldownUntil = time.Time{}
 	h.failures = 0
 	p.mu.Unlock()
-	p.store.MarkAccountUsed(context.Background(), id)
+
+	ctx, cancel := context.WithTimeout(context.Background(), bookkeepingTimeout)
+	defer cancel()
+	p.store.MarkAccountUsed(ctx, id)
 }
 
 // ReportFailure cools an account down, backing off further each consecutive
@@ -358,7 +461,9 @@ func (p *Pool) ReportFailure(id string, kind FailureKind, detail string) {
 	failures := h.failures
 	p.mu.Unlock()
 
-	p.store.MarkAccountError(context.Background(), id, string(kind)+": "+detail)
+	ctx, cancel := context.WithTimeout(context.Background(), bookkeepingTimeout)
+	defer cancel()
+	p.store.MarkAccountError(ctx, id, string(kind)+": "+detail)
 	p.log.Warn("account cooling down",
 		"account", id, "kind", kind, "failures", failures, "for", wait.String())
 }

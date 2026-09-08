@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/store"
+	"claudication/internal/store"
 )
 
 type ctxKey int

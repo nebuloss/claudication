@@ -174,15 +174,47 @@ service_install() {
   esac
 }
 
+# Nothing else rotates this file.
+#
+# systemd hands its unit's output to the journal, which has its own limits; the
+# OpenRC path writes to a plain file that grows for as long as the service runs.
+# The gateway logs a line per proxied request, so an unattended box eventually
+# fills its disk — and the state database is on the same one.
+write_logrotate() {
+  [ -d /etc/logrotate.d ] || return 0
+  cat > "/etc/logrotate.d/$SERVICE_NAME" <<EOF
+$LOG_FILE {
+  weekly
+  rotate 8
+  compress
+  delaycompress
+  missingok
+  notifempty
+  copytruncate
+  su root root
+  create 640 $SERVICE_USER root
+}
+EOF
+  # copytruncate rather than a restart: supervise-daemon holds the file open,
+  # and rotating it out from under a running gateway would send every
+  # subsequent line to a deleted inode.
+  info "Log rotation configured (/etc/logrotate.d/$SERVICE_NAME)"
+}
+
 write_openrc_service() {
   info "Installing the OpenRC service"
 
   # start-stop-daemon opens the log after dropping privileges, and /var/log is
   # root-owned 0755 — so the file has to exist and be writable beforehand, or
   # the service dies before producing any output to explain why.
-  : > "$LOG_FILE"
+  #
+  # Created only if absent: this script is also the update path, and `: >` would
+  # throw away the log every time, taking with it whatever the operator was
+  # about to read to find out why they were updating.
+  [ -f "$LOG_FILE" ] || : > "$LOG_FILE"
   chown "$SERVICE_USER" "$LOG_FILE"
   chmod 640 "$LOG_FILE"
+  write_logrotate
 
   cat > "/etc/init.d/$SERVICE_NAME" <<EOF
 #!/sbin/openrc-run

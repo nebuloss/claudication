@@ -83,6 +83,12 @@ function ChangePassword({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       onDone()
     } catch (err) {
       setError(messageOf(err))
+    } finally {
+      // Not only on the error path. onDone() re-renders Settings rather than
+      // unmounting this form, so without this the button stays on "Changing…"
+      // for ever with both passwords still on screen — and the operator, who
+      // has no way to tell it worked, tries again with a password that is now
+      // the old one and concludes they are locked out.
       setBusy(false)
     }
   }

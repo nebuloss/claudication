@@ -28,8 +28,11 @@ limits:
   requests-per-minute: 600
   # Per-IP budget for requests that have not authenticated yet.
   anon-per-minute: 60
-  # Maximum request body. Large-context traffic is legitimately big.
-  max-body-bytes: 268435456  # 256 MiB
+  # Maximum request body. Large-context traffic is legitimately big, but the
+  # body is buffered whole so a retry can replay it, and reading it costs
+  # roughly 2.5x its size while the buffer grows. Raise this only if you know
+  # you need to: a long Claude Code transcript is a couple of megabytes.
+  max-body-bytes: 33554432  # 32 MiB
 
 shutdown:
   # How long in-flight requests may finish after SIGINT/SIGTERM. Streaming

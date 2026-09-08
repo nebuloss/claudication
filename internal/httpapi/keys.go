@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/store"
+	"claudication/internal/store"
 )
 
 // Client API keys, from the admin API.
@@ -109,6 +109,51 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteKey withdraws a key. There is no revoke beside it: revocation
 // could not be undone either, so it was this under another name.
+// handleUpdateKey renames a key or changes its rate limit. The secret is not
+// touched, so nothing that already holds the key has to be told anything.
+func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name     string `json:"name"`
+		RPMLimit int    `json:"rpm_limit"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	body.Name = strings.TrimSpace(body.Name)
+	if body.Name == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "a name is required")
+		return
+	}
+	if body.RPMLimit < 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request",
+			"rpm_limit cannot be negative (0 means the global default)")
+		return
+	}
+
+	id := r.PathValue("id")
+	switch err := s.store.UpdateKey(r.Context(), id, body.Name, body.RPMLimit); {
+	case errors.Is(err, store.ErrKeyNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "no such key")
+		return
+	case err != nil:
+		s.log.Error("update api key", "err", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "internal_error", "could not update the key")
+		return
+	}
+	s.log.Info("api key updated", "id", id, "name", body.Name, "ip", clientIPFrom(r.Context()))
+
+	keys, err := s.store.ListKeys(r.Context())
+	if err == nil {
+		for _, k := range keys {
+			if k.ID == id {
+				writeJSON(w, http.StatusOK, map[string]any{"key": toKeyJSON(k, store.UsageBucket{})})
+				return
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
 func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch err := s.store.DeleteKey(r.Context(), id); {

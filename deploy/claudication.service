@@ -14,6 +14,18 @@ RestartSec=2s
 KillSignal=SIGTERM
 TimeoutStopSec=150s
 
+# A ceiling the Go runtime knows about, and one the kernel enforces.
+#
+# GOMEMLIMIT is the important half: without it the garbage collector paces
+# itself against a heap that can grow to whatever is available, so on a small
+# box the first thing that happens under load is the OOM killer rather than a
+# collection. MemoryMax is the backstop for when the runtime is wrong.
+# Both are generous for this workload — steady state is tens of megabytes —
+# and exist so a burst degrades into GC pressure instead of a killed process.
+Environment=GOMEMLIMIT=384MiB
+MemoryMax=512M
+MemoryAccounting=yes
+
 User=claudication
 Group=claudication
 StateDirectory=claudication

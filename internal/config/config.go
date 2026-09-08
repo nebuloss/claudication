@@ -130,7 +130,14 @@ func Defaults() Config {
 		Limits: LimitsConfig{
 			RequestsPerMinute: 600,
 			AnonPerMinute:     60,
-			MaxBodyBytes:      256 << 20, // 256 MiB
+			// 32 MiB, not 256. The body is read whole into memory so a retry
+			// can replay it, and io.ReadAll on a reader with no size hint —
+			// which is what MaxBytesReader gives it — allocates about 2.5× the
+			// body while it grows. At 256 MiB a single request could ask for
+			// most of a gigabyte on a 512 MB box. 32 MiB is still far above
+			// any real Messages request: a long Claude Code transcript is a
+			// couple of megabytes.
+			MaxBodyBytes: 32 << 20,
 		},
 		Passthrough: PassthroughConfig{ClaudeCodeAttribution: true},
 		Usage:       UsageConfig{RetentionDays: 30, ReportDays: 7},

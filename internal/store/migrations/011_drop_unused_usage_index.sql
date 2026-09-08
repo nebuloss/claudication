@@ -1,0 +1,16 @@
+-- idx_usage_key_at earned nothing and cost a great deal.
+--
+-- It was created for "this key, recently", a query nothing ever ran: every
+-- statement that touches key_id groups by it over the whole window rather than
+-- ranging on it, so EXPLAIN showed the planner using the index only as a full
+-- scan with a temporary B-tree on top — strictly worse than the table scan it
+-- replaced.
+--
+-- What it did cost was measurable: ~22 MB per 300k events, about 28% of the
+-- database file, plus a B-tree insert on the write path of every single
+-- proxied request. idx_usage_at, which serves the window filter every report
+-- actually uses, stays.
+--
+-- Dropping an index is reversible by re-creating it, so nothing is lost here
+-- that a later query pattern could not ask for again.
+DROP INDEX IF EXISTS idx_usage_key_at;

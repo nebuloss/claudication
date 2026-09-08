@@ -2,6 +2,7 @@ import { api, type Overview as OverviewData } from '../../api/client'
 import { useLoader } from '../hooks'
 import {
   Banner,
+  ErrorState,
   Card,
   CardTitle,
   CopyField,
@@ -37,7 +38,13 @@ export default function Overview({
     )
   }
   if (error !== '' || data === null) {
-    return <Banner tone="error">{error || 'Could not load the overview.'}</Banner>
+    return (
+      <ErrorState
+        message={error || 'Could not load the overview.'}
+        onRetry={() => void reload()}
+        busy={loading}
+      />
+    )
   }
 
   // The origin the browser reached us on is the one a client on this network

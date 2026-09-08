@@ -1,6 +1,9 @@
 package upstream
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // feedIn splits the stream at an awkward boundary to prove the scanner
 // reassembles records that arrive across chunks — which is the normal case on
@@ -99,7 +102,35 @@ func TestScannerBoundsItsBuffer(t *testing.T) {
 	for range 32 {
 		s.feed(blob)
 	}
-	if s.buf.Len() > 1<<20 {
-		t.Errorf("buffer grew to %d bytes", s.buf.Len())
+	if len(s.buf) > maxPending {
+		t.Errorf("buffer grew to %d bytes", len(s.buf))
+	}
+}
+
+// A data line larger than a chunk must still be read correctly, and must not
+// cost more the more pieces it arrives in.
+//
+// The old scanner read each line out of a bytes.Buffer and wrote any partial
+// line back into it, so a line spanning N chunks was copied N times: 111 ms for
+// a 1 MB line in MTU-sized pieces, spent synchronously between two writes to
+// the client. Large tool-use payloads arrive exactly that way.
+func TestScannerReadsALineSplitAcrossManyChunks(t *testing.T) {
+	var usage Usage
+	var streamErr string
+	s := newSSEScanner(&usage, &streamErr)
+
+	// A message_delta whose payload is padded well past any single chunk.
+	padding := strings.Repeat("y", 256*1024)
+	stream := "event: message_delta\n" +
+		`data: {"pad":"` + padding + `","usage":{"output_tokens":4321}}` + "\n\n"
+
+	for i := 0; i < len(stream); i += 1400 {
+		end := min(i+1400, len(stream))
+		s.feed([]byte(stream[i:end]))
+	}
+
+	if usage.OutputTokens != 4321 {
+		t.Errorf("output tokens = %d, want 4321: a line split across chunks was not reassembled",
+			usage.OutputTokens)
 	}
 }

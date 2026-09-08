@@ -10,7 +10,7 @@ If you never ran the old build, you can ignore this file.
 
 | | Before | After |
 |---|---|---|
-| Module | `github.com/nebuloss/claudiquement` | `github.com/nebuloss/claudication` |
+| Module | `github.com/nebuloss/claudiquement` | `claudication` |
 | Binary | `claudiquement` | `claudication` |
 | Environment | `CLAUDIQ_*` | `CLAUDICATION_*` |
 | API key prefix | `claudiq_…` | `clc_…` |

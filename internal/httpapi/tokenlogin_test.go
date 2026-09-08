@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/store"
+	"claudication/internal/store"
 )
 
 // noRedirectClient stops at the first response so the redirect itself is

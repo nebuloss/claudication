@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/oauth"
-	"github.com/nebuloss/claudication/internal/store"
-	"github.com/nebuloss/claudication/internal/upstream"
+	"claudication/internal/oauth"
+	"claudication/internal/store"
+	"claudication/internal/upstream"
 )
 
 const (
@@ -109,6 +109,9 @@ type accountJSON struct {
 	// serve the next request.
 	Position int  `json:"position"`
 	Serving  bool `json:"serving"`
+	// When a sidelined account comes back, if it is sitting one out. This is
+	// the pool's in-memory state, so it is empty after a restart.
+	CoolingUntil string `json:"cooling_until,omitempty"`
 }
 
 // quotaJSON is what /api/oauth/usage reported: the two headline windows, plus
@@ -319,10 +322,18 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 		usage = map[string]store.UsageBucket{}
 	}
 
+	// Ask the pool which account would serve rather than working it out again
+	// here. This walk used to approximate pick() and could not see a cooldown
+	// at all — cooldowns are in memory, not in the row — so an account sitting
+	// out a rate limit still wore the "serving" badge.
+	status, err := s.pool.Status(r.Context(), "anthropic")
+	if err != nil {
+		s.log.Error("account pool status", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
+		return
+	}
+
 	out := make([]accountJSON, 0, len(accounts))
-	// The listing arrives in priority order, so the first one that could serve
-	// is the one that would — the same walk the pool does.
-	served := false
 	for i, a := range accounts {
 		j := toAccountJSON(a)
 		j.Position = i
@@ -330,9 +341,9 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 			j.Requests = u.Requests
 			j.Tokens = u.InputTokens + u.OutputTokens + u.CacheTokens
 		}
-		if !served && !a.Disabled() && a.Quota.Allowed() {
-			j.Serving = true
-			served = true
+		j.Serving = a.ID == status.Serving
+		if until, ok := status.Cooling[a.ID]; ok {
+			j.CoolingUntil = until.UTC().Format(time.RFC3339)
 		}
 		out = append(out, j)
 	}
@@ -580,6 +591,39 @@ func (s *Server) handleRefreshAccount(w http.ResponseWriter, r *http.Request) {
 // with it, and there is nothing left to revoke. Forgetting a credential is not
 // the same as releasing it — an account removed here used to stay live
 // upstream until it aged out on its own.
+// handleSetAccountDisabled pauses an account, or resumes it.
+//
+// Pausing keeps the credentials: the alternative was deleting the account,
+// which revokes its refresh token upstream and means going through the browser
+// consent flow again to undo. "Not this one this week" should not cost that.
+func (s *Server) handleSetAccountDisabled(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Disabled bool `json:"disabled"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	id := r.PathValue("id")
+	switch err := s.store.SetAccountDisabled(r.Context(), id, body.Disabled); {
+	case errors.Is(err, store.ErrAccountNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "no such account")
+		return
+	case err != nil:
+		s.log.Error("set account disabled", "err", err, "account", id)
+		writeError(w, http.StatusInternalServerError, "internal_error", "could not update the account")
+		return
+	}
+	s.log.Info("account availability changed", "account", id, "disabled", body.Disabled,
+		"ip", clientIPFrom(r.Context()))
+
+	acct, err := s.store.Account(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]bool{"disabled": body.Disabled})
+		return
+	}
+	writeJSON(w, http.StatusOK, toAccountJSON(acct))
+}
+
 func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 

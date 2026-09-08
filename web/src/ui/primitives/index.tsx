@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useEscapeKey } from '../hooks'
 
 /* Material 3 primitives, shared by every screen. */
@@ -201,6 +201,14 @@ export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone
   )
 }
 
+/**
+ * Every message in the UI that appears in response to something the operator
+ * did goes through here, which is why the live region lives here too. Without
+ * it a failure is a purely visual event: the text appears, nothing announces
+ * it, and a screen-reader user is left looking at a form that seems to have
+ * done nothing. `alert` is assertive, which is right for a failure and wrong
+ * for anything else.
+ */
 export function Banner({
   children,
   tone,
@@ -216,11 +224,41 @@ export function Banner({
   }
   return (
     <div
+      role={tone === 'error' ? 'alert' : 'status'}
+      aria-live={tone === 'error' ? 'assertive' : 'polite'}
       className={`rounded-[var(--radius-md3-m)] px-4 py-3 text-sm ${
         tone ? tones[tone] : 'bg-surface-high text-on-surface-variant'
       } ${className}`}
     >
       {children}
+    </div>
+  )
+}
+
+/**
+ * A panel that could not load, with the way out of it.
+ *
+ * A bare error banner where a whole screen should be is a dead end: the tab
+ * shows a red box and offers nothing to press, so the only recovery is knowing
+ * to reload the page. A transient failure — a lapsed session, a gateway
+ * restarting — should cost one click.
+ */
+export function ErrorState({
+  message,
+  onRetry,
+  busy,
+}: {
+  message: string
+  onRetry: () => void
+  busy?: boolean
+}) {
+  return (
+    <div className="flex flex-col items-start gap-4">
+      <Banner tone="error">{message}</Banner>
+      <TonalButton onClick={onRetry} disabled={busy}>
+        {busy === true && <Spinner />}
+        {busy === true ? 'Retrying…' : 'Try again'}
+      </TonalButton>
     </div>
   )
 }
@@ -638,26 +676,78 @@ export function Segmented<T extends string>({
   )
 }
 
+/** Everything inside a dialog that can hold focus. */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * A modal dialog. `aria-modal` is a claim about behaviour, not an
+ * implementation of it: without a name, a focus trap and focus restoration, a
+ * screen reader announces an unnamed dialog and the keyboard walks straight out
+ * of it into the page underneath, which is still being read out as though it
+ * were reachable.
+ *
+ * `size` widens the panel for content that is genuinely wider than a
+ * confirmation — an API key is 40-odd monospace characters and wrapping it
+ * makes it harder to check what was copied.
+ */
 export function Modal({
   title,
   children,
   onClose,
+  size = 'md',
 }: {
   title: string
   children: ReactNode
   onClose: () => void
+  size?: 'md' | 'lg'
 }) {
   useEscapeKey(onClose)
+  const panel = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+
+  useEffect(() => {
+    const returnTo = document.activeElement as HTMLElement | null
+    // Focus the panel rather than its first control: the operator should hear
+    // the dialog's name before its buttons.
+    panel.current?.focus()
+    return () => returnTo?.focus?.()
+  }, [])
+
+  const trap = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab' || panel.current === null) return
+    const stops = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE))
+    if (stops.length === 0) return
+    const first = stops[0]
+    const last = stops[stops.length - 1]
+    const active = document.activeElement
+    if (e.shiftKey && (active === first || active === panel.current)) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-md rounded-[var(--radius-md3-xl)] border border-outline bg-surface-high p-6 shadow-xl"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={trap}
+        className={`relative w-full ${
+          size === 'lg' ? 'max-w-xl' : 'max-w-md'
+        } rounded-[var(--radius-md3-xl)] border border-outline bg-surface-high p-6 shadow-xl outline-none`}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
-          <h2 className="m-0 text-xl leading-7 font-normal text-on-surface">{title}</h2>
+          <h2 id={titleId} className="m-0 text-xl leading-7 font-normal text-on-surface">
+            {title}
+          </h2>
           <IconButton label="Close" onClick={onClose}>
             <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
           </IconButton>

@@ -15,7 +15,7 @@ import {
   type ChipTone,
 } from '../primitives'
 
-type Busy = '' | 'test' | 'refresh' | 'usage' | 'delete'
+type Busy = '' | 'test' | 'refresh' | 'usage' | 'disable' | 'delete'
 
 function formatDate(iso?: string): string {
   if (!iso) return 'never'
@@ -35,6 +35,13 @@ function relative(iso: string): string {
 
 function status(a: Account): { tone: ChipTone; label: string } {
   if (a.disabled) return { tone: 'error', label: 'disabled' }
+  // Cooling down comes first among the recoverable states, because it is the
+  // only one that answers "why is this account not being used right now" —
+  // and it is the one the card could not show at all until the pool started
+  // reporting it.
+  if (a.cooling_until !== undefined && a.cooling_until !== '') {
+    return { tone: 'warn', label: `cooling down, back ${relative(a.cooling_until)}` }
+  }
   // A subscription window the upstream is refusing outranks a stale token:
   // refreshing fixes one and does nothing at all for the other.
   if (a.quota !== undefined && !a.quota.allowed) return { tone: 'error', label: 'limit reached' }
@@ -66,7 +73,12 @@ export default function AccountCard({
   onChanged: () => void
   onRemoved: () => void
 }) {
-  const [account, setAccount] = useState(initial)
+  // The prop is the only source of truth. Copying it into state and updating
+  // that copy locally left the card showing whatever it last fetched for
+  // itself: after a reorder, `serving` and the rank came from the old render
+  // and the wrong account wore the badge. Every action that changes an account
+  // now asks the parent to reload instead.
+  const account = initial
   const [probe, setProbe] = useState<ProbeResult | null>(null)
   const [busy, setBusy] = useState<Busy>('')
   const [error, setError] = useState('')
@@ -90,18 +102,31 @@ export default function AccountCard({
     setBusy('usage')
     setError('')
     try {
-      setAccount(await api.refreshUsage(account.id))
+      await api.refreshUsage(account.id)
     } catch (err) {
       setError(messageOf(err))
     }
     setBusy('')
+    onChanged()
   }
 
   const runRefresh = async () => {
     setBusy('refresh')
     setError('')
     try {
-      setAccount(await api.refreshAccount(account.id))
+      await api.refreshAccount(account.id)
+    } catch (err) {
+      setError(messageOf(err))
+    }
+    setBusy('')
+    onChanged()
+  }
+
+  const runToggleDisabled = async () => {
+    setBusy('disable')
+    setError('')
+    try {
+      await api.setAccountDisabled(account.id, !account.disabled)
     } catch (err) {
       setError(messageOf(err))
     }
@@ -231,6 +256,13 @@ export default function AccountCard({
         <OutlinedButton onClick={runRefresh} disabled={busy !== ''}>
           {busy === 'refresh' && <Spinner />}
           {busy === 'refresh' ? 'Refreshing…' : 'Refresh token'}
+        </OutlinedButton>
+        {/* Pausing keeps the credentials; removing destroys them and revokes
+            the token upstream, so getting the account back means going through
+            the browser consent flow again. */}
+        <OutlinedButton onClick={runToggleDisabled} disabled={busy !== ''}>
+          {busy === 'disable' && <Spinner />}
+          {account.disabled ? 'Resume' : 'Pause'}
         </OutlinedButton>
         <OutlinedButton onClick={runDelete} disabled={busy !== ''} tone="error">
           Remove

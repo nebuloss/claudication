@@ -5,7 +5,6 @@ import {
   Banner,
   Card,
   CardTitle,
-  CopyField,
   Empty,
   Field,
   FilledButton,
@@ -26,10 +25,24 @@ import {
  * that. The UI has to be honest about it rather than implying it can be looked
  * up later.
  */
-export default function Keys({ onExpired }: { onExpired: () => void }) {
+export default function Keys({
+  onExpired,
+  onMinted,
+}: {
+  onExpired: () => void
+  /**
+   * Hands a freshly created key up to the app shell.
+   *
+   * It cannot live here. This panel unmounts the moment the operator changes
+   * tab — or presses Back, since the tabs are hash routes — and the plaintext
+   * is genuinely unrecoverable once it is gone, so a stray click would destroy
+   * the only copy of a credential with no warning at all.
+   */
+  onMinted: (m: { key: ApiKey; plaintext: string }) => void
+}) {
   const { data, error, loading, reload } = useLoader(() => api.listKeys(), onExpired)
-  const [minted, setMinted] = useState<{ key: ApiKey; plaintext: string } | null>(null)
   const [busy, setBusy] = useState('')
+  const [editing, setEditing] = useState('')
   const [actionError, setActionError] = useState('')
 
   const act = async (id: string, fn: () => Promise<unknown>) => {
@@ -46,22 +59,7 @@ export default function Keys({ onExpired }: { onExpired: () => void }) {
 
   return (
     <div className="flex flex-col gap-5">
-      {minted !== null && (
-        <Card>
-          <CardTitle
-            aside={<TextButton onClick={() => setMinted(null)}>Done</TextButton>}
-          >
-            {minted.key.name}
-          </CardTitle>
-          <Banner tone="warn" className="mb-4">
-            This is the only time the key is shown. Nothing can retrieve it afterwards — only the
-            hash is stored. Copy it now.
-          </Banner>
-          <CopyField label="API key" value={minted.plaintext} />
-        </Card>
-      )}
-
-      <NewKey onCreated={(m) => { setMinted(m); void reload() }} />
+      <NewKey onCreated={(m) => { onMinted(m); void reload() }} />
 
       <Card>
         <CardTitle
@@ -95,34 +93,54 @@ export default function Keys({ onExpired }: { onExpired: () => void }) {
           <Empty>No API keys yet. Create one above and give it to a client.</Empty>
         ) : (
           <Table head={['Name', 'Key', 'Requests', 'Tokens', 'Last used', 'Limit', '']}>
-            {data.keys.map((k) => (
-              <tr key={k.id} className="border-b border-outline-variant last:border-0">
-                <td className="px-2 py-3">
-                  <div className="text-on-surface">{k.name}</div>
-                  <div className="text-xs text-on-surface-variant">
-                    created {ago(k.created_at)}
-                  </div>
-                </td>
-                <td className="px-2 py-3 font-mono text-xs text-on-surface-variant">{k.display}</td>
-                <td className="px-2 py-3 tabular-nums">{compact(k.requests)}</td>
-                <td className="px-2 py-3 tabular-nums">{compact(k.tokens)}</td>
-                <td className="px-2 py-3 text-on-surface-variant">{ago(k.last_used_at)}</td>
-                <td className="px-2 py-3 text-on-surface-variant">
-                  {k.rpm_limit > 0 ? `${k.rpm_limit}/min` : 'default'}
-                </td>
-                <td className="px-2 py-3">
-                  <div className="flex justify-end">
-                    <TextButton
-                      tone="error"
-                      disabled={busy === k.id}
-                      onClick={() => void act(k.id, () => api.deleteKey(k.id))}
-                    >
-                      Delete
-                    </TextButton>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {data.keys.map((k) =>
+              editing === k.id ? (
+                <EditKeyRow
+                  key={k.id}
+                  apiKey={k}
+                  busy={busy === k.id}
+                  onCancel={() => setEditing('')}
+                  onSave={(name, rpm) =>
+                    void act(k.id, async () => {
+                      await api.updateKey(k.id, name, rpm)
+                      setEditing('')
+                    })
+                  }
+                />
+              ) : (
+                <tr key={k.id} className="border-b border-outline-variant last:border-0">
+                  <td className="px-2 py-3">
+                    <div className="text-on-surface">{k.name}</div>
+                    <div className="text-xs text-on-surface-variant">
+                      created {ago(k.created_at)}
+                    </div>
+                  </td>
+                  <td className="px-2 py-3 font-mono text-xs text-on-surface-variant">
+                    {k.display}
+                  </td>
+                  <td className="px-2 py-3 tabular-nums">{compact(k.requests)}</td>
+                  <td className="px-2 py-3 tabular-nums">{compact(k.tokens)}</td>
+                  <td className="px-2 py-3 text-on-surface-variant">{ago(k.last_used_at)}</td>
+                  <td className="px-2 py-3 text-on-surface-variant">
+                    {k.rpm_limit > 0 ? `${k.rpm_limit}/min` : 'default'}
+                  </td>
+                  <td className="px-2 py-3">
+                    <div className="flex justify-end gap-2">
+                      <TextButton disabled={busy === k.id} onClick={() => setEditing(k.id)}>
+                        Edit
+                      </TextButton>
+                      <TextButton
+                        tone="error"
+                        disabled={busy === k.id}
+                        onClick={() => void act(k.id, () => api.deleteKey(k.id))}
+                      >
+                        Delete
+                      </TextButton>
+                    </div>
+                  </td>
+                </tr>
+              ),
+            )}
           </Table>
         )}
 
@@ -132,6 +150,59 @@ export default function Keys({ onExpired }: { onExpired: () => void }) {
         </p>
       </Card>
     </div>
+  )
+}
+
+/** The same row, in edit mode. The key itself is not editable — only its label
+ *  and its budget, which is the point: changing the secret means visiting every
+ *  client that holds it. */
+function EditKeyRow({
+  apiKey,
+  busy,
+  onSave,
+  onCancel,
+}: {
+  apiKey: ApiKey
+  busy: boolean
+  onSave: (name: string, rpmLimit: number) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(apiKey.name)
+  const [rpm, setRpm] = useState(apiKey.rpm_limit > 0 ? String(apiKey.rpm_limit) : '')
+
+  const limit = rpm.trim() === '' ? 0 : Math.floor(Number(rpm))
+  const valid = name.trim() !== '' && Number.isFinite(limit) && limit >= 0
+
+  return (
+    <tr className="border-b border-outline-variant last:border-0">
+      <td className="px-2 py-3" colSpan={2}>
+        <Field label="Name" value={name} onChange={setName} autoFocus className="max-w-xs" />
+      </td>
+      <td className="px-2 py-3" colSpan={3}>
+        <span className="text-xs text-on-surface-variant">
+          The key itself never changes, so nothing holding it needs updating.
+        </span>
+      </td>
+      <td className="px-2 py-3">
+        <Field
+          label="Per minute"
+          value={rpm}
+          onChange={setRpm}
+          type="number"
+          className="max-w-[9rem]"
+        />
+      </td>
+      <td className="px-2 py-3">
+        <div className="flex justify-end gap-2">
+          <TextButton disabled={busy || !valid} onClick={() => onSave(name.trim(), limit)}>
+            {busy ? 'Saving…' : 'Save'}
+          </TextButton>
+          <TextButton disabled={busy} onClick={onCancel}>
+            Cancel
+          </TextButton>
+        </div>
+      </td>
+    </tr>
   )
 }
 

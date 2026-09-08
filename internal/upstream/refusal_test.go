@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebuloss/claudication/internal/pool"
-	"github.com/nebuloss/claudication/internal/store"
+	"claudication/internal/pool"
+	"claudication/internal/store"
 )
 
 // onePool is a Pool stand-in with a single account, which is the case that
@@ -57,7 +57,7 @@ func TestARefusalReachesTheClientVerbatim(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
-	res := relay.Do(rec, req, "anthropic", "/v1/messages", []byte(`{}`))
+	res := relay.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), Prologue{})
 
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want the upstream's 429 (a substituted error is the bug)", rec.Code)
@@ -88,7 +88,7 @@ func TestNoAccountStillErrors(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
-	res := relay.Do(rec, req, "anthropic", "/v1/messages", []byte(`{}`))
+	res := relay.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), Prologue{})
 
 	if res.Err == nil {
 		t.Fatal("no accounts reported as success")

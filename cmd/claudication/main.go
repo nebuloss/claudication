@@ -18,12 +18,12 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/nebuloss/claudication/internal/config"
-	"github.com/nebuloss/claudication/internal/httpapi"
-	"github.com/nebuloss/claudication/internal/logging"
-	"github.com/nebuloss/claudication/internal/secret"
-	"github.com/nebuloss/claudication/internal/store"
-	"github.com/nebuloss/claudication/internal/version"
+	"claudication/internal/config"
+	"claudication/internal/httpapi"
+	"claudication/internal/logging"
+	"claudication/internal/secret"
+	"claudication/internal/store"
+	"claudication/internal/version"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module github.com/nebuloss/claudication
+module claudication
 
 go 1.26.0
 

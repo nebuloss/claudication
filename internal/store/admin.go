@@ -36,24 +36,59 @@ var (
 	ErrPasswordTooShort = fmt.Errorf("password must be at least %d characters", MinPasswordLength)
 )
 
+// kdfGate bounds how many scrypt derivations run at once.
+//
+// scrypt's cost is memory, and that is the whole point of it — but it also
+// makes every endpoint that derives a password an amplifier: one small,
+// unauthenticated request asks the process for 32 MiB. The per-IP rate
+// limiter does not help here, because its bucket starts full, so a single
+// caller can put a whole minute's budget in flight *simultaneously* — 60
+// requests, ~1.9 GiB, on a box with 512 MB.
+//
+// Two at a time. Nobody signing in notices the queue; an attacker gets a
+// queue instead of the machine's memory. This bounds concurrency, not rate:
+// the limiters still do that.
+var kdfGate = make(chan struct{}, 2)
+
+func withKDF[T any](ctx context.Context, fn func() T) (T, error) {
+	var zero T
+	select {
+	case kdfGate <- struct{}{}:
+	case <-ctx.Done():
+		return zero, ctx.Err()
+	}
+	defer func() { <-kdfGate }()
+	return fn(), nil
+}
+
 // hashPassword renders scrypt$<N>$<salt-hex>$<derived-hex>.
 //
 // The parameters travel with the hash rather than being assumed, so raising the
 // cost later does not lock out an account created under the old one.
-func hashPassword(password string) (string, error) {
+func hashPassword(ctx context.Context, password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("generate salt: %w", err)
 	}
-	derived, err := scrypt.Key([]byte(password), salt, scryptN, scryptR, scryptP, scryptKeyLen)
+	type result struct {
+		derived []byte
+		err     error
+	}
+	got, err := withKDF(ctx, func() result {
+		d, err := scrypt.Key([]byte(password), salt, scryptN, scryptR, scryptP, scryptKeyLen)
+		return result{d, err}
+	})
 	if err != nil {
-		return "", fmt.Errorf("derive password hash: %w", err)
+		return "", err
+	}
+	if got.err != nil {
+		return "", fmt.Errorf("derive password hash: %w", got.err)
 	}
 	return fmt.Sprintf("scrypt$%d$%s$%s", scryptN,
-		hex.EncodeToString(salt), hex.EncodeToString(derived)), nil
+		hex.EncodeToString(salt), hex.EncodeToString(got.derived)), nil
 }
 
-func verifyPassword(password, stored string) bool {
+func verifyPassword(ctx context.Context, password, stored string) bool {
 	parts := strings.Split(stored, "$")
 	if len(parts) != 4 || parts[0] != "scrypt" {
 		return false
@@ -70,11 +105,14 @@ func verifyPassword(password, stored string) bool {
 	if err != nil {
 		return false
 	}
-	derived, err := scrypt.Key([]byte(password), salt, n, scryptR, scryptP, len(expected))
-	if err != nil {
-		return false
-	}
-	return subtle.ConstantTimeCompare(derived, expected) == 1
+	ok, err := withKDF(ctx, func() bool {
+		derived, err := scrypt.Key([]byte(password), salt, n, scryptR, scryptP, len(expected))
+		if err != nil {
+			return false
+		}
+		return subtle.ConstantTimeCompare(derived, expected) == 1
+	})
+	return err == nil && ok
 }
 
 // AdminExists reports whether the gateway has been set up. A false answer is
@@ -93,7 +131,19 @@ func (s *Store) CreateAdmin(ctx context.Context, password string) error {
 	if len([]rune(password)) < MinPasswordLength {
 		return ErrPasswordTooShort
 	}
-	hash, err := hashPassword(password)
+	// Check before deriving, not after. The INSERT OR IGNORE below is still
+	// what makes this safe against a race, but reaching it costs 32 MiB and
+	// ~100 ms of scrypt, and on a gateway that is already claimed — which is
+	// every gateway, for all of its life after the first minute — that work is
+	// spent solely to produce a 409. An unauthenticated endpoint should not do
+	// expensive work before it knows the work is wanted.
+	switch exists, err := s.AdminExists(ctx); {
+	case err != nil:
+		return err
+	case exists:
+		return ErrAdminExists
+	}
+	hash, err := hashPassword(ctx, password)
 	if err != nil {
 		return err
 	}
@@ -121,7 +171,7 @@ func (s *Store) VerifyAdmin(ctx context.Context, password string) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("load admin account: %w", err)
 	}
-	return verifyPassword(password, hash), nil
+	return verifyPassword(ctx, password, hash), nil
 }
 
 // ChangeAdminPassword requires the current one. Knowing a live session is not
@@ -144,7 +194,7 @@ func (s *Store) SetAdminPassword(ctx context.Context, password string) error {
 	if len([]rune(password)) < MinPasswordLength {
 		return ErrPasswordTooShort
 	}
-	hash, err := hashPassword(password)
+	hash, err := hashPassword(ctx, password)
 	if err != nil {
 		return err
 	}

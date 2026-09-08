@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebuloss/claudication/internal/pool"
+	"claudication/internal/pool"
 )
 
 // buildFor exercises the header rewriting in isolation.

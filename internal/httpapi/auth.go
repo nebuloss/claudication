@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/nebuloss/claudication/internal/store"
+	"claudication/internal/store"
 )
 
 // extractCredential reads the presented key.
@@ -45,21 +45,33 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIPFrom(r.Context())
 
-		// Cheap per-IP guard first: an unauthenticated flood should not get as
-		// far as a database round-trip.
-		if !s.anonLimiter.allow(ip, s.cfg.Limits.AnonPerMinute) {
+		// The anonymous budget is checked here but only *spent* below, on
+		// requests that turn out to be anonymous. Spending it unconditionally
+		// billed every authenticated request against anon-per-minute as
+		// well — and since this middleware also fronts /v1/messages, that
+		// silently capped real traffic at 60 requests a minute rather than the
+		// 600 the per-key limit documents. Claude Code's subagent fan-out
+		// crosses 60/min routinely.
+		//
+		// Peeking first still keeps an unauthenticated flood off the database:
+		// each failure charges the bucket, so once an IP has spent its budget
+		// the peek refuses it before the lookup.
+		anon := func() bool { return s.anonLimiter.allow(ip, s.cfg.Limits.AnonPerMinute) }
+		if !s.anonLimiter.peek(ip, s.cfg.Limits.AnonPerMinute) {
 			writeError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
 			return
 		}
 
 		cred := extractCredential(r)
 		if cred == "" {
+			anon()
 			writeError(w, http.StatusUnauthorized, "authentication_error", "missing API key")
 			return
 		}
 
 		key, err := s.store.Authenticate(r.Context(), cred)
 		if errors.Is(err, store.ErrKeyNotFound) {
+			anon()
 			writeError(w, http.StatusUnauthorized, "authentication_error", "invalid API key")
 			return
 		}

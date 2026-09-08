@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/store"
-	"github.com/nebuloss/claudication/internal/upstream"
+	"claudication/internal/store"
+	"claudication/internal/upstream"
 )
 
 // usagePollInterval is how often every account's subscription usage is

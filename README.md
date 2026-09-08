@@ -210,7 +210,19 @@ to claudication and is never rewritten, so comments survive. Credentials live in
 state database, not in config.
 
     CLAUDICATION_LISTEN, CLAUDICATION_STATE_DIR, CLAUDICATION_LOG_LEVEL, CLAUDICATION_LOG_FORMAT,
-    CLAUDICATION_REQUESTS_PER_MINUTE, CLAUDICATION_SECRET_KEY
+    CLAUDICATION_REQUESTS_PER_MINUTE, CLAUDICATION_SECRET_KEY,
+    CLAUDICATION_CLAUDE_CODE_ATTRIBUTION
+
+`CLAUDICATION_CLAUDE_CODE_ATTRIBUTION` (`passthrough.claude-code-attribution`,
+default **on**) is the one setting that changes what is sent upstream. Anthropic's
+subscription backend gates opus, sonnet and fable on Claude Code's attribution
+block arriving as the *first* system block, and refuses anything else as a
+`429 rate_limit_error` with the message `"Error"` and no rate-limit headers —
+which reads exactly like quota exhaustion and is nothing of the sort. With this
+on, a client that did not send that block has it prepended, so it reaches the
+models the subscription pays for. Set it to `false` for strict byte-for-byte
+passthrough, and accept that non-Claude-Code clients then get haiku and nothing
+above it. A body that already leads with an accepted block is never rewritten.
 
 ## Endpoints
 

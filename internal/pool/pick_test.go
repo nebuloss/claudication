@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/store"
+	"claudication/internal/store"
 )
 
 // account builds a candidate at a given utilisation, as a percentage — the

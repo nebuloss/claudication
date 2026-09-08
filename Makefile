@@ -2,7 +2,7 @@ BINARY  := claudication
 CMD     := ./cmd/claudication
 DIST    := dist
 WEBDIST := internal/httpapi/webdist
-PKG     := github.com/nebuloss/claudication/internal/version
+PKG     := claudication/internal/version
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)

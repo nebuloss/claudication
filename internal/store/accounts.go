@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/secret"
+	"claudication/internal/secret"
 )
 
 var ErrAccountNotFound = errors.New("account not found")
@@ -409,6 +409,36 @@ func (s *Store) MarkAccountError(ctx context.Context, id, msg string) {
 func (s *Store) MarkAccountUsed(ctx context.Context, id string) {
 	_, _ = s.db.ExecContext(ctx, `UPDATE accounts SET last_used_at = ?, last_error = NULL WHERE id = ?`,
 		time.Now().UTC().Format(time.RFC3339), id)
+}
+
+// SetAccountDisabled takes an account out of rotation, or puts it back.
+//
+// The column, the Disabled() helper, the pool's check and the UI badge all
+// existed already; nothing ever wrote the value, so the only way to stop using
+// an account was to delete it and destroy its credentials. That is a poor
+// answer to "not this one this week" — reconnecting means going through the
+// browser flow again.
+//
+// Reconnecting an account clears this, which is the right behaviour: an
+// operator who goes through the consent flow again means to use it.
+func (s *Store) SetAccountDisabled(ctx context.Context, id string, disabled bool) error {
+	var res sql.Result
+	var err error
+	if disabled {
+		res, err = s.db.ExecContext(ctx,
+			`UPDATE accounts SET disabled_at = ? WHERE id = ?`,
+			time.Now().UTC().Format(time.RFC3339), id)
+	} else {
+		res, err = s.db.ExecContext(ctx,
+			`UPDATE accounts SET disabled_at = NULL WHERE id = ?`, id)
+	}
+	if err != nil {
+		return fmt.Errorf("set account disabled: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrAccountNotFound
+	}
+	return nil
 }
 
 func (s *Store) DeleteAccount(ctx context.Context, id string) error {

@@ -5,6 +5,35 @@ import (
 	"encoding/json"
 )
 
+// sseEvent names the events this scanner reacts to. An enum rather than the
+// wire: comparing bytes to a constant costs nothing, where keeping the name
+// meant allocating a string for every `event:` line in the stream — thousands
+// per response, none of which outlive the next line.
+type sseEvent uint8
+
+const (
+	evOther sseEvent = iota
+	evError
+	evMessageStart
+	evMessageDelta
+)
+
+func eventOf(name []byte) sseEvent {
+	switch {
+	case bytes.Equal(name, []byte("error")):
+		return evError
+	case bytes.Equal(name, []byte("message_start")):
+		return evMessageStart
+	case bytes.Equal(name, []byte("message_delta")):
+		return evMessageDelta
+	}
+	return evOther
+}
+
+// maxPending bounds the bytes held while waiting for a newline. SSE records are
+// small, so anything past this is not a record we are going to make sense of.
+const maxPending = 1 << 20
+
 // sseScanner watches a relayed SSE stream for token usage and mid-stream
 // errors, without ever touching the bytes on their way to the client.
 //
@@ -18,8 +47,17 @@ import (
 // failing the request, because nothing this type learns is worth breaking a
 // response over.
 type sseScanner struct {
-	buf     bytes.Buffer
-	event   string
+	// buf holds bytes not yet consumed, and start is where the next line
+	// begins. Slicing rather than a bytes.Buffer is what keeps this cheap: the
+	// old version read each line out with ReadBytes — an allocation per line,
+	// measured at 1.4x the size of the whole stream — and then wrote any
+	// partial line back into the same buffer it had just read it from, which
+	// made a long line quadratic in the number of chunks it arrived in. A 1 MB
+	// tool-use payload delivered in MTU-sized pieces spent ~111 ms doing that,
+	// synchronously, between two writes to the client.
+	buf     []byte
+	start   int
+	event   sseEvent
 	usage   *Usage
 	errOut  *string
 	stopped bool
@@ -34,21 +72,27 @@ func (s *sseScanner) feed(chunk []byte) {
 	if s.stopped {
 		return
 	}
-	// Guard against a pathological line with no newline growing without
-	// bound; SSE records are small, so anything huge is not a record.
-	if s.buf.Len() > 1<<20 {
-		s.buf.Reset()
+
+	// Reclaim what has been consumed. Only when a line has completed, so a
+	// long line still being assembled grows by amortised append instead of
+	// being recopied for every chunk that arrives.
+	if s.start > 0 {
+		s.buf = append(s.buf[:0], s.buf[s.start:]...)
+		s.start = 0
 	}
-	s.buf.Write(chunk)
+	if len(s.buf)+len(chunk) > maxPending {
+		s.buf = s.buf[:0]
+	}
+	s.buf = append(s.buf, chunk...)
 
 	for {
-		line, err := s.buf.ReadBytes('\n')
-		if err != nil {
-			// Partial line: put it back and wait for the rest.
-			s.buf.Write(line)
-			return
+		i := bytes.IndexByte(s.buf[s.start:], '\n')
+		if i < 0 {
+			return // partial line; wait for the rest
 		}
-		s.line(bytes.TrimRight(line, "\r\n"))
+		line := s.buf[s.start : s.start+i]
+		s.start += i + 1
+		s.line(bytes.TrimSuffix(line, []byte("\r")))
 	}
 }
 
@@ -59,9 +103,9 @@ func (s *sseScanner) done() {}
 func (s *sseScanner) line(line []byte) {
 	switch {
 	case len(line) == 0:
-		s.event = ""
+		s.event = evOther
 	case bytes.HasPrefix(line, []byte("event:")):
-		s.event = string(bytes.TrimSpace(line[len("event:"):]))
+		s.event = eventOf(bytes.TrimSpace(line[len("event:"):]))
 	case bytes.HasPrefix(line, []byte("data:")):
 		s.data(bytes.TrimSpace(line[len("data:"):]))
 	}
@@ -73,7 +117,7 @@ func (s *sseScanner) data(payload []byte) {
 	}
 
 	switch s.event {
-	case "error":
+	case evError:
 		var e struct {
 			Error struct {
 				Type    string `json:"type"`
@@ -85,7 +129,7 @@ func (s *sseScanner) data(payload []byte) {
 			s.stopped = true
 		}
 
-	case "message_start":
+	case evMessageStart:
 		var m struct {
 			Message struct {
 				Usage usageJSON `json:"usage"`
@@ -95,7 +139,7 @@ func (s *sseScanner) data(payload []byte) {
 			m.Message.Usage.applyTo(s.usage)
 		}
 
-	case "message_delta":
+	case evMessageDelta:
 		// Usage on message_delta is cumulative, so assignment is correct and
 		// accumulation would double count.
 		var d struct {

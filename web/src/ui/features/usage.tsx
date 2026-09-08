@@ -4,6 +4,7 @@ import { useLoader } from '../hooks'
 import {
   Bar,
   Banner,
+  ErrorState,
   Card,
   CardTitle,
   Chip,
@@ -40,7 +41,7 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
     )
   }
   if (error !== '') {
-    return <Banner tone="error">{error}</Banner>
+    return <ErrorState message={error} onRetry={() => void reload()} busy={loading} />
   }
   if (data !== null && !data.enabled) {
     return (

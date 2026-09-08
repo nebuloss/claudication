@@ -6,13 +6,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/config"
-	"github.com/nebuloss/claudication/internal/secret"
-	"github.com/nebuloss/claudication/internal/store"
+	"claudication/internal/config"
+	"claudication/internal/secret"
+	"claudication/internal/store"
 )
 
 func newTestServer(t *testing.T) (*Server, *store.Store, config.Config) {
@@ -39,6 +40,20 @@ func newTestServer(t *testing.T) (*Server, *store.Store, config.Config) {
 		t.Fatalf("New: %v", err)
 	}
 	return srv, st, cfg
+}
+
+// seedAccount connects one upstream account with a token that has not expired,
+// so the pool can hand out a lease without reaching a real provider.
+func seedAccount(t *testing.T, st *store.Store, srv *Server) error {
+	t.Helper()
+	_, err := st.UpsertAccount(context.Background(), srv.sealer,
+		store.Account{
+			Provider:  "anthropic",
+			Email:     "test@example.com",
+			ExpiresAt: time.Now().Add(time.Hour),
+		},
+		store.Tokens{AccessToken: "test-access", RefreshToken: "test-refresh"})
+	return err
 }
 
 // startServer runs the server on an ephemeral port and returns its base URL.
@@ -159,23 +174,89 @@ func TestModelsRequiresAuth(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
+			// A valid credential must get past authentication. There is no
+			// account connected in this fixture, so the request then fails
+			// upstream — which is the correct answer, and the subject of
+			// TestModelDiscovery below.
+			if resp.StatusCode == http.StatusUnauthorized {
 				b, _ := io.ReadAll(resp.Body)
-				t.Fatalf("status = %d, body = %s", resp.StatusCode, b)
-			}
-			// The contract requires a data array; discovery reads it directly.
-			var body struct {
-				Object string `json:"object"`
-				Data   []any  `json:"data"`
-			}
-			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-				t.Fatal(err)
-			}
-			if body.Data == nil {
-				t.Error("data must be present (an empty array, not null)")
+				t.Fatalf("valid key rejected: status = %d, body = %s", resp.StatusCode, b)
 			}
 		})
 	}
+}
+
+// TestModelDiscovery pins the half of the contract that matters most about
+// failure. Claude Code falls back to its cached model list only when the
+// discovery request *fails*; a 200 carrying an empty data array is a
+// successful answer meaning "this gateway serves no models", which overwrites
+// the cache with nothing and empties the model picker. So an upstream that
+// cannot be reached has to surface as an error status, not as an empty list.
+func TestModelDiscovery(t *testing.T) {
+	t.Run("relays the upstream list", func(t *testing.T) {
+		upstreamSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if got := r.URL.Query().Get("limit"); got != "1000" {
+				t.Errorf("limit = %q, want the client's own query to be forwarded", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"claude-opus-5","type":"model"}]}`)
+		}))
+		defer upstreamSrv.Close()
+
+		body, status := discover(t, upstreamSrv.URL)
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200", status)
+		}
+		var parsed struct {
+			Object string `json:"object"`
+			Data   []any  `json:"data"`
+		}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		if len(parsed.Data) != 1 {
+			t.Errorf("data = %v, want the upstream's own entry relayed", parsed.Data)
+		}
+	})
+
+	t.Run("a failing upstream is an error, not an empty list", func(t *testing.T) {
+		upstreamSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer upstreamSrv.Close()
+
+		body, status := discover(t, upstreamSrv.URL)
+		if status == http.StatusOK {
+			t.Fatalf("status = 200, body = %s; a 200 poisons the client's cached model list", body)
+		}
+	})
+}
+
+// discover runs one authenticated GET /v1/models against a gateway whose
+// upstream is baseURL, and returns the body and status.
+func discover(t *testing.T, baseURL string) ([]byte, int) {
+	t.Helper()
+	srv, st, _ := newTestServer(t)
+	srv.relay.BaseURL = baseURL
+	if err := seedAccount(t, st, srv); err != nil {
+		t.Fatal(err)
+	}
+	base, cancel, done := startServer(t, srv)
+	defer func() { cancel(); <-done }()
+
+	_, plaintext, err := st.CreateKey(context.Background(), "discovery", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, base+"/v1/models?limit=1000", nil)
+	req.Header.Set("X-Api-Key", plaintext)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return body, resp.StatusCode
 }
 
 func TestDeletedKeyIsRejected(t *testing.T) {

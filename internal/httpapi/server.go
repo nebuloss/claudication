@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/config"
-	"github.com/nebuloss/claudication/internal/oauth"
-	"github.com/nebuloss/claudication/internal/pool"
-	"github.com/nebuloss/claudication/internal/secret"
-	"github.com/nebuloss/claudication/internal/store"
-	"github.com/nebuloss/claudication/internal/upstream"
-	"github.com/nebuloss/claudication/internal/version"
+	"claudication/internal/config"
+	"claudication/internal/oauth"
+	"claudication/internal/pool"
+	"claudication/internal/secret"
+	"claudication/internal/store"
+	"claudication/internal/upstream"
+	"claudication/internal/version"
 )
 
 type Server struct {
@@ -91,8 +91,14 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 				TLSHandshakeTimeout:   15 * time.Second,
 				ExpectContinueTimeout: time.Second,
 				// Streaming responses must not be buffered by the transport.
-				ForceAttemptHTTP2:  true,
-				DisableCompression: false,
+				ForceAttemptHTTP2: true,
+				// The relay sets Accept-Encoding: identity itself, so there is
+				// nothing here for the transport to negotiate or unwrap. Saying
+				// so explicitly keeps the two from drifting apart: it is the
+				// transport's *implicit* gzip, which only decompresses when it
+				// also set the header, that made a client's own Accept-Encoding
+				// silently break usage accounting.
+				DisableCompression: true,
 			},
 		},
 	}
@@ -131,9 +137,14 @@ func (s *Server) routes() http.Handler {
 
 	// Admin API. Setup and sign-in are outside requireAdmin: a gateway with no
 	// password yet has nothing to authenticate against.
+	//
+	// These two change state without a cookie to protect them, so they carry
+	// their own cross-site check — see sameSiteOnly. Everything under
+	// requireAdmin is already covered by the session cookie being
+	// SameSite=Strict.
 	mux.HandleFunc("GET /admin/setup", s.handleSetupStatus)
-	mux.HandleFunc("POST /admin/setup", s.handleSetup)
-	mux.HandleFunc("POST /admin/session", s.handleAdminLogin)
+	mux.Handle("POST /admin/setup", sameSiteOnly(http.HandlerFunc(s.handleSetup)))
+	mux.Handle("POST /admin/session", sameSiteOnly(http.HandlerFunc(s.handleAdminLogin)))
 	mux.HandleFunc("DELETE /admin/session", s.handleAdminLogout)
 	mux.HandleFunc("GET /admin/session", s.handleTokenSession)
 
@@ -148,11 +159,13 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("POST /admin/accounts/{id}/test", admin(s.handleTestAccount))
 	mux.Handle("POST /admin/accounts/{id}/refresh", admin(s.handleRefreshAccount))
 	mux.Handle("POST /admin/accounts/{id}/usage", admin(s.handleRefreshUsage))
+	mux.Handle("POST /admin/accounts/{id}/disabled", admin(s.handleSetAccountDisabled))
 	mux.Handle("DELETE /admin/accounts/{id}", admin(s.handleDeleteAccount))
 
 	// Client API keys — the credential a Claude Code points at the gateway.
 	mux.Handle("GET /admin/keys", admin(s.handleListKeys))
 	mux.Handle("POST /admin/keys", admin(s.handleCreateKey))
+	mux.Handle("PATCH /admin/keys/{id}", admin(s.handleUpdateKey))
 	mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
 
 	mux.Handle("GET /admin/overview", admin(s.handleOverview))
@@ -191,7 +204,12 @@ func (s *Server) routes() http.Handler {
 		// as user-supplied account data.
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if s.tokenLogin(w, r, "/") {
+		// Only a page load spends the link. Every request under this handler
+		// carries the query string it was reached with, so a prefetched
+		// favicon, a stylesheet, or a service worker fetching `/?token=…`
+		// would each burn a single-use sign-in link and leave the operator
+		// looking at "already used" on the request they actually made.
+		if isNavigation(r) && s.tokenLogin(w, r, "/") {
 			return
 		}
 		ui.ServeHTTP(w, r)
@@ -218,22 +236,26 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 //
 // The contract pins the shape hard: Claude Code sends GET /v1/models?limit=1000
 // with a 3-second timeout, treats any redirect as failure, and keeps only ids
-// containing "claude" or "anthropic". A slow or failing gateway breaks
-// discovery silently, so this never propagates an upstream error — it answers
-// with an empty list and lets the client fall back to its built-in models.
+// containing "claude" or "anthropic".
+//
+// A failure must be answered as a failure. The client falls back to its cached
+// list only when the request fails; a 200 carrying an empty data array is a
+// successful answer that says "this gateway serves no models", so it overwrites
+// the good cache with nothing and the model picker goes empty. Being unable to
+// reach the upstream is a 502, and the client recovers on its own.
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	// Comfortably inside the client's 3-second budget.
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
 	body, err := s.fetchModels(ctx, r.URL.RawQuery)
 	if err != nil {
-		s.log.Debug("model discovery falling back to an empty list", "err", err)
-		_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []any{}})
+		s.log.Warn("model discovery failed; answering 502 so the client keeps its cached list",
+			"err", err, "request_id", requestIDFrom(r.Context()))
+		writeError(w, http.StatusBadGateway, "api_error", "could not reach the upstream model list")
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
 }
 
@@ -243,7 +265,11 @@ func (s *Server) fetchModels(ctx context.Context, rawQuery string) ([]byte, erro
 		return nil, err
 	}
 
-	url := upstream.AnthropicBaseURL + "/v1/models"
+	base := s.relay.BaseURL
+	if base == "" {
+		base = upstream.AnthropicBaseURL
+	}
+	url := base + "/v1/models"
 	if rawQuery != "" {
 		url += "?" + rawQuery
 	}

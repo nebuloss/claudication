@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/pool"
+	"claudication/internal/pool"
 )
 
 // AnthropicBaseURL is where Lane A forwards to.
@@ -58,6 +58,12 @@ type bodyTee interface {
 	done()
 }
 
+// nopTee reads nothing, for a body we cannot interpret.
+type nopTee struct{}
+
+func (nopTee) feed([]byte) {}
+func (nopTee) done()       {}
+
 // accountPool is what the relay needs from the pool.
 //
 // An interface rather than the concrete type so the retry and refusal paths —
@@ -82,7 +88,16 @@ type Result struct {
 	// a 200. Without this a failed stream is indistinguishable from a
 	// successful one and gets recorded as a success.
 	StreamError string
-	Err         error
+	// UpstreamError is what the upstream said when it refused, verbatim and
+	// truncated. Distinct from Err, which is this gateway's own failure to get
+	// an answer at all.
+	UpstreamError string
+	// Opaque marks a body we relayed but could not read: the upstream applied
+	// a content coding despite being asked for identity. Usage is unknown and,
+	// more to the point, a mid-stream error would have been invisible — so the
+	// attempt is not credited as a success either way.
+	Opaque bool
+	Err    error
 }
 
 type Usage struct {
@@ -119,6 +134,16 @@ func replay(w http.ResponseWriter, f *refusal, res *Result) {
 	n, _ := w.Write(f.body)
 	res.Status = f.status
 	res.BytesOut = int64(n)
+	res.UpstreamError = truncate(strings.TrimSpace(string(f.body)))
+}
+
+// truncate bounds error text kept for a log line or a usage row. An error
+// envelope is a few hundred bytes; this is the guard for a body that is not.
+func truncate(s string) string {
+	if len(s) > 4096 {
+		return s[:4096]
+	}
+	return s
 }
 
 // Do runs the request, retrying on another account when the failure is the
@@ -127,7 +152,7 @@ func replay(w http.ResponseWriter, f *refusal, res *Result) {
 // Retries can only happen before anything is written to the client; once the
 // first byte is relayed the response is committed, which is the price of not
 // buffering.
-func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamPath string, body []byte) Result {
+func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamPath string, body []byte, p Prologue) Result {
 	base := r.BaseURL
 	if base == "" {
 		base = AnthropicBaseURL
@@ -136,11 +161,14 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	// Once, before the first attempt: a retry has to send the same bytes, and
 	// a body that already leads with an accepted block comes back untouched.
 	if r.Attribution {
-		body = EnsureAttribution(body)
+		body = EnsureAttribution(body, p)
 	}
 
 	var res Result
 	tried := map[string]bool{}
+	// Accounts whose token we have already refreshed for this request. One
+	// refresh per account is a repair; a second is a loop.
+	refreshed := map[string]bool{}
 
 	// The last refusal we retried past, held so that running out of accounts
 	// answers with the upstream's own words rather than ours.
@@ -206,10 +234,14 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 
 			// A 401 usually means the access token aged out rather than the
 			// account being broken; refresh once and let the same account
-			// serve the retry.
-			if kind == pool.FailureAuth && !tried[lease.Account.ID] {
+			// serve the retry. Adding it to tried here would do the exact
+			// opposite of what that sentence says — Acquire skips excluded
+			// accounts — so the refresh would be spent and the account it
+			// just repaired passed over. refreshed is a separate set for the
+			// separate question of whether we have already tried this.
+			if kind == pool.FailureAuth && !refreshed[lease.Account.ID] {
+				refreshed[lease.Account.ID] = true
 				if rerr := r.Pool.Refresh(req.Context(), lease.Account.ID); rerr == nil {
-					tried[lease.Account.ID] = true
 					continue
 				}
 			}
@@ -218,13 +250,21 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 			continue
 		}
 
+		// Keep what the upstream said, for anything that failed. It was already
+		// being read here for the pool's log line and then dropped, so a
+		// request recorded as a 429 carried no hint of *which* limit, and the
+		// Usage tab could show that something failed but never why. The body
+		// is put back either way, so the client still gets it byte for byte.
+		if resp.StatusCode >= 400 {
+			res.UpstreamError = peekErrorAndRestore(resp)
+		}
 		if kind != "" {
-			r.Pool.ReportFailure(lease.Account.ID, kind, peekErrorAndRestore(resp))
+			r.Pool.ReportFailure(lease.Account.ID, kind, res.UpstreamError)
 		}
 
 		res.Status = resp.StatusCode
 		r.relay(w, resp, &res)
-		if res.Status == http.StatusOK && res.StreamError == "" && kind == "" {
+		if res.Status == http.StatusOK && res.StreamError == "" && !res.Opaque && kind == "" {
 			r.Pool.ReportSuccess(lease.Account.ID)
 		}
 		return res
@@ -255,13 +295,36 @@ func (r *Relay) build(req *http.Request, url string, body []byte, token string) 
 		// The client's credential authenticates it to us, not us to Anthropic.
 		case "authorization", "x-api-key",
 			// Set by the transport from the body we are sending.
-			"content-length", "host":
+			"content-length", "host",
+			// Content coding is negotiated per hop, and this hop must see
+			// plaintext — see the Accept-Encoding note below.
+			"accept-encoding":
 			continue
 		}
 		out.Header[name] = append([]string(nil), values...)
 	}
 
 	out.Header.Set("Authorization", "Bearer "+token)
+
+	// Ask for an uncompressed body, whatever the client asked us for.
+	//
+	// This is the one header the relay overrides rather than forwards, and it
+	// has to be. Go's transport only decompresses transparently when it set
+	// Accept-Encoding itself; a client that sends its own — curl --compressed,
+	// python-requests, most SDKs — makes the response arrive still gzipped, and
+	// then everything downstream of the body reads compressed bytes. Usage
+	// records zero tokens, and, worse, the SSE scanner cannot see an
+	// `event: error` in the stream, so a failed stream is reported as a
+	// success and the account that failed it is credited. That is precisely
+	// the bug ssescan.go exists to prevent, walking back in through a
+	// different door.
+	//
+	// Content coding is a per-hop negotiation, so answering a client that
+	// offered gzip with identity is correct, just less efficient. Paying that
+	// on the upstream link is the cheaper half of the trade: the bytes are
+	// model output, while the bulk of a Claude Code turn is the request going
+	// the other way, which is unaffected.
+	out.Header.Set("Accept-Encoding", "identity")
 
 	// Merge rather than replace: the client's beta values are its own
 	// capabilities and the contract forbids allowlisting them.
@@ -311,9 +374,20 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result) {
 	// not on what the caller asked for: a request with "stream": true that
 	// fails before the stream starts comes back as plain JSON.
 	var tee bodyTee
-	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+	switch enc := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding"))); {
+	case enc != "" && enc != "identity":
+		// build asks for identity, and a server may not apply a coding the
+		// client did not accept, so reaching here means the upstream broke
+		// that rule. Relay the bytes — that part still works — but read
+		// nothing out of them and say so, rather than recording a compressed
+		// stream as zero tokens and no errors.
+		r.Log.Warn("upstream compressed a response that asked for identity; usage and stream errors are unreadable",
+			"content_encoding", enc)
+		res.Opaque = true
+		tee = nopTee{}
+	case strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream"):
 		tee = newSSEScanner(&res.Usage, &res.StreamError)
-	} else {
+	default:
 		tee = newJSONUsage(&res.Usage)
 	}
 	defer tee.done()

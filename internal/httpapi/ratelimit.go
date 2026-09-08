@@ -28,6 +28,22 @@ func newLimiter() *limiter {
 // allow consumes one token for key, refilling at perMinute tokens per minute.
 // A perMinute of zero or less disables limiting for that caller.
 func (l *limiter) allow(key string, perMinute int) bool {
+	return l.take(key, perMinute, true)
+}
+
+// peek reports whether a token is available without spending one.
+//
+// This exists so a check can happen before the work that decides whether the
+// caller should be charged at all. The anonymous budget guards unauthenticated
+// requests, but whether a request is authenticated is only known after a
+// database lookup — so peek runs first (an IP that has already burned its
+// budget never reaches the database) and allow runs afterwards, on the requests
+// that turned out to be anonymous.
+func (l *limiter) peek(key string, perMinute int) bool {
+	return l.take(key, perMinute, false)
+}
+
+func (l *limiter) take(key string, perMinute int, spend bool) bool {
 	if perMinute <= 0 {
 		return true
 	}
@@ -41,6 +57,9 @@ func (l *limiter) allow(key string, perMinute int) bool {
 	b, ok := l.buckets[key]
 	if !ok {
 		// A fresh caller starts full, minus the request being served.
+		if !spend {
+			return true
+		}
 		l.buckets[key] = &bucket{tokens: burst - 1, last: now}
 		return true
 	}
@@ -54,7 +73,9 @@ func (l *limiter) allow(key string, perMinute int) bool {
 	if b.tokens < 1 {
 		return false
 	}
-	b.tokens--
+	if spend {
+		b.tokens--
+	}
 	return true
 }
 

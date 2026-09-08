@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebuloss/claudication/internal/store"
+	"claudication/internal/store"
 )
 
 // The admin account is a single password, following singbox-admin: this is one

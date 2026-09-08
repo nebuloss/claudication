@@ -7,8 +7,8 @@ import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import UsagePanel from './features/usage'
 import { useHashTab } from './hooks'
-import { ApiError, api, type Session } from '../api/client'
-import { Spinner, TextButton } from './primitives'
+import { ApiError, api, type ApiKey, type Session } from '../api/client'
+import { Banner, CopyField, FilledButton, Modal, Spinner, TextButton } from './primitives'
 
 type State =
   | { phase: 'probing' }
@@ -38,6 +38,11 @@ const TAB_LABELS: Record<Tab, string> = {
 export default function App() {
   const [state, setState] = useState<State>({ phase: 'probing' })
   const [tab, setTab] = useHashTab<Tab>(TABS, 'overview')
+  // A freshly minted API key lives here, not in the Keys panel: panels unmount
+  // on a tab change, and the tabs are hash routes, so Back unmounts one too.
+  // The plaintext exists nowhere else — the store keeps only its hash — so
+  // losing it to a stray click means the key is gone for good.
+  const [minted, setMinted] = useState<{ key: ApiKey; plaintext: string } | null>(null)
 
   const probe = useCallback(async () => {
     try {
@@ -135,12 +140,27 @@ export default function App() {
       <main className="mx-auto max-w-4xl px-4 pt-6 pb-16 sm:px-6">
         {tab === 'overview' && <Overview onExpired={expired} onGoTo={setTab} />}
         {tab === 'accounts' && <Accounts onExpired={expired} />}
-        {tab === 'keys' && <Keys onExpired={expired} />}
+        {tab === 'keys' && <Keys onExpired={expired} onMinted={setMinted} />}
         {tab === 'usage' && <UsagePanel onExpired={expired} />}
         {tab === 'settings' && (
           <Settings session={state.session} onSessionChanged={() => void probe()} />
         )}
       </main>
+
+      {minted !== null && (
+        <Modal title={minted.key.name} size="lg" onClose={() => setMinted(null)}>
+          <Banner tone="warn" className="mb-4">
+            This is the only time the key is shown. Nothing can retrieve it afterwards — only the
+            hash is stored. Copy it now.
+          </Banner>
+          <CopyField label="API key" value={minted.plaintext} />
+          <div className="mt-6 flex justify-end">
+            <FilledButton type="button" onClick={() => setMinted(null)}>
+              Done
+            </FilledButton>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
