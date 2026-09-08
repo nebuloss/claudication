@@ -5,13 +5,18 @@ starves the muscle under load: it comes on when you push, and eases when you
 rest. Also contains Claude. The name is a promise about the failure mode — it
 keeps walking, and it tells you where the narrowing is.
 
-A multi-provider LLM gateway. One binary that speaks the Anthropic Messages,
-OpenAI Chat Completions and OpenAI Responses dialects to clients, and routes
-them to either a subscription OAuth backend or a keyed OpenAI-compatible
-endpoint — with a TypeScript admin UI on top.
+A gateway that proxies the Anthropic Messages API to Claude subscription
+accounts, with a TypeScript admin UI on top. One static binary.
 
-Status: **S1b — Lane A passthrough.** Accounts can be authorised, tested and
-proxied against; the translation lane is next.
+Where it is going is a multi-provider gateway: one binary speaking the Anthropic
+Messages, OpenAI Chat Completions and OpenAI Responses dialects to clients, and
+routing them to either a subscription OAuth backend or a keyed
+OpenAI-compatible endpoint.
+
+Where it is now is the first half of that. **Lane A passthrough**: accounts can
+be authorised, tested and proxied against, byte for byte. The translation lane
+is designed and unbuilt, so until it exists nothing here calls itself
+multi-provider.
 
 ## Design: two lanes
 
@@ -123,10 +128,12 @@ Five tabs, at the gateway's own address:
 **Overview** — whether the proxy can serve a request, and the base URL plus
 snippets to point Claude Code or curl at it. **Claude accounts** — the OAuth
 accounts the pool draws on, in priority order, each showing its 5-hour and
-7-day subscription usage. **API keys** — mint and withdraw the
-credentials clients present, with the traffic each one accounted for.
-**Usage** — totals, breakdowns by day, model, key and account, and the last
-fifty requests with the upstream's own error text. **Settings** — the admin
+7-day subscription usage. **API keys** — mint, rename and withdraw the
+credentials clients present, with the traffic each one accounted for and an
+optional daily token budget.
+**Usage** — totals, breakdowns by day, model, key and account, and the request
+log with the upstream's own error text, paged back as far as retention keeps
+it. **Settings** — the admin
 password, and what this instance is.
 
 Each tab lives in the URL fragment, so a link to one opens on it.
@@ -289,24 +296,23 @@ password.
 removes any stale `-wal` left behind so SQLite cannot replay an old log over the
 restored file. Stop the gateway before restoring.
 
-No container image is published. The binary is static and has no runtime
-dependencies, so a `FROM scratch` image is three lines if you want one — but
-shipping and signing one for a tool that installs as a single file was
-overhead with nothing on the other side of it.
-
 ## Roadmap
 
-| Stage  | Scope                                                            |
-| ------ | ---------------------------------------------------------------- |
-| **S0** | Skeleton: config, SQLite, key auth, rate limit, graceful shutdown |
-| **S1a** | Claude OAuth, sealed credentials, admin API + UI, account probe  |
-| **S1b** | Lane A passthrough, account pool, `/v1/models`, `count_tokens`   |
-| S2     | Contract conformance tests                                       |
-| S3     | Lane B canonical model and the three codecs                      |
-| S4     | Keyed backends (OpenAI-compatible, Anthropic API)                 |
-| S5     | Codex OAuth                                                      |
-| S6     | Admin REST + TypeScript UI, embedded                              |
-| S7     | Container, CI                                                    |
+Bold is shipped.
+
+| Stage   | Scope                                                             |
+| ------- | ----------------------------------------------------------------- |
+| **S0**  | Skeleton: config, SQLite, key auth, rate limit, graceful shutdown  |
+| **S1a** | Claude OAuth, sealed credentials, admin API + UI, account probe    |
+| **S1b** | Lane A passthrough, account pool, `/v1/models`, `count_tokens`     |
+| **S1c** | Per-request history, token budgets, backup/restore, release + CI   |
+| S2      | Contract conformance tests                                        |
+| S3      | Lane B canonical model and the three codecs                       |
+| S4      | Keyed backends (OpenAI-compatible, Anthropic API)                  |
+| S5      | Codex OAuth                                                       |
+
+No container image: the binary is static and installs as one file, so building
+and signing an image was overhead with nothing on the other side of it.
 
 ## Renaming
 

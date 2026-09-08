@@ -1,4 +1,8 @@
-// Command claudication is a multi-provider LLM gateway.
+// Command claudication is a gateway that proxies the Anthropic Messages API to
+// Claude subscription accounts.
+//
+// "Multi-provider" is the design, not yet the product: the translation lane
+// that would make it true is unbuilt, so nothing user-facing claims it.
 package main
 
 import (
@@ -67,7 +71,7 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `claudication - multi-provider LLM gateway
+	fmt.Fprint(os.Stderr, `claudication - Claude API gateway
 
 Usage:
   claudication serve [-config FILE]        Run the gateway
@@ -388,7 +392,7 @@ func cmdKeys(args []string) error {
 		name := fs.String("name", "", "human-readable name for the key (required)")
 		rpm := fs.Int("rpm", 0, "per-key requests per minute (0 = use the global default)")
 		budget := fs.Int64("token-budget", 0,
-		"tokens this key may spend per rolling 24 hours (0 = unlimited)")
+			"tokens this key may spend per rolling 24 hours (0 = unlimited)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}

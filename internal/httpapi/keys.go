@@ -34,14 +34,14 @@ type keyJSON struct {
 
 func toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
 	out := keyJSON{
-		ID:        k.ID,
-		Name:      k.Name,
-		Display:   k.Display(),
-		CreatedAt: k.CreatedAt.UTC().Format(time.RFC3339),
+		ID:          k.ID,
+		Name:        k.Name,
+		Display:     k.Display(),
+		CreatedAt:   k.CreatedAt.UTC().Format(time.RFC3339),
 		RPMLimit:    k.RPMLimit,
 		TokenBudget: k.TokenBudget,
 		Requests:    use.Requests,
-		Tokens:    use.InputTokens + use.OutputTokens + use.CacheTokens,
+		Tokens:      use.InputTokens + use.OutputTokens + use.CacheTokens,
 	}
 	if k.LastUsedAt != nil {
 		out.LastUsedAt = k.LastUsedAt.UTC().Format(time.RFC3339)

@@ -1,5 +1,5 @@
 [Unit]
-Description=claudication - multi-provider LLM gateway
+Description=claudication - Claude API gateway
 After=network-online.target
 Wants=network-online.target
 
