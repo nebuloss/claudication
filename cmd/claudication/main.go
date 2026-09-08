@@ -257,11 +257,18 @@ func cmdVacuum(args []string) error {
 		return err
 	}
 
-	saved := before - after
 	fmt.Printf("\n  before  %s\n  after   %s\n", humanBytes(before), humanBytes(after))
-	if saved > 0 {
-		fmt.Printf("  freed   %s\n", humanBytes(saved))
-	} else {
+	switch {
+	case after < before:
+		fmt.Printf("  freed   %s\n", humanBytes(before-after))
+	case after > before:
+		// Converting to auto_vacuum adds pointer-map pages, which is what makes
+		// future prunes able to give space back. On a database with little to
+		// reclaim that shows up as a small increase, and reporting it as
+		// "already compact" would be describing the opposite of what happened.
+		fmt.Printf("  grew    %s, adding the bookkeeping that lets it shrink later\n",
+			humanBytes(after-before))
+	default:
 		fmt.Println("  freed   nothing; it was already compact")
 	}
 	if mode == 0 {
