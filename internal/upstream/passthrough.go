@@ -192,6 +192,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	// After attribution, because that reads the prologue peeked from the
 	// original bytes and this one rewrites them.
 	body = NormaliseSystem(body)
+	body = DropEmptyMessageText(body)
 
 	// Likewise once: tool names the upstream would refuse outright are sent in
 	// the shape it accepts, and names is what puts them back on the way out.
