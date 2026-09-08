@@ -164,6 +164,10 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 		body = EnsureAttribution(body, p)
 	}
 
+	// After attribution, because that reads the prologue peeked from the
+	// original bytes and this one rewrites them.
+	body = NormaliseSystem(body)
+
 	// Likewise once: tool names the upstream would refuse outright are sent in
 	// the shape it accepts, and names is what puts them back on the way out.
 	// Nil for every request that carries no such name, which is the common
