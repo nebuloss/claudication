@@ -160,6 +160,8 @@ export interface RequestRow {
   cache_tokens: number
   duration_ms: number
   error?: string
+  /** Set when the refusal does not mean what its message says. */
+  error_kind?: string
 }
 
 export interface Overview {

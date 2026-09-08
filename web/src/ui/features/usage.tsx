@@ -439,6 +439,22 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
       }
     >
       <div className="flex flex-col gap-4">
+        {row.error_kind === 'content_check' && (
+          <Banner tone="warn">
+            <strong>This is a content check, not a quota limit.</strong> The message below talks
+            about billing, but adding usage credit will not fix it — the upstream classified this
+            request's <em>content</em> as coming from a third-party app rather than from Claude
+            Code. The same key usually succeeds on the next request with slightly different
+            content, which is what makes it look like a flaky quota problem.
+            <br />
+            <br />
+            Two triggers are known and already rewritten on the way out: a tool named{' '}
+            <code>mcp_x</code> instead of <code>mcp__x</code>, and Claude Code's own{' '}
+            <code>Is directory a git repo:</code> line inside a foreign system prompt. Seeing this
+            anyway means a third trigger — bisect the request body to find it.
+          </Banner>
+        )}
+
         <KeyValue
           items={[
             // The exact instant, not "3m ago": this is the value that gets

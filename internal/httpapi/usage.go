@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"claudication/internal/store"
+	"claudication/internal/upstream"
 	"claudication/internal/version"
 )
 
@@ -116,6 +117,10 @@ type requestJSON struct {
 	CacheTokens  int    `json:"cache_tokens"`
 	DurationMS   int64  `json:"duration_ms"`
 	Error        string `json:"error,omitempty"`
+	// ErrorKind names a refusal whose message does not mean what it says.
+	// Computed on read rather than stored: it is a reading of the recorded
+	// text, and one that will get better as more of these are identified.
+	ErrorKind string `json:"error_kind,omitempty"`
 }
 
 func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +169,7 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 			CacheTokens:  e.CacheReadTokens + e.CacheWriteTokens,
 			DurationMS:   e.Duration.Milliseconds(),
 			Error:        e.Error,
+			ErrorKind:    string(upstream.ClassifyRefusal(e.Error)),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
