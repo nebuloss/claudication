@@ -2,14 +2,20 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // UsageEvent is one proxied request, as it happened.
 type UsageEvent struct {
+	// ID is set on read, not on write: it is the table's own row id, and it is
+	// what makes a page boundary unambiguous when two requests share a
+	// timestamp.
+	ID               int64
 	At               time.Time
 	KeyID            string
 	KeyName          string
@@ -297,37 +303,106 @@ func (s *Store) usageBuckets(ctx context.Context, query, from string) ([]UsageBu
 	return out, rows.Err()
 }
 
-// RecentUsage returns the newest events first, for the activity list.
-func (s *Store) RecentUsage(ctx context.Context, limit int) ([]UsageEvent, error) {
+// UsageCursor marks a position in the activity list.
+//
+// A position rather than an offset. OFFSET counts from the top of a list that
+// is growing at the top, so between one page and the next every row shifts down
+// and paging re-shows rows it has already shown. Naming the last row seen
+// instead means a page is the rows after *that row*, whatever has arrived
+// since — which is the behaviour anyone scrolling a live list expects.
+//
+// The pair is needed, not just the timestamp: `at` is when a request started,
+// so two requests that started inside the same nanosecond, or a long stream
+// recorded out of order, would otherwise make a page boundary ambiguous and
+// silently drop a row.
+type UsageCursor struct {
+	At time.Time
+	ID int64
+}
+
+// String renders a cursor for a URL. Opaque to the client, legible in a log.
+func (c UsageCursor) String() string {
+	if c.ID == 0 {
+		return ""
+	}
+	return c.At.UTC().Format(time.RFC3339Nano) + "|" + strconv.FormatInt(c.ID, 10)
+}
+
+// ParseUsageCursor reads one back. An unparseable cursor is not an error: it
+// means "start from the top", which is the only useful thing to do with a
+// bookmark from an older release or a truncated URL.
+func ParseUsageCursor(s string) (UsageCursor, bool) {
+	at, id, found := strings.Cut(s, "|")
+	if !found {
+		return UsageCursor{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		return UsageCursor{}, false
+	}
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || n <= 0 {
+		return UsageCursor{}, false
+	}
+	return UsageCursor{At: t, ID: n}, true
+}
+
+// RecentUsage returns one page of events, newest first, along with the cursor
+// for the page after it. An empty next cursor means the end of the list.
+func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor) ([]UsageEvent, UsageCursor, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT at, key_id, key_name, account_id, account_email, model, path,
-		        status, streaming, input_tokens, output_tokens,
-		        cache_read_tokens, cache_write_tokens, duration_ms, error
-		   FROM usage_events ORDER BY at DESC LIMIT ?`, limit)
+
+	const columns = `id, at, key_id, key_name, account_id, account_email, model, path,
+	                 status, streaming, input_tokens, output_tokens,
+	                 cache_read_tokens, cache_write_tokens, duration_ms, error`
+
+	var rows *sql.Rows
+	var err error
+	if after.ID > 0 {
+		// Row values, so the comparison is the same one the ORDER BY makes.
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT `+columns+` FROM usage_events
+			  WHERE (at, id) < (?, ?)
+			  ORDER BY at DESC, id DESC LIMIT ?`,
+			after.At.UTC().Format(time.RFC3339Nano), after.ID, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT `+columns+` FROM usage_events
+			  ORDER BY at DESC, id DESC LIMIT ?`, limit)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("recent usage: %w", err)
+		return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)
 	}
 	defer rows.Close()
 
 	out := []UsageEvent{}
+	var next UsageCursor
 	for rows.Next() {
 		var e UsageEvent
 		var at string
 		var ms int64
-		if err := rows.Scan(&at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
+		if err := rows.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
 			&e.Model, &e.Path, &e.Status, &e.Streaming,
 			&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
 			&ms, &e.Error); err != nil {
-			return nil, fmt.Errorf("recent usage: %w", err)
+			return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)
 		}
 		e.At, _ = time.Parse(time.RFC3339Nano, at)
 		e.Duration = time.Duration(ms) * time.Millisecond
 		out = append(out, e)
+		next = UsageCursor{At: e.At, ID: e.ID}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)
+	}
+	// A short page is the last page. Saying so lets the caller stop offering
+	// "load more" rather than finding out by fetching nothing.
+	if len(out) < limit {
+		next = UsageCursor{}
+	}
+	return out, next, nil
 }
 
 // KeyUsage totals one key's traffic since a point in time. Used by the keys

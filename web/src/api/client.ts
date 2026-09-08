@@ -375,11 +375,16 @@ export const api = {
   usage: (days?: number) =>
     request<Usage>('GET', days === undefined ? '/admin/usage' : `/admin/usage?days=${days}`),
 
-  recentRequests: async (limit = 50): Promise<RequestRow[]> => {
-    const res = await request<{ requests: RequestRow[] | null }>(
+  recentRequests: async (
+    limit = 50,
+    after = '',
+  ): Promise<{ rows: RequestRow[]; nextCursor: string }> => {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (after !== '') query.set('after', after)
+    const res = await request<{ requests: RequestRow[] | null; next_cursor?: string }>(
       'GET',
-      `/admin/requests?limit=${limit}`,
+      `/admin/requests?${query.toString()}`,
     )
-    return res.requests ?? []
+    return { rows: res.requests ?? [], nextCursor: res.next_cursor ?? '' }
   },
 }

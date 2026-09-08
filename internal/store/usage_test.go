@@ -148,7 +148,7 @@ func TestPruneUsageDropsOnlyOldRows(t *testing.T) {
 		t.Errorf("pruned %d rows, want 2", n)
 	}
 
-	events, err := st.RecentUsage(ctx, 10)
+	events, _, err := st.RecentUsage(ctx, 10, UsageCursor{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestRecentUsageIsNewestFirst(t *testing.T) {
 	record(t, st, UsageEvent{At: now.Add(-2 * time.Minute), Model: "older", Status: 200})
 	record(t, st, UsageEvent{At: now, Model: "newer", Status: 200})
 
-	events, err := st.RecentUsage(context.Background(), 10)
+	events, _, err := st.RecentUsage(context.Background(), 10, UsageCursor{})
 	if err != nil {
 		t.Fatal(err)
 	}

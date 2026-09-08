@@ -137,7 +137,12 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	events, err := s.store.RecentUsage(r.Context(), limit)
+	// An unreadable cursor starts from the top rather than failing: a bookmark
+	// from an older release, or a truncated URL, should show the newest
+	// requests, not an error.
+	after, _ := store.ParseUsageCursor(r.URL.Query().Get("after"))
+
+	events, next, err := s.store.RecentUsage(r.Context(), limit, after)
 	if err != nil {
 		s.log.Error("recent requests", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not read recent requests")
@@ -161,7 +166,13 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 			Error:        e.Error,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "requests": out})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled":  true,
+		"requests": out,
+		// Empty when there is nothing after this page, so the UI can stop
+		// offering more rather than discovering it by fetching none.
+		"next_cursor": next.String(),
+	})
 }
 
 // handleOverview answers "is this working, and what do I point at it" in one

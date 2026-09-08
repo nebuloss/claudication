@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { api, type RequestRow, type Usage } from '../../api/client'
+import { useCallback, useEffect, useState } from 'react'
+import { ApiError, api, messageOf, type RequestRow, type Usage } from '../../api/client'
 import { useLoader } from '../hooks'
 import {
   Bar,
@@ -13,6 +13,7 @@ import {
   Segmented,
   Stat,
   Table,
+  TonalButton,
   TextButton,
   Verbatim,
   ago,
@@ -210,16 +211,57 @@ function Breakdown({
   )
 }
 
+const PAGE = 50
+
+/**
+ * The activity list, paged.
+ *
+ * Not useLoader: this is the one panel that accumulates rather than replaces,
+ * so it holds its own rows and the cursor for the next page. Fifty rows is
+ * about seven minutes of history on a busy gateway, which made "recent" the
+ * only thing this could ever answer.
+ */
 function RecentRequests({ onExpired }: { onExpired: () => void }) {
-  const { data, error, loading, reload } = useLoader<RequestRow[]>(
-    () => api.recentRequests(50),
-    onExpired,
-  )
+  const [rows, setRows] = useState<RequestRow[]>([])
+  const [cursor, setCursor] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [shown, setShown] = useState<RequestRow | null>(null)
+
+  const load = useCallback(
+    async (after: string) => {
+      const first = after === ''
+      first ? setLoading(true) : setLoadingMore(true)
+      setError('')
+      try {
+        const page = await api.recentRequests(PAGE, after)
+        // Append when paging, replace when refreshing, so Refresh cannot leave
+        // a stale tail below freshly loaded rows.
+        setRows((prev) => (first ? page.rows : [...prev, ...page.rows]))
+        setCursor(page.nextCursor)
+      } catch (err) {
+        if (err instanceof ApiError && err.isUnauthenticated) {
+          onExpired()
+          return
+        }
+        setError(messageOf(err))
+      } finally {
+        first ? setLoading(false) : setLoadingMore(false)
+      }
+    },
+    [onExpired],
+  )
+
+  useEffect(() => {
+    void load('')
+  }, [load])
+
+  const data = rows
 
   return (
     <Card>
-      <CardTitle aside={<TextButton onClick={() => void reload()}>Refresh</TextButton>}>
+      <CardTitle aside={<TextButton onClick={() => void load('')}>Refresh</TextButton>}>
         Recent requests
       </CardTitle>
 
@@ -264,6 +306,25 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
             </tr>
           ))}
         </Table>
+      )}
+
+      {data.length > 0 && (
+        <div className="mt-4 flex items-center gap-3 border-t border-outline-variant pt-4">
+          {cursor !== '' ? (
+            <TonalButton onClick={() => void load(cursor)} disabled={loadingMore}>
+              {loadingMore && <Spinner />}
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </TonalButton>
+          ) : (
+            <span className="text-xs text-on-surface-variant">
+              That is everything kept — history goes back {' '}
+              <code>usage.retention-days</code>.
+            </span>
+          )}
+          <span className="text-xs text-on-surface-variant" aria-live="polite">
+            {data.length} shown
+          </span>
+        </div>
       )}
 
       {shown !== null && shown.error !== undefined && shown.error !== '' && (
