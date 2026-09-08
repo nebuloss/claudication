@@ -22,7 +22,9 @@ export default function Settings({
         <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
         <KeyValue
           items={[
-            ['Version', <span className="font-mono text-xs">{data?.version ?? '…'}</span>],
+            // Version lives in the header now, where it is visible from every
+            // screen. The commit stays: it is what identifies a build between
+            // two releases, and it is not worth a line in the header.
             ['Commit', <span className="font-mono text-xs">{data?.commit ?? '…'}</span>],
             ['Listen', <span className="font-mono text-xs">{data?.listen ?? '…'}</span>],
             [

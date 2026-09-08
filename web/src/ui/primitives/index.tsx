@@ -714,6 +714,40 @@ export function IconButton({
 }
 
 /**
+ * IconButton's twin for somewhere to go rather than something to do.
+ *
+ * An anchor, not a button with an onClick: a link the keyboard and the middle
+ * mouse button both understand, and one the browser will open in a new tab
+ * because it says so rather than because script said so.
+ */
+export function IconLink({
+  label,
+  href,
+  children,
+}: {
+  label: string
+  href: string
+  children: ReactNode
+}) {
+  return (
+    <a
+      href={href}
+      title={label}
+      aria-label={label}
+      target="_blank"
+      // noreferrer as well as noopener: the opened page has no business
+      // knowing which gateway sent it.
+      rel="noopener noreferrer"
+      className="state-layer grid size-9 shrink-0 place-items-center rounded-[var(--radius-md3-full)] border border-outline text-on-surface-variant"
+    >
+      <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
+        {children}
+      </svg>
+    </a>
+  )
+}
+
+/**
  * A small outlined pill, for a control sitting inside a card header.
  *
  * on-surface with a visible outline rather than bare primary-coloured text:
