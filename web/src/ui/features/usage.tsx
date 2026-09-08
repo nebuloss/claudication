@@ -19,7 +19,6 @@ import {
   TonalButton,
   TextButton,
   Verbatim,
-  ago,
   compact,
   copyText,
 } from '../primitives'
@@ -320,10 +319,15 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
       ) : data === null || data.length === 0 ? (
         <Empty>No requests recorded yet.</Empty>
       ) : (
-        <Table cap head={['When', 'Model', 'Key', 'Status', 'Tokens', 'Took', '']}>
+        <Table cap head={['Date', 'Model', 'Key', 'Status', 'Tokens', 'Duration', '']}>
           {data.map((r, i) => (
             <tr key={`${r.at}-${i}`} className="border-b border-outline-variant last:border-0">
-              <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">{ago(r.at)}</td>
+              <td
+                title={r.at}
+                className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant"
+              >
+                {stamp(r.at)}
+              </td>
               <td className="px-2 py-2 whitespace-nowrap">{dash(r.model)}</td>
               <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
                 {dash(r.key_name)}
@@ -424,7 +428,9 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
       <div className="flex flex-col gap-4">
         <KeyValue
           items={[
-            ['When', <span title={row.at}>{ago(row.at)}</span>],
+            // The exact instant, not "3m ago": this is the value that gets
+            // matched against an upstream request_id or somebody else's log.
+            ['Date', <span className="tabular-nums">{row.at}</span>],
             [
               'Status',
               <Chip tone={statusTone(row)}>{row.status === 0 ? 'failed' : row.status}</Chip>,
@@ -435,7 +441,7 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
             ['Path', row.path],
             ['Streaming', row.streaming ? 'yes' : 'no'],
             ['Tokens', tokens],
-            ['Took', `${row.duration_ms}ms`],
+            ['Duration', `${row.duration_ms}ms`],
           ]}
         />
 
@@ -464,10 +470,38 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
   )
 }
 
+/**
+ * An absolute local timestamp, seconds kept.
+ *
+ * "3m ago" reads well until the moment it matters, which is lining a request
+ * up against something outside this page — an upstream request_id, a service
+ * log, whoever reported the error. Then it is the one thing that cannot be
+ * matched. Seconds stay because a retry storm puts a dozen rows in one minute.
+ *
+ * The date is dropped for today's rows, which is nearly all of them at a
+ * fortnight's retention, and the full instant is on the row's title either way.
+ */
+function stamp(iso: string): string {
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return iso
+  const time = at.toLocaleTimeString(undefined, { hour12: false })
+  const now = new Date()
+  const today =
+    at.getFullYear() === now.getFullYear() &&
+    at.getMonth() === now.getMonth() &&
+    at.getDate() === now.getDate()
+  if (today) return time
+  return `${at.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })} ${time}`
+}
+
 /** The row as something worth pasting somewhere else. */
 function asText(r: RequestRow): string {
+  // Both spellings of the instant: the ISO one to read, the epoch to grep a
+  // log with.
+  const epoch = Math.round(new Date(r.at).getTime() / 1000)
   return [
-    `when:      ${r.at}`,
+    `date:      ${r.at}`,
+    `epoch:     ${Number.isNaN(epoch) ? '—' : epoch}`,
     `status:    ${r.status === 0 ? 'failed (no response)' : r.status}`,
     `model:     ${dash(r.model)}`,
     `key:       ${dash(r.key_name)}`,
@@ -475,7 +509,7 @@ function asText(r: RequestRow): string {
     `path:      ${r.path}`,
     `streaming: ${r.streaming ? 'yes' : 'no'}`,
     `tokens:    ${r.input_tokens} in / ${r.output_tokens} out / ${r.cache_tokens} cache`,
-    `took:      ${r.duration_ms}ms`,
+    `duration:  ${r.duration_ms}ms`,
     '',
     r.error ?? '',
   ].join('\n')
