@@ -204,7 +204,7 @@ exists because without it the request cannot succeed.
 | `EnsureAttribution` | first system block is not an accepted identity string | 429 with the message `Error`, no rate-limit headers |
 | `NormaliseSystem` | `Is directory a git repo:` in `system`; empty text blocks | [measured] 400, the misleading billing message |
 | `DropEmptyMessageText` | empty text blocks in `messages` | [measured] 400 `text content blocks must be non-empty` |
-| `RewriteMCPNames` | tool name matching `^mcp_[^_]` | [measured] 400, the misleading billing message |
+| `RewriteRefusedToolNames` | tool name matching `^mcp_[^_]`, or exactly `todowrite` | [measured] 400, the misleading billing message |
 | `decodeBody` | `Content-Encoding: gzip` | [measured] every pass above silently no-ops on bytes it cannot parse |
 
 The last one is the trap worth remembering: a gzipped body is not a parse
@@ -238,6 +238,22 @@ Exactly `^mcp_[^_]`, lowercase. And for the system-prompt half: the line alone
 passes, the line inside a foreign prompt fails, any rewording clears it — so it
 is not a banned string but a check that fires when Claude Code's phrasing turns
 up in a prompt that is not Claude Code's.
+
+A third turned up once the first two were fixed, found by
+`scripts/bisect-refusal.py` on its first real run against the same captured
+body. A tool named exactly `todowrite` is refused, on opus and haiku alike:
+
+```
+todowrite  400      TodoWrite  200      todo_write  200
+                    todoWrite  200      todowrite_  200
+                    Todowrite  200      todowrite1  200
+                    TODOWRITE  200      _todowrite  200
+```
+
+One exact lowercase string, not a class — `taskcreate`, `taskupdate`,
+`todoread`, `askuserquestion`, `toolsearch`, `notebookedit`, `webfetch` and
+`multiedit` are all accepted. Expect more of these, and reach for the bisector
+rather than for reasoning.
 
 ---
 
@@ -284,17 +300,52 @@ would mean reshaping a conversation or changing what the caller is billed:
 
 ---
 
-## 10. Gaps
+## 10. Gaps, closed and remaining
 
-Not determinable from the split chunks that were extracted; the 2.1.263 binary
-is on disk if these ever matter:
+The first pass split the bundle into region files and several definitions fell
+outside them. They are all in the binary; searching it directly closes most.
 
-- `chunk-06whp1c5.js` — the SDK internals: exact `x-stainless-*` names, how
-  `?beta=true` is appended.
-- `Vt()` — `CLIENT_ID`, `TOKEN_URL`, `BASE_API_URL` literals.
-- `chunk-pqxhk0g5.js` — `VB`, the retry backoff formula. A structurally
-  identical sibling elsewhere is exponential with 0–25% jitter, floored at the
-  `retry-after` value, but that is a different module and is not asserted here.
-- `chunk-2q70cvwp.js` — the context-hint controller: microcompaction's
-  `keepRecent`, and the body field it adds.
-- `MAX_MCP_OUTPUT_TOKENS`'s default, and the media count/byte caps.
+**Retry backoff.** [bundle] `@180451885`:
+
+```js
+function VB(e, t, r = 32000) {
+  let i = Math.min(500 * Math.pow(2, e - 1), r);
+  let o = Math.round(i + Math.random() * 0.25 * i);
+  if (t) { let u = parseInt(t, 10); if (!isNaN(u)) return Math.max(u * 1000, o) }
+  return o
+}
+```
+
+500 ms doubling per attempt, capped at 32 s, plus 0–25% jitter, and
+`retry-after` (in seconds) wins whenever it is larger. Worth noting the earlier
+guess from a structurally identical sibling — 5 s base, 20 s cap — was the right
+*shape* and the wrong numbers, which is why it was not asserted.
+
+**Endpoints.** [bundle] `@177161221`: `BASE_API_URL` is
+`https://api.anthropic.com`, `TOKEN_URL` is
+`https://platform.claude.com/v1/oauth/token`, `CLAUDE_AI_ORIGIN` is
+`https://claude.ai`, and the OAuth client ids are literals in the binary.
+
+**The OAuth-vs-key decision.** [bundle] `@179399142`:
+`I9t(e) => e.anthropicAuthEnabled && e.oauthScopes?.includes(<scope>)` — so the
+OAuth path additionally requires the stored grant to carry the inference scope,
+on top of the precedence rules in §5.
+
+**MCP output truncation.** [bundle] The gate reads `MAX_MCP_OUTPUT_TOKENS`, and
+when it fires the model is told:
+
+> `[OUTPUT TRUNCATED - exceeded <n> token limit]`
+>
+> The tool output was truncated. If this MCP server provides pagination or
+> filtering tools, use them to retrieve specific portions of the data. If
+> pagination is not available, inform the user that you are working with
+> truncated output and results may be incomplete.
+
+This is the other half of the MCP story in §6: the client truncates, tells the
+model it truncated, and asks it to paginate. A third-party client that
+truncates without saying so leaves the model reading a fragment as though it
+were whole — and if it cuts mid-character, produces the surrogate failure in §7.
+
+**Still open**, and only worth chasing if something depends on them: the
+default value of `MAX_MCP_OUTPUT_TOKENS` (a validated env var, not a literal),
+the media count and byte caps, and microcompaction's `keepRecent`.
