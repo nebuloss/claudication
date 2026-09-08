@@ -40,6 +40,9 @@ LISTEN="${LISTEN:-0.0.0.0:8317}"      # what the service binds
 # Traefik, a tunnel): comma-separated CIDRs or IPs the *proxy* connects from.
 # Without it every client behind it shares one rate-limit bucket, the access
 # log cannot tell them apart, and the session cookie cannot be marked Secure.
+# Whether this run named one, captured before the default assignment destroys
+# the difference between "not mentioned" and "deliberately emptied".
+TRUSTED_PROXIES_GIVEN="${TRUSTED_PROXIES+yes}"
 TRUSTED_PROXIES="${TRUSTED_PROXIES:-}"
 BOOT_TIMEOUT="${BOOT_TIMEOUT:-30}"    # seconds to wait for the first response
 SET_PASSWORD="${SET_PASSWORD:-1}"     # 0 to leave the gateway unclaimed
@@ -172,11 +175,39 @@ service_hints() {
   esac
 }
 
+# What the installed service was last told to trust.
+#
+# This script rewrites the service file on every run, so without reading the old
+# one back an update would silently drop the setting — and dropping it is not
+# visible: the gateway keeps serving, but every client behind the proxy shares
+# one rate-limit bucket again and the access log stops telling them apart. An
+# update should not undo a decision nobody is re-making.
+existing_trusted_proxies() {
+  case "$OS" in
+    alpine)
+      sed -n 's/^export CLAUDICATION_TRUSTED_PROXIES="\(.*\)"$/\1/p' \
+        "/etc/init.d/$SERVICE_NAME" 2>/dev/null | head -1
+      ;;
+    debian)
+      sed -n 's/^Environment=CLAUDICATION_TRUSTED_PROXIES=\(.*\)$/\1/p' \
+        "/etc/systemd/system/$SERVICE_NAME.service" 2>/dev/null | head -1
+      ;;
+  esac
+}
+
 # The trusted-proxies line for each service file, empty when unset. Built here
 # rather than inline in the heredocs: ${VAR:+"..."} eats the quotes it looks
 # like it is emitting, and an unquoted value is a trap waiting for someone to
 # pass something with a space in it.
 trusted_env_lines() {
+  # Carried forward unless this run named one. TRUSTED_PROXIES= (given, and
+  # empty) is still how to remove it.
+  if [ -z "$TRUSTED_PROXIES_GIVEN" ]; then
+    TRUSTED_PROXIES="$(existing_trusted_proxies)"
+    if [ -n "$TRUSTED_PROXIES" ]; then
+      step "keeping trusted proxy: $TRUSTED_PROXIES"
+    fi
+  fi
   OPENRC_TRUSTED=""
   SYSTEMD_TRUSTED=""
   [ -n "$TRUSTED_PROXIES" ] || return 0
