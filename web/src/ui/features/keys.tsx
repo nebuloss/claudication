@@ -119,7 +119,9 @@ export default function Keys({
                 <td className="px-2 py-3 tabular-nums">{compact(k.tokens)}</td>
                 <td className="px-2 py-3 text-on-surface-variant">{ago(k.last_used_at)}</td>
                 <td className="px-2 py-3 text-on-surface-variant">
-                  {k.rpm_limit > 0 ? `${compact(k.rpm_limit)}/min` : 'default'}
+                  {k.rpm_limit > 0
+                    ? `${compact(k.rpm_limit)} / ${periodName(k.rate_period_s)}`
+                    : 'default'}
                 </td>
                 <td className="px-2 py-3">
                   <Budget budget={k.token_budget} spent={k.spent_today} />
@@ -205,6 +207,21 @@ const RATE_PERIODS = [
 const DEFAULT_BUDGET = 1_000_000
 const DEFAULT_RPM_CHOICE = 200
 const DEFAULT_PERIOD_S = 60
+
+/**
+ * How a period reads in a table cell.
+ *
+ * A period the UI does not offer is still shown rather than mislabelled: the
+ * API takes any duration up to a week, so a key configured through it must not
+ * be displayed as something it is not.
+ */
+function periodName(seconds: number): string {
+  const known = RATE_PERIODS.find((p) => p.seconds === (seconds || DEFAULT_PERIOD_S))
+  if (known !== undefined) return known.label
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`
+  if (seconds % 60 === 0) return `${seconds / 60}m`
+  return `${seconds}s`
+}
 
 /**
  * A limit that can be switched off, and adjusted when it is on.
