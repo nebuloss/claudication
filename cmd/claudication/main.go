@@ -80,6 +80,9 @@ Environment:
   CLAUDICATION_REQUESTS_PER_MINUTE, CLAUDICATION_SECRET_KEY,
   CLAUDICATION_CLAUDE_CODE_ATTRIBUTION, CLAUDICATION_TRUSTED_PROXIES
 
+Configuration is optional. With no -config, /etc/claudication/config.yaml is
+read if it exists; environment variables override either.
+
 The admin UI is served at / once the gateway is running. On a fresh
 install it asks for a password. If that password is lost, "claudication
 passwd" is the way back in: shell access to the state directory is already the
@@ -107,10 +110,32 @@ func loginURL(listen, token string) string {
 	return fmt.Sprintf("http://%s:%s/?token=%s", host, port, token)
 }
 
+// defaultConfigPath is read when -config is not given and it exists.
+//
+// Without this the config file was a trap: the installed service runs `serve`
+// with no -config, and Load reads nothing when the path is empty — so an
+// operator who followed config.example.yaml and dropped it at the obvious place
+// got no effect, no warning, and nothing in the log to say why the setting they
+// had just written was being ignored.
+const defaultConfigPath = "/etc/claudication/config.yaml"
+
+// resolveConfigPath returns the explicit path, or the default when one is
+// there. A missing default is not an error — most installs have no config file
+// at all and should not be made to create one.
+func resolveConfigPath(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if _, err := os.Stat(defaultConfigPath); err == nil {
+		return defaultConfigPath
+	}
+	return ""
+}
+
 // openState loads config and opens the database, the two steps every command
 // shares.
 func openState(ctx context.Context, configPath string) (config.Config, *store.Store, *secret.Sealer, error) {
-	cfg, err := config.Load(configPath)
+	cfg, err := config.Load(resolveConfigPath(configPath))
 	if err != nil {
 		return config.Config{}, nil, nil, err
 	}
