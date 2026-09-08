@@ -612,16 +612,36 @@ export function Bar({
 }
 
 /** A scrollable table. Wide content must never make the page scroll. */
-export function Table({ head, children }: { head: string[]; children: ReactNode }) {
+/**
+ * `cap` bounds the height and pins the header inside it.
+ *
+ * For a list that grows without limit: fifty rows is most of a screen, and a
+ * "load more" that appends fifty at a time pushes everything after the table
+ * somewhere no one will scroll to. Sticky sits on the cells rather than the
+ * row, because a sticky `thead` is still not honoured everywhere.
+ */
+export function Table({
+  head,
+  children,
+  cap = false,
+}: {
+  head: string[]
+  children: ReactNode
+  cap?: boolean
+}) {
   return (
-    <div className="-mx-2 overflow-x-auto px-2">
+    <div className={`-mx-2 px-2 ${cap ? 'max-h-[30rem] overflow-auto' : 'overflow-x-auto'}`}>
       <table className="w-full min-w-max text-sm">
         <thead>
-          <tr className="border-b border-outline">
+          <tr>
+            {/* The rule sits on the cells, not the row: a sticky cell carries
+                its own border along, a row's border stays where it started. */}
             {head.map((h) => (
               <th
                 key={h}
-                className="px-2 py-2 text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase"
+                className={`border-b border-outline px-2 py-2 text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
+                  cap ? 'sticky top-0 z-10 bg-surface-container' : ''
+                }`}
               >
                 {h}
               </th>

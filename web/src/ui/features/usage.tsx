@@ -20,6 +20,7 @@ import {
   Verbatim,
   ago,
   compact,
+  copyText,
 } from '../primitives'
 
 const WINDOWS = [1, 7, 30] as const
@@ -112,62 +113,68 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
         )}
       </Card>
 
-      {report !== undefined && report.by_day.length > 0 && (
-        <Card>
-          <CardTitle>By day</CardTitle>
-          <Breakdown
-            identity={false}
-            rows={report.by_day.map((b) => ({
-              label: b.label,
-              value: b.requests,
-              right: `${compact(b.requests)} req`,
-            }))}
-          />
-        </Card>
-      )}
+      {/* Two columns from lg up, and items-start so a short breakdown keeps its
+          own height instead of stretching to match the tallest in its row.
+          Stacked, these four were most of a screen on their own. */}
+      <div className="grid items-start gap-5 lg:grid-cols-2">
+        {report !== undefined && report.by_day.length > 0 && (
+          <Card>
+            <CardTitle>By day</CardTitle>
+            <Breakdown
+              identity={false}
+              rows={report.by_day.map((b) => ({
+                label: b.label,
+                value: b.requests,
+                right: `${compact(b.requests)} req`,
+              }))}
+            />
+          </Card>
+        )}
 
-      {report !== undefined && report.by_model.length > 0 && (
-        <Card>
-          <CardTitle>By model</CardTitle>
-          <Breakdown
-            rows={report.by_model.map((b) => ({
-              label: b.label,
-              value: b.input_tokens + b.output_tokens + b.cache_tokens,
-              right: `${compact(b.input_tokens + b.output_tokens + b.cache_tokens)} tok`,
-            }))}
-          />
-        </Card>
-      )}
+        {report !== undefined && report.by_model.length > 0 && (
+          <Card>
+            <CardTitle>By model</CardTitle>
+            <Breakdown
+              rows={report.by_model.map((b) => ({
+                label: b.label,
+                value: b.input_tokens + b.output_tokens + b.cache_tokens,
+                right: `${compact(b.input_tokens + b.output_tokens + b.cache_tokens)} tok`,
+              }))}
+            />
+          </Card>
+        )}
 
-      {report !== undefined && report.by_account.length > 0 && (
-        <Card>
-          <CardTitle>By Claude account</CardTitle>
-          <Breakdown
-            rows={report.by_account.map((b) => ({
-              label: b.label,
-              value: b.input_tokens + b.output_tokens + b.cache_tokens,
-              right: `${compact(b.requests)} req`,
-            }))}
-          />
-          <p className="mt-3 mb-0 text-xs text-on-surface-variant">
-            What this gateway sent to each account. The subscription's own 5-hour and 7-day
-            utilisation is on the Claude accounts tab — it counts every client, not only this one.
-          </p>
-        </Card>
-      )}
+        {report !== undefined && report.by_account.length > 0 && (
+          <Card>
+            <CardTitle>By Claude account</CardTitle>
+            <Breakdown
+              rows={report.by_account.map((b) => ({
+                label: b.label,
+                value: b.input_tokens + b.output_tokens + b.cache_tokens,
+                right: `${compact(b.requests)} req`,
+              }))}
+            />
+            <p className="mt-3 mb-0 text-xs text-on-surface-variant">
+              What this gateway sent to each account. The subscription's own 5-hour and 7-day
+              utilisation is on the Claude accounts tab — it counts every client, not only this
+              one.
+            </p>
+          </Card>
+        )}
 
-      {report !== undefined && report.by_key.length > 0 && (
-        <Card>
-          <CardTitle>By key</CardTitle>
-          <Breakdown
-            rows={report.by_key.map((b) => ({
-              label: b.label,
-              value: b.requests,
-              right: `${compact(b.requests)} req`,
-            }))}
-          />
-        </Card>
-      )}
+        {report !== undefined && report.by_key.length > 0 && (
+          <Card>
+            <CardTitle>By key</CardTitle>
+            <Breakdown
+              rows={report.by_key.map((b) => ({
+                label: b.label,
+                value: b.requests,
+                right: `${compact(b.requests)} req`,
+              }))}
+            />
+          </Card>
+        )}
+      </div>
 
       <RecentRequests onExpired={onExpired} />
     </div>
@@ -280,7 +287,7 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
       ) : data === null || data.length === 0 ? (
         <Empty>No requests recorded yet.</Empty>
       ) : (
-        <Table head={['When', 'Model', 'Key', 'Status', 'Tokens', 'Took', '']}>
+        <Table cap head={['When', 'Model', 'Key', 'Status', 'Tokens', 'Took', '']}>
           {data.map((r, i) => (
             <tr key={`${r.at}-${i}`} className="border-b border-outline-variant last:border-0">
               <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">{ago(r.at)}</td>
@@ -349,10 +356,25 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
  * they lose.
  */
 function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) {
+  const [copied, setCopied] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
+
   const tokens =
     row.input_tokens + row.output_tokens > 0
       ? `${compact(row.input_tokens)} in / ${compact(row.output_tokens)} out`
       : '—'
+
+  const copy = async () => {
+    setCopyFailed(false)
+    if (await copyText(asText(row))) {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+      return
+    }
+    // Not a modal on top of this one: the text is already on screen and
+    // selectable, so saying which keys to press is the whole remedy.
+    setCopyFailed(true)
+  }
 
   return (
     <ErrorModal
@@ -370,7 +392,10 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
         <KeyValue
           items={[
             ['When', <span title={row.at}>{ago(row.at)}</span>],
-            ['Status', <Chip tone={statusTone(row)}>{row.status === 0 ? 'failed' : row.status}</Chip>],
+            [
+              'Status',
+              <Chip tone={statusTone(row)}>{row.status === 0 ? 'failed' : row.status}</Chip>,
+            ],
             ['Model', dash(row.model)],
             ['Key', dash(row.key_name)],
             ['Account', dash(row.account_email)],
@@ -380,10 +405,47 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
             ['Took', `${row.duration_ms}ms`],
           ]}
         />
-        <Verbatim>{row.error ?? ''}</Verbatim>
+
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-4">
+            <span className="text-xs font-medium tracking-wide text-on-surface-variant uppercase">
+              Error
+            </span>
+            {/* The whole log, not just the error text: what gets pasted into an
+                issue is useless without the model and the status beside it. */}
+            <TonalButton onClick={() => void copy()}>
+              {copied ? 'Copied' : 'Copy log'}
+            </TonalButton>
+          </div>
+          <Verbatim>{row.error ?? ''}</Verbatim>
+          {copyFailed && (
+            <p className="mt-2 mb-0 text-xs text-error">
+              The browser only gives a page the clipboard over HTTPS, and this gateway is being
+              served over plain HTTP. Select the text above and press{' '}
+              <span className="font-mono">⌘C</span> or <span className="font-mono">Ctrl-C</span>.
+            </p>
+          )}
+        </div>
       </div>
     </ErrorModal>
   )
+}
+
+/** The row as something worth pasting somewhere else. */
+function asText(r: RequestRow): string {
+  return [
+    `when:      ${r.at}`,
+    `status:    ${r.status === 0 ? 'failed (no response)' : r.status}`,
+    `model:     ${dash(r.model)}`,
+    `key:       ${dash(r.key_name)}`,
+    `account:   ${dash(r.account_email)}`,
+    `path:      ${r.path}`,
+    `streaming: ${r.streaming ? 'yes' : 'no'}`,
+    `tokens:    ${r.input_tokens} in / ${r.output_tokens} out / ${r.cache_tokens} cache`,
+    `took:      ${r.duration_ms}ms`,
+    '',
+    r.error ?? '',
+  ].join('\n')
 }
 
 function dash(v: string | undefined): string {
