@@ -13,7 +13,7 @@ import (
 	"claudication/internal/pool"
 )
 
-// AnthropicBaseURL is where Lane A forwards to.
+// AnthropicBaseURL is where the relay forwards to.
 const AnthropicBaseURL = "https://api.anthropic.com"
 
 // oauthBeta must reach the upstream on every subscription-authenticated
@@ -36,7 +36,7 @@ var hopByHop = map[string]bool{
 
 // Relay forwards a request to Anthropic on behalf of a pooled account.
 //
-// This is Lane A, and its whole job is to be uninteresting: the request body
+// Its whole job is to be uninteresting: the request body
 // goes out byte for byte, every header the client sent is preserved, the
 // response status, headers and body come back untouched, and errors are
 // forwarded verbatim. It never parses what it does not need to, which is what
@@ -67,7 +67,7 @@ func (nopTee) done()       {}
 // accountPool is what the relay needs from the pool.
 //
 // An interface rather than the concrete type so the retry and refusal paths —
-// the part of Lane A the contract is strictest about — can be exercised
+// the part the contract is strictest about — can be exercised
 // without a database and a live provider behind them. *pool.Pool satisfies it.
 type accountPool interface {
 	Acquire(ctx context.Context, provider string, exclude map[string]bool) (pool.Lease, error)

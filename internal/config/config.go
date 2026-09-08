@@ -80,7 +80,7 @@ type PassthroughConfig struct {
 	//
 	// On by default, because without it the subscription backend refuses opus
 	// and sonnet to anything that is not Claude Code — as a 429 that claims to
-	// be a rate limit and is not. It is the one place Lane A edits a request
+	// be a rate limit and is not. It is the one place the relay edits a request
 	// body, so it is a switch rather than a silent behaviour: turn it off to
 	// get strict passthrough and haiku-only for other clients.
 	ClaudeCodeAttribution bool `yaml:"claude-code-attribution"`

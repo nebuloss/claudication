@@ -15,7 +15,7 @@ const maxJSONUsageBytes = 1 << 20
 // nothing" when it means "not counted", and quietly understated every total on
 // the Usage tab.
 //
-// This does not make Lane A a body-parsing proxy. It reads a copy of bytes
+// This does not make the relay a body-parsing proxy. It reads a copy of bytes
 // that have already gone to the client, exactly as the SSE scanner does, and
 // nothing it decides can change what was relayed.
 type jsonUsage struct {

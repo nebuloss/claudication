@@ -5,60 +5,14 @@ starves the muscle under load: it comes on when you push, and eases when you
 rest. Also contains Claude. The name is a promise about the failure mode — it
 keeps walking, and it tells you where the narrowing is.
 
-A gateway that proxies the Anthropic Messages API to Claude subscription
-accounts, with a TypeScript admin UI on top. One static binary.
+**A gateway that puts your Claude subscription behind the Anthropic Messages
+API.** Point Claude Code, or anything else that speaks that API, at it: the
+gateway authenticates to Anthropic with a subscription OAuth account, pools
+several of them in an order you choose, and relays requests byte for byte. One
+static binary, with the admin UI inside it.
 
-Where it is going is a multi-provider gateway: one binary speaking the Anthropic
-Messages, OpenAI Chat Completions and OpenAI Responses dialects to clients, and
-routing them to either a subscription OAuth backend or a keyed
-OpenAI-compatible endpoint.
-
-Where it is now is the first half of that. **Lane A passthrough**: accounts can
-be authorised, tested and proxied against, byte for byte. The translation lane
-is designed and unbuilt, so until it exists nothing here calls itself
-multi-provider.
-
-## Design: two lanes
-
-Anthropic publishes a [gateway compatibility
-contract](https://code.claude.com/docs/en/llm-gateway-protocol) describing what
-Claude Code sends a proxy and what a proxy must forward untouched. It rules out
-the obvious design, so claudication has two request paths:
-
-**Lane A — passthrough.** Same wire format in and out. Resolve the account,
-swap the credential, relay bytes. Headers and body forwarded unchanged, error
-bodies forwarded verbatim, SSE pings and unknown events included. It never
-parses what it does not need to, which is what keeps it forward-compatible
-with capabilities that do not exist yet.
-
-The contract is explicit: *"pass `anthropic-*` request headers and request body
-fields through unchanged rather than allowlisting the ones you see today. A
-gateway pinned to an observed list strips the next capability's header or field
-and breaks it on the release that introduces it."*
-
-**Lane B — translation.** Cross-format only: an OpenAI client on a Claude
-backend, Claude Code on a keyed OpenAI-compatible model, Chat ↔ Responses. A
-canonical request and event model collapses N×M translators into N+M codecs.
-Knowingly lossy and version-pinned; this is where capability drift shows up.
-
-Splitting them means the path you use daily does not inherit the translation
-layer's blast radius.
-
-## Three rules Lane A must not break
-
-1. **Forward error bodies unmodified.** Claude Code decides whether to retry
-   and permanently disable a capability by substring-matching the upstream's
-   error prose. Rewrap an error and graceful degradation stops working. A
-   gateway that must rewrite an error can emit `capability_rejected: <cap>` in
-   the message and recovery still fires.
-2. **Relay every byte, including pings.** A byte-level watchdog aborts a stream
-   silent for 300 seconds, and during long thinking pauses SSE `ping` events
-   are the only traffic. Buffering a complete response before relaying stalls
-   the client outright.
-3. **Do not reshape the `system` array.** The attribution block Claude Code
-   prepends is stripped by `api.anthropic.com` only when it arrives unchanged
-   as the first block. Reorder it and it lands in the model's prompt and the
-   cache key.
+    Claude Code  ──►  claudication  ──►  api.anthropic.com
+                       your API key       your subscription
 
 ## Install
 
@@ -72,254 +26,285 @@ until it answers on `/health` — reporting the last log lines rather than a
 timeout if it does not.
 
 On a first install it also **claims the gateway**: a fresh one has no admin
-account and the first person to reach the port takes it, which on a headless
-box is a window nobody is watching. The script closes it by setting a random
-password and printing it once. `SET_PASSWORD=0` opts out.
+account and the first person to reach the port takes it, which on a headless box
+is a window nobody is watching. The script closes it by setting a random
+password and printing it once.
 
-Re-running is an update. It stops the service, replaces the binary, rewrites
-the unit and starts it again; the state directory, the admin account and the
+Re-running is an update. The state directory, the admin account and the
 connected Claude accounts are left alone.
 
-    VERSION=v0.2.0   pin a release instead of taking the newest
-    LISTEN=…         what the service binds (default 0.0.0.0:8317)
-    STATE_DIR=…      where credentials live (default /var/lib/claudication)
-    SERVICE_NAME=…   run more than one on a host
+    VERSION=v0.7.0         pin a release instead of taking the newest
+    LISTEN=…               what the service binds (default 0.0.0.0:8317)
+    STATE_DIR=…            where credentials live (default /var/lib/claudication)
+    TRUSTED_PROXIES=…      set this when something fronts it — see below
+    SET_PASSWORD=0         leave the gateway unclaimed
+    SERVICE_NAME=…         run more than one on a host
 
-Everything is one static binary with the UI inside it. Builds are published for
-linux, darwin and freebsd on amd64/arm64, plus arm and riscv64 on linux;
-Windows binaries are on the [releases
-page](https://github.com/nebuloss/claudication/releases) but the install script
-is POSIX sh and does not cover them.
-
-## Build
-
-Go 1.26+ (`golang.org/x/crypto` requires it) and Node for the UI. The binary is
-static (`CGO_ENABLED=0`) because `modernc.org/sqlite` is pure Go, so it runs in
-a scratch image with no runtime.
-
-    make web      # vite -> internal/httpapi/webdist, embedded into the binary
-    make check    # gofmt, go vet, go test -race, and tsc
-    make build    # runs `make web` first -> dist/claudication
-    make help     # every target, with a line each
-
-The admin UI is React and Tailwind, built by Vite and typechecked separately by
-`tsc` — Vite strips types without checking them, so the check has to be its own
-step.
+Builds are published for linux, darwin and freebsd on amd64/arm64, plus arm and
+riscv64 on linux. Windows binaries are on the [releases
+page](https://github.com/nebuloss/claudication/releases); the install script is
+POSIX sh and does not cover them.
 
 ## Run
 
     claudication passwd                 # set the admin password
     claudication keys add -name laptop  # a client key, for inference
-    claudication serve -config config.yaml
+    claudication serve
 
-Then open **http://127.0.0.1:8317/**. On a gateway nobody has set up yet the
-UI asks for a password instead of a sign-in — whoever answers claims it, so do
-it before the port is reachable by anyone else.
+Then open **http://127.0.0.1:8317/** and connect a Claude account. Point a client
+at it with the base URL and one of your keys:
 
-`claudication login-url` mints a single-use link that signs a browser in
-without typing the password, which is the convenient path when the gateway is
-behind an SSH tunnel. It is spent the first time it is used, so a link left in
-shell history is a spent link.
+    export ANTHROPIC_BASE_URL=http://your-gateway:8317
+    export ANTHROPIC_AUTH_TOKEN=clc_…
+    claude
 
-### The admin UI
+`claudication login-url` mints a single-use link that signs a browser in without
+typing the password — the convenient path behind an SSH tunnel. It is spent the
+first time it is used, so a link left in shell history is a spent link.
 
-Five tabs, at the gateway's own address:
+Other subcommands: `keys list|delete`, `backup`, `restore`, `vacuum`, `version`.
 
-**Overview** — whether the proxy can serve a request, and the base URL plus
-snippets to point Claude Code or curl at it. **Claude accounts** — the OAuth
-accounts the pool draws on, in priority order, each showing its 5-hour and
-7-day subscription usage. **API keys** — mint, rename and withdraw the
-credentials clients present, with the traffic each one accounted for and an
-optional daily token budget.
+## The admin UI
+
+Five tabs, at the gateway's own address. Each lives in the URL fragment, so a
+link to one opens on it.
+
+**Overview** — whether the gateway can serve a request, and the base URL plus
+snippets to point Claude Code or curl at it.
+
+**Claude accounts** — the OAuth accounts the pool draws on, in priority order,
+each showing its 5-hour and 7-day subscription usage.
+
+**API keys** — mint, rename and withdraw the credentials clients present, each
+with an optional request rate limit and daily token budget.
+
 **Usage** — totals, breakdowns by day, model, key and account, and the request
-log with the upstream's own error text, paged back as far as retention keeps
-it. **Settings** — the admin
-password, and what this instance is.
+log with the upstream's own error text, paged back as far as retention keeps it.
 
-Each tab lives in the URL fragment, so a link to one opens on it.
+**Settings** — the admin password, and what this instance is.
 
-### Per-request history
+## Claude accounts
 
-The gateway records one row per proxied request: which key, which account,
-which model, how many tokens, how long, and what failed. It is what the Usage
-tab reads, and it survives the key or account it refers to being deleted —
-otherwise the record you go looking for after removing a key is precisely the
-one that disappears.
+The UI drives the OAuth flow. "Start Claude login" opens Anthropic's consent
+screen in a new tab; approve it, and the page shows a code to copy back into the
+form. That is the same paste flow `claude auth login` uses, and the reason there
+is no callback listener to run: the redirect belongs to Claude Code's own OAuth
+client, which is almost never where the gateway runs.
 
-`usage.retention-days` bounds it (30 by default; 0 records nothing at all) and
-a daily prune enforces that.
+Add as many as you have subscriptions. They form a **priority list**: the gateway
+serves from the top and falls through when Anthropic says the one above is out of
+room. That order is the operator's rather than something inferred — a personal
+subscription and a work one are not interchangeable, and "spread the load evenly"
+is the wrong answer when one of them is the account you would rather not spend.
 
-### The admin account
-
-One password, no username: this is one operator's own gateway, not a
-multi-tenant service. Changing the password ends every other session, which is
-the point of changing it, and deleting the account returns the gateway to its
-first-run state without touching the upstream accounts or API keys it holds.
-
-`claudication passwd` is the recovery path, and does not ask for the old
-password — whoever can run it can already read the database it protects. It
-reads without echo from a terminal and plainly from a pipe, so provisioning can
-do `claudication passwd < secret`.
-
-## Authorising a Claude account
-
-The admin UI drives the OAuth flow. "Start Claude login" opens Anthropic's
-consent screen in a new tab; approve it, and the page shows a code to copy back
-into the form. That is the same paste flow `claude auth login` uses, and the
-reason there is no callback listener to run: the redirect belongs to Claude
-Code's own OAuth client, which is almost never where the gateway runs.
-
-Add as many as you have subscriptions. They form a **priority list**: drag them,
-or use the arrows, and the gateway serves from the top, falling through to the
-next when Anthropic says the one above is out of room.
-
-That order is deliberately the operator's rather than something inferred. A
-personal subscription and a work one are not interchangeable, and "spread the
-load evenly" is the wrong answer when one of them is the account you would
-rather not spend.
+An account can be **paused** without deleting it. Deleting revokes its refresh
+token upstream, so getting it back means going through the consent flow again.
 
 ### Subscription usage
 
 Each account shows what it has spent, as the same rows `/usage` prints in the
-client — because they come from the same place. The client's `fetchUtilization`
-calls `GET /api/oauth/usage`, so the gateway does too:
+client, because they come from the same place — `GET /api/oauth/usage`:
 
-    Current session          29%   resets in 2h
+    Current session           29%  resets in 2h
     Current week (all models) 45%  resets in 21h  · binding
     Current week (Fable)       0%
 
-The gateway polls that endpoint every five minutes and on demand, rather than
-reading the rate-limit headers off relayed responses. Headers were the first
-attempt and were wrong in a way that mattered: an account showed nothing at all
-until it had served a request, and a gateway you have just connected an account
-to has served none. They also carry only the two headline windows, missing the
-per-model weekly limits.
+Polled every five minutes and on demand, rather than read off relayed responses.
+Headers were the first attempt and were wrong in a way that mattered: an account
+showed nothing until it had served a request, and they carry only the two
+headline windows, missing the per-model weekly limits.
 
 These are the subscription's own figures, so they count every client on the
-account, not only traffic through this gateway — the Usage tab's per-account
-breakdown is the other number.
+account, not only traffic through this gateway.
 
-Quota never reorders the priority list; it only decides whether to skip. And if
-every account looks exhausted the gateway tries anyway: the figures are a poll,
-and being refused by the upstream beats refusing on its behalf.
+Quota never reorders the priority list; it only decides whether to skip. If every
+account looks exhausted the gateway tries anyway — the figures are a poll, and
+being refused by the upstream beats refusing on its behalf.
 
-Each account then has a **Test** button that sends a real minimal request
-upstream and reports the model, token counts and latency — or the upstream's
-own error text, unmodified, which is the only thing that distinguishes an
-expired token from a plan restriction.
+**Test** sends a real minimal request upstream and reports the model, token
+counts and latency, or the upstream's own error text unmodified, which is the
+only thing that distinguishes an expired token from a plan restriction.
 
-Tokens are sealed with AES-256-GCM before they reach the database. The key
-lives beside it as `secret.key` (0600), or comes from `CLAUDICATION_SECRET_KEY` for
-deployments that inject secrets from a vault.
+Tokens are sealed with AES-256-GCM before they reach the database. The key lives
+beside it as `secret.key` (0600), or comes from `CLAUDICATION_SECRET_KEY`.
 
-Configuration is optional; see `config.example.yaml`. The file is **read-only**
-to claudication and is never rewritten, so comments survive. Credentials live in the
-state database, not in config.
+## API keys and limits
 
-    CLAUDICATION_LISTEN, CLAUDICATION_STATE_DIR, CLAUDICATION_LOG_LEVEL, CLAUDICATION_LOG_FORMAT,
-    CLAUDICATION_REQUESTS_PER_MINUTE, CLAUDICATION_SECRET_KEY,
-    CLAUDICATION_CLAUDE_CODE_ATTRIBUTION, CLAUDICATION_TRUSTED_PROXIES
+A key is shown once at creation and is unrecoverable afterwards: the store keeps
+`sha256(key)` and a lookup prefix, never the key.
+
+Each key can carry two limits, both off by default:
+
+- **A request rate** — a count and the period it is measured over, minute, hour
+  or day. The whole allowance is available at once and refills over the period,
+  so 200 an hour permits a burst of 200 and then runs dry. Off means the
+  gateway's own `limits.requests-per-minute`.
+- **A token budget** — tokens per rolling 24 hours, counting input, output and
+  both cache columns, because all four are billed. Rolling rather than
+  calendar-aligned, so it frees up continuously instead of everything becoming
+  possible again at midnight. Off means no ceiling.
+
+A key can exceed its budget by one request, necessarily: what a request costs is
+only known once it has been served. The refusal carries `Retry-After` computed
+from when the oldest counted request ages out.
+
+### Per-request history
+
+One row per proxied request: which key, which account, which model, how many
+tokens, how long, and what failed. It survives the key or account it refers to
+being deleted — otherwise the record you go looking for after removing a key is
+precisely the one that disappears.
+
+`usage.retention-days` bounds it (30 by default; 0 records nothing) and a daily
+prune enforces it, returning the freed pages to the filesystem.
+
+## Configuration
+
+Optional; see [`configs/config.example.yaml`](configs/config.example.yaml). With
+no `-config`, `/etc/claudication/config.yaml` is read if it exists. The file is
+read-only to claudication and never rewritten, so comments survive. Credentials
+live in the state database, not in config.
+
+    CLAUDICATION_LISTEN, CLAUDICATION_STATE_DIR, CLAUDICATION_LOG_LEVEL,
+    CLAUDICATION_LOG_FORMAT, CLAUDICATION_REQUESTS_PER_MINUTE,
+    CLAUDICATION_SECRET_KEY, CLAUDICATION_CLAUDE_CODE_ATTRIBUTION,
+    CLAUDICATION_TRUSTED_PROXIES
+
+Environment overrides win over the file.
+
+### Behind a reverse proxy
+
+**Set `trusted-proxies`** if anything fronts the gateway — nginx, Nginx Proxy
+Manager, Traefik, a tunnel. Every request then arrives from the proxy, so without
+it every client shares one anonymous rate-limit bucket, the access log cannot
+tell them apart, and the session cookie cannot be marked `Secure`. The value is
+the address the *proxy* connects from; take it from the `ip` field in the log.
+
+`X-Forwarded-For` is honoured only from a trusted peer, so a client cannot spoof
+its way past a limit.
+
+### The attribution block
 
 `CLAUDICATION_CLAUDE_CODE_ATTRIBUTION` (`passthrough.claude-code-attribution`,
-default **on**) is the one setting that changes what is sent upstream. Anthropic's
-subscription backend gates opus, sonnet and fable on Claude Code's attribution
-block arriving as the *first* system block, and refuses anything else as a
-`429 rate_limit_error` with the message `"Error"` and no rate-limit headers —
-which reads exactly like quota exhaustion and is nothing of the sort. With this
-on, a client that did not send that block has it prepended, so it reaches the
-models the subscription pays for. Set it to `false` for strict byte-for-byte
-passthrough, and accept that non-Claude-Code clients then get haiku and nothing
-above it. A body that already leads with an accepted block is never rewritten.
+default **on**) is the one setting that changes what is sent upstream.
+
+Anthropic's subscription backend gates opus, sonnet and fable on Claude Code's
+attribution block arriving as the *first* system block, and refuses anything else
+as a `429 rate_limit_error` with the message `"Error"` and no rate-limit
+headers — which reads exactly like quota exhaustion and is nothing of the sort.
+With this on, a client that did not send that block has it prepended, so it
+reaches the models the subscription pays for. A body that already leads with an
+accepted block is never rewritten.
+
+Set it `false` for strict byte-for-byte passthrough, and accept that
+non-Claude-Code clients then get haiku and nothing above it.
+
+## What the relay must not break
+
+Anthropic publishes a [gateway compatibility
+contract](https://code.claude.com/docs/en/llm-gateway-protocol) describing what
+Claude Code sends a proxy and what a proxy must forward untouched. Three rules
+matter most, and each is held by a test that quotes the clause it enforces:
+
+1. **Forward error bodies unmodified.** Claude Code decides whether to retry, and
+   whether to permanently disable a capability, by substring-matching the
+   upstream's error prose. Rewrap an error and graceful degradation stops
+   working.
+2. **Relay every byte, including pings.** A byte-level watchdog aborts a stream
+   silent for 300 seconds, and during long thinking pauses SSE `ping` events are
+   the only traffic. Buffering a complete response before relaying stalls the
+   client outright.
+3. **Do not reshape the `system` array.** The attribution strip is positional:
+   reorder the array, merge the block, or flatten it to a string and the block
+   lands in the model's prompt and the cache key.
+
+The relay follows from those: it never parses what it does not need to, which is
+what keeps it working with capabilities that do not exist yet. Headers and body
+fields are forwarded as open lists rather than allowlists, because a gateway
+pinned to an observed list strips the next capability's field and breaks it on
+the release that introduces it.
 
 ## Endpoints
 
-| Endpoint            | Auth | Notes                                          |
-| ------------------- | ---- | ---------------------------------------------- |
-| `GET /health`       | no   | Liveness. Leaks no operational detail.         |
-| `HEAD /api/hello`   | no   | Claude Code's connection-warming probe.        |
-| `GET /v1/models`    | yes  | Discovery, proxied from the upstream.          |
-| `POST /v1/messages` | yes  | Lane A passthrough, streaming and not.         |
-| `GET /`             | —    | Admin UI. `?token=` spends a sign-in link.     |
-| `GET /admin/setup`  | —    | Fresh install, or just a lapsed session?       |
-| `POST /admin/setup` | —    | Claim an unclaimed gateway. Refused after.     |
-| `POST /admin/session` | —  | Password for a session cookie.                 |
-| `POST /admin/password` | admin | Change it; ends every other session.      |
-| `POST /admin/account/delete` | admin | Back to the first-run state.        |
-| `GET /admin/overview` | admin | Status, counts, last 24h.                   |
-| `GET /admin/accounts` | admin | Upstream accounts.                          |
-| `POST /admin/accounts/order` | admin | Set the priority list.               |
-| `POST /admin/accounts/oauth/{start,complete}` | admin | The login flow. |
-| `POST /admin/accounts/{id}/{test,refresh}` | admin | Probe or refresh.  |
-| `POST /admin/accounts/{id}/usage` | admin | Re-read the subscription usage. |
-| `GET,POST /admin/keys` | admin | Client API keys.                           |
-| `GET /admin/usage` | admin | Totals and breakdowns over a window.          |
-| `GET /admin/requests` | admin | The last N proxied requests.                |
+| Endpoint                                      | Auth  | Notes                                      |
+| --------------------------------------------- | ----- | ------------------------------------------ |
+| `GET /health`                                 | no    | Liveness. Leaks no operational detail.     |
+| `HEAD /api/hello`                             | no    | Claude Code's connection-warming probe.    |
+| `GET /v1/models`                              | key   | Discovery, proxied from the upstream.      |
+| `POST /v1/messages`                           | key   | The relay, streaming and not.              |
+| `POST /v1/messages/count_tokens`              | key   | So counting does not spend inference.      |
+| `GET /`                                       | —     | Admin UI. `?token=` spends a sign-in link. |
+| `GET,POST /admin/setup`                       | —     | Fresh install, and claiming it.            |
+| `POST /admin/session`                         | —     | Password for a session cookie.             |
+| `POST /admin/password`                        | admin | Change it; ends every other session.       |
+| `GET /admin/overview`                         | admin | Status, counts, last 24h.                  |
+| `GET /admin/accounts`                         | admin | Upstream accounts.                         |
+| `POST /admin/accounts/order`                  | admin | Set the priority list.                     |
+| `POST /admin/accounts/oauth/{start,complete}` | admin | The login flow.                            |
+| `POST /admin/accounts/{id}/{test,refresh}`    | admin | Probe or refresh.                          |
+| `POST /admin/accounts/{id}/disabled`          | admin | Pause or resume.                           |
+| `GET,POST /admin/keys`                        | admin | Client API keys.                           |
+| `PATCH,DELETE /admin/keys/{id}`               | admin | Edit or withdraw one.                      |
+| `GET /admin/usage`                            | admin | Totals and breakdowns over a window.       |
+| `GET /admin/requests`                         | admin | The request log, paged.                    |
 
 Model discovery is pinned by the contract: `GET /v1/models?limit=1000`, a
-3-second timeout, **any redirect counts as failure**, and Claude Code keeps
-only ids containing `claude` or `anthropic`.
+3-second timeout, **any redirect counts as failure**, and Claude Code keeps only
+ids containing `claude` or `anthropic`.
 
 ## Deploy
 
 `deploy/claudication.service` for systemd, with the hardening a single-purpose
 daemon should have: its own user, `ProtectSystem=strict`, a `SystemCallFilter`,
-and a `TimeoutStopSec` longer than the drain grace so a stop does not sever a
-stream mid-frame.
+`GOMEMLIMIT` so a burst degrades into GC pressure rather than an OOM kill, and a
+`TimeoutStopSec` longer than the drain grace so a stop does not sever a stream
+mid-frame. The OpenRC path is supervised and registers logrotate.
 
-The state directory has to be writable and claudication refuses to start if it
-is not, which turns "the tokens were on a layer that got thrown away" into a
-startup error rather than silent data loss.
+The state directory has to be writable and claudication refuses to start if it is
+not, which turns "the tokens were on a layer that got thrown away" into a startup
+error rather than silent data loss.
+
+**There is no TLS.** Terminate it in front — a reverse proxy or a tunnel — or the
+API keys cross the network in clear.
+
+No container image: the binary is static and installs as one file, so building
+and signing an image was overhead with nothing on the other side of it.
 
 ### Backing it up
 
     claudication backup -out claudication-backup.tar.gz
     claudication restore -in claudication-backup.tar.gz
 
-Two files matter: `claudication.db`, and the `secret.key` that seals every
-stored OAuth token. The database on its own restores to a list of accounts whose
-credentials cannot be decrypted, so both travel together or the backup is
-decorative.
+Two files matter: `claudication.db`, and the `secret.key` that seals every stored
+OAuth token. The database alone restores to a list of accounts whose credentials
+cannot be decrypted, so both travel together or the backup is decorative.
 
-Do not use `cp` for this. The database runs in WAL mode, so at any moment
-committed data lives partly in `claudication.db` and partly in the `-wal` file
-beside it: copying one, or both without synchronisation, can produce a file that
-is torn or silently missing the account you connected a minute ago. `backup`
-takes a consistent snapshot with `VACUUM INTO` while the gateway keeps serving,
-so there is no window to schedule around.
+**Do not use `cp`.** The database runs in WAL mode, so committed data lives partly
+in `claudication.db` and partly in the `-wal` beside it: copying one, or both
+without synchronisation, produces a file that is torn or silently missing the
+account you connected a minute ago. `backup` takes a consistent snapshot with
+`VACUUM INTO` while the gateway keeps serving.
 
 The archive holds the sealing key and the sealed tokens together, which makes it
-**exactly as sensitive as the state directory** — anyone holding it holds every
-connected Claude account. It is created 0600; keep it somewhere you would keep a
-password.
+**exactly as sensitive as the state directory**. It is created 0600; keep it
+somewhere you would keep a password.
 
-`restore` refuses to overwrite an existing database unless given `-force`, and
-removes any stale `-wal` left behind so SQLite cannot replay an old log over the
-restored file. Stop the gateway before restoring.
+`restore` refuses to overwrite an existing database unless given `-force`. Stop
+the gateway before restoring.
 
-## Roadmap
+## Build
 
-Bold is shipped.
+Go 1.26+ and Node for the UI. The binary is static (`CGO_ENABLED=0`) because
+`modernc.org/sqlite` is pure Go.
 
-| Stage   | Scope                                                             |
-| ------- | ----------------------------------------------------------------- |
-| **S0**  | Skeleton: config, SQLite, key auth, rate limit, graceful shutdown  |
-| **S1a** | Claude OAuth, sealed credentials, admin API + UI, account probe    |
-| **S1b** | Lane A passthrough, account pool, `/v1/models`, `count_tokens`     |
-| **S1c** | Per-request history, token budgets, backup/restore, release + CI   |
-| S2      | Contract conformance tests                                        |
-| S3      | Lane B canonical model and the three codecs                       |
-| S4      | Keyed backends (OpenAI-compatible, Anthropic API)                  |
-| S5      | Codex OAuth                                                       |
+    make web      # vite -> internal/httpapi/webdist, embedded into the binary
+    make check    # gofmt, go vet, go test -race, tsc, and the UI build
+    make build    # runs `make web` first -> dist/claudication
+    make help     # every target, with a line each
 
-No container image: the binary is static and installs as one file, so building
-and signing an image was overhead with nothing on the other side of it.
-
-## Renaming
-
-The project was called `claudiquement` before its first release. Nothing was
-published under that name, so there is no compatibility shim — see
-[docs/renaming-from-claudiquement.md](docs/renaming-from-claudiquement.md) for
-what moved and how to bring an existing state directory across.
+The admin UI is React and Tailwind, built by Vite and typechecked separately by
+`tsc` — Vite strips types without checking them, so the check has to be its own
+step.
 
 ## Prior art
 

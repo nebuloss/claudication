@@ -132,7 +132,7 @@ func (s *Server) routes() http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Lane A: the Anthropic-native passthrough.
+	// The relay: Anthropic in, Anthropic out.
 	mux.Handle("GET /v1/models", s.requireAPIKey(http.HandlerFunc(s.handleModels)))
 	mux.Handle("POST /v1/messages", s.requireAPIKey(http.HandlerFunc(s.handleMessages)))
 	mux.Handle("POST /v1/messages/count_tokens", s.requireAPIKey(http.HandlerFunc(s.handleCountTokens)))

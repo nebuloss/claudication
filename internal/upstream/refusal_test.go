@@ -34,7 +34,7 @@ func (p *onePool) ReportFailure(string, pool.FailureKind, string) {}
 func (p *onePool) ReportSuccess(string)                           {}
 func (p *onePool) Refresh(context.Context, string) error          { return nil }
 
-// The rule Lane A exists for: the upstream's error reaches the client
+// The rule the relay exists for: the upstream's error reaches the client
 // unmodified. Claude Code decides whether to retry, and whether to disable a
 // capability, by reading that body — and a per-model limit is only visible in
 // it. Answering with our own "every connected account is rate limited" hides

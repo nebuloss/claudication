@@ -12,7 +12,7 @@ import (
 	"claudication/internal/upstream"
 )
 
-// handleMessages is Lane A: Anthropic in, Anthropic out, byte for byte.
+// handleMessages is the relay: Anthropic in, Anthropic out, byte for byte.
 //
 // It deliberately does almost nothing. It does not decode the body, rewrite
 // the system array, filter events, normalise errors, or inspect capabilities —

@@ -55,7 +55,7 @@ var acceptedAttribution = map[string]bool{
 // client that is not Claude Code can still reach the models the subscription
 // pays for.
 //
-// This is the one place Lane A edits a request body, and it is a deliberate,
+// This is the one place the relay edits a request body, and it is a deliberate,
 // switchable exception rather than an oversight — see passthrough.claude-code-
 // attribution. Two things keep it as small as an exception can be:
 //
