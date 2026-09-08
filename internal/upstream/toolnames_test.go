@@ -50,7 +50,7 @@ func toolNames(t *testing.T, body []byte) []string {
 	return names
 }
 
-func TestRewriteMCPNamesDoublesTheUnderscore(t *testing.T) {
+func TestRewriteRefusedToolNamesDoublesTheUnderscore(t *testing.T) {
 	body := []byte(`{
 		"model": "claude-opus-5",
 		"tools": [
@@ -71,7 +71,7 @@ func TestRewriteMCPNamesDoublesTheUnderscore(t *testing.T) {
 		]
 	}`)
 
-	out, names := RewriteMCPNames(body)
+	out, names := RewriteRefusedToolNames(body)
 
 	want := []string{"mcp__weather_get", "mcp__already__fine", "Bash", "mcp__weather_get", "mcp__weather_get"}
 	got := toolNames(t, out)
@@ -91,7 +91,7 @@ func TestRewriteMCPNamesDoublesTheUnderscore(t *testing.T) {
 	}
 }
 
-func TestRewriteMCPNamesLeavesEverythingElseAlone(t *testing.T) {
+func TestRewriteRefusedToolNamesLeavesEverythingElseAlone(t *testing.T) {
 	// Each of these is a name the upstream accepts as it stands: rewriting any
 	// of them would break a request that works today.
 	for _, name := range []string{
@@ -103,7 +103,7 @@ func TestRewriteMCPNamesLeavesEverythingElseAlone(t *testing.T) {
 		"weather_get",
 	} {
 		body := []byte(`{"tools":[{"name":"` + name + `"}]}`)
-		out, names := RewriteMCPNames(body)
+		out, names := RewriteRefusedToolNames(body)
 		if names != nil {
 			t.Errorf("%q: reported a rewrite %v", name, names)
 		}
@@ -113,9 +113,9 @@ func TestRewriteMCPNamesLeavesEverythingElseAlone(t *testing.T) {
 	}
 }
 
-func TestRewriteMCPNamesReturnsTheSameBytesWhenItChangesNothing(t *testing.T) {
+func TestRewriteRefusedToolNamesReturnsTheSameBytesWhenItChangesNothing(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hello"}]}`)
-	out, names := RewriteMCPNames(body)
+	out, names := RewriteRefusedToolNames(body)
 	if names != nil {
 		t.Errorf("reported a rewrite: %v", names)
 	}
@@ -124,7 +124,7 @@ func TestRewriteMCPNamesReturnsTheSameBytesWhenItChangesNothing(t *testing.T) {
 	}
 }
 
-func TestRewriteMCPNamesWillNotMergeTwoTools(t *testing.T) {
+func TestRewriteRefusedToolNamesWillNotMergeTwoTools(t *testing.T) {
 	// Doubling the underscore here would land on a tool that already exists.
 	// Renaming it anyway would send two different tools under one name and
 	// then rename the wrong one on the way back.
@@ -133,7 +133,7 @@ func TestRewriteMCPNamesWillNotMergeTwoTools(t *testing.T) {
 		{"name":"mcp__weather_get"}
 	]}`)
 
-	out, names := RewriteMCPNames(body)
+	out, names := RewriteRefusedToolNames(body)
 	if len(names) != 0 {
 		t.Errorf("rewrote into a collision: %v", names)
 	}
@@ -143,9 +143,9 @@ func TestRewriteMCPNamesWillNotMergeTwoTools(t *testing.T) {
 	}
 }
 
-func TestRewriteMCPNamesLeavesAnUnparseableBody(t *testing.T) {
+func TestRewriteRefusedToolNamesLeavesAnUnparseableBody(t *testing.T) {
 	body := []byte(`{"tools":[{"name":"mcp_x"`) // truncated
-	out, names := RewriteMCPNames(body)
+	out, names := RewriteRefusedToolNames(body)
 	if names != nil || string(out) != string(body) {
 		t.Errorf("touched a body it could not parse: %s %v", out, names)
 	}
@@ -246,5 +246,59 @@ func TestNameRestorerGivesUpRatherThanHoardMemory(t *testing.T) {
 	// Once it gives up it stays out of the way for the rest of the body.
 	if got := n.translate([]byte(`"name":"mcp__x"`)); string(got) != `"name":"mcp__x"` {
 		t.Errorf("kept rewriting after giving up: %q", got)
+	}
+}
+
+func TestRewriteRefusedToolNamesFixesTheBareTodoWrite(t *testing.T) {
+	// Found by scripts/bisect-refusal.py on a captured opencode request, once
+	// the system-prompt trigger had been cleared out of the way.
+	body := []byte(`{
+		"tools": [{"name": "todowrite", "description": "d"}, {"name": "bash", "description": "d"}],
+		"messages": [
+			{"role": "assistant", "content": [
+				{"type": "tool_use", "id": "toolu_1", "name": "todowrite", "input": {}}
+			]}
+		]
+	}`)
+
+	out, names := RewriteRefusedToolNames(body)
+
+	got := toolNames(t, out)
+	if len(got) != 3 || got[0] != "todowrite_" || got[1] != "bash" || got[2] != "todowrite_" {
+		t.Fatalf("names = %v, want the tool and its past call both renamed", got)
+	}
+	if len(names) != 1 || names["todowrite_"] != "todowrite" {
+		t.Errorf("reverse map = %v", names)
+	}
+}
+
+func TestRewriteRefusedToolNamesLeavesNamesNearTodoWriteAlone(t *testing.T) {
+	// Measured: only the exact lowercase string is refused. Rewriting any of
+	// these would rename a tool that already works.
+	for _, name := range []string{
+		"TodoWrite", "todoWrite", "Todowrite", "TODOWRITE",
+		"todo_write", "todowrite_", "todowrite1", "_todowrite",
+		"todoread", "taskcreate", "notebookedit", "webfetch",
+	} {
+		body := []byte(`{"tools":[{"name":"` + name + `"}]}`)
+		out, names := RewriteRefusedToolNames(body)
+		if names != nil {
+			t.Errorf("%q: reported a rewrite %v", name, names)
+		}
+		if string(out) != string(body) {
+			t.Errorf("%q: body changed to %s", name, out)
+		}
+	}
+}
+
+func TestRewriteRefusedToolNamesWillNotMergeOntoAnExistingTodoWrite(t *testing.T) {
+	body := []byte(`{"tools":[{"name":"todowrite"},{"name":"todowrite_"}]}`)
+	out, names := RewriteRefusedToolNames(body)
+	if len(names) != 0 {
+		t.Errorf("rewrote into a collision: %v", names)
+	}
+	got := toolNames(t, out)
+	if got[0] != "todowrite" || got[1] != "todowrite_" {
+		t.Errorf("names changed: %v", got)
 	}
 }

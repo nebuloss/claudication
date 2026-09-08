@@ -36,34 +36,70 @@ const (
 	mcpClientStyle = "mcp__"
 )
 
-// refusedName reports whether the upstream will read this name as a
-// third-party MCP app.
+// A second refused name, found by scripts/bisect-refusal.py on a captured
+// opencode request once the system-prompt trigger had been cleared.
+//
+// It is one exact lowercase string and nothing near it. Measured on opus and
+// haiku alike:
+//
+//	todowrite   400      TodoWrite   200      todo_write   200
+//	                     todoWrite   200      todowrite_   200
+//	                     Todowrite   200      todowrite1   200
+//	                     TODOWRITE   200      _todowrite   200
+//
+// And it is not "a built-in name in lowercase": taskcreate, taskupdate,
+// todoread, askuserquestion, toolsearch, notebookedit, webfetch and multiedit
+// are all accepted. Only this one.
+//
+// The replacement appends an underscore rather than using Claude Code's own
+// `TodoWrite`. Both are accepted, but that spelling is a built-in the model has
+// strong priors about, and borrowing it would quietly change how a third-party
+// tool is treated. A trailing underscore keeps the client's own word.
+const (
+	refusedTodoWrite      = "todowrite"
+	refusedTodoWriteFixed = "todowrite_"
+)
+
+// refusedName reports whether the upstream will refuse this tool name.
 func refusedName(name string) bool {
+	if name == refusedTodoWrite {
+		return true
+	}
 	return strings.HasPrefix(name, mcpPrefix) &&
 		len(name) > len(mcpPrefix) &&
 		name[len(mcpPrefix)] != '_'
 }
 
-// doubled is the same name in the shape the upstream accepts.
-func doubled(name string) string {
+// accepted is the same name in the smallest shape the upstream takes.
+func accepted(name string) string {
+	if name == refusedTodoWrite {
+		return refusedTodoWriteFixed
+	}
 	return mcpClientStyle + name[len(mcpPrefix):]
 }
 
-// RewriteMCPNames doubles the underscore on every tool name the upstream would
-// refuse, and reports what it changed so the response can be put back.
+// mayHoldRefusedName is the cheap gate: a body with neither marker in it
+// cannot carry a name this rewrites, and costs one scan to establish.
+// `"mcp_` covers both underscore shapes; the exact test happens per name.
+func mayHoldRefusedName(b []byte) bool {
+	return bytes.Contains(b, []byte(`"`+mcpPrefix)) ||
+		bytes.Contains(b, []byte(`"`+refusedTodoWrite+`"`))
+}
+
+// RewriteRefusedToolNames sends every tool name the upstream would refuse in a
+// shape it accepts, and reports what it changed so the response can be put
+// back.
 //
 // The returned map is keyed by what went upstream and holds what the client
 // called it. A nil map means nothing was rewritten and the body is the
-// caller's own bytes, untouched — which is every request that does not carry a
-// single-underscore `mcp_` name, so the cost for everyone else is one scan of
-// the body for a four-byte string.
+// caller's own bytes, untouched — which is every request carrying neither a
+// single-underscore `mcp_` name nor a bare `todowrite`.
 //
 // Like EnsureAttribution, this is a deliberate, narrow exception to the rule
 // that the relay does not edit request bodies: without it the affected
 // requests do not work at all.
-func RewriteMCPNames(body []byte) ([]byte, map[string]string) {
-	// Cheap gate. `"mcp_` covers both shapes; the exact test happens per name.
-	if !bytes.Contains(body, []byte(`"`+mcpPrefix)) {
+func RewriteRefusedToolNames(body []byte) ([]byte, map[string]string) {
+	if !mayHoldRefusedName(body) {
 		return body, nil
 	}
 
@@ -147,7 +183,7 @@ func (r *renamer) named(raw json.RawMessage) (json.RawMessage, bool) {
 	if !refusedName(name) {
 		return raw, false
 	}
-	renamed := doubled(name)
+	renamed := accepted(name)
 	if r.taken[renamed] {
 		// Leave it alone and let the upstream refuse it: a wrong answer the
 		// client can read beats silently merging two of its tools.
@@ -210,7 +246,7 @@ func (r *renamer) array(raw json.RawMessage, fn func(json.RawMessage) (json.RawM
 	}
 	changed := false
 	for i, item := range items {
-		if !bytes.Contains(item, []byte(`"`+mcpPrefix)) {
+		if !mayHoldRefusedName(item) {
 			continue
 		}
 		if out, ok := fn(item); ok {

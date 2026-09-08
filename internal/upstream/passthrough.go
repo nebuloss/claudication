@@ -198,7 +198,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	// the shape it accepts, and names is what puts them back on the way out.
 	// Nil for every request that carries no such name, which is the common
 	// case and costs one scan of the body.
-	body, names := RewriteMCPNames(body)
+	body, names := RewriteRefusedToolNames(body)
 
 	var res Result
 	tried := map[string]bool{}
