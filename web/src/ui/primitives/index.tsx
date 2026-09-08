@@ -790,6 +790,63 @@ export function Segmented<T extends string>({
   )
 }
 
+/**
+ * A secondary tab bar, for choosing which view of one screen to look at.
+ *
+ * A smaller sibling of the app's own nav rather than a second copy of it: the
+ * same underline, but two thirds the type, half the padding and a thinner
+ * marker, so it reads as subordinate to the tab that got you here instead of
+ * competing with it.
+ *
+ * Buttons rather than links, because this picks a view inside a screen and the
+ * hash already belongs to the screen.
+ *
+ * `aside` rides at the right of the same rule — an action that belongs to the
+ * selected view, with the border still running the full width behind it.
+ */
+export function SubNav<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+  aside,
+}: {
+  options: { id: T; label: string }[]
+  value: T
+  onChange: (id: T) => void
+  label: string
+  aside?: ReactNode
+}) {
+  return (
+    <div className="-mx-1 overflow-x-auto px-1">
+      <div
+        role="tablist"
+        aria-label={label}
+        className="flex w-full min-w-max items-center gap-1 border-b border-outline-variant"
+      >
+        {options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            role="tab"
+            aria-selected={value === o.id}
+            onClick={() => onChange(o.id)}
+            className={`state-layer relative rounded-t-[var(--radius-md3-s)] px-3 py-2 text-xs font-medium whitespace-nowrap ${
+              value === o.id ? 'text-primary' : 'text-on-surface-variant'
+            }`}
+          >
+            {o.label}
+            {value === o.id && (
+              <span className="absolute inset-x-1 bottom-0 h-[2px] rounded-t-full bg-primary" />
+            )}
+          </button>
+        ))}
+        {aside !== undefined && <div className="ml-auto pb-1 pl-4">{aside}</div>}
+      </div>
+    </div>
+  )
+}
+
 /** Everything inside a dialog that can hold focus. */
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'

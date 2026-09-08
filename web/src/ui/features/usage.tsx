@@ -14,6 +14,7 @@ import {
   Spinner,
   Segmented,
   Stat,
+  SubNav,
   Table,
   TonalButton,
   TextButton,
@@ -25,6 +26,16 @@ import {
 
 const WINDOWS = [1, 7, 30] as const
 
+type View = 'requests' | 'day' | 'model' | 'account' | 'key'
+
+const VIEW_LABELS: Record<View, string> = {
+  requests: 'Requests',
+  day: 'By day',
+  model: 'By model',
+  account: 'By account',
+  key: 'By key',
+}
+
 /**
  * What the proxy has actually been doing: totals, a breakdown, and the last
  * few requests as they happened.
@@ -35,6 +46,9 @@ const WINDOWS = [1, 7, 30] as const
  */
 export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
   const [days, setDays] = useState<number>(7)
+  const [chosen, setChosen] = useState<View>('requests')
+  // Bumped to remount the activity list, which is what refreshing it means.
+  const [reloads, setReloads] = useState(0)
   const { data, error, loading, reload } = useLoader<Usage>(() => api.usage(days), onExpired, [days])
 
   if (loading && data === null) {
@@ -61,6 +75,19 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
 
   const report = data?.report
   const totals = report?.totals
+
+  // Only the views with something in them, so a quiet window does not offer
+  // four empty tabs. Requests is always there — "nothing yet" is an answer.
+  const views: View[] = ['requests']
+  if (report !== undefined) {
+    if (report.by_day.length > 0) views.push('day')
+    if (report.by_model.length > 0) views.push('model')
+    if (report.by_account.length > 0) views.push('account')
+    if (report.by_key.length > 0) views.push('key')
+  }
+  // Narrowing the window can take the chosen tab away with it; fall back
+  // rather than render a panel that is no longer on the bar.
+  const view = views.includes(chosen) ? chosen : 'requests'
 
   return (
     <div className="flex flex-col gap-5">
@@ -113,13 +140,30 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
         )}
       </Card>
 
-      {/* Two columns from lg up, and items-start so a short breakdown keeps its
-          own height instead of stretching to match the tallest in its row.
-          Stacked, these four were most of a screen on their own. */}
-      <div className="grid items-start gap-5 lg:grid-cols-2">
-        {report !== undefined && report.by_day.length > 0 && (
-          <Card>
-            <CardTitle>By day</CardTitle>
+      {/* One panel at a time. Stacked, the breakdowns and the activity list
+          were four screens of scrolling to compare two numbers that were never
+          both in view anyway. */}
+      <Card>
+        <SubNav
+          label="Usage view"
+          value={view}
+          onChange={setChosen}
+          options={views.map((id) => ({ id, label: VIEW_LABELS[id] }))}
+          aside={
+            view === 'requests' ? (
+              <TextButton onClick={() => setReloads((n) => n + 1)}>Refresh</TextButton>
+            ) : undefined
+          }
+        />
+
+        <div className="mt-4">
+          {view === 'requests' && (
+            // Remounting is the refresh: the list starts from the first page
+            // and drops the cursor, which is exactly what reloading it means.
+            <RecentRequests key={reloads} onExpired={onExpired} />
+          )}
+
+          {view === 'day' && report !== undefined && (
             <Breakdown
               identity={false}
               rows={report.by_day.map((b) => ({
@@ -128,12 +172,9 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
                 right: `${compact(b.requests)} req`,
               }))}
             />
-          </Card>
-        )}
+          )}
 
-        {report !== undefined && report.by_model.length > 0 && (
-          <Card>
-            <CardTitle>By model</CardTitle>
+          {view === 'model' && report !== undefined && (
             <Breakdown
               rows={report.by_model.map((b) => ({
                 label: b.label,
@@ -141,30 +182,26 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
                 right: `${compact(b.input_tokens + b.output_tokens + b.cache_tokens)} tok`,
               }))}
             />
-          </Card>
-        )}
+          )}
 
-        {report !== undefined && report.by_account.length > 0 && (
-          <Card>
-            <CardTitle>By Claude account</CardTitle>
-            <Breakdown
-              rows={report.by_account.map((b) => ({
-                label: b.label,
-                value: b.input_tokens + b.output_tokens + b.cache_tokens,
-                right: `${compact(b.requests)} req`,
-              }))}
-            />
-            <p className="mt-3 mb-0 text-xs text-on-surface-variant">
-              What this gateway sent to each account. The subscription's own 5-hour and 7-day
-              utilisation is on the Claude accounts tab — it counts every client, not only this
-              one.
-            </p>
-          </Card>
-        )}
+          {view === 'account' && report !== undefined && (
+            <>
+              <Breakdown
+                rows={report.by_account.map((b) => ({
+                  label: b.label,
+                  value: b.input_tokens + b.output_tokens + b.cache_tokens,
+                  right: `${compact(b.requests)} req`,
+                }))}
+              />
+              <p className="mt-3 mb-0 text-xs text-on-surface-variant">
+                What this gateway sent to each account. The subscription's own 5-hour and 7-day
+                utilisation is on the Claude accounts tab — it counts every client, not only this
+                one.
+              </p>
+            </>
+          )}
 
-        {report !== undefined && report.by_key.length > 0 && (
-          <Card>
-            <CardTitle>By key</CardTitle>
+          {view === 'key' && report !== undefined && (
             <Breakdown
               rows={report.by_key.map((b) => ({
                 label: b.label,
@@ -172,11 +209,9 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
                 right: `${compact(b.requests)} req`,
               }))}
             />
-          </Card>
-        )}
-      </div>
-
-      <RecentRequests onExpired={onExpired} />
+          )}
+        </div>
+      </Card>
     </div>
   )
 }
@@ -268,12 +303,10 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
 
   const data = rows
 
+  // No card and no title of its own: it is the body of a tab now, and the tab
+  // is already called Requests.
   return (
-    <Card>
-      <CardTitle aside={<TextButton onClick={() => void load('')}>Refresh</TextButton>}>
-        Recent requests
-      </CardTitle>
-
+    <>
       {error !== '' && (
         <Banner tone="error" className="mb-4">
           {error}
@@ -339,7 +372,7 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
       {shown !== null && shown.error !== undefined && shown.error !== '' && (
         <RequestLog row={shown} onClose={() => setShown(null)} />
       )}
-    </Card>
+    </>
   )
 }
 
