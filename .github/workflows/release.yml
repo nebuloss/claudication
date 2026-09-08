@@ -41,13 +41,53 @@ jobs:
       # Plain binaries rather than tarballs: install.sh then fetches one file,
       # checks it against SHA256SUMS, and is done. There is nothing in an
       # archive here worth the extra step — the UI is inside the binary.
+      #
+      # The release notes come from the tag's own message. --generate-notes
+      # builds a changelog out of merged pull requests, and nothing here goes
+      # through one, so every release page from v0.1.0 to v0.4.0 came out as a
+      # bare compare link while the text describing the release sat in the tag
+      # where only `git show` would find it.
+      #
+      # Re-runnable on purpose: a workflow_dispatch against a tag that already
+      # has a release updates it rather than failing, which is what makes it
+      # possible to backfill the notes on a release published before this.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --generate-notes \
-            --verify-tag \
-            dist/release/*
+          set -eu
+          # Only an annotated tag has a message of its own. On a lightweight
+          # one %(contents) quietly falls through to the tagged commit's
+          # message, which is not a release note and would be published as if
+          # it were — so ask what kind of object this is rather than trusting
+          # a non-empty answer.
+          if [ "$(git cat-file -t "$TAG")" = tag ]; then
+            title=$(git tag -l --format='%(contents:subject)' "$TAG")
+            git tag -l --format='%(contents:body)' "$TAG" > notes.md
+          else
+            title="$TAG"
+            : > notes.md
+          fi
+          [ -n "$title" ] || title="$TAG"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Already published: update it. `gh release edit` has no
+            # --generate-notes, so with nothing to say leave the notes alone
+            # rather than blanking whatever is there.
+            if [ -s notes.md ]; then
+              gh release edit "$TAG" --title "$title" --notes-file notes.md
+            else
+              gh release edit "$TAG" --title "$title"
+            fi
+            gh release upload "$TAG" dist/release/* --clobber
+          elif [ -s notes.md ]; then
+            # An annotated tag: its body is the release notes, verbatim.
+            gh release create "$TAG" --title "$title" \
+              --notes-file notes.md --verify-tag dist/release/*
+          else
+            # A lightweight tag has no message to take. Fall back rather than
+            # publishing an empty page.
+            gh release create "$TAG" --title "$title" \
+              --generate-notes --verify-tag dist/release/*
+          fi
