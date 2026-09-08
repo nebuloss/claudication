@@ -7,6 +7,7 @@ import {
   CardTitle,
   Empty,
   Field,
+  Modal,
   FilledButton,
   OutlinedButton,
   Spinner,
@@ -47,6 +48,10 @@ export default function Keys({
   const [editing, setEditing] = useState('')
   const [actionError, setActionError] = useState('')
 
+  // Resolved from the loaded list rather than held separately, so a reload
+  // cannot leave the dialog editing a key that no longer exists.
+  const edited = data?.keys.find((k) => k.id === editing)
+
   const act = async (id: string, fn: () => Promise<unknown>) => {
     setBusy(id)
     setActionError('')
@@ -61,7 +66,13 @@ export default function Keys({
 
   return (
     <div className="flex flex-col gap-5">
-      <NewKey onCreated={(m) => { onMinted(m); void reload() }} />
+      <NewKey
+        defaultRpm={data?.defaultRpm ?? 0}
+        onCreated={(m) => {
+          onMinted(m)
+          void reload()
+        }}
+      />
 
       <Card>
         <CardTitle
@@ -81,7 +92,7 @@ export default function Keys({
             {error}
           </Banner>
         )}
-        {actionError !== '' && (
+        {actionError !== '' && editing === '' && (
           <Banner tone="error" className="mb-4">
             {actionError}
           </Banner>
@@ -95,57 +106,38 @@ export default function Keys({
           <Empty>No API keys yet. Create one above and give it to a client.</Empty>
         ) : (
           <Table head={['Name', 'Key', 'Requests', 'Tokens', 'Last used', 'Limit', 'Tokens/day', '']}>
-            {data.keys.map((k) =>
-              editing === k.id ? (
-                <EditKeyRow
-                  key={k.id}
-                  apiKey={k}
-                  busy={busy === k.id}
-                  onCancel={() => setEditing('')}
-                  onSave={(name, rpm, tokenBudget) =>
-                    void act(k.id, async () => {
-                      await api.updateKey(k.id, name, rpm, tokenBudget)
-                      setEditing('')
-                    })
-                  }
-                />
-              ) : (
-                <tr key={k.id} className="border-b border-outline-variant last:border-0">
-                  <td className="px-2 py-3">
-                    <div className="text-on-surface">{k.name}</div>
-                    <div className="text-xs text-on-surface-variant">
-                      created {ago(k.created_at)}
-                    </div>
-                  </td>
-                  <td className="px-2 py-3 font-mono text-xs text-on-surface-variant">
-                    {k.display}
-                  </td>
-                  <td className="px-2 py-3 tabular-nums">{compact(k.requests)}</td>
-                  <td className="px-2 py-3 tabular-nums">{compact(k.tokens)}</td>
-                  <td className="px-2 py-3 text-on-surface-variant">{ago(k.last_used_at)}</td>
-                  <td className="px-2 py-3 text-on-surface-variant">
-                    {k.rpm_limit > 0 ? `${k.rpm_limit}/min` : 'default'}
-                  </td>
-                  <td className="px-2 py-3">
-                    <Budget budget={k.token_budget} spent={k.spent_today} />
-                  </td>
-                  <td className="px-2 py-3">
-                    <div className="flex justify-end gap-2">
-                      <TextButton disabled={busy === k.id} onClick={() => setEditing(k.id)}>
-                        Edit
-                      </TextButton>
-                      <TextButton
-                        tone="error"
-                        disabled={busy === k.id}
-                        onClick={() => void act(k.id, () => api.deleteKey(k.id))}
-                      >
-                        Delete
-                      </TextButton>
-                    </div>
-                  </td>
-                </tr>
-              ),
-            )}
+            {data.keys.map((k) => (
+              <tr key={k.id} className="border-b border-outline-variant last:border-0">
+                <td className="px-2 py-3">
+                  <div className="text-on-surface">{k.name}</div>
+                  <div className="text-xs text-on-surface-variant">created {ago(k.created_at)}</div>
+                </td>
+                <td className="px-2 py-3 font-mono text-xs text-on-surface-variant">{k.display}</td>
+                <td className="px-2 py-3 tabular-nums">{compact(k.requests)}</td>
+                <td className="px-2 py-3 tabular-nums">{compact(k.tokens)}</td>
+                <td className="px-2 py-3 text-on-surface-variant">{ago(k.last_used_at)}</td>
+                <td className="px-2 py-3 text-on-surface-variant">
+                  {k.rpm_limit > 0 ? `${compact(k.rpm_limit)}/min` : 'default'}
+                </td>
+                <td className="px-2 py-3">
+                  <Budget budget={k.token_budget} spent={k.spent_today} />
+                </td>
+                <td className="px-2 py-3">
+                  <div className="flex justify-end gap-2">
+                    <TextButton disabled={busy === k.id} onClick={() => setEditing(k.id)}>
+                      Edit
+                    </TextButton>
+                    <TextButton
+                      tone="error"
+                      disabled={busy === k.id}
+                      onClick={() => void act(k.id, () => api.deleteKey(k.id))}
+                    >
+                      Delete
+                    </TextButton>
+                  </div>
+                </td>
+              </tr>
+            ))}
           </Table>
         )}
 
@@ -154,65 +146,95 @@ export default function Keys({
           showing what it spent, under the name it was recorded with.
         </p>
       </Card>
+
+      {edited !== undefined && (
+        <EditKeyModal
+          apiKey={edited}
+          defaultRpm={data?.defaultRpm ?? 0}
+          busy={busy === edited.id}
+          error={actionError}
+          onClose={() => {
+            setEditing('')
+            setActionError('')
+          }}
+          onSave={(name, rpm, tokenBudget) =>
+            void act(edited.id, async () => {
+              await api.updateKey(edited.id, name, rpm, tokenBudget)
+              setEditing('')
+            })
+          }
+        />
+      )}
     </div>
   )
 }
 
 /**
- * The ladder the budget slider moves along.
+ * The ladders the sliders move along.
  *
- * Round numbers an order of magnitude apart at the bottom, closing up towards
- * the top where the difference matters less. A single Claude Code turn resends
- * the whole transcript, so the useful floor is higher than it looks: 10k is
- * roughly one small exchange.
+ * Round numbers roughly a factor apart rather than a linear range: both of
+ * these span three or four orders of magnitude, so a linear slider spends most
+ * of its travel on values nobody wants and cannot land on a round one. Stepping
+ * through a 1-2-5 ladder makes every position a value worth choosing.
+ *
+ * A Claude Code turn resends the whole transcript, so the useful floor for a
+ * budget is higher than it looks: 10k is roughly one small exchange.
  */
 const BUDGET_STEPS = [
-  10_000, 25_000, 50_000, 100_000, 250_000, 500_000,
-  1_000_000, 2_500_000, 5_000_000, 10_000_000, 25_000_000, 50_000_000,
+  10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000, 2_500_000, 5_000_000, 10_000_000,
+  25_000_000, 50_000_000,
 ]
+const RPM_STEPS = [10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000]
 
 const DEFAULT_BUDGET = 1_000_000
+const DEFAULT_RPM_CHOICE = 200
 
 /**
- * "Is there a limit at all" is a switch, not a number you have to know to type
- * as zero — which reads as "no tokens allowed" rather than "no ceiling".
- * Unlimited is the default, because that is what a key does until someone
- * decides otherwise.
+ * A limit that can be switched off, and adjusted when it is on.
+ *
+ * "Is there a limit at all" is a switch rather than a number you have to know
+ * to type as zero — which reads as "none allowed", the opposite of what zero
+ * means in both of these fields.
+ *
+ * What "off" means differs between the two, and the caption has to say which:
+ * no token budget is no ceiling at all, while no rate limit means the server's
+ * own, not an unlimited one.
  */
-function BudgetControl({
-  budget,
+function LimitControl({
+  label,
+  sliderLabel,
+  steps,
+  value,
+  whenOn,
   onChange,
+  off,
+  format,
 }: {
-  budget: number
+  label: string
+  sliderLabel: string
+  steps: number[]
+  value: number
+  /** What to set when the switch is turned on. */
+  whenOn: number
   onChange: (v: number) => void
+  /** What it means to have this switched off. */
+  off: string
+  format: (v: number) => string
 }) {
-  const limited = budget > 0
+  const on = value > 0
   return (
     <div className="flex flex-col gap-3 rounded-[var(--radius-md3-m)] border border-outline-variant p-4">
-      <Switch
-        checked={limited}
-        onChange={(on) => onChange(on ? DEFAULT_BUDGET : 0)}
-        label="Limit how many tokens this key can spend per day"
-      />
-      {limited ? (
-        <>
-          <StepSlider
-            label="Tokens per day"
-            steps={BUDGET_STEPS}
-            value={budget}
-            onChange={onChange}
-            format={(v) => compact(v)}
-          />
-          <p className="m-0 text-xs text-on-surface-variant">
-            Counted over a rolling 24 hours, so it frees up gradually rather than
-            all at once. Input, output and cache tokens all count, because all
-            four are billed.
-          </p>
-        </>
+      <Switch checked={on} onChange={(v) => onChange(v ? whenOn : 0)} label={label} />
+      {on ? (
+        <StepSlider
+          label={sliderLabel}
+          steps={steps}
+          value={value}
+          onChange={onChange}
+          format={format}
+        />
       ) : (
-        <p className="m-0 text-xs text-on-surface-variant">
-          This key can spend as much as the connected accounts allow.
-        </p>
+        <p className="m-0 text-xs text-on-surface-variant">{off}</p>
       )}
     </div>
   )
@@ -239,70 +261,111 @@ function Budget({ budget, spent }: { budget: number; spent: number }) {
   )
 }
 
-/** The same row, in edit mode. The key itself is not editable — only its label
- *  and its limits, which is the point: changing the secret means visiting every
- *  client that holds it. */
-function EditKeyRow({
+/**
+ * Editing a key, in a dialog.
+ *
+ * A dialog rather than a row that unfolds inside the table: the controls are a
+ * switch and a slider each, which do not fit a table column without becoming
+ * unusable, and unfolding a row pushes everything below it down while you are
+ * reading it.
+ *
+ * The secret is not editable and says so. That is the point of being able to
+ * edit at all — a typo in a name, or a limit set too low, should not cost a trip
+ * round every client holding the key.
+ */
+function EditKeyModal({
   apiKey,
+  defaultRpm,
   busy,
+  error,
   onSave,
-  onCancel,
+  onClose,
 }: {
   apiKey: ApiKey
+  defaultRpm: number
   busy: boolean
+  error: string
   onSave: (name: string, rpmLimit: number, tokenBudget: number) => void
-  onCancel: () => void
+  onClose: () => void
 }) {
   const [name, setName] = useState(apiKey.name)
-  const [rpm, setRpm] = useState(apiKey.rpm_limit > 0 ? String(apiKey.rpm_limit) : '')
+  const [rpm, setRpm] = useState(apiKey.rpm_limit)
   const [budget, setBudget] = useState(apiKey.token_budget)
 
-  const limit = rpm.trim() === '' ? 0 : Math.floor(Number(rpm))
-  const valid = name.trim() !== '' && Number.isFinite(limit) && limit >= 0
+  const valid = name.trim() !== ''
 
-  // One cell spanning the row: the budget control is a switch and a slider,
-  // which will not sit in a table column without being unusable.
   return (
-    <tr className="border-b border-outline-variant last:border-0">
-      <td className="px-2 py-4" colSpan={8}>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-start gap-4">
-            <Field label="Name" value={name} onChange={setName} autoFocus className="max-w-xs" />
-            <Field
-              label="Requests per minute"
-              value={rpm}
-              onChange={setRpm}
-              type="number"
-              className="max-w-[12rem]"
-            />
+    <Modal title="Edit key" size="lg" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <Field label="Name" value={name} onChange={setName} autoFocus />
+
+        <LimitControl
+          label="Limit how many requests a minute this key can make"
+          sliderLabel="Requests per minute"
+          steps={RPM_STEPS}
+          value={rpm}
+          whenOn={DEFAULT_RPM_CHOICE}
+          onChange={setRpm}
+          off={`Uses the gateway's own limit of ${compact(defaultRpm)} a minute.`}
+          format={(v) => `${compact(v)}/min`}
+        />
+
+        <LimitControl
+          label="Limit how many tokens this key can spend per day"
+          sliderLabel="Tokens per day"
+          steps={BUDGET_STEPS}
+          value={budget}
+          whenOn={DEFAULT_BUDGET}
+          onChange={setBudget}
+          off="This key can spend as much as the connected accounts allow."
+          format={compact}
+        />
+
+        <p className="m-0 text-xs text-on-surface-variant">
+          The budget is counted over a rolling 24 hours, so it frees up gradually rather than all at
+          once. Input, output and cache tokens all count.
+        </p>
+
+        <div className="rounded-[var(--radius-md3-m)] bg-surface-high px-4 py-3">
+          <div className="mb-1 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
+            Key
           </div>
-          <BudgetControl budget={budget} onChange={setBudget} />
-          <div className="flex items-center gap-2">
-            <FilledButton
-              type="button"
-              disabled={busy || !valid}
-              onClick={() => onSave(name.trim(), limit, budget)}
-            >
-              {busy && <Spinner />}
-              {busy ? 'Saving…' : 'Save'}
-            </FilledButton>
-            <OutlinedButton disabled={busy} onClick={onCancel}>
-              Cancel
-            </OutlinedButton>
-            <span className="text-xs text-on-surface-variant">
-              The key itself never changes, so nothing holding it needs updating.
-            </span>
-          </div>
+          <code className="font-mono text-xs text-on-surface-variant">{apiKey.display}</code>
+          <p className="mt-1 mb-0 text-xs text-on-surface-variant">
+            Unchanged by anything here, so nothing holding it needs updating.
+          </p>
         </div>
-      </td>
-    </tr>
+
+        {error !== '' && <Banner tone="error">{error}</Banner>}
+
+        <div className="flex items-center justify-end gap-2">
+          <OutlinedButton onClick={onClose} disabled={busy}>
+            Cancel
+          </OutlinedButton>
+          <FilledButton
+            type="button"
+            disabled={busy || !valid}
+            onClick={() => onSave(name.trim(), rpm, budget)}
+          >
+            {busy && <Spinner />}
+            {busy ? 'Saving…' : 'Save'}
+          </FilledButton>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
-function NewKey({ onCreated }: { onCreated: (m: { key: ApiKey; plaintext: string }) => void }) {
+function NewKey({
+  onCreated,
+  defaultRpm,
+}: {
+  onCreated: (m: { key: ApiKey; plaintext: string }) => void
+  defaultRpm: number
+}) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
-  const [rpm, setRpm] = useState('')
+  const [rpm, setRpm] = useState(0)
   const [budget, setBudget] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -321,19 +384,13 @@ function NewKey({ onCreated }: { onCreated: (m: { key: ApiKey; plaintext: string
       setError('Give the key a name — it is how you will recognise it later.')
       return
     }
-    const limit = rpm.trim() === '' ? 0 : Number(rpm)
-    if (!Number.isFinite(limit) || limit < 0) {
-      setError('The rate limit must be a number of requests per minute, or blank.')
-      return
-    }
-
     setBusy(true)
     setError('')
     try {
-      onCreated(await api.createKey(name.trim(), Math.floor(limit), budget))
+      onCreated(await api.createKey(name.trim(), rpm, budget))
       setOpen(false)
       setName('')
-      setRpm('')
+      setRpm(0)
       setBudget(0)
     } catch (err) {
       setError(messageOf(err))
@@ -346,13 +403,26 @@ function NewKey({ onCreated }: { onCreated: (m: { key: ApiKey; plaintext: string
       <CardTitle>New API key</CardTitle>
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <Field label="Name" value={name} onChange={setName} autoFocus />
-        <Field
-          label="Requests per minute (blank = server default)"
+        <LimitControl
+          label="Limit how many requests a minute this key can make"
+          sliderLabel="Requests per minute"
+          steps={RPM_STEPS}
           value={rpm}
+          whenOn={DEFAULT_RPM_CHOICE}
           onChange={setRpm}
-          type="number"
+          off={`Uses the gateway's own limit of ${compact(defaultRpm)} a minute.`}
+          format={(v) => `${compact(v)}/min`}
         />
-        <BudgetControl budget={budget} onChange={setBudget} />
+        <LimitControl
+          label="Limit how many tokens this key can spend per day"
+          sliderLabel="Tokens per day"
+          steps={BUDGET_STEPS}
+          value={budget}
+          whenOn={DEFAULT_BUDGET}
+          onChange={setBudget}
+          off="This key can spend as much as the connected accounts allow."
+          format={compact}
+        />
         {error !== '' && <Banner tone="error">{error}</Banner>}
         <div className="flex items-center gap-2">
           <FilledButton disabled={busy}>

@@ -84,9 +84,13 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 		out = append(out, j)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"keys":         out,
-		"window_days":  int(s.cfg.Usage.Window().Hours() / 24),
+		"keys":        out,
+		"window_days": int(s.cfg.Usage.Window().Hours() / 24),
+		// So the UI can name the two defaults rather than showing a bare 0,
+		// which means different things in the two columns: no ceiling for a
+		// budget, the server's own limit for a rate.
 		"budget_hours": int(BudgetWindow.Hours()),
+		"default_rpm":  s.cfg.Limits.RequestsPerMinute,
 	})
 }
 

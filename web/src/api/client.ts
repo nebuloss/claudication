@@ -341,16 +341,23 @@ export const api = {
 
   overview: () => request<Overview>('GET', '/admin/overview'),
 
-  listKeys: async (): Promise<{ keys: ApiKey[]; windowDays: number; budgetHours: number }> => {
+  listKeys: async (): Promise<{
+    keys: ApiKey[]
+    windowDays: number
+    budgetHours: number
+    defaultRpm: number
+  }> => {
     const res = await request<{
       keys: ApiKey[] | null
       window_days: number
       budget_hours: number
+      default_rpm: number
     }>('GET', '/admin/keys')
     return {
       keys: res.keys ?? [],
       windowDays: res.window_days,
       budgetHours: res.budget_hours,
+      defaultRpm: res.default_rpm,
     }
   },
 
