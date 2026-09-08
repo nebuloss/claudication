@@ -26,6 +26,29 @@ const (
 	keyEntry = "secret.key"
 )
 
+// oneFile resolves the file a command acts on from its flag and whatever was
+// left on the command line.
+//
+// `backup FILE` is what everyone types. It used to be accepted in silence and
+// then ignored — the backup went to a generated name in the working directory
+// instead, and `restore FILE` reported that -in was required while the
+// operator was looking at the path they had just typed. Writing a backup
+// somewhere other than where you were told is worse than refusing to write
+// one, so an argument that cannot be honoured is an error rather than a shrug.
+func oneFile(cmd, flagName, flagValue string, rest []string) (string, error) {
+	switch {
+	case len(rest) == 0:
+		return flagValue, nil
+	case len(rest) > 1:
+		return "", fmt.Errorf("%s: expected at most one file, got %d", cmd, len(rest))
+	case flagValue != "" && flagValue != rest[0]:
+		return "", fmt.Errorf("%s: given both -%s %s and %s; pass one",
+			cmd, flagName, flagValue, rest[0])
+	default:
+		return rest[0], nil
+	}
+}
+
 // cmdBackup writes the state directory to one portable file.
 //
 // A single file rather than "copy these two things", because the interesting
@@ -40,6 +63,11 @@ func cmdBackup(args []string) error {
 		return err
 	}
 
+	target, err := oneFile("backup", "out", *out, fs.Args())
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -49,7 +77,6 @@ func cmdBackup(args []string) error {
 	}
 	defer st.Close()
 
-	target := *out
 	if target == "" {
 		target = "claudication-backup-" + time.Now().UTC().Format("20060102-150405") + ".tar.gz"
 	}
@@ -140,8 +167,12 @@ func cmdRestore(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *in == "" {
-		return errors.New("restore: -in is required")
+	source, err := oneFile("restore", "in", *in, fs.Args())
+	if err != nil {
+		return err
+	}
+	if source == "" {
+		return errors.New("restore: a backup file is required, as an argument or -in")
 	}
 
 	// Config only — deliberately not openState, which would create the very
@@ -164,15 +195,15 @@ func cmdRestore(args []string) error {
 		}
 	}
 
-	f, err := os.Open(*in)
+	f, err := os.Open(source)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", *in, err)
+		return fmt.Errorf("read %s: %w", source, err)
 	}
 	defer f.Close()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", *in, err)
+		return fmt.Errorf("read %s: %w", source, err)
 	}
 	defer gz.Close()
 
@@ -184,7 +215,7 @@ func cmdRestore(args []string) error {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("read %s: %w", *in, err)
+			return fmt.Errorf("read %s: %w", source, err)
 		}
 		// Only the two names this writes, matched exactly. An archive is
 		// attacker-shaped input: a path with .. or a leading / in it would
@@ -206,7 +237,7 @@ func cmdRestore(args []string) error {
 	}
 
 	if !seen[dbEntry] {
-		return fmt.Errorf("%s contains no %s; is it a claudication backup?", *in, dbEntry)
+		return fmt.Errorf("%s contains no %s; is it a claudication backup?", source, dbEntry)
 	}
 	if !seen[keyEntry] {
 		// Recoverable only by re-authorising every account, so say so rather

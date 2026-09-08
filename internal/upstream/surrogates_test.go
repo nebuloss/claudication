@@ -17,7 +17,7 @@ func TestFixLoneSurrogatesRepairsAnUnpairedEscape(t *testing.T) {
 	if strings.Contains(string(out), `\ud800`) {
 		t.Errorf("the lone surrogate survived: %s", out)
 	}
-	if !strings.Contains(string(out), `�`) {
+	if !strings.Contains(string(out), `\ufffd`) {
 		t.Errorf("no replacement written: %s", out)
 	}
 	// The repair has to leave something the upstream will actually accept.
