@@ -1,0 +1,17 @@
+-- When an account's refresh token stops working for good.
+--
+-- The refusal is `invalid_grant`: revoked, expired, or already spent. Nothing
+-- about it improves with time, but the pool retried it on every acquire and
+-- every five-minute usage poll — an error line each, a cooldown each, and no
+-- statement anywhere that the one thing which would fix it is a human opening a
+-- browser. Claude Code itself keeps a set of these and refuses to present them
+-- again; this is the durable version of that set.
+--
+-- Deliberately not a wipe of the credentials, which is what the client does. It
+-- is a single-user CLI that can re-run /login on the spot; a gateway has to say
+-- WHICH of several accounts needs reconnecting, and the row is the only thing
+-- that still knows. The access token is left alone too: it may have hours left,
+-- and those hours are free service while the operator notices.
+--
+-- Cleared by a successful re-authorisation, in UpsertAccount.
+ALTER TABLE accounts ADD COLUMN refresh_dead_at TEXT;

@@ -35,6 +35,9 @@ function relative(iso: string): string {
 
 function status(a: Account): { tone: ChipTone; label: string } {
   if (a.disabled) return { tone: 'error', label: 'disabled' }
+  // Terminal, and the only state a human has to act on: nothing the gateway
+  // does brings a refused refresh token back.
+  if (a.needs_reauth === true) return { tone: 'error', label: 'reconnect this account' }
   // Cooling down comes first among the recoverable states, because it is the
   // only one that answers "why is this account not being used right now" —
   // and it is the one the card could not show at all until the pool started

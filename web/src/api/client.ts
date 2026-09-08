@@ -43,6 +43,9 @@ export interface Account {
   refresh_expires_at?: string
   reauth_days_left?: number
   needs_reauth_soon?: boolean
+  /** Terminal: the refresh token was refused for good. Only a browser fixes it. */
+  needs_reauth?: boolean
+  refresh_dead_at?: string
   /** Absent until the account has served a request. */
   quota?: Quota
   /** What this gateway put through the account over the report window. */
@@ -167,7 +170,13 @@ export interface Overview {
   uptime_s: number
   usage_enabled: boolean
   ready: boolean
-  accounts: { total: number; usable: number; needs_reauth_soon: number }
+  accounts: {
+    total: number
+    usable: number
+    cooling?: number
+    needs_reauth_soon: number
+    needs_reauth?: number
+  }
   keys: { total: number }
   last_24h?: UsageTotals
 }

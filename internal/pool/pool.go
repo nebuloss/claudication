@@ -61,6 +61,10 @@ func ClassifyStatus(status int) (FailureKind, bool) {
 var (
 	ErrNoAccounts   = errors.New("no accounts are configured for this provider")
 	ErrAllCoolingUp = errors.New("every account is in cooldown")
+	// ErrNeedsReauth is returned instead of attempting a refresh that has
+	// already been refused for good. Retrying invalid_grant is a loop, not
+	// patience.
+	ErrNeedsReauth = errors.New("this account needs re-authorising in a browser")
 )
 
 // Lease is one account, ready to serve a request.
@@ -142,6 +146,9 @@ type Status struct {
 	// Usable counts accounts that are neither disabled, cooling, nor out of
 	// room — the ones that could serve without the pool having to fall back.
 	Usable int
+	// NeedsReauth counts accounts no amount of waiting will recover: a refresh
+	// token refused for good, or a refresh window that has closed.
+	NeedsReauth int
 }
 
 // Status reports what the pool would do right now, without doing it.
@@ -150,9 +157,14 @@ func (p *Pool) Status(ctx context.Context, provider string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	candidates := candidatesFor(accounts, provider, nil)
+	candidates := candidatesFor(accounts, provider, nil, p.now())
 
 	st := Status{Cooling: map[string]time.Time{}}
+	for _, a := range accounts {
+		if a.Provider == provider && a.NeedsReauth() {
+			st.NeedsReauth++
+		}
+	}
 
 	p.mu.Lock()
 	now := p.now()
@@ -176,12 +188,20 @@ func (p *Pool) Status(ctx context.Context, provider string) (Status, error) {
 
 // candidatesFor is the one place that decides which accounts are in play, so
 // Acquire and Status cannot answer differently.
-func candidatesFor(accounts []store.Account, provider string, exclude map[string]bool) []store.Account {
+func candidatesFor(accounts []store.Account, provider string, exclude map[string]bool, now time.Time) []store.Account {
 	out := make([]store.Account, 0, len(accounts))
 	for _, a := range accounts {
-		if a.Provider == provider && !a.Disabled() && !exclude[a.ID] {
-			out = append(out, a)
+		if a.Provider != provider || a.Disabled() || exclude[a.ID] {
+			continue
 		}
+		// A dead refresh token still leaves whatever is left of the access
+		// token, which can be hours — free service while the operator notices.
+		// Once that is gone the account genuinely cannot serve, and offering it
+		// only produces a failed refresh per request.
+		if a.RefreshDead() && !now.Before(a.ExpiresAt) {
+			continue
+		}
+		out = append(out, a)
 	}
 	return out
 }
@@ -195,7 +215,7 @@ func (p *Pool) Acquire(ctx context.Context, provider string, exclude map[string]
 		return Lease{}, err
 	}
 
-	candidates := candidatesFor(accounts, provider, exclude)
+	candidates := candidatesFor(accounts, provider, exclude, p.now())
 	if len(candidates) == 0 {
 		if exclude != nil && len(exclude) > 0 {
 			return Lease{}, ErrAllCoolingUp
@@ -369,6 +389,13 @@ func (p *Pool) Refresh(ctx context.Context, id string) error {
 }
 
 func (p *Pool) refresh(ctx context.Context, id string, h *health) error {
+	// Established dead: do not ask again. The upstream's answer will not have
+	// changed, and asking costs an error line, a cooldown, and five minutes
+	// later the same again.
+	if a, err := p.store.Account(ctx, id); err == nil && a.RefreshDead() {
+		return fmt.Errorf("%w: %s", ErrNeedsReauth, a.Email)
+	}
+
 	// Detached: see Refresh. Values carried on the context — request id,
 	// tracing — are kept; the caller's ability to abandon this halfway
 	// through is not.
@@ -383,6 +410,17 @@ func (p *Pool) refresh(ctx context.Context, id string, h *health) error {
 	}
 	res, err := p.exchange(exchangeCtx, p.client, tokens.RefreshToken)
 	if err != nil {
+		// invalid_grant is terminal: revoked, expired, or already spent.
+		// Record it so nothing tries again, and say plainly what fixes it,
+		// because nothing this process does will.
+		if errors.Is(err, oauth.ErrInvalidGrant) {
+			if derr := p.store.MarkRefreshDead(exchangeCtx, id, err.Error()); derr != nil {
+				p.log.Error("could not record a dead refresh token", "account", id, "err", derr)
+			}
+			p.log.Error("refresh token refused for good; this account needs re-authorising in the admin UI",
+				"account", id, "err", err)
+			return fmt.Errorf("%w: %v", ErrNeedsReauth, err)
+		}
 		p.store.MarkAccountError(exchangeCtx, id, err.Error())
 		return err
 	}

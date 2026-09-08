@@ -216,6 +216,8 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"usable":            status.Usable,
 		"cooling":           len(status.Cooling),
 		"needs_reauth_soon": expiring,
+		// Distinct from "soon": these are already past saving on their own.
+		"needs_reauth": status.NeedsReauth,
 	}
 
 	keys, err := s.store.ListKeys(r.Context())

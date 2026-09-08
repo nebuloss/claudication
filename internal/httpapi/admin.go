@@ -99,6 +99,10 @@ type accountJSON struct {
 	RefreshExpiresAt string `json:"refresh_expires_at,omitempty"`
 	ReauthDaysLeft   *int   `json:"reauth_days_left,omitempty"`
 	NeedsReauthSoon  bool   `json:"needs_reauth_soon,omitempty"`
+	// NeedsReauth is the terminal one: the refresh token was refused for good,
+	// or its window has closed. Only a browser fixes it.
+	NeedsReauth   bool   `json:"needs_reauth,omitempty"`
+	RefreshDeadAt string `json:"refresh_dead_at,omitempty"`
 
 	// What the subscription has left. Absent until a response has been seen.
 	Quota *quotaJSON `json:"quota,omitempty"`
@@ -169,6 +173,15 @@ func toAccountJSON(a store.Account) accountJSON {
 		}
 		out.ReauthDaysLeft = &days
 		out.NeedsReauthSoon = a.NeedsReauthSoon()
+	}
+	// Outside that block on purpose: a refresh token refused for good is the
+	// one account state a human has to act on, and it does not depend on the
+	// expiry window being known — an account can be refused long before its
+	// window runs out, and one whose window we never learned would otherwise
+	// never say so.
+	out.NeedsReauth = a.NeedsReauth()
+	if a.RefreshDeadAt != nil {
+		out.RefreshDeadAt = a.RefreshDeadAt.UTC().Format(time.RFC3339)
 	}
 	if a.Quota.Known() {
 		q := quotaJSON{

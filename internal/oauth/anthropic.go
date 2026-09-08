@@ -23,6 +23,11 @@ import (
 	"time"
 )
 
+// ErrInvalidGrant is the refusal that never comes right on its own: the
+// refresh token has been revoked, has expired, or was already spent. Retrying
+// it is not patience, it is a loop — only a human at a browser can fix it.
+var ErrInvalidGrant = errors.New("the refresh token is no longer valid")
+
 const (
 	AnthropicClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 
@@ -265,6 +270,17 @@ func postAnthropicToken(ctx context.Context, client *http.Client, body any) (Res
 			resp.StatusCode, strings.TrimSpace(string(raw)))
 		if id := resp.Header.Get("request-id"); id != "" {
 			msg += " (request-id " + id + ")"
+		}
+		// invalid_grant is the one refusal that will never come right on its
+		// own: the refresh token has been revoked, expired, or already spent.
+		// Distinguishing it is what lets a caller stop retrying something no
+		// amount of waiting will fix — the client keeps a set of these and
+		// refuses to present them again.
+		var oe struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(raw, &oe) == nil && oe.Error == "invalid_grant" {
+			return Result{}, fmt.Errorf("%w: %s", ErrInvalidGrant, msg)
 		}
 		return Result{}, errors.New(msg)
 	}

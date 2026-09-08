@@ -30,6 +30,10 @@ type Account struct {
 	LastUsedAt       *time.Time
 	LastError        string
 	DisabledAt       *time.Time
+	// RefreshDeadAt is when the refresh token was refused as invalid_grant.
+	// Set, it means the account needs a human at a browser; nothing else will
+	// bring it back.
+	RefreshDeadAt *time.Time
 	// Position is the operator's priority order, lowest first. The pool serves
 	// from the top of this list, not from whichever account looks quietest.
 	Position int
@@ -83,6 +87,20 @@ func (q AccountQuota) Allowed() bool {
 }
 
 func (a Account) Disabled() bool { return a.DisabledAt != nil }
+
+// RefreshDead reports whether the refresh token has been refused for good.
+func (a Account) RefreshDead() bool { return a.RefreshDeadAt != nil }
+
+// NeedsReauth is the operator-facing question: can this account come back on
+// its own? A dead refresh token cannot, and neither can one whose refresh
+// window has already closed.
+func (a Account) NeedsReauth() bool {
+	if a.RefreshDead() {
+		return true
+	}
+	d, known := a.RefreshWindow()
+	return known && d <= 0
+}
 
 // RefreshWindow reports how long until the refresh token dies, and whether we
 // know at all. Once it passes, refreshing cannot recover the account.
@@ -149,7 +167,10 @@ func (s *Store) UpsertAccount(ctx context.Context, sealer *secret.Sealer, acct A
 			refresh_expires_at = excluded.refresh_expires_at,
 			last_refresh_at    = excluded.last_refresh_at,
 			last_error         = NULL,
-			disabled_at        = NULL`,
+			disabled_at        = NULL,
+			-- A successful consent flow is exactly the human intervention a
+			-- dead refresh token was waiting for.
+			refresh_dead_at    = NULL`,
 		acct.ID, acct.Provider, acct.Email, acct.AccountUUID,
 		sealedAccess, sealedRefresh,
 		acct.ExpiresAt.UTC().Format(time.RFC3339), nullTime(acct.RefreshExpiresAt),
@@ -163,6 +184,7 @@ func (s *Store) UpsertAccount(ctx context.Context, sealer *secret.Sealer, acct A
 
 const accountColumns = `id, provider, email, account_uuid, expires_at, refresh_expires_at,
                         created_at, last_refresh_at, last_used_at, last_error, disabled_at,
+                        refresh_dead_at,
                         quota_updated_at, quota_5h_util, quota_5h_reset, quota_5h_status,
                         quota_7d_util, quota_7d_reset, quota_7d_status, position, usage_json`
 
@@ -195,10 +217,11 @@ func scanAccount(sc scanner) (Account, error) {
 		a                                                        Account
 		expiresAt, createdAt                                     string
 		refreshExpires, lastRefresh, lastUsed, lastErr, disabled sql.NullString
+		refreshDead                                              sql.NullString
 		quotaUpdated, reset5h, reset7d                           string
 	)
 	if err := sc.Scan(&a.ID, &a.Provider, &a.Email, &a.AccountUUID, &expiresAt, &refreshExpires,
-		&createdAt, &lastRefresh, &lastUsed, &lastErr, &disabled,
+		&createdAt, &lastRefresh, &lastUsed, &lastErr, &disabled, &refreshDead,
 		&quotaUpdated, &a.Quota.FiveHourUtil, &reset5h, &a.Quota.FiveHourStatus,
 		&a.Quota.SevenDayUtil, &reset7d, &a.Quota.SevenDayStatus, &a.Position,
 		&a.Quota.Detail); err != nil {
@@ -228,6 +251,11 @@ func scanAccount(sc scanner) (Account, error) {
 	if disabled.Valid {
 		if t, err := time.Parse(time.RFC3339, disabled.String); err == nil {
 			a.DisabledAt = &t
+		}
+	}
+	if refreshDead.Valid {
+		if t, err := time.Parse(time.RFC3339, refreshDead.String); err == nil {
+			a.RefreshDeadAt = &t
 		}
 	}
 	return a, nil
@@ -409,6 +437,21 @@ func (s *Store) MarkAccountError(ctx context.Context, id, msg string) {
 func (s *Store) MarkAccountUsed(ctx context.Context, id string) {
 	_, _ = s.db.ExecContext(ctx, `UPDATE accounts SET last_used_at = ?, last_error = NULL WHERE id = ?`,
 		time.Now().UTC().Format(time.RFC3339), id)
+}
+
+// MarkRefreshDead records that the refresh token was refused for good.
+//
+// Idempotent, and it keeps the first time rather than the most recent, because
+// "since when" is the useful figure when an operator finally looks.
+func (s *Store) MarkRefreshDead(ctx context.Context, id, detail string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE accounts SET refresh_dead_at = COALESCE(refresh_dead_at, ?), last_error = ?
+		  WHERE id = ?`,
+		time.Now().UTC().Format(time.RFC3339), detail, id)
+	if err != nil {
+		return fmt.Errorf("mark refresh dead: %w", err)
+	}
+	return nil
 }
 
 // SetAccountDisabled takes an account out of rotation, or puts it back.
