@@ -319,7 +319,20 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
       ) : data === null || data.length === 0 ? (
         <Empty>No requests recorded yet.</Empty>
       ) : (
-        <Table cap head={['Date', 'Model', 'Key', 'Status', 'Tokens', 'Duration', '']}>
+        <Table
+          cap
+          head={[
+            // Not Date and not Time: the cell is a time on today's rows, a
+            // date and a time on older ones, and an epoch once copied.
+            'Timestamp',
+            'Model',
+            'Key',
+            'Status',
+            'Tokens',
+            'Duration',
+            '',
+          ]}
+        >
           {data.map((r, i) => (
             <tr key={`${r.at}-${i}`} className="border-b border-outline-variant last:border-0">
               <td
@@ -430,7 +443,7 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
           items={[
             // The exact instant, not "3m ago": this is the value that gets
             // matched against an upstream request_id or somebody else's log.
-            ['Date', <span className="tabular-nums">{row.at}</span>],
+            ['Timestamp', <span className="tabular-nums">{row.at}</span>],
             [
               'Status',
               <Chip tone={statusTone(row)}>{row.status === 0 ? 'failed' : row.status}</Chip>,
@@ -500,7 +513,7 @@ function asText(r: RequestRow): string {
   // log with.
   const epoch = Math.round(new Date(r.at).getTime() / 1000)
   return [
-    `date:      ${r.at}`,
+    `timestamp: ${r.at}`,
     `epoch:     ${Number.isNaN(epoch) ? '—' : epoch}`,
     `status:    ${r.status === 0 ? 'failed (no response)' : r.status}`,
     `model:     ${dash(r.model)}`,
