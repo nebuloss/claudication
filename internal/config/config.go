@@ -78,6 +78,13 @@ type Config struct {
 	Passthrough    PassthroughConfig `yaml:"passthrough"`
 	Usage          UsageConfig       `yaml:"usage"`
 	Shutdown       ShutdownConfig    `yaml:"shutdown"`
+
+	// Path is the file this was read from, empty when there was none. Reported
+	// by the admin UI so "where do I change this" has an answer on screen.
+	Path string `yaml:"-"`
+	// origins records where each setting's effective value came from. Set by
+	// Load; unexported so a config file cannot claim its own provenance.
+	origins map[string]Origin
 }
 
 type LogConfig struct {
@@ -171,7 +178,8 @@ func Defaults() Config {
 // Load reads path (may be empty), applies environment overrides, resolves the
 // state directory and validates the result. It never writes to disk.
 func Load(path string) (Config, error) {
-	cfg := Defaults()
+	defaults := Defaults()
+	cfg := defaults
 
 	if path != "" {
 		data, err := os.ReadFile(path)
@@ -188,7 +196,9 @@ func Load(path string) (Config, error) {
 		}
 	}
 
-	applyEnv(&cfg)
+	afterFile := cfg
+	fromEnv := applyEnv(&cfg)
+	cfg.Path = path
 
 	if cfg.StateDir == "" {
 		dir, err := defaultStateDir()
@@ -206,34 +216,49 @@ func Load(path string) (Config, error) {
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}
+	// Last, so state-dir's resolved absolute path is what gets compared and a
+	// directory that only the default supplied does not read as configured.
+	recordOrigins(&cfg, defaults, afterFile, fromEnv)
 	return cfg, nil
 }
 
-func applyEnv(cfg *Config) {
+// applyEnv overrides from the environment and reports which settings it
+// took over, so Settings can say so rather than leaving the file's value on
+// screen next to a different one in effect.
+func applyEnv(cfg *Config) map[string]bool {
+	took := map[string]bool{}
 	if v := os.Getenv("CLAUDICATION_LISTEN"); v != "" {
 		cfg.Listen = v
+		took["listen"] = true
 	}
 	if v := os.Getenv("CLAUDICATION_ADMIN_LISTEN"); v != "" {
 		cfg.AdminListen = v
+		took["admin-listen"] = true
 	}
 	if v := os.Getenv("CLAUDICATION_PUBLIC_URL"); v != "" {
 		cfg.PublicURL = v
+		took["public-url"] = true
 	}
 	if v := os.Getenv("CLAUDICATION_STATE_DIR"); v != "" {
 		cfg.StateDir = v
+		took["state-dir"] = true
 	}
 	if v := os.Getenv("CLAUDICATION_LOG_LEVEL"); v != "" {
 		cfg.Log.Level = v
+		took["log.level"] = true
 	}
 	if v := os.Getenv("CLAUDICATION_LOG_FORMAT"); v != "" {
 		cfg.Log.Format = v
+		took["log.format"] = true
 	}
 	if v := os.Getenv("CLAUDICATION_CLAUDE_CODE_ATTRIBUTION"); v != "" {
 		cfg.Passthrough.ClaudeCodeAttribution = v != "0" && !strings.EqualFold(v, "false")
+		took["passthrough.claude-code-attribution"] = true
 	}
 	if v := os.Getenv("CLAUDICATION_REQUESTS_PER_MINUTE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Limits.RequestsPerMinute = n
+			took["limits.requests-per-minute"] = true
 		}
 	}
 	// Comma-separated, because the installed service ships no config file and
@@ -249,7 +274,9 @@ func applyEnv(cfg *Config) {
 			}
 		}
 		cfg.TrustedProxies = out
+		took["trusted-proxies"] = true
 	}
+	return took
 }
 
 func (c Config) validate() error {

@@ -663,3 +663,18 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("account removed", "account", id, "ip", clientIPFrom(r.Context()))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
+
+// handleConfig reports every configuration value and where it came from.
+//
+// Read-only, and it stays that way. The config file is never written back —
+// that is the rule this package's config loader exists to enforce, because an
+// agent that re-serialises a YAML file destroys every comment the operator
+// wrote in it. What this screen can do instead is answer the question that
+// actually costs time: not "what is this set to" but "why is it that, and
+// which of the three places do I change".
+func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path":     s.cfg.Path,
+		"settings": s.cfg.Settings(),
+	})
+}

@@ -1,3 +1,4 @@
+import ConfigTable from './configtable'
 import Security from './security'
 import { api, type Overview, type Session } from '../../api/client'
 import { useLoader } from '../hooks'
@@ -76,6 +77,8 @@ export default function Settings({
           comments. Credentials live in the state database, not in config.
         </p>
       </Card>
+
+      <ConfigTable />
 
       <Card>
         <CardTitle>From the shell</CardTitle>

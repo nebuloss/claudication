@@ -164,6 +164,23 @@ export interface RequestRow {
   error_kind?: string
 }
 
+/** One configuration value, and which of the three sources supplied it. */
+export interface Setting {
+  key: string
+  value: string
+  /** default | file | env — the environment wins over the file, silently. */
+  origin: 'default' | 'file' | 'env'
+  /** The variable that overrides this one, absent when none does. */
+  env?: string
+  doc: string
+}
+
+export interface GatewayConfig {
+  /** The file it was read from, empty when there was none. */
+  path: string
+  settings: Setting[]
+}
+
 export interface Overview {
   version: string
   commit: string
@@ -357,6 +374,8 @@ export const api = {
     request<unknown>('DELETE', `/admin/accounts/${encodeURIComponent(id)}`),
 
   overview: () => request<Overview>('GET', '/admin/overview'),
+
+  config: () => request<GatewayConfig>('GET', '/admin/config'),
 
   listKeys: async (): Promise<{
     keys: ApiKey[]

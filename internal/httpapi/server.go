@@ -216,6 +216,7 @@ func (s *Server) routes(r0 role) http.Handler {
 		mux.Handle("PATCH /admin/keys/{id}", admin(s.handleUpdateKey))
 		mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
 
+		mux.Handle("GET /admin/config", admin(s.handleConfig))
 		mux.Handle("GET /admin/overview", admin(s.handleOverview))
 		mux.Handle("GET /admin/usage", admin(s.handleUsage))
 		mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
