@@ -43,6 +43,20 @@ func Peek(body []byte) Prologue {
 //
 // A Set, and position matters: the same string in the second slot is refused,
 // so this is a first-block check rather than a search.
+//
+// With one qualification, learned later from the client's own wire shape. It
+// does not send the identity string first. Block 0 is a machine-readable
+// billing directive beginning `x-anthropic-billing-header:`, and the identity
+// block follows it — and the client has a predicate of its own that marks
+// exactly those preamble blocks. So the server's rule is more likely "the
+// first block that is not a known preamble" than "index 0".
+//
+// Prepending at index 0 is still right, and is what this does: it satisfies
+// either reading, and the gateway has no business emitting a billing header
+// (see the attestation note in doc.go). It does mean the obvious experiment —
+// putting a preamble-shaped block in front and seeing whether attribution
+// still counts — cannot be run through this gateway, because this rewrite
+// normalises the request before the upstream ever sees it.
 const ClaudeCodeAttribution = "You are Claude Code, Anthropic's official CLI for Claude."
 
 var acceptedAttribution = map[string]bool{

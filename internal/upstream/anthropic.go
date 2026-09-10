@@ -1,4 +1,3 @@
-// Package upstream talks to the provider backends.
 package upstream
 
 import (

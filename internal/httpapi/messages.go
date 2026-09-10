@@ -24,8 +24,12 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCountTokens is the same relay against the token-counting endpoint.
-// Serving it matters: without it Claude Code falls back to counting context
-// through the inference endpoint, spending real requests on arithmetic.
+//
+// Serving it matters, and the client says so in its own code: when a gateway
+// answers 501 here, it falls back to measuring the context by issuing a real
+// max_tokens:1 inference request and reading the usage off it. That is a
+// billed request spent on arithmetic, once per measurement. Removing this
+// route because "nothing seems to call it" would turn that on silently.
 func (s *Server) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 	s.passthrough(w, r, "/v1/messages/count_tokens", "/v1/messages/count_tokens?beta=true")
 }

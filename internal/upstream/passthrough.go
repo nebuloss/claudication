@@ -117,6 +117,16 @@ type Usage struct {
 	CacheCreationTokens int
 }
 
+// maxAttempts bounds how many accounts one request is tried on. It is not a
+// retry budget in the usual sense: the caller has its own and it is much
+// larger. Claude Code retries up to ten times by default (fifteen if
+// CLAUDE_CODE_MAX_RETRIES is raised, three hundred under its retry watchdog),
+// backing off 500 ms doubling to 32 s with jitter, honouring retry-after and
+// treating x-should-retry: false as final.
+//
+// So this only decides how many accounts to fail over to before answering.
+// Raising it would spend more of the pool on one caller that is going to
+// retry anyway.
 const maxAttempts = 3
 
 // maxRefusalBytes bounds the error body held while retrying. An error envelope
@@ -404,10 +414,21 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	// Flush after every chunk. Claude Code runs a byte-level watchdog and
-	// aborts a stream that goes quiet for 300 seconds; during long thinking
-	// pauses the upstream's SSE pings are the only traffic, so anything that
-	// batches them kills the request.
+	// Flush after every chunk.
+	//
+	// Claude Code runs a byte-level watchdog over the response and errors the
+	// stream when no bytes arrive for long enough. Read out of the client:
+	// 180 s talking straight to api.anthropic.com, 300 s through a custom base
+	// URL — which is us — clamped to [10 s, 30 min] and overridable with
+	// CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS. A separate event-level idle timeout
+	// sits at 300 s or more, and it reports stalls at 15, 30, 60 and 120 s
+	// along the way.
+	//
+	// During a long thinking pause the upstream's SSE pings are the only
+	// traffic there is, so anything that batches them kills the request. The
+	// client will even synthesise its own ping if raw bytes are still arriving
+	// but no decodable event has surfaced for 10 s — which only helps if the
+	// bytes are actually moving, and they only move if this flushes.
 	rc := http.NewResponseController(w)
 
 	// Which reader can recover the usage depends on the shape of the response,
@@ -497,6 +518,15 @@ func peekErrorAndRestore(resp *http.Response) string {
 }
 
 // Timeout returns a context deadline appropriate to the request.
+//
+// Both are outer bounds rather than the operative limit: the client gives up
+// long before either. Read out of it — a 600 s SDK-level timeout, a 300 s
+// per-request timeout on its non-streaming path (120 s under
+// CLAUDE_CODE_REMOTE), a 30 s slow-first-byte warning, and the response
+// watchdogs described in relay. So these exist to stop a forgotten request
+// pinning an account forever, not to decide when a caller gives up. Shortening
+// them to something that looks tidier would start cutting off requests the
+// client was still waiting on.
 func Timeout(streaming bool) time.Duration {
 	if streaming {
 		// Long enough for a slow model on a long generation; the client's own
