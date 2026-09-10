@@ -216,10 +216,11 @@ Unpaired UTF-16 surrogates (a tool cutting its output mid-emoji), empty text
 blocks, and gzipped request bodies are handled in the same place and for the
 same reason: without it those requests cannot succeed at all.
 
-[`docs/upstream-request-pipeline.md`](docs/upstream-request-pipeline.md) has
-the measurements behind each of these, what the official client does between a
-prompt and its POST, and which signals this gateway deliberately does not
-synthesise. The same record is in the code, as `go doc ./internal/upstream`.
+[`docs/refused-requests.md`](docs/refused-requests.md) has the measurements
+behind each of these and the signals this gateway deliberately does not
+synthesise; [`docs/`](docs/) also covers what the official client sends and how
+any of it can be checked again. The short version is in the code, as
+`go doc ./internal/upstream`.
 
 If a request starts failing for no visible reason, do not reason about it —
 none of the three known triggers was found that way. Point

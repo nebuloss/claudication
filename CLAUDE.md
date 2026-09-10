@@ -6,12 +6,11 @@ into the binary with `go:embed`.
 
 ## Read these before changing the relay
 
-1. `go doc ./internal/upstream` — the package doc is the complete record of
-   what the upstream accepts and refuses, why each body rewrite exists, and
-   what is deliberately not done. Every claim is marked `[measured]` (observed
-   against the live API) or `[client]` (read out of the official client).
-2. `docs/upstream-request-pipeline.md` — the long form: what the stock client
-   does between a prompt and its POST, and how the findings were obtained.
+1. `go doc ./internal/upstream` — the rule the relay follows, its five
+   exceptions, and why each exists.
+2. [`docs/`](docs/) — `refused-requests.md` first: every refusal with the
+   measurements behind it. Then `upstream-request-pipeline.md` for what the
+   official client sends, and `reversing.md` for how to check any of it.
 
 The relay's rule is that the caller's bytes go upstream unchanged. There are
 five exceptions, all in `internal/upstream`, each because the request cannot
