@@ -31,6 +31,8 @@ type Server struct {
 	budgets        *budgets
 	trustedProxies []*net.IPNet
 	httpServer     *http.Server
+	adminServer    *http.Server
+	adminAddr      string
 	stopSweeper    chan struct{}
 	sealer         *secret.Sealer
 	pool           *pool.Pool
@@ -50,6 +52,23 @@ func (s *Server) Addr() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.addr
+}
+
+// AdminAddr reports the admin listener's address, or empty when the admin
+// surface shares the main one.
+func (s *Server) AdminAddr() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.adminAddr
+}
+
+// servingWhat names what the main listener carries, so the startup line says
+// whether the admin surface is on it.
+func servingWhat(combined bool) string {
+	if combined {
+		return "relay, admin API and UI"
+	}
+	return "relay only"
 }
 
 func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Sealer) (*Server, error) {
@@ -105,9 +124,12 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		},
 	}
 
+	// With admin-listen set, this one drops the admin API and the UI; they
+	// move to adminServer below. Unset, it keeps serving both.
+	split := cfg.AdminListen != ""
 	s.httpServer = &http.Server{
 		Addr:    cfg.Listen,
-		Handler: s.routes(),
+		Handler: s.routes(role{gateway: true, admin: !split}),
 		// No WriteTimeout: responses are long-lived SSE streams and a write
 		// deadline would sever them mid-flight. ReadHeaderTimeout still
 		// protects against slowloris on the request side.
@@ -115,14 +137,35 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		IdleTimeout:       120 * time.Second,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
+	if split {
+		s.adminServer = &http.Server{
+			Addr:              cfg.AdminListen,
+			Handler:           s.routes(role{admin: true}),
+			ReadHeaderTimeout: 30 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+		}
+	}
 	return s, nil
 }
 
-func (s *Server) routes() http.Handler {
+// role says which surfaces a listener serves.
+//
+// Both on one listener is the default and is right on a machine only the
+// operator can reach. Split, the relay can be published while the admin API
+// and UI stay on an address that is not — a separation the gateway enforces
+// itself rather than trusting a proxy to.
+type role struct {
+	gateway bool
+	admin   bool
+}
+
+func (s *Server) routes(r0 role) http.Handler {
 	mux := http.NewServeMux()
 
 	// Unauthenticated: liveness only, with no information about accounts,
-	// models or configuration.
+	// models or configuration. On every listener, because whatever watches
+	// one of them needs something to watch.
 	mux.HandleFunc("GET /health", s.handleHealth)
 
 	// Claude Code sends a best-effort connection-warming probe here. The
@@ -133,46 +176,51 @@ func (s *Server) routes() http.Handler {
 	})
 
 	// The relay: Anthropic in, Anthropic out.
-	mux.Handle("GET /v1/models", s.requireAPIKey(http.HandlerFunc(s.handleModels)))
-	mux.Handle("POST /v1/messages", s.requireAPIKey(http.HandlerFunc(s.handleMessages)))
-	mux.Handle("POST /v1/messages/count_tokens", s.requireAPIKey(http.HandlerFunc(s.handleCountTokens)))
+	if r0.gateway {
+		mux.Handle("GET /v1/models", s.requireAPIKey(http.HandlerFunc(s.handleModels)))
+		mux.Handle("POST /v1/messages", s.requireAPIKey(http.HandlerFunc(s.handleMessages)))
+		mux.Handle("POST /v1/messages/count_tokens", s.requireAPIKey(http.HandlerFunc(s.handleCountTokens)))
+	}
 
-	// Admin API. Setup and sign-in are outside requireAdmin: a gateway with no
-	// password yet has nothing to authenticate against.
-	//
-	// These two change state without a cookie to protect them, so they carry
-	// their own cross-site check — see sameSiteOnly. Everything under
-	// requireAdmin is already covered by the session cookie being
-	// SameSite=Strict.
-	mux.HandleFunc("GET /admin/setup", s.handleSetupStatus)
-	mux.Handle("POST /admin/setup", sameSiteOnly(http.HandlerFunc(s.handleSetup)))
-	mux.Handle("POST /admin/session", sameSiteOnly(http.HandlerFunc(s.handleAdminLogin)))
-	mux.HandleFunc("DELETE /admin/session", s.handleAdminLogout)
-	mux.HandleFunc("GET /admin/session", s.handleTokenSession)
+	if r0.admin {
+		// Admin API. Setup and sign-in are outside requireAdmin: a gateway with no
+		// password yet has nothing to authenticate against.
+		//
+		// These two change state without a cookie to protect them, so they carry
+		// their own cross-site check — see sameSiteOnly. Everything under
+		// requireAdmin is already covered by the session cookie being
+		// SameSite=Strict.
+		mux.HandleFunc("GET /admin/setup", s.handleSetupStatus)
+		mux.Handle("POST /admin/setup", sameSiteOnly(http.HandlerFunc(s.handleSetup)))
+		mux.Handle("POST /admin/session", sameSiteOnly(http.HandlerFunc(s.handleAdminLogin)))
+		mux.HandleFunc("DELETE /admin/session", s.handleAdminLogout)
+		mux.HandleFunc("GET /admin/session", s.handleTokenSession)
 
-	admin := func(h http.HandlerFunc) http.Handler { return s.requireAdmin(h) }
-	mux.Handle("GET /admin/me", admin(s.handleAdminMe))
-	mux.Handle("POST /admin/password", admin(s.handleChangePassword))
-	mux.Handle("POST /admin/account/delete", admin(s.handleDeleteAdminAccount))
-	mux.Handle("GET /admin/accounts", admin(s.handleListAccounts))
-	mux.Handle("POST /admin/accounts/order", admin(s.handleReorderAccounts))
-	mux.Handle("POST /admin/accounts/oauth/start", admin(s.handleOAuthStart))
-	mux.Handle("POST /admin/accounts/oauth/complete", admin(s.handleOAuthComplete))
-	mux.Handle("POST /admin/accounts/{id}/test", admin(s.handleTestAccount))
-	mux.Handle("POST /admin/accounts/{id}/refresh", admin(s.handleRefreshAccount))
-	mux.Handle("POST /admin/accounts/{id}/usage", admin(s.handleRefreshUsage))
-	mux.Handle("POST /admin/accounts/{id}/disabled", admin(s.handleSetAccountDisabled))
-	mux.Handle("DELETE /admin/accounts/{id}", admin(s.handleDeleteAccount))
+		admin := func(h http.HandlerFunc) http.Handler { return s.requireAdmin(h) }
+		mux.Handle("GET /admin/me", admin(s.handleAdminMe))
+		mux.Handle("POST /admin/password", admin(s.handleChangePassword))
+		mux.Handle("POST /admin/account/delete", admin(s.handleDeleteAdminAccount))
+		mux.Handle("GET /admin/accounts", admin(s.handleListAccounts))
+		mux.Handle("POST /admin/accounts/order", admin(s.handleReorderAccounts))
+		mux.Handle("POST /admin/accounts/oauth/start", admin(s.handleOAuthStart))
+		mux.Handle("POST /admin/accounts/oauth/complete", admin(s.handleOAuthComplete))
+		mux.Handle("POST /admin/accounts/{id}/test", admin(s.handleTestAccount))
+		mux.Handle("POST /admin/accounts/{id}/refresh", admin(s.handleRefreshAccount))
+		mux.Handle("POST /admin/accounts/{id}/usage", admin(s.handleRefreshUsage))
+		mux.Handle("POST /admin/accounts/{id}/disabled", admin(s.handleSetAccountDisabled))
+		mux.Handle("DELETE /admin/accounts/{id}", admin(s.handleDeleteAccount))
 
-	// Client API keys — the credential a Claude Code points at the gateway.
-	mux.Handle("GET /admin/keys", admin(s.handleListKeys))
-	mux.Handle("POST /admin/keys", admin(s.handleCreateKey))
-	mux.Handle("PATCH /admin/keys/{id}", admin(s.handleUpdateKey))
-	mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
+		// Client API keys — the credential a Claude Code points at the gateway.
+		mux.Handle("GET /admin/keys", admin(s.handleListKeys))
+		mux.Handle("POST /admin/keys", admin(s.handleCreateKey))
+		mux.Handle("PATCH /admin/keys/{id}", admin(s.handleUpdateKey))
+		mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
 
-	mux.Handle("GET /admin/overview", admin(s.handleOverview))
-	mux.Handle("GET /admin/usage", admin(s.handleUsage))
-	mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
+		mux.Handle("GET /admin/overview", admin(s.handleOverview))
+		mux.Handle("GET /admin/usage", admin(s.handleUsage))
+		mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
+
+	}
 
 	// Anything under an API prefix that did not match above is a client error,
 	// and it has to say so in the client's own language. Without these, an
@@ -197,7 +245,10 @@ func (s *Server) routes() http.Handler {
 	// prefix above is a strict subset of it and nothing conflicts.
 	ui := s.staticHandler()
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		// A listener that serves only the relay has no UI and no sign-in link
+		// to spend: everything that is not an API path it knows is a 404, in
+		// the client's own language.
+		if !r0.admin || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
 			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
 			return
 		}
@@ -316,10 +367,27 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runUsagePruner()
 	go s.runUsagePoller(ctx)
 
-	errCh := make(chan error, 1)
+	// The admin listener binds before anything is served, so a port clash is a
+	// startup failure rather than a gateway that comes up with no way in.
+	var adminLn net.Listener
+	if s.adminServer != nil {
+		adminLn, err = net.Listen("tcp", s.cfg.AdminListen)
+		if err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("listen on %s: %w", s.cfg.AdminListen, err)
+		}
+		s.mu.Lock()
+		s.adminAddr = adminLn.Addr().String()
+		s.mu.Unlock()
+	}
+
+	// Buffered for both, so neither goroutine blocks on a send once the other
+	// has already reported and the select has moved on.
+	errCh := make(chan error, 2)
 	go func() {
 		s.log.Info("listening",
 			"addr", ln.Addr().String(),
+			"serving", servingWhat(s.adminServer == nil),
 			"version", version.Version,
 			"state_dir", s.cfg.StateDir)
 		if err := s.httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -328,6 +396,17 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		errCh <- nil
 	}()
+	if adminLn != nil {
+		go func() {
+			s.log.Info("admin listening", "addr", adminLn.Addr().String(),
+				"serving", "admin API and UI")
+			if err := s.adminServer.Serve(adminLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+				return
+			}
+			errCh <- nil
+		}()
+	}
 
 	select {
 	case err := <-errCh:
@@ -343,6 +422,13 @@ func (s *Server) Run(ctx context.Context) error {
 	defer cancel()
 
 	err = s.httpServer.Shutdown(shutdownCtx)
+	if s.adminServer != nil {
+		// Same deadline for both, and the relay's error wins: an admin page
+		// cut short is not worth reporting over a severed stream.
+		if aerr := s.adminServer.Shutdown(shutdownCtx); err == nil {
+			err = aerr
+		}
+	}
 	close(s.stopSweeper)
 
 	if errors.Is(err, context.DeadlineExceeded) {

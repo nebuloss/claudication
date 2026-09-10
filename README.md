@@ -183,6 +183,31 @@ the address the *proxy* connects from; take it from the `ip` field in the log.
 `X-Forwarded-For` is honoured only from a trusted peer, so a client cannot spoof
 its way past a limit.
 
+### Exposing it
+
+The admin API can add and remove Claude accounts and mint API keys, and by
+default it shares a listener with `/v1` — so publishing the relay publishes the
+admin surface too. **Set `admin-listen`** and it does not:
+
+```yaml
+listen: "0.0.0.0:8317"       # the relay, published
+admin-listen: "127.0.0.1:8318"   # the UI, reachable over an SSH tunnel only
+```
+
+The relay listener then answers 404 to every `/admin/…` path, to the UI, and to
+a `?token=` sign-in link. That separation is the gateway's own, so it holds even
+if the proxy in front is misconfigured — which is the failure worth designing
+for, because it is silent.
+
+Two more things before exposing it. Use a **long random admin password**: the
+sign-in limiter allows `anon-per-minute` attempts per IP (60 by default) with no
+lockout, which is ample against real entropy and not against a memorable
+password. And give each client **its own API key with a token budget**, so a
+leaked key is bounded and shows up per-key in Usage.
+
+There is no TLS in the binary — `listen` is plain HTTP. Terminate TLS in front,
+and bind the gateway somewhere the proxy can reach and the network cannot.
+
 ### The attribution block
 
 `CLAUDICATION_CLAUDE_CODE_ATTRIBUTION` (`passthrough.claude-code-attribution`,

@@ -7,6 +7,23 @@
 # Bind address. Use 0.0.0.0:8317 to accept connections from the network.
 listen: "127.0.0.1:8317"
 
+# Put the admin API and UI on a second address, leaving `listen` serving only
+# the relay and /health.
+#
+# SET THIS IF THE GATEWAY IS EXPOSED. The admin surface can add and remove
+# Claude accounts and mint API keys, and by default it shares one listener with
+# /v1 — so publishing the relay publishes that too unless the proxy in front is
+# configured to stop it. Splitting them makes the separation the gateway's own:
+# bind this to localhost or a management interface and it cannot be reached
+# from outside however the proxy is configured.
+#
+#   listen:       "0.0.0.0:8317"       # the relay, published
+#   admin-listen: "127.0.0.1:8318"     # the UI, reachable over SSH only
+#
+# Leave it empty and one listener serves both, which is right on a machine only
+# you can reach.
+# admin-listen: "127.0.0.1:8318"
+
 # Durable state: the SQLite database lives here. Defaults to
 # $XDG_STATE_HOME/claudication (or ~/.local/state/claudication), and /var/lib/claudication in a
 # deployment. claudication refuses to start if this is not writable.

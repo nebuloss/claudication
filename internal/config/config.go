@@ -45,6 +45,18 @@ func (d Duration) D() time.Duration { return time.Duration(d) }
 type Config struct {
 	// Listen is the bind address, e.g. "127.0.0.1:8317".
 	Listen string `yaml:"listen"`
+	// AdminListen puts the admin API and UI on a second address, leaving
+	// Listen serving only the relay and /health.
+	//
+	// Empty means one listener serves both, which is right on a machine only
+	// you can reach and wrong the moment the gateway is exposed: the admin
+	// surface can add and remove Claude accounts and mint API keys, so a
+	// deployment that publishes /v1 publishes that too unless something in
+	// front is configured to stop it. Splitting the listeners makes the
+	// separation the gateway's own, not the proxy's — bind this one to
+	// localhost or a management interface and it cannot be reached from
+	// outside however the proxy is configured.
+	AdminListen string `yaml:"admin-listen"`
 	// StateDir holds the SQLite database and any other durable state.
 	StateDir string `yaml:"state-dir"`
 	// TrustedProxies are CIDRs whose X-Forwarded-For we honour. Empty means
@@ -190,6 +202,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("CLAUDICATION_LISTEN"); v != "" {
 		cfg.Listen = v
 	}
+	if v := os.Getenv("CLAUDICATION_ADMIN_LISTEN"); v != "" {
+		cfg.AdminListen = v
+	}
 	if v := os.Getenv("CLAUDICATION_STATE_DIR"); v != "" {
 		cfg.StateDir = v
 	}
@@ -226,6 +241,12 @@ func applyEnv(cfg *Config) {
 func (c Config) validate() error {
 	if c.Listen == "" {
 		return errors.New("listen must not be empty")
+	}
+	// Same address on both would mean whichever bound first wins and the other
+	// fails with "address already in use", which is a confusing way to learn
+	// the admin surface is not split at all.
+	if c.AdminListen != "" && c.AdminListen == c.Listen {
+		return errors.New("admin-listen must differ from listen, or be empty to share one listener")
 	}
 	if c.Limits.MaxBodyBytes <= 0 {
 		return errors.New("limits.max-body-bytes must be positive")
