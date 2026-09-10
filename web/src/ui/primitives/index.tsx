@@ -654,6 +654,9 @@ export function Table({
                 its own border along, a row's border stays where it started. */}
             {head.map((entry, i) => {
               const col: Column = typeof entry === 'string' ? { label: entry } : entry
+              // A sortable heading has no padding of its own: the button
+              // carries it, so the whole cell is the target rather than just
+              // the few words in the middle of it.
               return (
                 <th
                   key={col.label === '' ? `blank-${i}` : col.label}
@@ -664,9 +667,9 @@ export function Table({
                         ? 'ascending'
                         : 'descending'
                   }
-                  className={`border-b border-outline px-2 py-2 text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
-                    cap ? 'sticky top-0 z-10 bg-surface-container' : ''
-                  }`}
+                  className={`border-b border-outline text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
+                    col.onSort === undefined ? 'px-2 py-2' : 'p-0'
+                  } ${cap ? 'sticky top-0 z-10 bg-surface-container' : ''}`}
                 >
                   {col.onSort === undefined ? (
                     col.label
@@ -674,21 +677,24 @@ export function Table({
                     <button
                       type="button"
                       onClick={col.onSort}
-                      className={`group -mx-1 flex items-center gap-1 rounded-[var(--radius-md3-s)] px-1 py-0.5 tracking-wide uppercase ${
+                      className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 text-left ${
                         col.sorted ? 'text-on-surface' : 'hover:text-on-surface'
                       }`}
                     >
                       {col.label}
-                      {/* Always rendered, so the heading does not jump a few
-                          pixels wider the moment it becomes the sorted one. */}
+                      {/* Its own tight viewBox rather than a glyph inside a
+                          24-unit one, where the caret is a third of the box and
+                          renders at about a third of its nominal size. Always
+                          rendered, so the heading does not jump wider the
+                          moment it becomes the sorted column. */}
                       <svg
-                        viewBox="0 0 24 24"
+                        viewBox="0 0 10 6"
                         aria-hidden
-                        className={`size-3 shrink-0 fill-current ${
+                        className={`h-2 w-3 shrink-0 fill-current ${
                           col.sorted === 'asc' ? 'rotate-180' : ''
-                        } ${col.sorted ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}
+                        } ${col.sorted ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}`}
                       >
-                        <path d="M7 10l5 5 5-5z" />
+                        <path d="M0 0h10L5 6z" />
                       </svg>
                     </button>
                   )}
