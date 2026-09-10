@@ -35,7 +35,17 @@ GH_REPO="${GH_REPO:-nebuloss/claudication}"
 GH_API="${GH_API:-https://api.github.com}"
 GH_DL="${GH_DL:-https://github.com}"
 VERSION="${VERSION:-}"                # install this tag instead of the newest
+# Whether this run named one, captured before the default below destroys the
+# difference between "not mentioned" and "deliberately set to this".
+LISTEN_GIVEN="${LISTEN+yes}"
 LISTEN="${LISTEN:-0.0.0.0:8317}"      # what the service binds
+# Put the admin API and UI on their own address, leaving LISTEN serving only
+# the relay. Set this whenever the gateway is reachable from anywhere you do
+# not control: the admin surface can add Claude accounts and mint API keys, and
+# by default it shares the published listener. Empty keeps them together.
+ADMIN_LISTEN="${ADMIN_LISTEN:-}"
+CONFIG_DIR="${CONFIG_DIR:-/etc/claudication}"
+CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config.yaml}"
 # Set this when something fronts the gateway (nginx, Nginx Proxy Manager,
 # Traefik, a tunnel): comma-separated CIDRs or IPs the *proxy* connects from.
 # Without it every client behind it shares one rate-limit bucket, the access
@@ -182,6 +192,19 @@ service_hints() {
 # visible: the gateway keeps serving, but every client behind the proxy shares
 # one rate-limit bucket again and the access log stops telling them apart. An
 # update should not undo a decision nobody is re-making.
+existing_unit_env() {
+  case "$OS" in
+    alpine)
+      sed -n "s/^export $1=\"\(.*\)\"$/\1/p" \
+        "/etc/init.d/$SERVICE_NAME" 2>/dev/null | head -1
+      ;;
+    debian)
+      sed -n "s/^Environment=$1=\(.*\)$/\1/p" \
+        "/etc/systemd/system/$SERVICE_NAME.service" 2>/dev/null | head -1
+      ;;
+  esac
+}
+
 existing_trusted_proxies() {
   case "$OS" in
     alpine)
@@ -195,29 +218,36 @@ existing_trusted_proxies() {
   esac
 }
 
-# The trusted-proxies line for each service file, empty when unset. Built here
-# rather than inline in the heredocs: ${VAR:+"..."} eats the quotes it looks
-# like it is emitting, and an unquoted value is a trap waiting for someone to
-# pass something with a space in it.
-trusted_env_lines() {
-  # Carried forward unless this run named one. TRUSTED_PROXIES= (given, and
-  # empty) is still how to remove it.
+# Settings an earlier install put in the service unit, carried into the config
+# file the first time one is written.
+#
+# The unit is rewritten on every run, so without this an update silently
+# reverts them — and neither reversion announces itself. Losing trusted-proxies
+# puts every client behind the proxy back in one rate-limit bucket. Losing a
+# narrowed listen is worse: an install deliberately bound to 127.0.0.1 would
+# come back on 0.0.0.0, publishing a gateway that was meant to be local.
+carry_forward_unit_settings() {
   if [ -z "$TRUSTED_PROXIES_GIVEN" ]; then
     TRUSTED_PROXIES="$(existing_trusted_proxies)"
-    if [ -n "$TRUSTED_PROXIES" ]; then
-      step "keeping trusted proxy: $TRUSTED_PROXIES"
+    [ -n "$TRUSTED_PROXIES" ] && step "keeping trusted proxy: $TRUSTED_PROXIES"
+  fi
+  [ -n "$TRUSTED_PROXIES" ] && info "Trusting proxy: $TRUSTED_PROXIES"
+
+  if [ -z "$LISTEN_GIVEN" ] && [ ! -f "$CONFIG_FILE" ]; then
+    previous="$(existing_unit_env CLAUDICATION_LISTEN)"
+    if [ -n "$previous" ] && [ "$previous" != "$LISTEN" ]; then
+      LISTEN="$previous"
+      step "keeping listen: $LISTEN"
     fi
   fi
-  OPENRC_TRUSTED=""
-  SYSTEMD_TRUSTED=""
-  [ -n "$TRUSTED_PROXIES" ] || return 0
-  OPENRC_TRUSTED="export CLAUDICATION_TRUSTED_PROXIES=\"$TRUSTED_PROXIES\""
-  SYSTEMD_TRUSTED="Environment=CLAUDICATION_TRUSTED_PROXIES=$TRUSTED_PROXIES"
-  info "Trusting proxy: $TRUSTED_PROXIES"
+  return 0
 }
 
+
 service_install() {
-  trusted_env_lines
+  carry_forward_unit_settings
+  # Before the unit, which points at it.
+  write_config_file
   case "$OS" in
     alpine) write_openrc_service ;;
     debian) write_systemd_service ;;
@@ -281,7 +311,7 @@ write_openrc_service() {
 name="$SERVICE_NAME"
 description="claudication - Claude API gateway"
 command="$BINARY"
-command_args="serve"
+command_args="serve -config $CONFIG_FILE"
 command_user="$SERVICE_USER"
 directory="$STATE_DIR"
 pidfile="/run/\$RC_SVCNAME.pid"
@@ -294,14 +324,88 @@ respawn_delay=5
 respawn_max=10
 respawn_period=1800
 
+# Only the state directory, which the CLI subcommands need before any config
+# is read. Everything else lives in the config file, because an environment
+# variable silently overrides it and half a configuration is worse than either.
 export CLAUDICATION_STATE_DIR="$STATE_DIR"
-export CLAUDICATION_LISTEN="$LISTEN"
-$OPENRC_TRUSTED
 
 depend() { need net; after firewall; }
 EOF
   chmod +x "/etc/init.d/$SERVICE_NAME"
   rc-update add "$SERVICE_NAME" default >/dev/null 2>&1 || true
+}
+
+# The config file is the source of truth, and this writes it once.
+#
+# It used to be neither written nor read: the units carried
+# CLAUDICATION_LISTEN and CLAUDICATION_TRUSTED_PROXIES, and nothing created
+# /etc/claudication/config.yaml at all. Since env overrides the file, an
+# operator who followed the README and wrote a config got half of it applied —
+# admin-listen took effect because no unit set it, listen was silently
+# overridden because one did. Half a configuration with no error is worse than
+# either mechanism on its own.
+#
+# So: the units now pass -config and set nothing but the state directory, which
+# the CLI subcommands need before any config is read. An existing file is never
+# rewritten, because it is the operator's and it has their comments in it.
+write_config_file() {
+  if [ -f "$CONFIG_FILE" ]; then
+    info "Keeping $CONFIG_FILE"
+    return
+  fi
+  info "Writing $CONFIG_FILE"
+  mkdir -p "$CONFIG_DIR"
+
+  case "$OS" in
+    alpine) restart_hint="rc-service $SERVICE_NAME restart" ;;
+    *)      restart_hint="systemctl restart $SERVICE_NAME" ;;
+  esac
+
+  {
+    echo "# claudication configuration."
+    echo "#"
+    echo "# Written once by the installer and never rewritten, so your comments"
+    echo "# survive. Restart the service after editing:"
+    echo "#     $restart_hint"
+    echo "#"
+    echo "# Every field is optional. The full annotated example is at"
+    echo "# https://github.com/$GH_REPO/blob/main/configs/config.example.yaml"
+    echo
+    echo "# What the relay binds."
+    echo "listen: \"$LISTEN\""
+    echo
+    if [ -n "$ADMIN_LISTEN" ]; then
+      echo "# The admin API and UI, on their own address: the relay listener"
+      echo "# answers 404 to /admin, to the UI, and to a ?token= sign-in link."
+      echo "admin-listen: \"$ADMIN_LISTEN\""
+    else
+      echo "# Put the admin API and UI on their own address, leaving the line"
+      echo "# above serving only the relay and /health. SET THIS IF THE GATEWAY"
+      echo "# IS EXPOSED: the admin surface can add Claude accounts and mint API"
+      echo "# keys, and shares the published listener until you do."
+      echo "# admin-listen: \"127.0.0.1:8318\""
+    fi
+    echo
+    echo "state-dir: \"$STATE_DIR\""
+    echo
+    if [ -n "$TRUSTED_PROXIES" ]; then
+      echo "# CIDRs or IPs the proxy in front connects from."
+      echo "trusted-proxies:"
+      # shellcheck disable=SC2086
+      echo "$TRUSTED_PROXIES" | tr ',' '\n' | while read -r cidr; do
+        [ -n "$cidr" ] || continue
+        echo "  - \"$(echo "$cidr" | tr -d ' ')\""
+      done
+    else
+      echo "# SET THIS if anything fronts the gateway, or every client behind it"
+      echo "# shares one rate-limit bucket and the session cookie cannot be"
+      echo "# marked Secure. The value is the address the PROXY connects from."
+      echo "# trusted-proxies:"
+      echo "#   - \"10.0.0.0/8\""
+    fi
+  } > "$CONFIG_FILE"
+
+  chmod 0644 "$CONFIG_FILE"
 }
 
 write_systemd_service() {
@@ -318,13 +422,14 @@ Wants=network-online.target
 Type=exec
 User=$SERVICE_USER
 Group=$SERVICE_USER
-ExecStart=$BINARY serve
+ExecStart=$BINARY serve -config $CONFIG_FILE
 Restart=on-failure
 RestartSec=2s
 
+# Only the state directory, which the CLI subcommands need before any config
+# is read. Everything else lives in the config file, because an environment
+# variable silently overrides it and half a configuration is worse than either.
 Environment=CLAUDICATION_STATE_DIR=$STATE_DIR
-Environment=CLAUDICATION_LISTEN=$LISTEN
-$SYSTEMD_TRUSTED
 
 # Responses are long-lived streams and the gateway drains them within its own
 # grace period, so give systemd more patience than that grace.
