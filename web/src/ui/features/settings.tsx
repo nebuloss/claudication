@@ -1,10 +1,18 @@
 import ConfigTable from './configtable'
 import Security from './security'
-import { api, type Overview, type Session } from '../../api/client'
-import { useLoader } from '../hooks'
-import { Card, CardTitle, KeyValue } from '../primitives'
+import { type Session } from '../../api/client'
+import { Card, CardTitle } from '../primitives'
 
-/** Settings: the admin account, and the facts about this instance. */
+/**
+ * Settings: the admin account, how the gateway is configured, and the things
+ * only a shell can do.
+ *
+ * There used to be an "Instance" card above the configuration table with the
+ * listen address, the admin split and the public URL in it. Every one of those
+ * is a configuration value, so once the table started reporting all of them —
+ * with where each came from, which the card could not say — the card was four
+ * rows of the same facts and a note that had moved too.
+ */
 export default function Settings({
   session,
   onSessionChanged,
@@ -12,71 +20,9 @@ export default function Settings({
   session: Session
   onSessionChanged: () => void
 }) {
-  const { data } = useLoader<Overview>(() => api.overview())
-
   return (
     <div className="flex flex-col gap-5">
       <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
-
-      <Card>
-        <CardTitle>Instance</CardTitle>
-        <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
-        <KeyValue
-          items={[
-            // Version lives in the header now, where it is visible from every
-            // screen. The commit stays: it is what identifies a build between
-            // two releases, and it is not worth a line in the header.
-            ['Commit', <span className="font-mono text-xs">{data?.commit ?? '…'}</span>],
-            [
-              'Relay',
-              <span className="font-mono text-xs">{data?.listen ?? '…'}</span>,
-            ],
-            // Whether the admin surface is separated is the one setting worth
-            // seeing at a glance on an exposed gateway: it decides whether
-            // publishing the relay publishes this page too.
-            [
-              'Admin',
-              data === null ? (
-                '…'
-              ) : data.admin_split === true ? (
-                <span className="text-success">on its own listener</span>
-              ) : (
-                <span>
-                  shares the relay listener —{' '}
-                  <span className="text-on-surface-variant">
-                    set <code>admin-listen</code> if this gateway is exposed
-                  </span>
-                </span>
-              ),
-            ],
-            [
-              'Public URL',
-              data === null ? (
-                '…'
-              ) : data.public_url ? (
-                <span className="font-mono text-xs">{data.public_url}</span>
-              ) : (
-                <span className="text-on-surface-variant">
-                  unset — the Overview page guesses from your browser's address
-                </span>
-              ),
-            ],
-            [
-              'History',
-              data === null
-                ? '…'
-                : data.usage_enabled
-                  ? 'per-request, kept as configured'
-                  : 'off (usage.retention-days: 0)',
-            ],
-          ]}
-        />
-        </div>
-        <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">
-          Configuration is read from config.yaml and never written back, so the file keeps its
-          comments. Credentials live in the state database, not in config.
-        </p>
-      </Card>
 
       <ConfigTable />
 

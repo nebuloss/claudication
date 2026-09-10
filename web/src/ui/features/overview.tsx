@@ -173,14 +173,16 @@ export default function Overview({
 
       <Card>
         <CardTitle>Build</CardTitle>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="Version" value={<span className="font-mono text-base">{data.version}</span>} />
-          <Stat label="Listen" value={<span className="font-mono text-base">{data.listen}</span>} />
+        {/* Which binary is running, and for how long. Listen and History used
+            to sit here too; both are configuration, and Settings now reports
+            every setting with where its value came from — which this card
+            could not say, so it was the worse of the two places to read it. */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Stat
-            label="History"
-            value={data.usage_enabled ? 'On' : 'Off'}
-            hint={data.usage_enabled ? 'per-request' : 'usage.retention-days: 0'}
+            label="Version"
+            value={<span className="font-mono text-base">{data.version}</span>}
           />
+          <Stat label="Commit" value={<span className="font-mono text-base">{data.commit}</span>} />
           <Stat label="Started" value={duration(data.uptime_s)} hint="ago" />
         </div>
       </Card>
