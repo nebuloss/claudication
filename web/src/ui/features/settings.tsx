@@ -26,7 +26,40 @@ export default function Settings({
             // screen. The commit stays: it is what identifies a build between
             // two releases, and it is not worth a line in the header.
             ['Commit', <span className="font-mono text-xs">{data?.commit ?? '…'}</span>],
-            ['Listen', <span className="font-mono text-xs">{data?.listen ?? '…'}</span>],
+            [
+              'Relay',
+              <span className="font-mono text-xs">{data?.listen ?? '…'}</span>,
+            ],
+            // Whether the admin surface is separated is the one setting worth
+            // seeing at a glance on an exposed gateway: it decides whether
+            // publishing the relay publishes this page too.
+            [
+              'Admin',
+              data === null ? (
+                '…'
+              ) : data.admin_split === true ? (
+                <span className="text-success">on its own listener</span>
+              ) : (
+                <span>
+                  shares the relay listener —{' '}
+                  <span className="text-on-surface-variant">
+                    set <code>admin-listen</code> if this gateway is exposed
+                  </span>
+                </span>
+              ),
+            ],
+            [
+              'Public URL',
+              data === null ? (
+                '…'
+              ) : data.public_url ? (
+                <span className="font-mono text-xs">{data.public_url}</span>
+              ) : (
+                <span className="text-on-surface-variant">
+                  unset — the Overview page guesses from your browser's address
+                </span>
+              ),
+            ],
             [
               'History',
               data === null

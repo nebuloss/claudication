@@ -185,9 +185,9 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 // request, so the first screen does not need four.
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
-		"version":    version.Version,
-		"commit":     version.Commit,
-		"listen":     s.cfg.Listen,
+		"version": version.Version,
+		"commit":  version.Commit,
+		"listen":  s.cfg.Listen,
 		// What a client should point at, and whether the browser's own origin
 		// is a safe guess for it. Split listeners mean the UI is on the admin
 		// address and the relay is elsewhere, so the origin would be wrong —
@@ -195,7 +195,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"public_url":  s.cfg.PublicURL,
 		"admin_split": s.cfg.AdminListen != "",
 		"started_at":  s.startedAt.UTC().Format(time.RFC3339),
-		"uptime_s":   int64(time.Since(s.startedAt).Seconds()),
+		"uptime_s":    int64(time.Since(s.startedAt).Seconds()),
 
 		"usage_enabled": s.cfg.Usage.Enabled(),
 	}
