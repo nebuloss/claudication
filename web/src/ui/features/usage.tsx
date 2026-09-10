@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, api, messageOf, type RequestRow, type Usage } from '../../api/client'
 import { useLoader } from '../hooks'
 import {
@@ -16,6 +16,7 @@ import {
   Stat,
   SubNav,
   Table,
+  type Column,
   TonalButton,
   TextButton,
   Verbatim,
@@ -271,6 +272,23 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [shown, setShown] = useState<RequestRow | null>(null)
+  const [sort, setSort] = useState<Sort>({ key: 'at', dir: 'desc' })
+
+  // Clicking the column already in effect turns it around; clicking a new one
+  // starts at the end people mean first — newest, biggest, worst — except for
+  // the two text columns, where A-Z is what "sorted" means.
+  const sortBy = (key: SortKey) =>
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'model' || key === 'key_name' ? 'asc' : 'desc' },
+    )
+
+  const column = (label: string, key: SortKey): Column => ({
+    label,
+    onSort: () => sortBy(key),
+    sorted: sort.key === key ? sort.dir : undefined,
+  })
 
   const load = useCallback(
     async (after: string) => {
@@ -300,7 +318,10 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
     void load('')
   }, [load])
 
-  const data = rows
+  // Sorted here rather than by the server: the cursor is a keyset on (at, id),
+  // so a different order would need a different cursor. This orders the rows
+  // that have been loaded — press Load more to sort over more of them.
+  const data = useMemo(() => sortRows(rows, sort), [rows, sort])
 
   // No card and no title of its own: it is the body of a tab now, and the tab
   // is already called Requests.
@@ -324,12 +345,12 @@ function RecentRequests({ onExpired }: { onExpired: () => void }) {
           head={[
             // Not Date and not Time: the cell is a time on today's rows, a
             // date and a time on older ones, and an epoch once copied.
-            'Timestamp',
-            'Model',
-            'Key',
-            'Status',
-            'Tokens',
-            'Duration',
+            column('Timestamp', 'at'),
+            column('Model', 'model'),
+            column('Key', 'key_name'),
+            column('Status', 'status'),
+            column('Tokens', 'tokens'),
+            column('Duration', 'duration'),
             '',
           ]}
         >
@@ -542,6 +563,51 @@ function asText(r: RequestRow): string {
     '',
     r.error ?? '',
   ].join('\n')
+}
+
+type SortKey = 'at' | 'model' | 'key_name' | 'status' | 'tokens' | 'duration'
+type Sort = { key: SortKey; dir: 'asc' | 'desc' }
+
+/**
+ * What a row is worth for a given column.
+ *
+ * Status is the one that is not simply its own value. A request that never got
+ * an answer is recorded as 0, which sorts below 200 and would put the worst
+ * failures at the far end from the 4xx and 5xx ones — so sorting by status,
+ * the thing you do to find what went wrong, would scatter the failures to both
+ * ends of the table. Ranked above every real status instead, so one click puts
+ * every failure together at the top.
+ */
+function sortValue(r: RequestRow, key: SortKey): string | number {
+  switch (key) {
+    case 'at':
+      return new Date(r.at).getTime()
+    case 'model':
+      return r.model ?? ''
+    case 'key_name':
+      return r.key_name ?? ''
+    case 'status':
+      return r.status === 0 ? 1000 : r.status
+    case 'tokens':
+      return r.input_tokens + r.output_tokens
+    case 'duration':
+      return r.duration_ms
+  }
+}
+
+function sortRows(rows: RequestRow[], sort: Sort): RequestRow[] {
+  return [...rows].sort((a, b) => {
+    const av = sortValue(a, sort.key)
+    const bv = sortValue(b, sort.key)
+    const cmp =
+      typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv))
+    if (cmp !== 0) return sort.dir === 'asc' ? cmp : -cmp
+    // Ties always fall back to newest first, whichever way the column runs.
+    // Without it, rows sharing a status would shuffle on every re-render.
+    return new Date(b.at).getTime() - new Date(a.at).getTime()
+  })
 }
 
 function dash(v: string | undefined): string {

@@ -623,12 +623,25 @@ export function Bar({
  * somewhere no one will scroll to. Sticky sits on the cells rather than the
  * row, because a sticky `thead` is still not honoured everywhere.
  */
+/**
+ * A column that can be sorted by clicking its heading.
+ *
+ * `sorted` is set only on the one column currently in effect, so the table has
+ * exactly one direction indicator and `aria-sort` says the same thing.
+ */
+export type Column = {
+  label: string
+  onSort?: () => void
+  sorted?: 'asc' | 'desc'
+}
+
 export function Table({
   head,
   children,
   cap = false,
 }: {
-  head: string[]
+  /** A plain label, or a column that can be sorted. */
+  head: (string | Column)[]
   children: ReactNode
   cap?: boolean
 }) {
@@ -639,16 +652,49 @@ export function Table({
           <tr>
             {/* The rule sits on the cells, not the row: a sticky cell carries
                 its own border along, a row's border stays where it started. */}
-            {head.map((h) => (
-              <th
-                key={h}
-                className={`border-b border-outline px-2 py-2 text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
-                  cap ? 'sticky top-0 z-10 bg-surface-container' : ''
-                }`}
-              >
-                {h}
-              </th>
-            ))}
+            {head.map((entry, i) => {
+              const col: Column = typeof entry === 'string' ? { label: entry } : entry
+              return (
+                <th
+                  key={col.label === '' ? `blank-${i}` : col.label}
+                  aria-sort={
+                    col.sorted === undefined
+                      ? undefined
+                      : col.sorted === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                  }
+                  className={`border-b border-outline px-2 py-2 text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
+                    cap ? 'sticky top-0 z-10 bg-surface-container' : ''
+                  }`}
+                >
+                  {col.onSort === undefined ? (
+                    col.label
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={col.onSort}
+                      className={`group -mx-1 flex items-center gap-1 rounded-[var(--radius-md3-s)] px-1 py-0.5 tracking-wide uppercase ${
+                        col.sorted ? 'text-on-surface' : 'hover:text-on-surface'
+                      }`}
+                    >
+                      {col.label}
+                      {/* Always rendered, so the heading does not jump a few
+                          pixels wider the moment it becomes the sorted one. */}
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden
+                        className={`size-3 shrink-0 fill-current ${
+                          col.sorted === 'asc' ? 'rotate-180' : ''
+                        } ${col.sorted ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}
+                      >
+                        <path d="M7 10l5 5 5-5z" />
+                      </svg>
+                    </button>
+                  )}
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>{children}</tbody>
