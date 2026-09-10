@@ -168,6 +168,10 @@ export interface Overview {
   version: string
   commit: string
   listen: string
+  /** What clients should point at, when the operator has said. */
+  public_url?: string
+  /** True when the admin UI is on its own listener, so this origin is not it. */
+  admin_split?: boolean
   started_at: string
   uptime_s: number
   usage_enabled: boolean

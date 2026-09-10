@@ -47,10 +47,21 @@ export default function Overview({
     )
   }
 
-  // The origin the browser reached us on is the one a client on this network
-  // can reach too — a better answer than the bind address, which is often
-  // 0.0.0.0 and resolves for nobody.
-  const baseURL = window.location.origin
+  // What to tell a client to point at.
+  //
+  // The origin this browser used is the right answer while one listener serves
+  // everything: it is reachable by definition, and better than the bind
+  // address, which is often 0.0.0.0 and resolves for nobody.
+  //
+  // It is the wrong answer once admin-listen splits them. Then this page is on
+  // the admin address and the relay is somewhere else — usually a different
+  // hostname on a different proxy — and nothing the gateway can see tells it
+  // that name. So it is configured, and until it is, this says so rather than
+  // handing out a URL that answers 404 to /v1/messages.
+  const baseURL = data.public_url ?? ''
+  const guessed = window.location.origin
+  const unknown = baseURL === '' && data.admin_split === true
+  const shown = baseURL !== '' ? baseURL : guessed
   const day = data.last_24h
 
   return (
@@ -129,15 +140,24 @@ export default function Overview({
           </button>
           .
         </p>
+        {unknown && (
+          <Banner tone="warn" className="mb-4">
+            <strong>This page is not the relay.</strong> The admin UI is on its own listener
+            (<code>admin-listen</code>), so the address in your browser serves the UI and answers
+            404 to <code>/v1/messages</code>. The gateway cannot see the hostname clients reach the
+            relay on — set <code>public-url</code> in the config and it will be shown here instead
+            of the guess below.
+          </Banner>
+        )}
         <div className="flex flex-col gap-4">
-          <CopyField label="Base URL" value={baseURL} />
+          <CopyField label="Base URL" value={shown} />
           <CopyField
             label="Claude Code"
-            value={`export ANTHROPIC_BASE_URL=${baseURL}\nexport ANTHROPIC_AUTH_TOKEN=clc_…\nclaude`}
+            value={`export ANTHROPIC_BASE_URL=${shown}\nexport ANTHROPIC_AUTH_TOKEN=clc_…\nclaude`}
           />
           <CopyField
             label="curl"
-            value={`curl ${baseURL}/v1/messages \\
+            value={`curl ${shown}/v1/messages \\
   -H "x-api-key: clc_…" \\
   -H "anthropic-version: 2023-06-01" \\
   -H "content-type: application/json" \\

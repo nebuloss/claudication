@@ -45,6 +45,17 @@ func (d Duration) D() time.Duration { return time.Duration(d) }
 type Config struct {
 	// Listen is the bind address, e.g. "127.0.0.1:8317".
 	Listen string `yaml:"listen"`
+	// PublicURL is the base URL clients should point at, when that is not the
+	// address the admin UI is reached on.
+	//
+	// The UI shows a client the origin its own browser used, which is right
+	// while one listener serves everything and wrong the moment AdminListen
+	// splits them: the browser is talking to the admin surface, and the relay
+	// is somewhere else entirely — often a different hostname on a different
+	// proxy. Nothing the gateway can see tells it that name, so an operator
+	// who splits the listeners has to say it here or the UI hands out
+	// instructions that 404.
+	PublicURL string `yaml:"public-url"`
 	// AdminListen puts the admin API and UI on a second address, leaving
 	// Listen serving only the relay and /health.
 	//
@@ -204,6 +215,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("CLAUDICATION_ADMIN_LISTEN"); v != "" {
 		cfg.AdminListen = v
+	}
+	if v := os.Getenv("CLAUDICATION_PUBLIC_URL"); v != "" {
+		cfg.PublicURL = v
 	}
 	if v := os.Getenv("CLAUDICATION_STATE_DIR"); v != "" {
 		cfg.StateDir = v

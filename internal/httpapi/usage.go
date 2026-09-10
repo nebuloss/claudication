@@ -188,7 +188,13 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"version":    version.Version,
 		"commit":     version.Commit,
 		"listen":     s.cfg.Listen,
-		"started_at": s.startedAt.UTC().Format(time.RFC3339),
+		// What a client should point at, and whether the browser's own origin
+		// is a safe guess for it. Split listeners mean the UI is on the admin
+		// address and the relay is elsewhere, so the origin would be wrong —
+		// see PublicURL.
+		"public_url":  s.cfg.PublicURL,
+		"admin_split": s.cfg.AdminListen != "",
+		"started_at":  s.startedAt.UTC().Format(time.RFC3339),
 		"uptime_s":   int64(time.Since(s.startedAt).Seconds()),
 
 		"usage_enabled": s.cfg.Usage.Enabled(),

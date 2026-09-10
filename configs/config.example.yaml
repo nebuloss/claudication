@@ -24,6 +24,15 @@ listen: "127.0.0.1:8317"
 # you can reach.
 # admin-listen: "127.0.0.1:8318"
 
+# The base URL clients should point at.
+#
+# The admin UI tells you what to give a client. While one listener serves
+# everything it uses the address your browser is on, which is reachable by
+# definition. Once admin-listen splits them that address is the UI, not the
+# relay, and the gateway has no way to learn the hostname clients use — so if
+# you split them, say it here or the UI will warn that it is guessing.
+# public-url: "https://claudication.example.com"
+
 # Durable state: the SQLite database lives here. Defaults to
 # $XDG_STATE_HOME/claudication (or ~/.local/state/claudication), and /var/lib/claudication in a
 # deployment. claudication refuses to start if this is not writable.
