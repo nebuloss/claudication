@@ -18,6 +18,40 @@ something we cannot — and for not re-opening the second question every time.
 The two are independent, and the interesting findings are where they disagree:
 the client works around things the server has never told anyone about.
 
+## How to check any of this again
+
+**The measured half** is reproducible with `scripts/bisect-refusal.py` and a
+live key, or with a few lines of curl. Nothing here needs the client.
+
+**The bundle half** needs the client binary, which is not in this repository
+and should not be. On a machine with Claude Code installed it is a Bun
+single-file executable at `~/.local/share/claude/versions/<version>` — one ELF
+with the whole JavaScript blob inline, roughly 200 MB. Everything cited below
+was read straight out of it:
+
+```sh
+python3 - <<'PY'
+import re
+data = open('/path/to/versions/2.1.263', 'rb').read()
+for m in re.finditer(rb'function VB\(', data):        # or any literal
+    print(m.start(), data[m.start()-40:m.start()+400].decode('utf8', 'replace'))
+PY
+```
+
+Two kinds of offset appear below, and they are **not** the same address space:
+
+- `region_NNN @offset` — into a split of the blob into ~25 numbered files, made
+  during the first pass. That split was scratch and no longer exists; treat
+  these as "somewhere in the JS blob, in the file that held this region" and
+  re-find the symbol by name.
+- `BIN @offset` — a byte offset into the binary itself, which is stable for
+  that exact build and directly usable with the snippet above.
+
+Either way the reliable move is to search for the **literal or function name**,
+not to seek to an offset: the offsets rot with every release, the names have
+survived several. And a version bump renames the minified identifiers but
+rarely the strings, so grep for the string first and read outward.
+
 ---
 
 ## 1. The pipeline

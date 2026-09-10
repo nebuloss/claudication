@@ -219,7 +219,16 @@ same reason: without it those requests cannot succeed at all.
 [`docs/upstream-request-pipeline.md`](docs/upstream-request-pipeline.md) has
 the measurements behind each of these, what the official client does between a
 prompt and its POST, and which signals this gateway deliberately does not
-synthesise.
+synthesise. The same record is in the code, as `go doc ./internal/upstream`.
+
+If a request starts failing for no visible reason, do not reason about it —
+none of the three known triggers was found that way. Point
+[`scripts/bisect-refusal.py`](scripts/bisect-refusal.py) at a captured body and
+a key, and it narrows to the smallest failing part in about a dozen requests:
+
+```sh
+scripts/bisect-refusal.py --key clc_... --url http://127.0.0.1:8317 body.json
+```
 
 ## What the relay must not break
 
