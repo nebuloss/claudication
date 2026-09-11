@@ -1,5 +1,5 @@
 {
-  "_comment": "The one copy of every client recipe. The admin UI renders these with this gateway's real address and live model list; scripts/gen-client-docs.py renders them into docs/clients.md with example values, and `make check` fails if that file is stale. Edit here, never in either output. A client may also carry \"downloads\", served from the binary at /admin/tools/<name> and staged there from scripts/ by `make tools`. Placeholders: {{base}} the gateway base URL with no trailing slash, {{model}} a capable model, {{smallModel}} a cheap one, {{models}} crush's generated model array.",
+  "_comment": "The one copy of every client recipe. The admin UI renders these with this gateway's real address and live model list; scripts/gen-client-docs.py renders them into docs/clients.md with example values, and `make check` fails if that file is stale. Edit here, never in either output. A client may also carry \"downloads\", served from the binary at /admin/tools/<name> and staged there from scripts/ by `make tools`. A snippet with a \"filename\" gets a download button, which matters because the clipboard API is unavailable over plain HTTP. Placeholders: {{base}} the gateway base URL with no trailing slash, {{model}} a capable model, {{smallModel}} a cheap one, {{models}} crush's generated model array.",
   "examples": {
     "base": "https://claudication.example.com",
     "model": "claude-opus-5",
@@ -16,7 +16,8 @@
         {
           "label": "Environment",
           "lang": "sh",
-          "template": "export ANTHROPIC_BASE_URL={{base}}\nexport ANTHROPIC_AUTH_TOKEN=clc_…\nexport ANTHROPIC_MODEL={{model}}\nexport ANTHROPIC_SMALL_FAST_MODEL={{smallModel}}\nclaude"
+          "template": "export ANTHROPIC_BASE_URL={{base}}\nexport ANTHROPIC_AUTH_TOKEN=clc_…\nexport ANTHROPIC_MODEL={{model}}\nexport ANTHROPIC_SMALL_FAST_MODEL={{smallModel}}\nclaude",
+          "filename": "claudication.sh"
         }
       ],
       "notes": [
@@ -33,7 +34,14 @@
         {
           "label": "~/.codex/config.toml",
           "lang": "toml",
-          "template": "model_provider = \"claudication\"\nmodel = \"{{model}}\"\nmodel_catalog_json = \"~/.codex/claude-models.json\"\n\n[model_providers.claudication]\nname = \"claudication\"\nbase_url = \"{{base}}/v1\"\nenv_key = \"CLAUDICATION_API_KEY\"\nwire_api = \"responses\""
+          "template": "model_provider = \"claudication\"\nmodel = \"{{model}}\"\nmodel_catalog_json = \"~/.codex/claude-models.json\"\n\n[model_providers.claudication]\nname = \"claudication\"\nbase_url = \"{{base}}/v1\"\nenv_key = \"CLAUDICATION_API_KEY\"\nwire_api = \"responses\"",
+          "filename": "config.toml"
+        },
+        {
+          "label": "~/.codex/claude-models.json",
+          "lang": "json",
+          "filename": "claude-models.json",
+          "template": "{\n  \"models\": [\n{{catalogEntries}}\n  ]\n}"
         },
         {
           "label": "Then",
@@ -44,16 +52,18 @@
       "notes": [
         "`env_key` names an environment variable, not a key — putting `clc_…` there directly does not work.",
         "Set `model` to a Claude model. Codex asks for `gpt-5-codex` by default, which means nothing upstream, and the gateway then substitutes whatever `openai.model` says.",
-        "Codex looks its model up in a catalog compiled into its own binary, so a Claude name falls back to conservative limits and long sessions shed context early. Generate the file `model_catalog_json` points at with the script below.",
+        "Codex looks its model up in a catalog compiled into its own binary, and a Claude name is not in it — so it falls back to conservative limits and a million-token model starts shedding context early. The catalog above fixes that, with an entry per model the gateway serves.",
+        "One caveat, measured rather than assumed: Codex refuses a catalog entry carrying neither `base_instructions` nor `model_messages.instructions_template`, so every catalog must contain a system prompt. The one above is a short stand-in, because Codex's own lives in its binary and nothing here can read it. That costs about nine thousand tokens of Codex's editing and formatting instructions per turn — cheaper, and less good at editing. Download the script below instead to clone the real prompt out of your own Codex.",
         "Codex needs `bubblewrap` installed before it can run any shell command. Without it the first tool call panics and the model then explains, convincingly, that nothing works — which reads like a broken tool bridge and is not one."
       ],
       "downloads": [
         {
           "name": "codex-model-catalog.py",
           "label": "codex-model-catalog.py",
-          "what": "Writes the file `model_catalog_json` points at. Run it on the machine Codex is installed on: the catalog has to carry Codex's own system-prompt template, which only its binary has, so the gateway cannot generate it for you. `python3 codex-model-catalog.py --codex $(which codex)`"
+          "what": "Writes the same catalog, but cloned from your own Codex binary, so it carries Codex's real system prompt rather than the stand-in above. Run it on the machine Codex is installed on: `python3 codex-model-catalog.py --codex $(which codex)`."
         }
-      ]
+      ],
+      "catalogEntry": "    {\n      \"slug\": \"{{id}}\",\n      \"prefer_websockets\": false,\n      \"support_verbosity\": true,\n      \"default_verbosity\": \"low\",\n      \"apply_patch_tool_type\": \"freeform\",\n      \"web_search_tool_type\": \"text_and_image\",\n      \"input_modalities\": [\n        \"text\",\n        \"image\"\n      ],\n      \"supports_image_detail_original\": true,\n      \"truncation_policy\": {\n        \"mode\": \"tokens\",\n        \"limit\": 10000\n      },\n      \"supports_parallel_tool_calls\": true,\n      \"tool_mode\": null,\n      \"multi_agent_version\": null,\n      \"use_responses_lite\": false,\n      \"include_skills_usage_instructions\": true,\n      \"include_apps_usage_instructions\": true,\n      \"include_plugin_usage_instructions\": true,\n      \"node_repl_auto_review_required\": false,\n      \"node_repl_disabled\": false,\n      \"auto_review_model_override\": null,\n      \"model_specialty\": null,\n      \"context_window\": {{context}},\n      \"max_context_window\": {{context}},\n      \"auto_compact_token_limit\": null,\n      \"comp_hash\": \"2911\",\n      \"default_reasoning_summary\": \"none\",\n      \"display_name\": \"{{name}}\",\n      \"description\": \"{{description}}\",\n      \"default_reasoning_level\": \"medium\",\n      \"supported_reasoning_levels\": [\n        {\n          \"effort\": \"low\",\n          \"description\": \"Fast responses with lighter reasoning\"\n        },\n        {\n          \"effort\": \"medium\",\n          \"description\": \"Balances speed and reasoning depth for everyday tasks\"\n        },\n        {\n          \"effort\": \"high\",\n          \"description\": \"Greater reasoning depth for complex problems\"\n        },\n        {\n          \"effort\": \"xhigh\",\n          \"description\": \"Extra high reasoning depth for complex problems\"\n        }\n      ],\n      \"shell_type\": \"unified_exec\",\n      \"visibility\": \"list\",\n      \"minimal_client_version\": \"0.98.0\",\n      \"supported_in_api\": true,\n      \"availability_nux\": null,\n      \"upgrade\": null,\n      \"priority\": {{priority}},\n      \"experimental_supported_tools\": [],\n      \"available_in_plans\": [\n        \"business\",\n        \"edu\",\n        \"edu_plus\",\n        \"edu_pro\",\n        \"education\",\n        \"enterprise\",\n        \"enterprise_cbp_automation\",\n        \"enterprise_cbp_usage_based\",\n        \"finserv\",\n        \"go\",\n        \"hc\",\n        \"plus\",\n        \"pro\",\n        \"prolite\",\n        \"quorum\",\n        \"sci\",\n        \"self_serve_business_prolite\",\n        \"self_serve_business_usage_based\",\n        \"team\"\n      ],\n      \"supports_search_tool\": true,\n      \"default_service_tier\": null,\n      \"service_tiers\": [\n        {\n          \"id\": \"priority\",\n          \"name\": \"Fast\",\n          \"description\": \"1.5x speed, increased usage\"\n        }\n      ],\n      \"additional_speed_tiers\": [\n        \"fast\"\n      ],\n      \"supports_reasoning_summary_parameter\": true,\n      \"supports_reasoning_summaries\": true,\n      \"base_instructions\": \"You are Codex, a coding agent working in the user's terminal and workspace. Read before you edit, prefer running a command to guessing, and keep answers short. Use the tools you are given rather than describing what you would do.\"\n    }"
     },
     {
       "id": "opencode",
@@ -65,7 +75,8 @@
         {
           "label": "~/.config/opencode/opencode.jsonc",
           "lang": "jsonc",
-          "template": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {\n    \"anthropic\": {\n      \"options\": {\n        \"baseURL\": \"{{base}}/v1\",\n        \"apiKey\": \"clc_…\"\n      }\n    }\n  },\n  \"model\": \"anthropic/{{model}}\",\n  \"small_model\": \"anthropic/{{smallModel}}\"\n}"
+          "template": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {\n    \"anthropic\": {\n      \"options\": {\n        \"baseURL\": \"{{base}}/v1\",\n        \"apiKey\": \"clc_…\"\n      }\n    }\n  },\n  \"model\": \"anthropic/{{model}}\",\n  \"small_model\": \"anthropic/{{smallModel}}\"\n}",
+          "filename": "opencode.jsonc"
         }
       ],
       "notes": [
@@ -84,7 +95,8 @@
         {
           "label": "~/.config/crush/crush.json",
           "lang": "json",
-          "template": "{\n  \"$schema\": \"https://charm.land/crush.json\",\n  \"providers\": {\n    \"claudication\": {\n      \"name\": \"Claudication Gateway\",\n      \"base_url\": \"{{base}}\",\n      \"type\": \"anthropic\",\n      \"api_key\": \"clc_…\",\n      \"models\": [\n{{models}}\n      ]\n    }\n  },\n  \"models\": {\n    \"large\": { \"provider\": \"claudication\", \"model\": \"{{model}}\", \"think\": true },\n    \"small\": { \"provider\": \"claudication\", \"model\": \"{{smallModel}}\" }\n  }\n}"
+          "template": "{\n  \"$schema\": \"https://charm.land/crush.json\",\n  \"providers\": {\n    \"claudication\": {\n      \"name\": \"Claudication Gateway\",\n      \"base_url\": \"{{base}}\",\n      \"type\": \"anthropic\",\n      \"api_key\": \"clc_…\",\n      \"models\": [\n{{models}}\n      ]\n    }\n  },\n  \"models\": {\n    \"large\": { \"provider\": \"claudication\", \"model\": \"{{model}}\", \"think\": true },\n    \"small\": { \"provider\": \"claudication\", \"model\": \"{{smallModel}}\" }\n  }\n}",
+          "filename": "crush.json"
         }
       ],
       "notes": [

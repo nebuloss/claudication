@@ -25,9 +25,10 @@ type Recipe = {
   surface: 'anthropic' | 'openai' | 'both'
   lead: string
   notes: string[]
-  snippets: { label: string; lang: string; template: string }[]
+  snippets: { label: string; lang: string; template: string; filename?: string }[]
   modelEntry?: string
   modelEntryReasoning?: string
+  catalogEntry?: string
   downloads?: { name: string; label: string; what: string }[]
 }
 
@@ -85,6 +86,29 @@ function crushModels(recipe: Recipe, models: Model[]): string {
         reasoning: f.reasons ? (recipe.modelEntryReasoning ?? '') : '',
       })
     })
+    .join(',\n')
+}
+
+/**
+ * Codex's model catalog, one entry per model the gateway serves.
+ *
+ * Ordered so the picker puts the capable models first, and every entry carries
+ * the context window Codex would otherwise guess at. The prompt inside it is a
+ * stand-in — see the note beside it in configs/clients.json for what that
+ * costs and how to avoid paying it.
+ */
+function catalogEntries(recipe: Recipe, models: Model[]): string {
+  if (recipe.catalogEntry === undefined) return ''
+  return models
+    .map((m, i) =>
+      render(recipe.catalogEntry as string, {
+        id: m.id,
+        name: m.display_name ?? m.id,
+        description: m.display_name ?? m.id,
+        context: String(modelFacts(m.id).context),
+        priority: String((i + 1) * 10),
+      }),
+    )
     .join(',\n')
 }
 
@@ -180,6 +204,7 @@ export default function Setup({
     model: preferred(models),
     smallModel: smallest(models),
     models: crushModels(recipe, models),
+    catalogEntries: catalogEntries(recipe, models),
   }
 
   return (
@@ -286,7 +311,12 @@ export default function Setup({
             <Prose text={recipe.lead} />
           </p>
           {recipe.snippets.map((s) => (
-            <CopyField key={s.label} label={s.label} value={render(s.template, vars)} />
+            <CopyField
+              key={s.label}
+              label={s.label}
+              value={render(s.template, vars)}
+              download={s.filename}
+            />
           ))}
           {recipe.notes.map((n) => (
             <p key={n} className="m-0 text-sm text-on-surface-variant">

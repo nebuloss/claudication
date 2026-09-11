@@ -82,6 +82,28 @@ def crush_models(recipe):
     return ',\n'.join(blocks)
 
 
+def catalog_entries(recipe):
+    """Codex's catalog, one entry per sample model."""
+    entry = recipe.get('catalogEntry')
+    if entry is None:
+        return ''
+    blocks = []
+    for i, (model_id, name) in enumerate(SAMPLE_MODELS):
+        blocks.append(
+            render(
+                entry,
+                {
+                    'id': model_id,
+                    'name': name,
+                    'description': name,
+                    'context': str(model_facts(model_id)['context']),
+                    'priority': str((i + 1) * 10),
+                },
+            )
+        )
+    return ',\n'.join(blocks)
+
+
 def sentences(text):
     """A note, as a markdown paragraph. Backticks already mean what they mean."""
     return text
@@ -97,6 +119,7 @@ def build(recipes):
             'model': ex['model'],
             'smallModel': ex['smallModel'],
             'models': crush_models(recipe),
+            'catalogEntries': catalog_entries(recipe),
         }
         out.append('## %s' % recipe['label'])
         out.append('')

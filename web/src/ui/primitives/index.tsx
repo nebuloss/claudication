@@ -476,7 +476,25 @@ export async function copyText(text: string): Promise<boolean> {
  * freshly minted API key, shown once and unrecoverable afterwards, and a
  * failure the operator scrolls past is a key they have lost.
  */
-export function CopyField({ label, value }: { label: string; value: string }) {
+/**
+ * A block of text to take away, by clipboard or as a file.
+ *
+ * `download` names the file and adds the second button. It is not a
+ * convenience: the clipboard API is only given to a page over HTTPS, and a
+ * gateway on a private network is usually plain HTTP — so on exactly the
+ * deployments where these snippets matter most, Copy is the button that cannot
+ * work and this is the one that can. A Blob and an object URL do it entirely
+ * in the browser, with nothing to serve and nothing to route.
+ */
+export function CopyField({
+  label,
+  value,
+  download,
+}: {
+  label: string
+  value: string
+  download?: string
+}) {
   const [copied, setCopied] = useState(false)
   const [failed, setFailed] = useState(false)
 
@@ -500,7 +518,12 @@ export function CopyField({ label, value }: { label: string; value: string }) {
         <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest px-3 py-2 font-mono text-xs leading-6 whitespace-pre text-on-surface">
           {value}
         </code>
-        <TonalButton onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</TonalButton>
+        <div className="flex shrink-0 flex-col gap-2">
+          <TonalButton onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</TonalButton>
+          {download !== undefined && (
+            <TonalButton onClick={() => saveAs(download, value)}>Download</TonalButton>
+          )}
+        </div>
       </div>
 
       {failed && (
@@ -523,6 +546,18 @@ export function CopyField({ label, value }: { label: string; value: string }) {
       )}
     </div>
   )
+}
+
+/** Hand the browser a file without a round trip to anything. */
+function saveAs(filename: string, value: string) {
+  const url = URL.createObjectURL(new Blob([value], { type: 'text/plain;charset=utf-8' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  // Freed on the next turn of the loop: revoking before the click is handled
+  // cancels the download in some browsers.
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 /**

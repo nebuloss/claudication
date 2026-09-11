@@ -136,6 +136,211 @@ env_key = "CLAUDICATION_API_KEY"
 wire_api = "responses"
 ```
 
+`~/.codex/claude-models.json`:
+
+```json
+{
+  "models": [
+    {
+      "slug": "claude-opus-5",
+      "prefer_websockets": false,
+      "support_verbosity": true,
+      "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform",
+      "web_search_tool_type": "text_and_image",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 10000
+      },
+      "supports_parallel_tool_calls": true,
+      "tool_mode": null,
+      "multi_agent_version": null,
+      "use_responses_lite": false,
+      "include_skills_usage_instructions": true,
+      "include_apps_usage_instructions": true,
+      "include_plugin_usage_instructions": true,
+      "node_repl_auto_review_required": false,
+      "node_repl_disabled": false,
+      "auto_review_model_override": null,
+      "model_specialty": null,
+      "context_window": 1000000,
+      "max_context_window": 1000000,
+      "auto_compact_token_limit": null,
+      "comp_hash": "2911",
+      "default_reasoning_summary": "none",
+      "display_name": "Claude Opus 5",
+      "description": "Claude Opus 5",
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        {
+          "effort": "low",
+          "description": "Fast responses with lighter reasoning"
+        },
+        {
+          "effort": "medium",
+          "description": "Balances speed and reasoning depth for everyday tasks"
+        },
+        {
+          "effort": "high",
+          "description": "Greater reasoning depth for complex problems"
+        },
+        {
+          "effort": "xhigh",
+          "description": "Extra high reasoning depth for complex problems"
+        }
+      ],
+      "shell_type": "unified_exec",
+      "visibility": "list",
+      "minimal_client_version": "0.98.0",
+      "supported_in_api": true,
+      "availability_nux": null,
+      "upgrade": null,
+      "priority": 10,
+      "experimental_supported_tools": [],
+      "available_in_plans": [
+        "business",
+        "edu",
+        "edu_plus",
+        "edu_pro",
+        "education",
+        "enterprise",
+        "enterprise_cbp_automation",
+        "enterprise_cbp_usage_based",
+        "finserv",
+        "go",
+        "hc",
+        "plus",
+        "pro",
+        "prolite",
+        "quorum",
+        "sci",
+        "self_serve_business_prolite",
+        "self_serve_business_usage_based",
+        "team"
+      ],
+      "supports_search_tool": true,
+      "default_service_tier": null,
+      "service_tiers": [
+        {
+          "id": "priority",
+          "name": "Fast",
+          "description": "1.5x speed, increased usage"
+        }
+      ],
+      "additional_speed_tiers": [
+        "fast"
+      ],
+      "supports_reasoning_summary_parameter": true,
+      "supports_reasoning_summaries": true,
+      "base_instructions": "You are Codex, a coding agent working in the user's terminal and workspace. Read before you edit, prefer running a command to guessing, and keep answers short. Use the tools you are given rather than describing what you would do."
+    },
+    {
+      "slug": "claude-haiku-4-5-20251001",
+      "prefer_websockets": false,
+      "support_verbosity": true,
+      "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform",
+      "web_search_tool_type": "text_and_image",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 10000
+      },
+      "supports_parallel_tool_calls": true,
+      "tool_mode": null,
+      "multi_agent_version": null,
+      "use_responses_lite": false,
+      "include_skills_usage_instructions": true,
+      "include_apps_usage_instructions": true,
+      "include_plugin_usage_instructions": true,
+      "node_repl_auto_review_required": false,
+      "node_repl_disabled": false,
+      "auto_review_model_override": null,
+      "model_specialty": null,
+      "context_window": 200000,
+      "max_context_window": 200000,
+      "auto_compact_token_limit": null,
+      "comp_hash": "2911",
+      "default_reasoning_summary": "none",
+      "display_name": "Claude Haiku 4.5",
+      "description": "Claude Haiku 4.5",
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        {
+          "effort": "low",
+          "description": "Fast responses with lighter reasoning"
+        },
+        {
+          "effort": "medium",
+          "description": "Balances speed and reasoning depth for everyday tasks"
+        },
+        {
+          "effort": "high",
+          "description": "Greater reasoning depth for complex problems"
+        },
+        {
+          "effort": "xhigh",
+          "description": "Extra high reasoning depth for complex problems"
+        }
+      ],
+      "shell_type": "unified_exec",
+      "visibility": "list",
+      "minimal_client_version": "0.98.0",
+      "supported_in_api": true,
+      "availability_nux": null,
+      "upgrade": null,
+      "priority": 20,
+      "experimental_supported_tools": [],
+      "available_in_plans": [
+        "business",
+        "edu",
+        "edu_plus",
+        "edu_pro",
+        "education",
+        "enterprise",
+        "enterprise_cbp_automation",
+        "enterprise_cbp_usage_based",
+        "finserv",
+        "go",
+        "hc",
+        "plus",
+        "pro",
+        "prolite",
+        "quorum",
+        "sci",
+        "self_serve_business_prolite",
+        "self_serve_business_usage_based",
+        "team"
+      ],
+      "supports_search_tool": true,
+      "default_service_tier": null,
+      "service_tiers": [
+        {
+          "id": "priority",
+          "name": "Fast",
+          "description": "1.5x speed, increased usage"
+        }
+      ],
+      "additional_speed_tiers": [
+        "fast"
+      ],
+      "supports_reasoning_summary_parameter": true,
+      "supports_reasoning_summaries": true,
+      "base_instructions": "You are Codex, a coding agent working in the user's terminal and workspace. Read before you edit, prefer running a command to guessing, and keep answers short. Use the tools you are given rather than describing what you would do."
+    }
+  ]
+}
+```
+
 Then:
 
 ```sh
@@ -147,11 +352,13 @@ codex
 
 Set `model` to a Claude model. Codex asks for `gpt-5-codex` by default, which means nothing upstream, and the gateway then substitutes whatever `openai.model` says.
 
-Codex looks its model up in a catalog compiled into its own binary, so a Claude name falls back to conservative limits and long sessions shed context early. Generate the file `model_catalog_json` points at with the script below.
+Codex looks its model up in a catalog compiled into its own binary, and a Claude name is not in it — so it falls back to conservative limits and a million-token model starts shedding context early. The catalog above fixes that, with an entry per model the gateway serves.
+
+One caveat, measured rather than assumed: Codex refuses a catalog entry carrying neither `base_instructions` nor `model_messages.instructions_template`, so every catalog must contain a system prompt. The one above is a short stand-in, because Codex's own lives in its binary and nothing here can read it. That costs about nine thousand tokens of Codex's editing and formatting instructions per turn — cheaper, and less good at editing. Download the script below instead to clone the real prompt out of your own Codex.
 
 Codex needs `bubblewrap` installed before it can run any shell command. Without it the first tool call panics and the model then explains, convincingly, that nothing works — which reads like a broken tool bridge and is not one.
 
-**`scripts/codex-model-catalog.py`** — Writes the file `model_catalog_json` points at. Run it on the machine Codex is installed on: the catalog has to carry Codex's own system-prompt template, which only its binary has, so the gateway cannot generate it for you. `python3 codex-model-catalog.py --codex $(which codex)`
+**`scripts/codex-model-catalog.py`** — Writes the same catalog, but cloned from your own Codex binary, so it carries Codex's real system prompt rather than the stand-in above. Run it on the machine Codex is installed on: `python3 codex-model-catalog.py --codex $(which codex)`.
 
 The admin UI offers it as a download under Setup, which is the only
 way to get it on a machine that installed a release binary and has no
