@@ -111,6 +111,40 @@
 // way out, keep a map, restore on the way in — and it should be built the same
 // way, including its collision guard.
 //
+// # Every way the stream can fail
+//
+// Codex's parser defines these, and each one becomes an error the user sees.
+// Corroborated by opencodex's own root-cause analysis of exactly this bridge
+// (devlog/_fin/110_codex-stream-stability), which is worth more than the API
+// documentation because it was written after the failures happened.
+//
+//   - The terminal event is response.completed, and nothing else. The
+//     chat-completions `data: [DONE]` sentinel is ignored by this parser, so a
+//     stream that ends without response.completed fails with "stream closed
+//     before response.completed" — even though every byte before it was good.
+//   - response.completed needs an `id`; usage and end_turn are optional. So a
+//     turn with no usage reports zero tokens rather than failing, which is the
+//     quiet kind of wrong.
+//   - response.failed reads response.error and never last_error. An error
+//     object that is absent or does not deserialise becomes a generic stream
+//     failure, losing whatever the upstream actually said — the same defect
+//     the relay exists to avoid, in the other direction.
+//   - An idle timeout with no SSE frame at all fails the turn. Claude thinks
+//     for a long time before its first token, so the translator has to keep
+//     bytes moving across that gap. This is the mirror of the watchdog that
+//     makes internal/upstream flush every chunk.
+//   - A malformed SSE frame fails the turn outright.
+//
+// Which means an upstream error mid-stream cannot simply close the connection:
+// it has to become a response.failed carrying a real error object, or Codex
+// reports something that says nothing about what went wrong.
+//
+// Recognised error codes are context_length_exceeded, insufficient_quota,
+// usage_not_included, invalid_prompt, cyber_policy, server_is_overloaded and
+// slow_down. Notably rate_limit_exceeded is NOT among them and falls through
+// to a generic retry — worth knowing, since a pooled gateway produces rate
+// limits more often than anything else.
+//
 // # Things that will bite
 //
 //   - The request we send is synthesised here, so it is ours to get right:
