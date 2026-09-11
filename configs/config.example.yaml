@@ -103,6 +103,26 @@ retention-days: 30
   # The window the admin UI summarises by default. Clamped to retention.
   report-days: 7
 
+# The OpenAI Responses surface, which is what Codex CLI speaks.
+#
+# Whether it is SERVED at all is not here: that is a switch in Settings, kept
+# in the database so it can be changed without a restart. This section is only
+# how it behaves while it is on.
+openai:
+  # Which Claude model a Responses request runs on when it asks for something
+  # the upstream has never heard of — a default Codex install asks for
+  # gpt-5-codex. A request already naming a `claude-` model keeps it, so
+  # setting `model` in ~/.codex/config.toml stays in charge of what runs.
+  #
+  # Sonnet rather than opus by default: a Codex session is a long series of
+  # tool calls, and pointing that at the most expensive model spends a
+  # subscription's weekly allowance on shell commands.
+  model: "claude-sonnet-5"
+  # Answer ceiling for a request that carries none of its own, which is every
+  # Codex request — it never sends max_output_tokens, and Anthropic refuses a
+  # request without max_tokens. This bounds one answer, not a budget.
+  max-tokens: 32000
+
 # Lane A forwards request bodies unchanged, with exactly one exception.
 passthrough:
   # Anthropic's subscription backend refuses opus and sonnet unless Claude

@@ -1,8 +1,12 @@
 # Working on claudication
 
-A gateway that proxies the Anthropic Messages API to Claude subscription
-accounts over OAuth, with an embedded admin UI. Go, no CGO; the UI is built
-into the binary with `go:embed`.
+A gateway that proxies Claude subscription accounts over OAuth, with an
+embedded admin UI. Go, no CGO; the UI is built into the binary with
+`go:embed`.
+
+It serves two client-facing APIs — Anthropic Messages and OpenAI Responses,
+which is what Codex CLI speaks — and speaks only Anthropic upstream. Both can
+be switched on and off at runtime from Settings.
 
 ## Read these before changing the relay
 
@@ -11,6 +15,21 @@ into the binary with `go:embed`.
 2. [`docs/`](docs/) — `refused-requests.md` first: every refusal with the
    measurements behind it. Then `upstream-request-pipeline.md` for what the
    official client sends, and `reversing.md` for how to check any of it.
+
+## Read these before adding or changing a client-facing API
+
+1. `go doc ./internal/api` — what a dialect has to provide, and what it gets
+   for free. Anthropic is an implementation of that interface rather than a
+   special case, which is what keeps the relay free of per-client branches.
+2. `go doc ./internal/api/openai` — the complete record of what Codex sends,
+   what it does with the answer, and the measurement behind each mapping
+   decision. Kept in the code so nobody has to reverse Codex twice.
+3. [`docs/client-apis.md`](docs/client-apis.md) — the operator's view: the
+   surfaces, their switches, and pointing Codex at the gateway.
+
+One package per surface under `internal/api/`, with its own translation beside
+it. A dialect's mapping is only defensible next to the evidence for it, and the
+evidence is per dialect.
 
 The relay's rule is that the caller's bytes go upstream unchanged. There are
 five exceptions, all in `internal/upstream`, each because the request cannot
