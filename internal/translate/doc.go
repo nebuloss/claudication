@@ -53,12 +53,63 @@
 //   - "function" — name, description, strict, parameters. Maps to an Anthropic
 //     tool directly: parameters becomes input_schema.
 //   - "namespace" — a container holding nested function tools, used for
-//     multi_agent_v1. Anthropic has no such thing, so these have to be
-//     flattened, and the flattened names have to stay clear of the names the
-//     upstream refuses (see upstream.RewriteRefusedToolNames).
+//     multi_agent_v1. Anthropic has no such thing, so these are flattened on
+//     the way out and their namespace restored on the way back; see below.
+//     Flattened names also have to stay clear of the ones the upstream
+//     refuses (see upstream.RewriteRefusedToolNames).
 //   - "web_search" — a server-side tool with no schema at all:
 //     {"type":"web_search","external_web_access":true}. Either mapped to
 //     Anthropic's own server tool or dropped; it cannot become a function.
+//
+// # What the answer has to look like
+//
+// From Codex's own source at rust-v0.154.0 — codex-rs/codex-api/src/sse/responses.rs
+// and codex-rs/protocol/src/models.rs — rather than from guesswork, which is
+// what the first capture stub used.
+//
+// Codex ignores most of the Responses vocabulary. These are explicitly
+// discarded with a trace line: content_part.added, content_part.done,
+// function_call_arguments.delta, function_call_arguments.done,
+// output_text.done, in_progress, metadata, reasoning_summary_part.done, and
+// anything else ending .delta. Everything unrecognised is debug-logged and
+// the stream carries on.
+//
+// So the set that actually does anything is small:
+//
+//	response.created                       the turn begins
+//	response.output_item.added             an item begins
+//	response.output_text.delta             assistant text, streamed
+//	response.output_item.done              a COMPLETED item — see below
+//	response.reasoning_summary_text.delta  reasoning, streamed
+//	response.reasoning_text.delta
+//	response.completed                     the end, carrying usage
+//	response.failed / response.incomplete  the error paths
+//
+// Two consequences worth having in advance.
+//
+// Tool calls do not need streaming at all. They arrive whole, as a
+// response.output_item.done carrying a function_call item — the incremental
+// function_call_arguments events are on the ignore list. So the translator
+// buffers Anthropic's tool_use input and emits one finished item.
+//
+// And `arguments` on that item is a JSON *string*, not an object:
+//
+//	{"type":"function_call","name":"exec_command","call_id":"…",
+//	 "arguments":"{\"cmd\":\"ls\"}","namespace":"multi_agent_v1"}
+//
+// Anthropic's tool_use.input is an object, so it has to be marshalled back
+// into a string on the way out, and parsed on the way in.
+//
+// # Namespaces go out flattened and come back whole
+//
+// FunctionCall carries an optional `namespace` field. That is the other half
+// of the "namespace" tool type: Anthropic has no nesting, so the tools go out
+// flattened, but the call has to come back with its namespace restored or
+// Codex cannot route it to the right sub-tool.
+//
+// That is the same shape as upstream.RewriteRefusedToolNames — rewrite on the
+// way out, keep a map, restore on the way in — and it should be built the same
+// way, including its collision guard.
 //
 // # Things that will bite
 //
