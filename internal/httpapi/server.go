@@ -13,6 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"claudication/internal/api"
+	"claudication/internal/api/anthropic"
+	"claudication/internal/api/openai"
 	"claudication/internal/config"
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
@@ -41,6 +44,11 @@ type Server struct {
 	sessions       *sessions
 	httpClient     *http.Client
 	startedAt      time.Time
+	// protocols are the client-facing dialects this gateway serves, in the
+	// order the admin UI lists them. Anthropic is one of them rather than the
+	// default case — see internal/api.
+	protocols api.Registry
+	surfaces  *surfaces
 
 	mu   sync.Mutex
 	addr string
@@ -93,6 +101,23 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		// Upstream calls made by the gateway itself: token exchange, refresh,
 		// credential probes. Short timeout, because these are all small.
 		httpClient: &http.Client{Timeout: 60 * time.Second},
+	}
+
+	// The composition root: the one place that knows which dialects exist.
+	// Order is what the admin UI lists.
+	s.protocols = api.Registry{
+		anthropic.New(),
+		openai.New(cfg.OpenAI.Model, cfg.OpenAI.MaxTokens),
+	}
+	s.surfaces = newSurfaces(s.protocols, st)
+	// Read once here rather than per request. A failure is worth saying out
+	// loud but not worth refusing to start over: the fallback is every surface
+	// serving, which is the state the gateway was in before the switches
+	// existed.
+	loadCtx, cancelLoad := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelLoad()
+	if err := s.surfaces.load(loadCtx); err != nil {
+		log.Warn("could not read the API surface switches; serving every surface", "err", err)
 	}
 
 	s.pool = pool.New(st, sealer, s.httpClient, log)
@@ -175,11 +200,41 @@ func (s *Server) routes(r0 role) http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// The relay: Anthropic in, Anthropic out.
+	// The client-facing APIs. Each is an api.Protocol and each is gated on its
+	// own switch, so one can be turned off without touching the other and both
+	// can be turned off at once.
+	//
+	// The upstream path is the same for both, because there is only one thing
+	// on the other end: /v1/messages is what a subscription account answers,
+	// whatever shape the caller asked in.
 	if r0.gateway {
-		mux.Handle("GET /v1/models", s.requireAPIKey(http.HandlerFunc(s.handleModels)))
-		mux.Handle("POST /v1/messages", s.requireAPIKey(http.HandlerFunc(s.handleMessages)))
-		mux.Handle("POST /v1/messages/count_tokens", s.requireAPIKey(http.HandlerFunc(s.handleCountTokens)))
+		messages, _ := s.protocols.Find(anthropic.ID)
+		responses, _ := s.protocols.Find(openai.ID)
+
+		// Model discovery belongs to the Anthropic surface alone. /v1/models
+		// is a path both APIs define with different answers, and Codex never
+		// asks — it is configured with a model name — so there is nothing to
+		// gain by guessing which dialect a caller meant.
+		mux.Handle("GET /v1/models",
+			s.surface(messages, s.requireAPIKey(http.HandlerFunc(s.handleModels))))
+		mux.Handle("POST /v1/messages",
+			s.surface(messages, s.requireAPIKey(
+				s.inference(messages, "/v1/messages", "/v1/messages?beta=true"))))
+
+		// Serving count_tokens matters, and the client says so in its own
+		// code: when a gateway answers 501 here, it falls back to measuring
+		// the context by issuing a real max_tokens:1 inference request and
+		// reading the usage off it. That is a billed request spent on
+		// arithmetic, once per measurement. Removing this route because
+		// "nothing seems to call it" would turn that on silently.
+		mux.Handle("POST /v1/messages/count_tokens",
+			s.surface(messages, s.requireAPIKey(
+				s.inference(messages, "/v1/messages/count_tokens",
+					"/v1/messages/count_tokens?beta=true"))))
+
+		mux.Handle("POST /v1/responses",
+			s.surface(responses, s.requireAPIKey(
+				s.inference(responses, "/v1/responses", "/v1/messages?beta=true"))))
 	}
 
 	if r0.admin {
@@ -217,6 +272,7 @@ func (s *Server) routes(r0 role) http.Handler {
 		mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
 
 		mux.Handle("GET /admin/config", admin(s.handleConfig))
+		mux.Handle("POST /admin/surfaces/{id}", admin(s.handleSetSurface))
 		mux.Handle("GET /admin/overview", admin(s.handleOverview))
 		mux.Handle("GET /admin/usage", admin(s.handleUsage))
 		mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))

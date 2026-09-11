@@ -129,8 +129,8 @@ export default function Overview({
       <Card>
         <CardTitle>Point a client at it</CardTitle>
         <p className="mt-0 mb-4 text-sm text-on-surface">
-          Claude Code talks to the gateway exactly as it talks to Anthropic. Give it the base URL
-          and one of your{' '}
+          Claude Code talks to the gateway exactly as it talks to Anthropic, and Codex talks to it
+          in OpenAI&rsquo;s Responses shape. Either way it needs the base URL and one of your{' '}
           <button
             type="button"
             className="text-primary underline underline-offset-2"
@@ -156,6 +156,17 @@ export default function Overview({
             value={`export ANTHROPIC_BASE_URL=${shown}\nexport ANTHROPIC_AUTH_TOKEN=clc_…\nclaude`}
           />
           <CopyField
+            label="Codex CLI (~/.codex/config.toml)"
+            value={`model_provider = "claudication"
+model = "claude-sonnet-5"
+
+[model_providers.claudication]
+name = "claudication"
+base_url = "${shown}/v1"
+env_key = "CLAUDICATION_API_KEY"
+wire_api = "responses"`}
+          />
+          <CopyField
             label="curl"
             value={`curl ${shown}/v1/messages \\
   -H "x-api-key: clc_…" \\
@@ -166,6 +177,11 @@ export default function Overview({
           />
         </div>
         <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">
+          Codex reads the key from the environment variable <code>env_key</code> names, so export{' '}
+          <code>CLAUDICATION_API_KEY</code> before running it — and <code>wire_api</code> must be{' '}
+          <code>responses</code>, which is the only shape Codex speaks.
+        </p>
+        <p className="mt-2 mb-0 text-xs text-on-surface-variant">
           Served over plain HTTP unless something in front terminates TLS, so the key travels in the
           clear on this network. A tunnel or a reverse proxy is the fix.
         </p>

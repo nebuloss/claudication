@@ -1,11 +1,18 @@
 import ConfigTable from './configtable'
 import Security from './security'
-import { type Session } from '../../api/client'
-import { Card, CardTitle } from '../primitives'
+import Surfaces from './surfaces'
+import { api, type GatewayConfig, type Session } from '../../api/client'
+import { useLoader } from '../hooks'
+import { Card, CardTitle, Empty, Spinner } from '../primitives'
 
 /**
- * Settings: the admin account, how the gateway is configured, and the things
- * only a shell can do.
+ * Settings: the admin account, which APIs are being served, how the gateway is
+ * configured, and the things only a shell can do.
+ *
+ * The configuration is loaded here rather than inside the table, because the
+ * same request carries the API switches and the settings rows. One fetch, one
+ * error state, and a switch that reloads both — so the switch card and the
+ * provenance column can never disagree about what is in effect.
  *
  * There used to be an "Instance" card above the configuration table with the
  * listen address, the admin split and the public URL in it. Every one of those
@@ -20,11 +27,28 @@ export default function Settings({
   session: Session
   onSessionChanged: () => void
 }) {
+  const { data, error, loading, reload } = useLoader<GatewayConfig>(() => api.config())
+
   return (
     <div className="flex flex-col gap-5">
       <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
 
-      <ConfigTable />
+      {loading && data === null ? (
+        <Card>
+          <p className="flex items-center gap-2 text-sm text-on-surface-variant">
+            <Spinner /> Loading…
+          </p>
+        </Card>
+      ) : error !== '' || data === null ? (
+        <Card>
+          <Empty>Could not read the configuration.</Empty>
+        </Card>
+      ) : (
+        <>
+          <Surfaces surfaces={data.surfaces} onChanged={() => void reload()} />
+          <ConfigTable config={data} />
+        </>
+      )}
 
       <Card>
         <CardTitle>From the shell</CardTitle>

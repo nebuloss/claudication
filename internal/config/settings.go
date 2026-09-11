@@ -19,6 +19,12 @@ const (
 	FromDefault Origin = "default"
 	FromFile    Origin = "file"
 	FromEnv     Origin = "env"
+	// FromDatabase marks a value an operator set through the admin UI. It
+	// beats all three others and survives a restart, and it is the only one
+	// this process can change while it runs — which is exactly why it has to
+	// be named on the same screen as the rest. A switch whose provenance is
+	// invisible is one an operator flips and then cannot find again.
+	FromDatabase Origin = "database"
 )
 
 // Setting is one configuration value as it ended up, and how it got there.
@@ -74,6 +80,13 @@ var definitions = []struct {
 	{"passthrough.claude-code-attribution", "CLAUDICATION_CLAUDE_CODE_ATTRIBUTION",
 		"Adds Claude Code's identity block when a client did not. Off means non-Claude-Code clients reach haiku and nothing above it.",
 		func(c Config) string { return strconv.FormatBool(c.Passthrough.ClaudeCodeAttribution) }},
+
+	{"openai.model", "CLAUDICATION_OPENAI_MODEL",
+		"Which Claude model a Responses request runs on when it asks for something else — a default Codex install asks for gpt-5-codex. A request naming a Claude model keeps it.",
+		func(c Config) string { return c.OpenAI.Model }},
+	{"openai.max-tokens", "CLAUDICATION_OPENAI_MAX_TOKENS",
+		"Answer ceiling for a Responses request, which never carries one of its own. Anthropic requires the field, so there has to be a figure here.",
+		func(c Config) string { return strconv.Itoa(c.OpenAI.MaxTokens) }},
 
 	{"usage.retention-days", "",
 		"How long per-request history is kept. 0 records nothing at all.",

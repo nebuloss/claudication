@@ -1,7 +1,13 @@
-// Package translate turns OpenAI-shaped requests into Anthropic ones, and the
-// answers back again, so Codex CLI can run on a Claude subscription.
+// Package openai serves the OpenAI API to clients, turning their requests into
+// Anthropic ones and the answers back again, so Codex CLI can run on a Claude
+// subscription.
 //
-// # Why this is not in internal/upstream
+// It implements api.Protocol; see internal/api for how the surfaces fit
+// together and what a new one has to provide. openai.go is the adapter and the
+// rest of the package is the mapping: request.go out, stream.go and
+// complete.go back.
+//
+// # Why the mapping lives here and not in internal/upstream
 //
 // That package relays: the caller's bytes go upstream unchanged, and its five
 // exceptions are each a few bytes rewritten under protest. This one does the
@@ -12,6 +18,9 @@
 //
 // Correctness here is not "did the bytes survive" but "does the mapping mean
 // the same thing", which needs different tests and a different kind of care.
+// The evidence for every decision below was measured, and it is kept in this
+// file so that the next person to change the mapping does not have to reverse
+// Codex again to find out why it is the way it is.
 //
 // # What Codex actually sends
 //
@@ -149,10 +158,13 @@
 //
 //   - The request we send is synthesised here, so it is ours to get right:
 //     it needs Claude Code's attribution block first in the system array or
-//     the subscription backend serves haiku and nothing above it.
+//     the subscription backend serves haiku and nothing above it. That pass
+//     runs in internal/upstream and applies to this request exactly as to a
+//     relayed one — a synthesised request is still a request the backend
+//     judges — so nothing here has to do it, and nothing here may skip it.
 //   - `developer` is a role Anthropic does not have.
 //   - `reasoning` and Anthropic's `thinking` are not the same feature.
 //   - Codex reads usage off the final event; a stream that omits it reports
 //     zero tokens rather than failing, which is the kind of wrong that goes
 //     unnoticed.
-package translate
+package openai
