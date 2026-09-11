@@ -11,7 +11,7 @@
 // re-test arithmetic that is already checked here.
 
 const OUT = process.env.OUT ?? new URL('../web/.charts-check', import.meta.url).pathname
-const { niceTicks, LinearScale, BandScale } = await import(`${OUT}/scale.js`)
+const { niceTicks, LinearScale, LogScale, BandScale } = await import(`${OUT}/scale.js`)
 const { Stack } = await import(`${OUT}/stack.js`)
 
 let failures = 0
@@ -44,6 +44,27 @@ check('the top tick reaches the top', y.y(y.max), 0)
 check('half the axis is half the pixels', y.height(y.max / 2), 100)
 check('80 is already round, so the axis stops there', y.max, 80)
 check('an empty axis does not divide by zero', new LinearScale(0, 200, 0).height(0), 0)
+
+console.log('\n— LogScale: decades, and what happens to zero —')
+const lg = new LogScale([3, 40, 900, 12000], 200, 0)
+check('the floor is a decade below the smallest value', lg.bottom, 1)
+check('the top is the decade above the largest', lg.max, 100000)
+check('gridlines are whole decades', [...lg.ticks], [1, 10, 100, 1000, 10000, 100000])
+check('the floor sits on the baseline', lg.y(lg.bottom), 200)
+check('the top reaches the top', lg.y(lg.max), 0)
+// Zero has no logarithm. Drawing it on the floor says "none" where a broken
+// line would say "no data" — and with rarely-used keys there would be many.
+check('zero is drawn on the floor, not off the chart', lg.y(0), lg.y(lg.bottom))
+check('and so is anything below the floor', lg.y(0.001), lg.y(lg.bottom))
+// Token counts start in the thousands; a floor of 1 would waste three decades.
+const big = new LogScale([3000, 48000000], 200, 0)
+check('the floor follows the data, not the origin', big.bottom, 1000)
+check('a wide range still lands on decades', [...big.ticks].length, 6)
+// An axis needs somewhere to go even when every value is the same.
+const flat = new LogScale([50, 50, 50], 200, 0)
+check('a single value still gets two gridlines', [...flat.ticks], [10, 100])
+const nothing = new LogScale([0, 0], 200, 0)
+check('all-zero does not divide by zero', Number.isFinite(nothing.y(0)), true)
 
 console.log('\n— BandScale: a slot is what you point at, a bar is what is drawn —')
 const x = new BandScale(4, 0, 400, { maxWidth: 34 })

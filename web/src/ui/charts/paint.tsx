@@ -48,7 +48,13 @@ function darker(colour: string): string {
   return `color-mix(in oklab, ${colour} ${SHADE}%, black)`
 }
 
-/** A flat fill. */
+/**
+ * A flat fill.
+ *
+ * Its swatch carries its own size, as every paint's does: a legend key for a
+ * filled bar is a block and one for a line is a line, and letting the paint
+ * decide is what keeps the key looking like the mark it describes.
+ */
 export class Solid implements Paint {
   constructor(readonly colour: string) {}
 
@@ -57,7 +63,7 @@ export class Solid implements Paint {
   }
 
   swatch(): CSSProperties {
-    return { background: this.colour }
+    return { width: 10, height: 10, borderRadius: 2, background: this.colour }
   }
 
   defs(): ReactNode {
@@ -93,6 +99,9 @@ export class Hatch implements Paint {
     // The flat colour underneath, so a browser without color-mix still shows
     // the identity rather than nothing.
     return {
+      width: 10,
+      height: 10,
+      borderRadius: 2,
       background: this.colour,
       backgroundImage:
         `repeating-linear-gradient(45deg, ${darker(this.colour)} 0 2.5px, ` +
@@ -137,6 +146,61 @@ export class Hatch implements Paint {
 }
 
 /**
+ * A stroke, for a line chart.
+ *
+ * `shaded()` returns the dashed form rather than a hatched one, because a
+ * dash is what texture means on a line — and the same rule holds as for fills:
+ * hue is identity, texture is state. A failure line is dashed and drawn in the
+ * text colour, so it can never be mistaken for one of the identities.
+ */
+export class Line implements Paint {
+  constructor(
+    readonly colour: string,
+    private readonly dash?: string,
+    private readonly width = 2,
+  ) {}
+
+  shape() {
+    return {
+      fill: 'none',
+      style: {
+        stroke: this.colour,
+        strokeWidth: this.width,
+        strokeDasharray: this.dash,
+        strokeLinejoin: 'round' as const,
+        strokeLinecap: 'round' as const,
+      },
+    }
+  }
+
+  swatch(): CSSProperties {
+    return {
+      width: 16,
+      height: 0,
+      borderTopWidth: 2,
+      borderTopStyle: this.dash === undefined ? 'solid' : 'dashed',
+      borderTopColor: this.colour,
+    }
+  }
+
+  defs(): ReactNode {
+    return null
+  }
+
+  shaded(): Paint {
+    return new Line(this.colour, '5 4', 1.75)
+  }
+
+  /** True where the mark is a dash, which the chart draws without point markers. */
+  get dashed(): boolean {
+    return this.dash !== undefined
+  }
+}
+
+/** The stroke a failure line uses: a state, so never one of the hues. */
+export const FAILURE_LINE = new Line('var(--color-on-surface)', '5 4', 1.75)
+
+/**
  * The eight categorical fills, in fixed order.
  *
  * Validated as a set against the card surface — worst adjacent CVD dE 9.1,
@@ -173,9 +237,19 @@ export class Palette {
     this.slots = new Map([...new Set(labels)].sort().map((label, i) => [label, i]))
   }
 
+  /** The colour this entity owns, for a caller building its own mark. */
+  colour(label: string): string {
+    return SERIES_COLOURS[(this.slots.get(label) ?? 0) % SERIES_COLOURS.length]
+  }
+
+  /** A filled mark in that colour. */
   paint(label: string): Paint {
-    const slot = this.slots.get(label) ?? 0
-    return new Solid(SERIES_COLOURS[slot % SERIES_COLOURS.length])
+    return new Solid(this.colour(label))
+  }
+
+  /** A stroked mark in that colour, for a line chart. */
+  stroke(label: string): Line {
+    return new Line(this.colour(label))
   }
 }
 

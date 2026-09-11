@@ -130,6 +130,22 @@ export interface UsageBucket {
   cache_tokens: number
 }
 
+/**
+ * One name on one day: a model, a key, an account, a status code.
+ *
+ * The gateway sends the cross-tabs long-form because that is the shape its
+ * grouped query already produces; pivoting into a grid is the chart's job.
+ */
+export interface UsageCell {
+  day: string
+  name: string
+  requests: number
+  errors: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
+}
+
 export interface UsageReport {
   since: string
   totals: UsageTotals
@@ -138,6 +154,8 @@ export interface UsageReport {
   by_key: UsageBucket[]
   by_account: UsageBucket[]
   by_status: UsageBucket[]
+  /** Each breakdown crossed with the day, keyed by dimension. */
+  cross?: Record<string, UsageCell[]>
 }
 
 export interface Usage {

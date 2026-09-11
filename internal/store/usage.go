@@ -87,6 +87,31 @@ type UsageBucket struct {
 	CacheTokens  int64  `json:"cache_tokens"`
 }
 
+// UsageCell is one name on one day — a model, a key, an account, a status.
+//
+// Cross-tabs cost nothing to produce. The report already groups by day and by
+// every one of those in a single pass; it simply threw the pairings away and
+// kept the margins. This is that pass folded once more rather than a sixth
+// query.
+type UsageCell struct {
+	Day          string `json:"day"`
+	Name         string `json:"name"`
+	Requests     int64  `json:"requests"`
+	Errors       int64  `json:"errors"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	CacheTokens  int64  `json:"cache_tokens"`
+}
+
+// The dimensions a cross-tab is offered for. Names rather than an enum because
+// they cross the wire and index the chart's tabs on the other side.
+const (
+	CrossModel   = "model"
+	CrossKey     = "key"
+	CrossAccount = "account"
+	CrossStatus  = "status"
+)
+
 // UsageReport is everything the Usage tab draws.
 type UsageReport struct {
 	Since     time.Time     `json:"since"`
@@ -96,6 +121,10 @@ type UsageReport struct {
 	ByKey     []UsageBucket `json:"by_key"`
 	ByAccount []UsageBucket `json:"by_account"`
 	ByStatus  []UsageBucket `json:"by_status"`
+	// Cross holds each breakdown crossed with the day, oldest first, keyed by
+	// the Cross* names above. Bounded by days x names per dimension, which for
+	// a personal gateway is a few hundred rows in total.
+	Cross map[string][]UsageCell `json:"cross"`
 }
 
 // Totals aggregates only the headline figures. The overview screen wants one
@@ -168,6 +197,7 @@ func (s *Store) Usage(ctx context.Context, since time.Time) (UsageReport, error)
 	byKey := newBucketSet()
 	byAccount := newBucketSet()
 	byStatus := newBucketSet()
+	cross := newCrossSet()
 
 	for rows.Next() {
 		var (
@@ -198,6 +228,14 @@ func (s *Store) Usage(ctx context.Context, since time.Time) (UsageReport, error)
 		byKey.add(keyName, keyID, g)
 		byAccount.add(accountEmail, accountID, g)
 		byStatus.add(strconv.Itoa(status), "", g)
+
+		cross.add(CrossModel, day, model, g)
+		// Folded by name rather than by id, because two keys minted, used and
+		// deleted under one name are two entities but one line on a chart, and
+		// a chart with three lines all labelled "surrtest" says nothing.
+		cross.add(CrossKey, day, keyName, g)
+		cross.add(CrossAccount, day, accountEmail, g)
+		cross.add(CrossStatus, day, strconv.Itoa(status), g)
 	}
 	if err := rows.Err(); err != nil {
 		return rep, fmt.Errorf("usage report: %w", err)
@@ -218,6 +256,14 @@ func (s *Store) Usage(ctx context.Context, since time.Time) (UsageReport, error)
 	rep.ByAccount = byAccount.sortedByRequests()
 	rep.ByStatus = byStatus.sortedByRequests()
 
+	rep.Cross = cross.sorted()
+	// The status cross-tab never carried token counts either; see below.
+	for i := range rep.Cross[CrossStatus] {
+		rep.Cross[CrossStatus][i].InputTokens = 0
+		rep.Cross[CrossStatus][i].OutputTokens = 0
+		rep.Cross[CrossStatus][i].CacheTokens = 0
+	}
+
 	// The status breakdown never carried token counts.
 	for i := range rep.ByStatus {
 		rep.ByStatus[i].InputTokens = 0
@@ -225,6 +271,51 @@ func (s *Store) Usage(ctx context.Context, since time.Time) (UsageReport, error)
 		rep.ByStatus[i].CacheTokens = 0
 	}
 	return rep, nil
+}
+
+// crossSet folds grouped rows into one cell per (dimension, day, name).
+type crossSet map[string]map[[2]string]*UsageCell
+
+func newCrossSet() crossSet { return crossSet{} }
+
+func (c crossSet) add(dimension, day, name string, g UsageBucket) {
+	byPair, ok := c[dimension]
+	if !ok {
+		byPair = map[[2]string]*UsageCell{}
+		c[dimension] = byPair
+	}
+	// Keyed by the pair, because neither half identifies a cell on its own.
+	key := [2]string{day, name}
+	cell, ok := byPair[key]
+	if !ok {
+		cell = &UsageCell{Day: day, Name: name}
+		byPair[key] = cell
+	}
+	cell.Requests += g.Requests
+	cell.Errors += g.Errors
+	cell.InputTokens += g.InputTokens
+	cell.OutputTokens += g.OutputTokens
+	cell.CacheTokens += g.CacheTokens
+}
+
+// sorted returns each dimension oldest day first, then by name, so the order
+// is stable across reports and a chart does not reshuffle between refreshes.
+func (c crossSet) sorted() map[string][]UsageCell {
+	out := make(map[string][]UsageCell, len(c))
+	for dimension, byPair := range c {
+		cells := make([]UsageCell, 0, len(byPair))
+		for _, cell := range byPair {
+			cells = append(cells, *cell)
+		}
+		sort.Slice(cells, func(i, j int) bool {
+			if cells[i].Day != cells[j].Day {
+				return cells[i].Day < cells[j].Day
+			}
+			return cells[i].Name < cells[j].Name
+		})
+		out[dimension] = cells
+	}
+	return out
 }
 
 // bucketSet folds grouped rows into one breakdown, keyed by label and id so

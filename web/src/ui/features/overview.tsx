@@ -1,22 +1,12 @@
 import { useState } from 'react'
-import { api, type Usage, type UsageBucket, type Overview as OverviewData } from '../../api/client'
-import {
-  ColumnChart,
-  CompositionBar,
-  Legend,
-  MAGNITUDE,
-  SERIES_COLOURS,
-  Solid,
-  Stack,
-  type Series,
-} from '../charts'
+import { api, type Usage, type Overview as OverviewData } from '../../api/client'
+import { Traffic } from './traffic'
 import { useLoader } from '../hooks'
 import {
   Banner,
   ErrorState,
   Card,
   CardTitle,
-  Segmented,
   Spinner,
   Stat,
   TextButton,
@@ -25,64 +15,17 @@ import {
 } from '../primitives'
 
 
-/** How many days of history the charts can show. */
+/** How many days of history the chart can show. */
 const WINDOWS = [7, 14, 30] as const
-
-/**
- * Requests, as two states of one quantity.
- *
- * Both are primary, and the failed one is `shaded()` — a darker, striped tone
- * of the same colour rather than a hue of its own. Hue in this card means
- * identity, and the mix below spends the whole categorical palette on exactly
- * that; a red for a *state* would take one of those away and put the same
- * colour in two legends meaning two different things. See charts/paint.tsx.
- */
-const REQUESTS: Series<UsageBucket>[] = [
-  {
-    key: 'ok',
-    label: 'Succeeded',
-    paint: MAGNITUDE,
-    value: (b) => b.requests - b.errors,
-  },
-  {
-    key: 'failed',
-    label: 'Failed',
-    paint: MAGNITUDE.shaded(),
-    value: (b) => b.errors,
-  },
-]
-
-/** Tokens, which are three genuine kinds and so three hues. */
-const TOKENS: Series<UsageBucket>[] = [
-  { key: 'in', label: 'Input', paint: new Solid(SERIES_COLOURS[0]), value: (b) => b.input_tokens },
-  {
-    key: 'out',
-    label: 'Output',
-    paint: new Solid(SERIES_COLOURS[2]),
-    value: (b) => b.output_tokens,
-  },
-  {
-    key: 'cache',
-    label: 'Cache',
-    paint: new Solid(SERIES_COLOURS[3]),
-    value: (b) => b.cache_tokens,
-  },
-]
 
 /**
  * What the gateway has been doing, over the chosen window.
  *
- * Two pictures rather than one, because they answer different questions and
- * the second is the one a subscription is actually spent on. The columns say
- * whether traffic is steady, growing or stopped, and whether any of it is
- * failing. The mix underneath says which models consumed the tokens, which is
- * what explains a week that ran out early.
- *
- * Both come from the same request. Loading them separately from the status
- * above means changing the window never re-reads the status, and a usage table
- * that is switched off or empty cannot take the screen down with it.
+ * The chart itself is features/traffic.tsx, shared with the Usage tab — the
+ * two screens asked the same question in two shapes before, which meant two
+ * places deciding what a colour meant.
  */
-function Traffic({
+function TrafficCard({
   usage,
   days,
   onDays,
@@ -91,44 +34,9 @@ function Traffic({
   days: number
   onDays: (d: number) => void
 }) {
-  const [metric, setMetric] = useState<'requests' | 'tokens'>('requests')
-  const [hovered, setHovered] = useState<number | null>(null)
-
-  const byDay: UsageBucket[] = usage?.report?.by_day ?? []
-  const byModel: UsageBucket[] = usage?.report?.by_model ?? []
-  const stack = new Stack(byDay, metric === 'requests' ? REQUESTS : TOKENS)
-  const shown = hovered !== null ? byDay[hovered] : undefined
-
   return (
     <Card>
-      <CardTitle
-        aside={
-          <div className="flex flex-wrap items-center gap-2">
-            <Segmented
-              label="Metric"
-              value={metric}
-              onChange={(v) => setMetric(v)}
-              options={[
-                { id: 'requests' as const, label: 'Requests', content: 'Requests' },
-                { id: 'tokens' as const, label: 'Tokens', content: 'Tokens' },
-              ]}
-            />
-            <Segmented
-              label="History window"
-              value={String(days)}
-              onChange={(v) => onDays(Number(v))}
-              options={WINDOWS.map((d) => ({
-                id: String(d),
-                label: `${d} days`,
-                content: `${d}d`,
-              }))}
-            />
-          </div>
-        }
-      >
-        Traffic
-      </CardTitle>
-
+      <CardTitle>Traffic</CardTitle>
       {usage === null ? (
         <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
           <Spinner /> Loading…
@@ -138,57 +46,13 @@ function Traffic({
           Per-request history is off — <code>usage.retention-days</code> is 0, so the gateway
           records nothing to chart.
         </p>
-      ) : stack.sum === 0 ? (
-        <p className="m-0 text-sm text-on-surface-variant">Nothing in the last {days} days.</p>
       ) : (
-        <>
-          {/* The readout sits above the plot rather than floating over it: a
-              tooltip near the right-hand edge either clips or covers the
-              columns it is describing, and this has a fixed place to be. */}
-          <div className="mb-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <span className="text-2xl font-medium tabular-nums text-on-surface">
-              {compact(hovered !== null ? stack.total(hovered) : stack.sum)}
-            </span>
-            <span className="text-xs text-on-surface-variant">
-              {metric} {shown === undefined ? `over ${stack.length} days` : `on ${shown.label}`}
-            </span>
-            <span className="ml-auto">
-              <Legend
-                stack={stack}
-                format={compact}
-                values={shown === undefined ? undefined : (s) => s.value(shown)}
-              />
-            </span>
-          </div>
-
-          <ColumnChart
-            stack={stack}
-            label={(b) => b.label}
-            format={compact}
-            hovered={hovered}
-            onHover={setHovered}
-            describe={(b) =>
-              `${b.label}: ${b.requests} requests, ${b.errors} failed, ` +
-              `${compact(b.input_tokens + b.output_tokens + b.cache_tokens)} tokens`
-            }
-          />
-
-          {byModel.length > 0 && (
-            <div className="mt-6 border-t border-outline-variant pt-4">
-              <p className="mt-0 mb-3 text-sm text-on-surface-variant">
-                Tokens by model over the same {days} days. A subscription is spent in tokens rather
-                than requests, so this is the half that explains a week.
-              </p>
-              <CompositionBar
-                rows={byModel.map((b) => ({
-                  label: b.label === '' ? 'unknown' : b.label,
-                  value: b.input_tokens + b.output_tokens + b.cache_tokens,
-                }))}
-                format={compact}
-              />
-            </div>
-          )}
-        </>
+        <Traffic
+          cross={usage.report?.cross}
+          days={days}
+          onDays={onDays}
+          windows={WINDOWS}
+        />
       )}
     </Card>
   )
@@ -328,7 +192,7 @@ export default function Overview({
         </Banner>
       )}
 
-      <Traffic usage={usage} days={days} onDays={setDays} />
+      <TrafficCard usage={usage} days={days} onDays={setDays} />
     </div>
   )
 }

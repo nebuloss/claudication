@@ -73,6 +73,60 @@ export class LinearScale {
 }
 
 /**
+ * A logarithmic axis over whole decades.
+ *
+ * The lines this gateway draws differ by orders of magnitude rather than by a
+ * bit: one model is 99% of the tokens, one key 83% of the requests. On a
+ * linear axis the leader takes the whole chart and everything else is a flat
+ * line on the floor, which is not a chart of anything. A decade axis gives a
+ * model doing a hundred requests the same vertical room as one doing ten
+ * thousand.
+ *
+ * Zero is the question a log scale always raises, and the answer here is the
+ * floor rather than a gap. A day with no traffic is a real measurement; a
+ * break in the line reads as data missing, and with a dozen rarely-used keys
+ * there would be a great many breaks. The floor sits a decade below the
+ * smallest real value, so resting on it looks like none rather than a little.
+ */
+export class LogScale {
+  /** The gridlines, one per decade. */
+  readonly ticks: readonly number[]
+  /** The value at y0 — everything at or below it is drawn on the floor. */
+  readonly bottom: number
+  /** The value at y1. */
+  readonly max: number
+
+  constructor(
+    values: readonly number[],
+    private readonly y0: number,
+    private readonly y1: number,
+  ) {
+    const positive = values.filter((v) => v > 0 && Number.isFinite(v))
+    const smallest = positive.length > 0 ? Math.min(...positive) : 1
+    const largest = positive.length > 0 ? Math.max(...positive) : 1
+
+    this.bottom = Math.max(1, Math.pow(10, Math.floor(Math.log10(smallest))))
+    const top = Math.pow(10, Math.ceil(Math.log10(Math.max(largest, this.bottom * 10))))
+    // An axis needs somewhere to go: a single decade of data still gets two
+    // gridlines, or every point sits on one line.
+    this.max = top > this.bottom ? top : this.bottom * 10
+
+    const ticks: number[] = []
+    for (let d = Math.log10(this.bottom); d <= Math.log10(this.max) + 1e-9; d++) {
+      ticks.push(Math.pow(10, Math.round(d)))
+    }
+    this.ticks = ticks
+  }
+
+  /** Where a value sits. Anything at or below the floor is drawn on it. */
+  y(value: number): number {
+    const span = Math.log10(this.max) - Math.log10(this.bottom)
+    const at = Math.log10(Math.max(value, this.bottom)) - Math.log10(this.bottom)
+    return this.y0 + (this.y1 - this.y0) * (at / span)
+  }
+}
+
+/**
  * A categorical axis: n equal slots across a span.
  *
  * Slots and bars are different things. The slot is the whole share of the axis

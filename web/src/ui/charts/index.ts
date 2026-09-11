@@ -14,10 +14,12 @@
  * ends up duplicated and then disagreeing with itself. Rendering stays
  * functions, because that is what React is.
  *
- *	scale.ts   LinearScale, BandScale — value and category to pixels
+ *	scale.ts   LinearScale, LogScale, BandScale — value and category to pixels
  *	paint.tsx  Solid, Hatch, Palette  — what a fill is and what it means
  *	stack.ts   Series, Stack          — the sums a stacked chart needs
- *	column.tsx ColumnChart, Legend    — a time series
+ *	column.tsx ColumnChart, Legend    — a time series as columns
+ *	line.tsx   LineChart, HoverValues — a time series as lines, which is what
+ *	                                    a dozen series at once needs
  *	ranked.tsx RankedBars, CompositionBar — a league table, and shares of a whole
  *
  * Both the Overview and Usage screens are built on these, which is the point:
@@ -25,8 +27,19 @@
  * shaded-and-hatched treatment for a failed state are decided once here rather
  * than argued out again per screen.
  */
-export { LinearScale, BandScale, niceTicks } from './scale'
-export { Solid, Hatch, Palette, MAGNITUDE, SERIES_COLOURS, defsFor, type Paint } from './paint'
+export { LinearScale, LogScale, BandScale, niceTicks } from './scale'
+export {
+  Solid,
+  Hatch,
+  Line,
+  Palette,
+  MAGNITUDE,
+  FAILURE_LINE,
+  SERIES_COLOURS,
+  defsFor,
+  type Paint,
+} from './paint'
 export { Stack, type Series } from './stack'
 export { ColumnChart, Legend } from './column'
+export { LineChart, HoverValues, LineLegend, tipPosition, type LineSeries } from './line'
 export { RankedBars, CompositionBar, type Rank } from './ranked'

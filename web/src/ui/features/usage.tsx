@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, api, messageOf, type RequestRow, type Usage } from '../../api/client'
 import { RankedBars } from '../charts'
+import { Traffic } from './traffic'
 import { useLoader } from '../hooks'
 import {
   Banner,
@@ -30,7 +31,7 @@ type View = 'requests' | 'day' | 'model' | 'account' | 'key'
 
 const VIEW_LABELS: Record<View, string> = {
   requests: 'Requests',
-  day: 'Day',
+  day: 'Over time',
   model: 'Model',
   account: 'Account',
   key: 'Key',
@@ -164,15 +165,7 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
           )}
 
           {view === 'day' && report !== undefined && (
-            <RankedBars
-              identity={false}
-              format={compact}
-              rows={report.by_day.map((b) => ({
-                label: b.label,
-                value: b.requests,
-                right: `${compact(b.requests)} req`,
-              }))}
-            />
+            <Traffic cross={report.cross} days={days} />
           )}
 
           {view === 'model' && report !== undefined && (
