@@ -26,9 +26,13 @@ be switched on and off at runtime from Settings.
    decision. Kept in the code so nobody has to reverse Codex twice.
 3. [`docs/client-apis.md`](docs/client-apis.md) — the operator's view: the
    surfaces, their switches, and how to add another.
-4. [`docs/clients.md`](docs/clients.md) — working configuration for each
-   client, and `scripts/probe-codex.py`, which replays a real Codex request
-   against a live gateway and judges it the way Codex does.
+4. [`configs/clients/`](configs/clients/) — a complete, commented config file
+   per client, and the one copy of each: the admin UI imports them as text and
+   substitutes the gateway's address, and [`docs/clients.md`](docs/clients.md)
+   links to them rather than repeating them. Change a stanza there, nowhere
+   else.
+5. `scripts/probe-codex.py` replays a real Codex request against a live gateway
+   and judges the answer the way Codex does.
 
 One package per surface under `internal/api/`, with its own translation beside
 it. A dialect's mapping is only defensible next to the evidence for it, and the

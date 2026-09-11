@@ -1,0 +1,24 @@
+# Codex CLI, pointed at a claudication gateway.
+# Copy to ~/.codex/config.toml and change base_url to your own.
+#
+#   export CLAUDICATION_API_KEY=clc_...
+#   codex
+#
+# wire_api must be "responses": it is the only wire format Codex speaks.
+# env_key names an environment variable, not a key.
+# model must name a Claude model — Codex asks for gpt-5-codex by default, which
+# means nothing upstream, and the gateway then substitutes its own default.
+
+model_provider = "claudication"
+model = "claude-opus-5"
+
+# Fixes Codex guessing a conservative context window for a model it has never
+# heard of, which makes it compact the conversation far too early.
+# See codex-models.json next to this file.
+model_catalog_json = "~/.codex/claude-models.json"
+
+[model_providers.claudication]
+name = "claudication"
+base_url = "https://claudication.example.com/v1"
+env_key = "CLAUDICATION_API_KEY"
+wire_api = "responses"

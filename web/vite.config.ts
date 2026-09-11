@@ -13,11 +13,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(import.meta.dirname, './src'),
-      // The client recipes are shared with docs/clients.md, which a script
-      // generates from the same file, so they live outside web/ where neither
-      // consumer owns them. The alias and the fs.allow below are what let the
-      // UI import from there — Vite treats web/ as the workspace root because
-      // the lockfile is here, and would otherwise refuse to serve it in dev.
+      // The example client configs are plain files under configs/clients,
+      // linked from the README and readable on their own. The UI imports them
+      // as text at build time so there is one copy rather than a second set
+      // pasted into a component. The fs.allow below is what lets it: Vite
+      // treats web/ as the workspace root because the lockfile is here, and
+      // would otherwise refuse to serve a file from outside it in dev.
       '#configs': resolve(import.meta.dirname, '../configs'),
     },
   },

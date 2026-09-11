@@ -1,5 +1,9 @@
-import { Fragment, useState } from 'react'
-import recipes from '#configs/clients.json'
+import { useState } from 'react'
+import claudeCodeSh from '#configs/clients/claude-code.sh?raw'
+import codexToml from '#configs/clients/codex.toml?raw'
+import codexModels from '#configs/clients/codex-models.json?raw'
+import crushJson from '#configs/clients/crush.json?raw'
+import opencodeJsonc from '#configs/clients/opencode.jsonc?raw'
 import {
   api,
   type GatewayConfig,
@@ -10,129 +14,123 @@ import { useLoader } from '../hooks'
 import { Banner, Card, CardTitle, CopyField, Spinner, SubNav } from '../primitives'
 
 /**
- * The client recipes come from configs/clients.json, which
- * scripts/gen-client-docs.py also renders into docs/clients.md — and
- * `make check` fails when that file is stale.
+ * The example address inside configs/clients/*. Swapping it for this gateway's
+ * own is the only thing this screen does to those files.
  *
- * They used to be written out twice, here and in the docs, which is the same
- * mistake as a hardcoded model list one level up: two copies of a config
- * stanza drift, and the one nobody is looking at is the one that is wrong.
- * Everything below this line is presentation; the content is in that file.
+ * They are plain, complete, committed files — readable in the repository,
+ * linked from the README, and usable as they stand after one edit. Importing
+ * them here as text means there is one copy rather than a second set pasted
+ * into a component, and the substitution is a string replace rather than a
+ * template language with a renderer at each end.
  */
-type Recipe = {
+const EXAMPLE_BASE = 'https://claudication.example.com'
+
+type Client = {
   id: string
   label: string
+  /** Which API surface it talks to, so a switched-off one can warn. */
   surface: 'anthropic' | 'openai' | 'both'
   lead: string
-  notes: string[]
-  snippets: { label: string; lang: string; template: string; filename?: string }[]
-  modelEntry?: string
-  modelEntryReasoning?: string
-  catalogEntry?: string
-  downloads?: { name: string; label: string; what: string }[]
+  files: { label: string; filename: string; body: string }[]
+  notes?: string[]
 }
 
-const CLIENTS = recipes.clients as Recipe[]
+const CLIENTS: Client[] = [
+  {
+    id: 'claude-code',
+    label: 'Claude Code',
+    surface: 'anthropic',
+    lead: 'No /v1 — Claude Code appends the path itself.',
+    files: [{ label: 'claudication.sh', filename: 'claude-code.sh', body: claudeCodeSh }],
+  },
+  {
+    id: 'codex',
+    label: 'Codex CLI',
+    surface: 'openai',
+    lead:
+      'With /v1, and the only client that goes through the OpenAI Responses API rather than ' +
+      'the Anthropic one.',
+    files: [
+      { label: '~/.codex/config.toml', filename: 'config.toml', body: codexToml },
+      { label: '~/.codex/claude-models.json', filename: 'claude-models.json', body: codexModels },
+    ],
+    notes: [
+      'Codex needs bubblewrap installed before it can run any shell command. Without it the ' +
+        'first tool call panics and the model then explains, convincingly, that nothing works.',
+      'The catalog carries a short stand-in for Codex’s own system prompt, because Codex ' +
+        'refuses an entry without one and its real prompt lives in its binary. That is about ' +
+        'nine thousand tokens cheaper per turn, and less good at editing. ' +
+        'scripts/codex-model-catalog.py clones the real one out of your own Codex if you would ' +
+        'rather have that.',
+    ],
+  },
+  {
+    id: 'opencode',
+    label: 'opencode',
+    surface: 'anthropic',
+    lead:
+      'With /v1. It overrides the built-in Anthropic provider rather than declaring a new one, ' +
+      'so every model the gateway serves is available without listing any of them.',
+    files: [
+      {
+        label: '~/.config/opencode/opencode.jsonc',
+        filename: 'opencode.jsonc',
+        body: opencodeJsonc,
+      },
+    ],
+  },
+  {
+    id: 'crush',
+    label: 'crush',
+    surface: 'anthropic',
+    lead:
+      'Without /v1, and every model spelled out: crush never calls /v1/models, so one missing ' +
+      'from this file cannot be selected however well the gateway serves it.',
+    files: [{ label: '~/.config/crush/crush.json', filename: 'crush.json', body: crushJson }],
+  },
+]
 
-/**
- * Per-model figures the upstream model list does not carry.
- *
- * Only crush needs them — it never calls /v1/models, so every model it can
- * select has to be described in its config file. Getting one wrong changes
- * what crush displays and when it truncates; it changes nothing about what the
- * gateway will serve, which is why a plain fallback is safe for a model that
- * appears after this was written.
- */
-function modelFacts(id: string): { context: number; maxTokens: number; reasons: boolean } {
-  // The 4.5-era models are the 200k ones; everything newer is a million.
-  const small = id.startsWith('claude-opus-4-5') || id.startsWith('claude-haiku-4-5')
-  const reasons = !id.startsWith('claude-haiku') && !id.startsWith('claude-sonnet-4-5')
-  return {
-    context: small ? 200_000 : 1_000_000,
-    maxTokens: id.startsWith('claude-opus-5') || id.startsWith('claude-sonnet-5') ? 128_000 : 64_000,
-    reasons,
-  }
-}
+const SHELL: [string, string][] = [
+  ['claudication keys add -name NAME', 'Mint an API key, for a provisioning script.'],
+  ['claudication passwd', 'Reset the admin password. The recovery path when it is lost.'],
+  ['claudication login-url', 'A single-use link that signs a browser in. Spent on first use.'],
+  [
+    'claudication backup FILE',
+    'A consistent snapshot without stopping the service. Holds the sealing key and every stored ' +
+      'token, so it is exactly as sensitive as the state directory.',
+  ],
+]
 
-/** The capable model to put in an example, and the cheap one. */
-function preferred(models: Model[]): string {
-  for (const want of ['claude-opus-5', 'claude-sonnet-5', 'claude-fable-5-1']) {
-    if (models.some((m) => m.id === want)) return want
-  }
-  return models[0]?.id ?? recipes.examples.model
-}
-
-function smallest(models: Model[]): string {
-  return models.find((m) => m.id.startsWith('claude-haiku'))?.id ?? recipes.examples.smallModel
-}
-
-/** Substitute {{placeholders}}. Anything unknown is left alone, visibly. */
-function render(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (whole, key: string) => vars[key] ?? whole)
-}
-
-/** crush's model array, one entry per model the gateway serves. */
-function crushModels(recipe: Recipe, models: Model[]): string {
-  if (recipe.modelEntry === undefined) return ''
-  return models
-    .map((m) => {
-      const f = modelFacts(m.id)
-      return render(recipe.modelEntry as string, {
-        id: m.id,
-        name: m.display_name ?? m.id,
-        context: String(f.context),
-        maxTokens: String(f.maxTokens),
-        reasons: String(f.reasons),
-        reasoning: f.reasons ? (recipe.modelEntryReasoning ?? '') : '',
-      })
-    })
-    .join(',\n')
-}
-
-/**
- * Codex's model catalog, one entry per model the gateway serves.
- *
- * Ordered so the picker puts the capable models first, and every entry carries
- * the context window Codex would otherwise guess at. The prompt inside it is a
- * stand-in — see the note beside it in configs/clients.json for what that
- * costs and how to avoid paying it.
- */
-function catalogEntries(recipe: Recipe, models: Model[]): string {
-  if (recipe.catalogEntry === undefined) return ''
-  return models
-    .map((m, i) =>
-      render(recipe.catalogEntry as string, {
-        id: m.id,
-        name: m.display_name ?? m.id,
-        description: m.display_name ?? m.id,
-        context: String(modelFacts(m.id).context),
-        priority: String((i + 1) * 10),
-      }),
-    )
-    .join(',\n')
-}
-
-/**
- * Prose with `backticks`, rendered as code.
- *
- * The notes are shared with a Markdown document, so they are written in the
- * one piece of Markdown both outputs can honour. Anything richer would mean
- * either a Markdown renderer in the bundle or two copies of the prose, and
- * two copies of the prose is the thing this file exists to stop.
- */
-function Prose({ text }: { text: string }) {
-  return (
-    <>
-      {text.split('`').map((part, i) =>
-        i % 2 === 1 ? (
-          <code key={i}>{part}</code>
-        ) : (
-          <Fragment key={i}>{part}</Fragment>
-        ),
-      )}
-    </>
-  )
-}
+const TROUBLE: [string, string][] = [
+  [
+    '404 on every request',
+    'Almost always the /v1 question. Claude Code and crush want the base URL without it; opencode and Codex want it with. Neither says so when it is wrong.',
+  ],
+  [
+    '404 saying the API is turned off',
+    'That surface is switched off under Settings → API surfaces. The message names which one.',
+  ],
+  [
+    '401',
+    'The key is wrong, revoked, or in a header this client does not send. Either x-api-key or a bearer token works, on either API.',
+  ],
+  [
+    '429 whose message is the single word "Error"',
+    'Not a rate limit. The subscription backend refuses opus and sonnet to anything that is not Claude Code, and says so misleadingly. Leave passthrough.claude-code-attribution on and it is handled for you.',
+  ],
+  [
+    '"Third-party apps now draw from your extra usage"',
+    'Also not a billing message. A content check refused the request. The Usage tab labels these; scripts/bisect-refusal.py finds the trigger.',
+  ],
+  [
+    'A model works in one client and not another',
+    'The gateway does not filter models, so this is the client: crush needs every model listed in its own config, and Codex needs one in its catalog. The others discover them.',
+  ],
+  [
+    'Codex: "stream closed before response.completed"',
+    'The gateway sends a terminal event on every path, including failures — so this points at something between it and Codex, usually a proxy buffering the stream.',
+  ],
+]
 
 /**
  * Setup: everything about pointing something at this gateway, in one place.
@@ -141,12 +139,6 @@ function Prose({ text }: { text: string }) {
  * Overview and another at the bottom of Settings — which meant the one job a
  * new user actually arrives to do was split across two tabs, under the ones
  * that administer a gateway they have not connected to yet.
- *
- * Every stanza is filled in with this gateway's own address and its own live
- * model list, so the commonest mistakes cannot be made: every client disagrees
- * about whether the base URL carries `/v1` and none of them says so when you
- * get it wrong, and a model list written by hand starts lying the day an
- * account gains a model.
  */
 export default function Setup({
   onExpired,
@@ -155,7 +147,7 @@ export default function Setup({
   onExpired: () => void
   onGoTo: (tab: 'accounts' | 'keys') => void
 }) {
-  const [client, setClient] = useState<string>(CLIENTS[0].id)
+  const [client, setClient] = useState(CLIENTS[0].id)
   const { data, error, loading } = useLoader<OverviewData>(() => api.overview(), onExpired)
   // Both loaded separately and both allowed to fail: they are context for the
   // instructions, not the instructions themselves, and neither should be able
@@ -186,11 +178,10 @@ export default function Setup({
   // the admin address and the relay is somewhere else — usually a different
   // hostname on a different proxy — and nothing the gateway can see tells it
   // that name. So it is configured, and until it is, this says so rather than
-  // handing out a URL that answers 404 to /v1/messages.
+  // handing out files that point at the wrong host.
   const configured = data.public_url ?? ''
   const unknown = configured === '' && data.admin_split === true
   const base = configured !== '' ? configured : window.location.origin
-  const insecure = base.startsWith('http://')
 
   const models = modelList?.data ?? []
   const recipe = CLIENTS.find((c) => c.id === client) ?? CLIENTS[0]
@@ -198,14 +189,6 @@ export default function Setup({
   const off = surfaces.filter(
     (s) => !s.enabled && (recipe.surface === 'both' || s.id === recipe.surface),
   )
-
-  const vars: Record<string, string> = {
-    base,
-    model: preferred(models),
-    smallModel: smallest(models),
-    models: crushModels(recipe, models),
-    catalogEntries: catalogEntries(recipe, models),
-  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -243,17 +226,17 @@ export default function Setup({
             <strong>This page is not the relay.</strong> The admin UI is on its own listener
             (<code>admin-listen</code>), so the address in your browser serves this page and answers
             404 to <code>/v1/messages</code>. The gateway cannot see the hostname clients reach the
-            relay on — set <code>public-url</code> and it will be shown here instead of the guess
-            below.
+            relay on — set <code>public-url</code> and the files below will carry it.
           </Banner>
         )}
 
         <CopyField label="Base URL" value={base} />
 
-        {insecure && (
+        {base.startsWith('http://') && (
           <p className="mt-4 mb-0 text-xs text-on-surface-variant">
             Plain HTTP unless something in front terminates TLS, so the key travels in the clear on
-            this network. A tunnel or a reverse proxy is the fix.
+            this network. A tunnel or a reverse proxy is the fix. It is also why every file below
+            has a Download button: a browser will not give a page the clipboard over HTTP.
           </p>
         )}
       </Card>
@@ -263,8 +246,8 @@ export default function Setup({
         <p className="mt-0 mb-4 text-sm text-on-surface-variant">
           What your connected accounts can serve, read from the upstream just now. The gateway has
           no allowlist of its own — it relays whatever model a client asks for — so anything here
-          works on both APIs, and anything absent is a subscription question rather than a gateway
-          one.
+          works on both APIs. The files below list the models that existed when they were written;
+          anything newer shows up here first.
         </p>
         {modelError !== '' ? (
           <Banner tone="warn">
@@ -307,38 +290,19 @@ export default function Setup({
         )}
 
         <div className="mt-4 flex flex-col gap-4">
-          <p className="m-0 text-sm text-on-surface-variant">
-            <Prose text={recipe.lead} />
-          </p>
-          {recipe.snippets.map((s) => (
+          <p className="m-0 text-sm text-on-surface-variant">{recipe.lead}</p>
+          {recipe.files.map((f) => (
             <CopyField
-              key={s.label}
-              label={s.label}
-              value={render(s.template, vars)}
-              download={s.filename}
+              key={f.filename}
+              label={f.label}
+              value={f.body.split(EXAMPLE_BASE).join(base)}
+              download={f.filename}
             />
           ))}
-          {recipe.notes.map((n) => (
+          {(recipe.notes ?? []).map((n) => (
             <p key={n} className="m-0 text-sm text-on-surface-variant">
-              <Prose text={n} />
+              {n}
             </p>
-          ))}
-          {(recipe.downloads ?? []).map((d) => (
-            <div
-              key={d.name}
-              className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3"
-            >
-              <a
-                className="font-mono text-xs text-primary underline underline-offset-2"
-                href={`/admin/tools/${encodeURIComponent(d.name)}`}
-                download={d.name}
-              >
-                Download {d.label}
-              </a>
-              <p className="m-0 mt-1 text-sm text-on-surface-variant">
-                <Prose text={d.what} />
-              </p>
-            </div>
           ))}
         </div>
       </Card>
@@ -350,15 +314,13 @@ export default function Setup({
           higher privilege, so none of these asks for the admin password.
         </p>
         <dl className="m-0 flex flex-col gap-3">
-          {recipes.shell.map((c) => (
+          {SHELL.map(([cmd, what]) => (
             <div
-              key={c.cmd}
+              key={cmd}
               className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3"
             >
-              <dt className="font-mono text-xs text-on-surface">{c.cmd}</dt>
-              <dd className="m-0 mt-1 text-sm text-on-surface-variant">
-                <Prose text={c.what} />
-              </dd>
+              <dt className="font-mono text-xs text-on-surface">{cmd}</dt>
+              <dd className="m-0 mt-1 text-sm text-on-surface-variant">{what}</dd>
             </div>
           ))}
         </dl>
@@ -367,15 +329,13 @@ export default function Setup({
       <Card>
         <CardTitle>When it does not work</CardTitle>
         <dl className="m-0 flex flex-col gap-3">
-          {recipes.troubleshooting.map((t) => (
+          {TROUBLE.map(([symptom, cause]) => (
             <div
-              key={t.symptom}
+              key={symptom}
               className="border-b border-outline-variant pb-3 last:border-0 last:pb-0"
             >
-              <dt className="text-sm font-medium text-on-surface">{t.symptom}</dt>
-              <dd className="m-0 mt-1 text-sm text-on-surface-variant">
-                <Prose text={t.cause} />
-              </dd>
+              <dt className="text-sm font-medium text-on-surface">{symptom}</dt>
+              <dd className="m-0 mt-1 text-sm text-on-surface-variant">{cause}</dd>
             </div>
           ))}
         </dl>

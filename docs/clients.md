@@ -1,11 +1,27 @@
 # Pointing a client at the gateway
 
-Every client needs the same two things: a **base URL** and an **API key**. The
-rest is per-client detail, and the detail that trips people up is whether the
-base URL includes `/v1` — each client has its own opinion and none of them
-warn you when you get it wrong. You just get 404s.
+Ready-made configuration lives in [`configs/clients/`](../configs/clients/).
+Each file is complete and commented; change the one address in it and it works.
 
-Mint a key in **Settings → API keys**, or from a shell:
+| Client | File | `/v1` on the base URL? |
+|---|---|---|
+| Claude Code | [`claude-code.sh`](../configs/clients/claude-code.sh) | no |
+| Codex CLI | [`codex.toml`](../configs/clients/codex.toml) + [`codex-models.json`](../configs/clients/codex-models.json) | yes |
+| opencode | [`opencode.jsonc`](../configs/clients/opencode.jsonc) | yes |
+| crush | [`crush.json`](../configs/clients/crush.json) | no |
+
+That last column is the thing that trips everyone up: each client has its own
+opinion about whether the base URL carries `/v1`, and none of them says so when
+you get it wrong. You just get 404s.
+
+The **Setup** tab in the admin UI offers the same files with your gateway's own
+address already substituted, and a Download button on each — which matters more
+than it sounds, because a browser will not give a page the clipboard over plain
+HTTP, and a gateway on a private network usually is plain HTTP.
+
+## The key
+
+Mint one in **Settings → API keys**, or from a shell:
 
 ```sh
 claudication keys add -name laptop
@@ -26,6 +42,16 @@ x-api-key: clc_…                what Claude Code and the Anthropic SDKs send
 — so the only thing to get right is that Codex reads its key from the
 *environment variable* named by `env_key`, never from the config file.
 
+## Which base URL
+
+The admin UI shows it under **Setup**. Two cases:
+
+- **One listener** (`admin-listen` empty) — the address your browser is on is
+  also the relay. The UI uses it directly.
+- **Split listeners** — the browser is on the *admin* address and the relay is
+  somewhere else. The gateway cannot learn the hostname clients use, so set
+  `public-url` in the config or the UI will say it is guessing.
+
 ## Which models
 
 Whatever your accounts serve. The gateway has **no model allowlist**: it relays
@@ -41,22 +67,10 @@ Ask yours:
 curl https://claudication.example.com/v1/models -H "x-api-key: clc_…"
 ```
 
-The **Setup** tab lists the same thing and builds every configuration below
-from it, which is the version that cannot go stale.
-
-Two clients still need models named by hand, and both are the client's doing:
-crush never calls `/v1/models`, and Codex looks names up in a catalog compiled
-into its own binary. Everything else discovers them.
-
-## Which base URL
-
-The admin UI shows it under **Point a client at it**. Two cases:
-
-- **One listener** (`admin-listen` empty) — the address your browser is on is
-  also the relay. The UI uses it directly.
-- **Split listeners** — the browser is on the *admin* address and the relay is
-  somewhere else. The gateway cannot learn the hostname clients use, so set
-  `public-url` in the config or the UI will say it is guessing.
+Two clients need models named by hand, and both are the client's doing: crush
+never calls `/v1/models`, and Codex looks names up in a catalog. The files in
+`configs/clients/` list the models that existed when they were written; the
+Setup tab shows the live list beside them.
 
 ## Before you run Codex
 
@@ -76,8 +90,9 @@ anything — which reads like a broken tool bridge. Install `bubblewrap` from
 your package manager, or drop the one from the Codex release next to the binary
 at `codex-resources/bwrap`.
 
-**The model catalog.** Codex looks its model up in a catalog compiled into its
-own binary, and a Claude name is not in it:
+**The model catalog**, which is what `codex-models.json` is. Codex looks its
+model up in a catalog compiled into its own binary, and a Claude name is not in
+it:
 
 ```
 warning: Model metadata for `claude-sonnet-5` not found. Defaulting to
@@ -87,379 +102,37 @@ fallback metadata; this can degrade performance and cause issues.
 The fallback is conservative, so a million-token model gets auto-compacted as
 though it were far smaller and long sessions shed context early.
 `model_context_window` in config.toml does **not** fix it — the lookup is by
-name. Generate a catalog instead:
+name.
+
+One thing to know about the shipped catalog, measured rather than assumed:
+Codex refuses an entry carrying neither `base_instructions` nor
+`model_messages.instructions_template`, so every catalog must contain a system
+prompt. The one in `codex-models.json` is a short stand-in, because Codex's own
+lives inside its binary and nothing here can read it. Measured on the same
+task, that is 10,148 tokens a turn against 19,346 with Codex's real prompt —
+cheaper, and less good at editing. To use the real one:
 
 ```sh
-scripts/codex-model-catalog.py --codex ~/bin/codex
+scripts/codex-model-catalog.py --codex $(which codex)
 ```
 
-It writes an entry per model — Fable and Opus included — by cloning a real one
-out of the Codex binary you are running, because an entry carries Codex's whole
-system-prompt template and several dozen behaviour switches. Re-run it after
-upgrading Codex.
+It clones a real entry per model out of the binary you are running. Re-run it
+after upgrading Codex.
 
-## The recipes
+## curl, to check the plumbing
 
-<!-- GENERATED FROM configs/clients.json — edit that file, then run scripts/gen-client-docs.py -->
-
-## Claude Code
-
-No `/v1` — Claude Code appends the path itself. Use `ANTHROPIC_AUTH_TOKEN` rather than `ANTHROPIC_API_KEY`: it is the variable the client documents for a custom base URL.
-
-Environment:
-
-```sh
-export ANTHROPIC_BASE_URL=https://claudication.example.com
-export ANTHROPIC_AUTH_TOKEN=clc_…
-export ANTHROPIC_MODEL=claude-opus-5
-export ANTHROPIC_SMALL_FAST_MODEL=claude-haiku-4-5-20251001
-claude
-```
-
-The two model variables are optional — without them Claude Code discovers models through `/v1/models`, which the gateway proxies. Set them to pin a model, and keep the small one small: it runs many times a session for titles and summaries.
-
-## Codex CLI
-
-With `/v1`, and this is the one client that goes through the OpenAI Responses API rather than the Anthropic one. `wire_api = "responses"` is not optional — Responses is the only wire format Codex has, and `chat_completions` appears nowhere in its binary.
-
-`~/.codex/config.toml`:
-
-```toml
-model_provider = "claudication"
-model = "claude-opus-5"
-model_catalog_json = "~/.codex/claude-models.json"
-
-[model_providers.claudication]
-name = "claudication"
-base_url = "https://claudication.example.com/v1"
-env_key = "CLAUDICATION_API_KEY"
-wire_api = "responses"
-```
-
-`~/.codex/claude-models.json`:
-
-```json
-{
-  "models": [
-    {
-      "slug": "claude-opus-5",
-      "prefer_websockets": false,
-      "support_verbosity": true,
-      "default_verbosity": "low",
-      "apply_patch_tool_type": "freeform",
-      "web_search_tool_type": "text_and_image",
-      "input_modalities": [
-        "text",
-        "image"
-      ],
-      "supports_image_detail_original": true,
-      "truncation_policy": {
-        "mode": "tokens",
-        "limit": 10000
-      },
-      "supports_parallel_tool_calls": true,
-      "tool_mode": null,
-      "multi_agent_version": null,
-      "use_responses_lite": false,
-      "include_skills_usage_instructions": true,
-      "include_apps_usage_instructions": true,
-      "include_plugin_usage_instructions": true,
-      "node_repl_auto_review_required": false,
-      "node_repl_disabled": false,
-      "auto_review_model_override": null,
-      "model_specialty": null,
-      "context_window": 1000000,
-      "max_context_window": 1000000,
-      "auto_compact_token_limit": null,
-      "comp_hash": "2911",
-      "default_reasoning_summary": "none",
-      "display_name": "Claude Opus 5",
-      "description": "Claude Opus 5",
-      "default_reasoning_level": "medium",
-      "supported_reasoning_levels": [
-        {
-          "effort": "low",
-          "description": "Fast responses with lighter reasoning"
-        },
-        {
-          "effort": "medium",
-          "description": "Balances speed and reasoning depth for everyday tasks"
-        },
-        {
-          "effort": "high",
-          "description": "Greater reasoning depth for complex problems"
-        },
-        {
-          "effort": "xhigh",
-          "description": "Extra high reasoning depth for complex problems"
-        }
-      ],
-      "shell_type": "unified_exec",
-      "visibility": "list",
-      "minimal_client_version": "0.98.0",
-      "supported_in_api": true,
-      "availability_nux": null,
-      "upgrade": null,
-      "priority": 10,
-      "experimental_supported_tools": [],
-      "available_in_plans": [
-        "business",
-        "edu",
-        "edu_plus",
-        "edu_pro",
-        "education",
-        "enterprise",
-        "enterprise_cbp_automation",
-        "enterprise_cbp_usage_based",
-        "finserv",
-        "go",
-        "hc",
-        "plus",
-        "pro",
-        "prolite",
-        "quorum",
-        "sci",
-        "self_serve_business_prolite",
-        "self_serve_business_usage_based",
-        "team"
-      ],
-      "supports_search_tool": true,
-      "default_service_tier": null,
-      "service_tiers": [
-        {
-          "id": "priority",
-          "name": "Fast",
-          "description": "1.5x speed, increased usage"
-        }
-      ],
-      "additional_speed_tiers": [
-        "fast"
-      ],
-      "supports_reasoning_summary_parameter": true,
-      "supports_reasoning_summaries": true,
-      "base_instructions": "You are Codex, a coding agent working in the user's terminal and workspace. Read before you edit, prefer running a command to guessing, and keep answers short. Use the tools you are given rather than describing what you would do."
-    },
-    {
-      "slug": "claude-haiku-4-5-20251001",
-      "prefer_websockets": false,
-      "support_verbosity": true,
-      "default_verbosity": "low",
-      "apply_patch_tool_type": "freeform",
-      "web_search_tool_type": "text_and_image",
-      "input_modalities": [
-        "text",
-        "image"
-      ],
-      "supports_image_detail_original": true,
-      "truncation_policy": {
-        "mode": "tokens",
-        "limit": 10000
-      },
-      "supports_parallel_tool_calls": true,
-      "tool_mode": null,
-      "multi_agent_version": null,
-      "use_responses_lite": false,
-      "include_skills_usage_instructions": true,
-      "include_apps_usage_instructions": true,
-      "include_plugin_usage_instructions": true,
-      "node_repl_auto_review_required": false,
-      "node_repl_disabled": false,
-      "auto_review_model_override": null,
-      "model_specialty": null,
-      "context_window": 200000,
-      "max_context_window": 200000,
-      "auto_compact_token_limit": null,
-      "comp_hash": "2911",
-      "default_reasoning_summary": "none",
-      "display_name": "Claude Haiku 4.5",
-      "description": "Claude Haiku 4.5",
-      "default_reasoning_level": "medium",
-      "supported_reasoning_levels": [
-        {
-          "effort": "low",
-          "description": "Fast responses with lighter reasoning"
-        },
-        {
-          "effort": "medium",
-          "description": "Balances speed and reasoning depth for everyday tasks"
-        },
-        {
-          "effort": "high",
-          "description": "Greater reasoning depth for complex problems"
-        },
-        {
-          "effort": "xhigh",
-          "description": "Extra high reasoning depth for complex problems"
-        }
-      ],
-      "shell_type": "unified_exec",
-      "visibility": "list",
-      "minimal_client_version": "0.98.0",
-      "supported_in_api": true,
-      "availability_nux": null,
-      "upgrade": null,
-      "priority": 20,
-      "experimental_supported_tools": [],
-      "available_in_plans": [
-        "business",
-        "edu",
-        "edu_plus",
-        "edu_pro",
-        "education",
-        "enterprise",
-        "enterprise_cbp_automation",
-        "enterprise_cbp_usage_based",
-        "finserv",
-        "go",
-        "hc",
-        "plus",
-        "pro",
-        "prolite",
-        "quorum",
-        "sci",
-        "self_serve_business_prolite",
-        "self_serve_business_usage_based",
-        "team"
-      ],
-      "supports_search_tool": true,
-      "default_service_tier": null,
-      "service_tiers": [
-        {
-          "id": "priority",
-          "name": "Fast",
-          "description": "1.5x speed, increased usage"
-        }
-      ],
-      "additional_speed_tiers": [
-        "fast"
-      ],
-      "supports_reasoning_summary_parameter": true,
-      "supports_reasoning_summaries": true,
-      "base_instructions": "You are Codex, a coding agent working in the user's terminal and workspace. Read before you edit, prefer running a command to guessing, and keep answers short. Use the tools you are given rather than describing what you would do."
-    }
-  ]
-}
-```
-
-Then:
-
-```sh
-export CLAUDICATION_API_KEY=clc_…
-codex
-```
-
-`env_key` names an environment variable, not a key — putting `clc_…` there directly does not work.
-
-Set `model` to a Claude model. Codex asks for `gpt-5-codex` by default, which means nothing upstream, and the gateway then substitutes whatever `openai.model` says.
-
-Codex looks its model up in a catalog compiled into its own binary, and a Claude name is not in it — so it falls back to conservative limits and a million-token model starts shedding context early. The catalog above fixes that, with an entry per model the gateway serves.
-
-One caveat, measured rather than assumed: Codex refuses a catalog entry carrying neither `base_instructions` nor `model_messages.instructions_template`, so every catalog must contain a system prompt. The one above is a short stand-in, because Codex's own lives in its binary and nothing here can read it. That costs about nine thousand tokens of Codex's editing and formatting instructions per turn — cheaper, and less good at editing. Download the script below instead to clone the real prompt out of your own Codex.
-
-Codex needs `bubblewrap` installed before it can run any shell command. Without it the first tool call panics and the model then explains, convincingly, that nothing works — which reads like a broken tool bridge and is not one.
-
-**`scripts/codex-model-catalog.py`** — Writes the same catalog, but cloned from your own Codex binary, so it carries Codex's real system prompt rather than the stand-in above. Run it on the machine Codex is installed on: `python3 codex-model-catalog.py --codex $(which codex)`.
-
-The admin UI offers it as a download under Setup, which is the only
-way to get it on a machine that installed a release binary and has no
-checkout.
-
-## opencode
-
-With `/v1`. It overrides the built-in Anthropic provider rather than declaring a new one, so every model the gateway serves is available without listing any of them.
-
-`~/.config/opencode/opencode.jsonc`:
-
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "anthropic": {
-      "options": {
-        "baseURL": "https://claudication.example.com/v1",
-        "apiKey": "clc_…"
-      }
-    }
-  },
-  "model": "anthropic/claude-opus-5",
-  "small_model": "anthropic/claude-haiku-4-5-20251001"
-}
-```
-
-If opencode announces a model from some other vendor at startup, it is not using this provider at all and a stale key elsewhere is winning. Read what it prints before believing a test that passed.
-
-## crush
-
-Without `/v1`, and every model has to be spelled out: crush never calls `/v1/models`, so one absent from this file cannot be selected however well the gateway serves it. The Setup tab generates the whole stanza from the live model list.
-
-`~/.config/crush/crush.json`:
-
-```json
-{
-  "$schema": "https://charm.land/crush.json",
-  "providers": {
-    "claudication": {
-      "name": "Claudication Gateway",
-      "base_url": "https://claudication.example.com",
-      "type": "anthropic",
-      "api_key": "clc_…",
-      "models": [
-        {
-          "id": "claude-opus-5",
-          "name": "Claude Opus 5",
-          "context_window": 1000000,
-          "default_max_tokens": 128000,
-          "can_reason": true,
-          "supports_attachments": true,
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0,
-          "cost_per_1m_in_cached": 0,
-          "cost_per_1m_out_cached": 0,
-          "reasoning_levels": ["low", "medium", "high", "xhigh", "max"],
-          "default_reasoning_effort": "medium"
-        },
-        {
-          "id": "claude-haiku-4-5-20251001",
-          "name": "Claude Haiku 4.5",
-          "context_window": 200000,
-          "default_max_tokens": 64000,
-          "can_reason": false,
-          "supports_attachments": true,
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0,
-          "cost_per_1m_in_cached": 0,
-          "cost_per_1m_out_cached": 0
-        }
-      ]
-    }
-  },
-  "models": {
-    "large": { "provider": "claudication", "model": "claude-opus-5", "think": true },
-    "small": { "provider": "claudication", "model": "claude-haiku-4-5-20251001" }
-  }
-}
-```
-
-The zero costs are deliberate. A subscription is not billed per token, and leaving real prices in makes crush display a running total that is fiction.
-
-The context windows are a best guess per model. They affect what crush displays and when it truncates, never what the gateway will serve.
-
-## curl
-
-For checking the plumbing without a client in the way. Both APIs accept either credential header.
-
-Anthropic Messages:
+Anthropic surface:
 
 ```sh
 curl https://claudication.example.com/v1/messages \
   -H "x-api-key: clc_…" \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
-  -d '{"model":"claude-haiku-4-5-20251001","max_tokens":64,
+  -d '{"model":"claude-haiku-4-5","max_tokens":64,
        "messages":[{"role":"user","content":"hello"}]}'
 ```
 
-OpenAI Responses:
+OpenAI surface:
 
 ```sh
 curl -N https://claudication.example.com/v1/responses \
@@ -470,11 +143,10 @@ curl -N https://claudication.example.com/v1/responses \
                  "content":[{"type":"input_text","text":"say hi"}]}]}'
 ```
 
-Every model this gateway can serve:
+A real Codex request, replayed and judged the way Codex judges it:
 
 ```sh
-curl https://claudication.example.com/v1/models \
-  -H "x-api-key: clc_…"
+scripts/probe-codex.py --key clc_… --url https://claudication.example.com --roundtrip
 ```
 
 ## From the shell
@@ -484,31 +156,29 @@ already the higher privilege, so none of these asks for the admin password.
 
 | Command | What it does |
 |---|---|
-| `claudication keys add -name NAME` | Mint an API key. The same thing the API keys tab does, for a provisioning script. |
-| `claudication passwd` | Reset the admin password. The recovery path when it is lost — no old password needed. |
-| `claudication login-url` | A single-use link that signs a browser in without typing the password. Spent the first time it is used. |
-| `claudication backup FILE` | A consistent snapshot without stopping the service. Holds the sealing key and every stored token, so it is exactly as sensitive as the state directory. |
+| `claudication keys add -name NAME` | Mint an API key, for a provisioning script. |
+| `claudication passwd` | Reset the admin password. The recovery path when it is lost. |
+| `claudication login-url` | A single-use link that signs a browser in. Spent on first use. |
+| `claudication backup FILE` | A consistent snapshot without stopping the service. Holds the sealing key and every stored token, so it is as sensitive as the state directory. |
 
 ## When it does not work
 
 | What you see | What it usually is |
 |---|---|
-| 404 on every request | Almost always the `/v1` question. Claude Code and crush want the base URL without it; opencode and Codex want it with. Neither says so when it is wrong. |
-| 404 saying the API is turned off | That surface is switched off under Settings → API surfaces. The message names which one. |
-| 401 | The key is wrong, revoked, or in a header this client does not send. Either `x-api-key` or a bearer token works, on either API. |
-| 429 whose message is the single word "Error" | Not a rate limit. The subscription backend refuses opus and sonnet to anything that is not Claude Code, and says so misleadingly. Leave `passthrough.claude-code-attribution` on and it is handled for you. |
-| "Third-party apps now draw from your extra usage" | Also not a billing message. A content check refused the request. The Usage tab labels these; `scripts/bisect-refusal.py` finds the trigger. |
-| Only haiku works; opus and sonnet 429 | The same attribution gate, seen from the other side. |
-| A model works in one client and not another | The gateway does not filter models, so this is the client: crush needs every model listed in its own config, and Codex needs one in its catalog. The others discover them. |
-| Codex: "stream closed before response.completed" | The gateway sends a terminal event on every path, including failures — so this points at something between it and Codex, usually a proxy buffering the stream. |
-
-<!-- END GENERATED -->
+| 404 on every request | The `/v1` question above. Add it or drop it. |
+| 404 saying the API is turned off | That surface is switched off in **Settings → API surfaces**. |
+| 401 | The key is wrong, revoked, or in a header this client does not send. Either header works, on either API. |
+| 429 whose message is the single word `Error` | Not a rate limit. The attribution gate — see [refused-requests.md](refused-requests.md). Leave `passthrough.claude-code-attribution` on. |
+| "Third-party apps now draw from your extra usage" | Not a billing message. A content check refused the request; bisect it with `scripts/bisect-refusal.py`. |
+| Only haiku works, opus and sonnet 429 | Same attribution gate, from the other side. |
+| A model works in one client and not another | The gateway does not filter models, so this is the client: crush needs it listed in `crush.json`, Codex in its catalog. The others discover them. |
+| Codex: "stream closed before response.completed" | The gateway sends a terminal event on every path, so this points at something between it and Codex — usually a proxy buffering the stream. |
 
 ## A note on what is verified
 
-All four stanzas have been run. The opencode, crush and Claude Code ones are in
-use on this network; the Codex one was checked by installing Codex CLI 0.154.0
-and pointing it at the gateway, which held multi-turn sessions with real shell
-tool calls against a live subscription on both Sonnet 5 and Opus 5. The `bwrap`
-and model-catalog notes above come from those runs. Fable was checked directly
-against both APIs.
+All four configurations have been run. The opencode, crush and Claude Code ones
+are in use on this network; the Codex one was checked by installing Codex CLI
+0.154.0 and pointing it at the gateway, which held multi-turn sessions with
+real shell tool calls against a live subscription on both Sonnet 5 and Opus 5 —
+with the shipped `codex-models.json` and with a cloned one. Fable was checked
+directly against both APIs.

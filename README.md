@@ -19,8 +19,18 @@ admin UI inside it.
     Codex     ──────►  /v1/responses ──┘      your API key       your subscription
 
 Either API can be switched off from the admin UI, together or separately,
-without a restart. Setting up each client:
-[docs/clients.md](docs/clients.md).
+without a restart.
+
+Ready-made client configuration is in [`configs/clients/`](configs/clients/) —
+change the one address in each and it works:
+
+| [`claude-code.sh`](configs/clients/claude-code.sh) | [`codex.toml`](configs/clients/codex.toml) + [`codex-models.json`](configs/clients/codex-models.json) | [`opencode.jsonc`](configs/clients/opencode.jsonc) | [`crush.json`](configs/clients/crush.json) |
+|---|---|---|---|
+
+The admin UI offers the same files under **Setup** with your own address
+already in them. [docs/clients.md](docs/clients.md) explains the parts that
+bite — chiefly that each client disagrees about whether the base URL carries
+`/v1`, and none of them says so when you get it wrong.
 
 ## Install
 

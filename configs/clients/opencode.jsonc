@@ -1,0 +1,19 @@
+{
+  // opencode, pointed at a claudication gateway.
+  // Copy to ~/.config/opencode/opencode.jsonc and change baseURL.
+  //
+  // WITH /v1. This overrides the built-in Anthropic provider rather than
+  // declaring a new one, so every model the gateway serves is available
+  // without listing any of them.
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "anthropic": {
+      "options": {
+        "baseURL": "https://claudication.example.com/v1",
+        "apiKey": "clc_..."
+      }
+    }
+  },
+  "model": "anthropic/claude-opus-5",
+  "small_model": "anthropic/claude-haiku-4-5-20251001"
+}

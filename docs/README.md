@@ -18,9 +18,9 @@ whether the stream opens, ends and carries usage the way Codex requires:
 scripts/probe-codex.py --key clc_... --url http://127.0.0.1:8317 --roundtrip
 ```
 
-`scripts/codex-model-catalog.py` is the other Codex-side script: it writes the
-model catalog that stops Codex falling back to conservative context limits for
-a Claude model.
+`scripts/codex-model-catalog.py` is the other Codex-side script. A working
+catalog ships in `configs/clients/codex-models.json`; this one clones Codex's
+real system prompt out of your own binary, which that file cannot carry.
 
 ## The documents
 

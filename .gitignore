@@ -2,9 +2,6 @@
 /claudication
 /internal/httpapi/webdist/*
 !/internal/httpapi/webdist/.gitkeep
-# Copied from scripts/ by `make tools`; scripts/ is the one copy.
-/internal/httpapi/tools/*
-!/internal/httpapi/tools/.gitkeep
 /web/node_modules/
 /web/dist/
 /state/
