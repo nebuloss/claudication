@@ -43,11 +43,11 @@ type Exchange interface {
 	// Request is the Anthropic request body to send upstream.
 	Request() []byte
 
-	// Model and Stream are what the request asked for, read once here for
+	// Model and Streaming are what the request asked for, read once here for
 	// routing, timeouts and the usage record rather than parsed again by each
 	// caller.
 	Model() string
-	Stream() bool
+	Streaming() bool
 
 	// Headers adjusts, in place, the headers that travel upstream.
 	//

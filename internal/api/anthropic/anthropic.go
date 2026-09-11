@@ -26,7 +26,7 @@ type API struct{}
 // about relaying a request unchanged.
 func New() API { return API{} }
 
-func (API) ID() string { return ID }
+func (API) ID() string    { return ID }
 func (API) Title() string { return "Anthropic Messages API" }
 
 func (API) Routes() []string {
@@ -63,7 +63,7 @@ type exchange struct {
 
 func (e exchange) Request() []byte { return e.body }
 func (e exchange) Model() string   { return e.prologue.Model }
-func (e exchange) Stream() bool    { return e.prologue.Stream }
+func (e exchange) Streaming() bool { return e.prologue.Stream }
 
 // Headers does nothing, which is the point: the caller already speaks what the
 // upstream speaks, so every header it sent is meaningful there and the relay's

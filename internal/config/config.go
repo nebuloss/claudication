@@ -192,9 +192,9 @@ func Defaults() Config {
 		// Sonnet rather than opus: a Codex session is a long series of tool
 		// calls, and pointing that at the most expensive model by default
 		// spends a subscription's weekly allowance on shell commands.
-		OpenAI: OpenAIConfig{Model: "claude-sonnet-5", MaxTokens: 32000},
-		Usage:       UsageConfig{RetentionDays: 30, ReportDays: 7},
-		Shutdown:    ShutdownConfig{Grace: Duration(120 * time.Second)},
+		OpenAI:   OpenAIConfig{Model: "claude-sonnet-5", MaxTokens: 32000},
+		Usage:    UsageConfig{RetentionDays: 30, ReportDays: 7},
+		Shutdown: ShutdownConfig{Grace: Duration(120 * time.Second)},
 	}
 }
 

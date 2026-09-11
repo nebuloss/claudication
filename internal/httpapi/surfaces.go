@@ -94,10 +94,10 @@ func (s *surfaces) set(ctx context.Context, id string, on bool) error {
 
 // surfaceState is one switch as the admin UI sees it.
 type surfaceState struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
 	Routes  []string `json:"routes"`
-	Enabled bool   `json:"enabled"`
+	Enabled bool     `json:"enabled"`
 	// Origin is where the effective value came from, in the same vocabulary
 	// the config screen uses, so the two read as one story.
 	Origin config.Origin `json:"origin"`

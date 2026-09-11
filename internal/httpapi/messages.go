@@ -58,7 +58,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		}
 
 		outbound := ex.Request()
-		model, streaming := ex.Model(), ex.Stream()
+		model, streaming := ex.Model(), ex.Streaming()
 
 		ctx, cancel := contextWithTimeout(r, upstream.Timeout(streaming))
 		defer cancel()

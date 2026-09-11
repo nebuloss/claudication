@@ -40,8 +40,8 @@ func New(model string, maxTokens int) API {
 	return API{model: model, maxTokens: maxTokens}
 }
 
-func (API) ID() string { return ID }
-func (API) Title() string { return "OpenAI Responses API" }
+func (API) ID() string       { return ID }
+func (API) Title() string    { return "OpenAI Responses API" }
 func (API) Routes() []string { return []string{"/v1/responses"} }
 
 func (a API) Decode(body []byte) (api.Exchange, error) {
@@ -72,7 +72,7 @@ type exchange struct {
 
 func (e *exchange) Request() []byte { return e.req.Body }
 func (e *exchange) Model() string   { return e.req.Model }
-func (e *exchange) Stream() bool    { return e.req.Stream }
+func (e *exchange) Streaming() bool { return e.req.Stream }
 
 func (e *exchange) Sink(w http.ResponseWriter) api.Sink {
 	return api.NewReshapingSink(w, e)
