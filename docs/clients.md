@@ -58,9 +58,55 @@ The admin UI shows it under **Point a client at it**. Two cases:
   somewhere else. The gateway cannot learn the hostname clients use, so set
   `public-url` in the config or the UI will say it is guessing.
 
+## Before you run Codex
+
+Two prerequisites that have nothing to do with the gateway. Both look like the
+gateway failing, and neither is.
+
+**bubblewrap.** Codex sandboxes every shell command, and without `bwrap` the
+first tool call panics:
+
+```
+bubblewrap is unavailable: no system bwrap was found on PATH and no bundled
+codex-resources/bwrap binary was found next to the Codex executable
+```
+
+The model then explains, at length and convincingly, that it cannot run
+anything — which reads like a broken tool bridge. Install `bubblewrap` from
+your package manager, or drop the one from the Codex release next to the binary
+at `codex-resources/bwrap`.
+
+**The model catalog.** Codex looks its model up in a catalog compiled into its
+own binary, and a Claude name is not in it:
+
+```
+warning: Model metadata for `claude-sonnet-5` not found. Defaulting to
+fallback metadata; this can degrade performance and cause issues.
+```
+
+The fallback is conservative, so a million-token model gets auto-compacted as
+though it were far smaller and long sessions shed context early.
+`model_context_window` in config.toml does **not** fix it — the lookup is by
+name. Generate a catalog instead:
+
+```sh
+scripts/codex-model-catalog.py --codex ~/bin/codex
+```
+
+It writes an entry per model — Fable and Opus included — by cloning a real one
+out of the Codex binary you are running, because an entry carries Codex's whole
+system-prompt template and several dozen behaviour switches. Re-run it after
+upgrading Codex.
+
+## The recipes
+
+<!-- GENERATED FROM configs/clients.json — edit that file, then run scripts/gen-client-docs.py -->
+
 ## Claude Code
 
-No `/v1`. Claude Code appends the path itself.
+No `/v1` — Claude Code appends the path itself. Use `ANTHROPIC_AUTH_TOKEN` rather than `ANTHROPIC_API_KEY`: it is the variable the client documents for a custom base URL.
+
+Environment:
 
 ```sh
 export ANTHROPIC_BASE_URL=https://claudication.example.com
@@ -70,19 +116,50 @@ export ANTHROPIC_SMALL_FAST_MODEL=claude-haiku-4-5-20251001
 claude
 ```
 
-`ANTHROPIC_AUTH_TOKEN`, not `ANTHROPIC_API_KEY`: the token form is sent as a
-bearer credential, which is what the gateway expects. Both work today, but the
-token variable is the one the client documents for a custom base URL.
+The two model variables are optional — without them Claude Code discovers models through `/v1/models`, which the gateway proxies. Set them to pin a model, and keep the small one small: it runs many times a session for titles and summaries.
 
-The two model variables are optional — without them Claude Code discovers
-models through `/v1/models`. Set them to pin one, and keep the small one small:
-it runs many times a session for titles and summaries.
+## Codex CLI
+
+With `/v1`, and this is the one client that goes through the OpenAI Responses API rather than the Anthropic one. `wire_api = "responses"` is not optional — Responses is the only wire format Codex has, and `chat_completions` appears nowhere in its binary.
+
+`~/.codex/config.toml`:
+
+```toml
+model_provider = "claudication"
+model = "claude-opus-5"
+model_catalog_json = "~/.codex/claude-models.json"
+
+[model_providers.claudication]
+name = "claudication"
+base_url = "https://claudication.example.com/v1"
+env_key = "CLAUDICATION_API_KEY"
+wire_api = "responses"
+```
+
+Then:
+
+```sh
+export CLAUDICATION_API_KEY=clc_…
+codex
+```
+
+`env_key` names an environment variable, not a key — putting `clc_…` there directly does not work.
+
+Set `model` to a Claude model. Codex asks for `gpt-5-codex` by default, which means nothing upstream, and the gateway then substitutes whatever `openai.model` says.
+
+Codex looks its model up in a catalog compiled into its own binary, so a Claude name falls back to conservative limits and long sessions shed context early. Generate the file `model_catalog_json` points at with the script below.
+
+Codex needs `bubblewrap` installed before it can run any shell command. Without it the first tool call panics and the model then explains, convincingly, that nothing works — which reads like a broken tool bridge and is not one.
+
+**`scripts/codex-model-catalog.py`** — Writes the file `model_catalog_json` points at. Run it on the machine Codex is installed on: the catalog has to carry Codex's own system-prompt template, which only its binary has, so the gateway cannot generate it for you. `python3 codex-model-catalog.py --codex $(which codex)`
+
+The admin UI offers it as a download under Setup, which is the only
+way to get it on a machine that installed a release binary and has no
+checkout.
 
 ## opencode
 
-**With** `/v1`. It overrides the Anthropic provider's endpoint rather than
-declaring a new provider, so models come from `/v1/models` and nothing needs
-listing by hand.
+With `/v1`. It overrides the built-in Anthropic provider rather than declaring a new one, so every model the gateway serves is available without listing any of them.
 
 `~/.config/opencode/opencode.jsonc`:
 
@@ -97,21 +174,16 @@ listing by hand.
       }
     }
   },
-  "model": "anthropic/claude-opus-5"
+  "model": "anthropic/claude-opus-5",
+  "small_model": "anthropic/claude-haiku-4-5-20251001"
 }
 ```
 
-If opencode reports a model from some other vendor at startup — `deepseek-…`,
-say — it is not using this provider at all and a stale key elsewhere is
-winning. Check what it prints before believing a test that passed.
+If opencode announces a model from some other vendor at startup, it is not using this provider at all and a stale key elsewhere is winning. Read what it prints before believing a test that passed.
 
 ## crush
 
-**Without** `/v1`, and it needs every model spelled out: crush does not call
-`/v1/models`, so one absent from this file cannot be selected however well the
-gateway serves it. The **Setup** tab generates the whole stanza from your live
-model list — use that rather than extending this by hand. Two entries are shown
-here to keep the shape readable.
+Without `/v1`, and every model has to be spelled out: crush never calls `/v1/models`, so one absent from this file cannot be selected however well the gateway serves it. The Setup tab generates the whole stanza from the live model list.
 
 `~/.config/crush/crush.json`:
 
@@ -161,135 +233,69 @@ here to keep the shape readable.
 }
 ```
 
-The zero costs are deliberate: a subscription is not billed per token, and
-leaving real prices in makes crush display a running total that is fiction.
+The zero costs are deliberate. A subscription is not billed per token, and leaving real prices in makes crush display a running total that is fiction.
 
-## Codex CLI
+The context windows are a best guess per model. They affect what crush displays and when it truncates, never what the gateway will serve.
 
-**With** `/v1`, and this one goes through the OpenAI surface rather than the
-Anthropic one — see [client-apis.md](client-apis.md).
+## curl
 
-`~/.codex/config.toml`:
+For checking the plumbing without a client in the way. Both APIs accept either credential header.
 
-```toml
-model_provider = "claudication"
-model = "claude-opus-5"
-model_catalog_json = "~/.codex/claude-models.json"
-
-[model_providers.claudication]
-name = "claudication"
-base_url = "https://claudication.example.com/v1"
-env_key = "CLAUDICATION_API_KEY"
-wire_api = "responses"
-```
-
-```sh
-export CLAUDICATION_API_KEY=clc_…
-codex
-```
-
-Three things are not optional:
-
-- **`wire_api = "responses"`.** Responses is the only wire format Codex has;
-  `chat_completions` appears nowhere in its binary. Leave this out and it
-  defaults to a shape the gateway does not serve.
-- **`env_key`** names an environment variable, not a key. Codex reads the key
-  from the environment; putting `clc_…` here directly does not work.
-- **`model`** should name a Claude model. Codex asks for `gpt-5-codex` by
-  default, which means nothing upstream; the gateway then substitutes
-  `openai.model` from its config. Naming one here keeps the choice visible.
-
-### Two things Codex needs that have nothing to do with the gateway
-
-Both were met running it for real, and both look like the gateway failing when
-they are not.
-
-**bubblewrap.** Codex sandboxes every shell command, and without `bwrap` the
-first tool call panics:
-
-```
-bubblewrap is unavailable: no system bwrap was found on PATH and no bundled
-codex-resources/bwrap binary was found next to the Codex executable
-```
-
-The model then explains, at length and convincingly, that it cannot run
-anything — which reads like a broken tool bridge and is not. Install
-`bubblewrap` from your package manager, or drop the one from the Codex release
-next to the binary at `codex-resources/bwrap`.
-
-**Model metadata.** Codex looks its model up in a catalog compiled into its own
-binary, and a Claude name is not in it:
-
-```
-warning: Model metadata for `claude-sonnet-5` not found. Defaulting to
-fallback metadata; this can degrade performance and cause issues.
-```
-
-The fallback is conservative, so a million-token model gets auto-compacted as
-though it were far smaller and long sessions start shedding context early.
-`model_context_window` in config.toml does **not** fix it — the lookup is by
-name. Generate a catalog instead:
-
-```sh
-scripts/codex-model-catalog.py --codex ~/bin/codex
-```
-
-It writes an entry per model — Fable and Opus included — so they all appear in
-Codex's picker. A model missing from the catalog still works if `model` names
-it directly; it just will not be offered.
-
-then add the line it prints:
-
-```toml
-model_catalog_json = "/home/you/.codex/claude-models.json"
-```
-
-It clones a real entry out of your own Codex binary rather than writing one
-from scratch, because an entry carries Codex's whole system-prompt template and
-several dozen behaviour switches. Re-run it after upgrading Codex.
-
-## curl, to check the plumbing
-
-Anthropic surface:
+Anthropic Messages:
 
 ```sh
 curl https://claudication.example.com/v1/messages \
   -H "x-api-key: clc_…" \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
-  -d '{"model":"claude-haiku-4-5","max_tokens":64,
+  -d '{"model":"claude-haiku-4-5-20251001","max_tokens":64,
        "messages":[{"role":"user","content":"hello"}]}'
 ```
 
-OpenAI surface:
+OpenAI Responses:
 
 ```sh
 curl -N https://claudication.example.com/v1/responses \
   -H "authorization: Bearer clc_…" \
   -H "content-type: application/json" \
-  -d '{"model":"claude-sonnet-5","stream":true,
+  -d '{"model":"claude-opus-5","stream":true,
        "input":[{"type":"message","role":"user",
                  "content":[{"type":"input_text","text":"say hi"}]}]}'
 ```
 
-A real Codex request, replayed and judged the way Codex judges it:
+Every model this gateway can serve:
 
 ```sh
-scripts/probe-codex.py --key clc_… --url https://claudication.example.com --roundtrip
+curl https://claudication.example.com/v1/models \
+  -H "x-api-key: clc_…"
 ```
+
+## From the shell
+
+On the machine running the gateway. Shell access to the state directory is
+already the higher privilege, so none of these asks for the admin password.
+
+| Command | What it does |
+|---|---|
+| `claudication keys add -name NAME` | Mint an API key. The same thing the API keys tab does, for a provisioning script. |
+| `claudication passwd` | Reset the admin password. The recovery path when it is lost — no old password needed. |
+| `claudication login-url` | A single-use link that signs a browser in without typing the password. Spent the first time it is used. |
+| `claudication backup FILE` | A consistent snapshot without stopping the service. Holds the sealing key and every stored token, so it is exactly as sensitive as the state directory. |
 
 ## When it does not work
 
 | What you see | What it usually is |
 |---|---|
-| 404 on every request | The `/v1` question above. Add it or drop it. |
-| 404 saying the API is "turned off" | The surface is switched off in **Settings → API surfaces**. |
-| 401 | The key is wrong, revoked, or in the wrong header. The Anthropic surface takes `x-api-key` or a bearer token; the OpenAI surface takes a bearer token. |
-| 429 whose message is the single word `Error` | Not a rate limit. The attribution gate — see [refused-requests.md](refused-requests.md). Leave `passthrough.claude-code-attribution` on. |
-| "Third-party apps now draw from your extra usage" | Not a billing message. A content check refused the request; bisect it with `scripts/bisect-refusal.py`. |
-| Only haiku works, opus and sonnet 429 | Same attribution gate, from the other side. |
-| 503 "no Claude account is connected" | Add one under **Accounts**. |
-| Codex: "stream closed before response.completed" | The gateway sends a terminal event on every path, so this means the connection died between it and Codex — look at a proxy in the middle before looking here. |
+| 404 on every request | Almost always the `/v1` question. Claude Code and crush want the base URL without it; opencode and Codex want it with. Neither says so when it is wrong. |
+| 404 saying the API is turned off | That surface is switched off under Settings → API surfaces. The message names which one. |
+| 401 | The key is wrong, revoked, or in a header this client does not send. Either `x-api-key` or a bearer token works, on either API. |
+| 429 whose message is the single word "Error" | Not a rate limit. The subscription backend refuses opus and sonnet to anything that is not Claude Code, and says so misleadingly. Leave `passthrough.claude-code-attribution` on and it is handled for you. |
+| "Third-party apps now draw from your extra usage" | Also not a billing message. A content check refused the request. The Usage tab labels these; `scripts/bisect-refusal.py` finds the trigger. |
+| Only haiku works; opus and sonnet 429 | The same attribution gate, seen from the other side. |
+| A model works in one client and not another | The gateway does not filter models, so this is the client: crush needs every model listed in its own config, and Codex needs one in its catalog. The others discover them. |
+| Codex: "stream closed before response.completed" | The gateway sends a terminal event on every path, including failures — so this points at something between it and Codex, usually a proxy buffering the stream. |
+
+<!-- END GENERATED -->
 
 ## A note on what is verified
 

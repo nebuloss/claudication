@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api, type Usage, type UsageBucket, type Overview as OverviewData } from '../../api/client'
+import { ModelMix, TrafficChart } from './charts'
 import { useLoader } from '../hooks'
 import {
   Banner,
@@ -15,21 +16,21 @@ import {
 } from '../primitives'
 
 
-/** How many days of history the chart can show. */
+/** How many days of history the charts can show. */
 const WINDOWS = [7, 14, 30] as const
 
 /**
- * Requests per day, as columns.
+ * What the gateway has been doing, over the chosen window.
  *
- * Columns rather than the horizontal bars the Usage tab uses for its
- * breakdowns: this is one quantity over time and the shape of it is the
- * information — a flat week and a week that stopped three days ago look
- * identical in a list of numbers.
+ * Two pictures rather than one, because they answer different questions and
+ * the second is the one a subscription is actually spent on. The columns say
+ * whether traffic is steady, growing or stopped, and whether any of it is
+ * failing. The mix underneath says which models consumed the tokens, which is
+ * what explains a week that ran out early.
  *
- * Failures are drawn as a second segment on top of the same column rather than
- * a second series beside it, because a failure is a request: putting them side
- * by side would show a hundred requests and five failures as a tall bar and a
- * short one, when what matters is that five of the hundred failed.
+ * Both come from the same request. Loading them separately from the status
+ * above means changing the window never re-reads the status, and a usage table
+ * that is switched off or empty cannot take the screen down with it.
  */
 function Traffic({
   usage,
@@ -40,21 +41,36 @@ function Traffic({
   days: number
   onDays: (d: number) => void
 }) {
-  const buckets: UsageBucket[] = usage?.report?.by_day ?? []
-  const peak = buckets.reduce((n, b) => Math.max(n, b.requests), 0)
-  const total = buckets.reduce((n, b) => n + b.requests, 0)
-  const failed = buckets.reduce((n, b) => n + b.errors, 0)
+  const [metric, setMetric] = useState<'requests' | 'tokens'>('requests')
+  const byDay: UsageBucket[] = usage?.report?.by_day ?? []
+  const byModel: UsageBucket[] = usage?.report?.by_model ?? []
+  const requests = byDay.reduce((n, b) => n + b.requests, 0)
 
   return (
     <Card>
       <CardTitle
         aside={
-          <Segmented
-            label="History window"
-            value={String(days)}
-            onChange={(v) => onDays(Number(v))}
-            options={WINDOWS.map((d) => ({ id: String(d), label: `${d} days`, content: `${d}d` }))}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented
+              label="Metric"
+              value={metric}
+              onChange={(v) => setMetric(v)}
+              options={[
+                { id: 'requests' as const, label: 'Requests', content: 'Requests' },
+                { id: 'tokens' as const, label: 'Tokens', content: 'Tokens' },
+              ]}
+            />
+            <Segmented
+              label="History window"
+              value={String(days)}
+              onChange={(v) => onDays(Number(v))}
+              options={WINDOWS.map((d) => ({
+                id: String(d),
+                label: `${d} days`,
+                content: `${d}d`,
+              }))}
+            />
+          </div>
         }
       >
         Traffic
@@ -69,49 +85,20 @@ function Traffic({
           Per-request history is off — <code>usage.retention-days</code> is 0, so the gateway
           records nothing to chart.
         </p>
-      ) : total === 0 ? (
-        <p className="m-0 text-sm text-on-surface-variant">
-          Nothing in the last {days} days.
-        </p>
+      ) : requests === 0 ? (
+        <p className="m-0 text-sm text-on-surface-variant">Nothing in the last {days} days.</p>
       ) : (
         <>
-          <div className="flex h-28 items-end gap-1" role="img"
-               aria-label={`${compact(total)} requests over ${days} days`}>
-            {buckets.map((b) => {
-              // A day with traffic never renders as nothing: one pixel of
-              // colour is the difference between "quiet" and "down".
-              const height = peak > 0 ? Math.max(b.requests > 0 ? 3 : 0, (b.requests / peak) * 100) : 0
-              const errPart = b.requests > 0 ? (b.errors / b.requests) * height : 0
-              return (
-                <div
-                  key={b.label}
-                  className="flex h-full min-w-0 flex-1 flex-col justify-end"
-                  title={`${b.label}: ${b.requests} requests, ${b.errors} failed`}
-                >
-                  {errPart > 0 && (
-                    <div
-                      className="rounded-t-[var(--radius-md3-s)] bg-error"
-                      style={{ height: `${errPart}%` }}
-                    />
-                  )}
-                  <div
-                    className={`bg-primary ${errPart > 0 ? '' : 'rounded-t-[var(--radius-md3-s)]'}`}
-                    style={{ height: `${height - errPart}%` }}
-                  />
-                </div>
-              )
-            })}
-          </div>
-          <div className="mt-2 flex justify-between text-xs text-on-surface-variant">
-            <span>{buckets[0]?.label}</span>
-            <span>
-              {compact(total)} requests
-              {failed > 0 && <span className="text-error"> · {compact(failed)} failed</span>}
-              {' · peak '}
-              {compact(peak)}/day
-            </span>
-            <span>{buckets[buckets.length - 1]?.label}</span>
-          </div>
+          <TrafficChart buckets={byDay} metric={metric} />
+          {byModel.length > 0 && (
+            <div className="mt-6 border-t border-outline-variant pt-4">
+              <p className="mt-0 mb-3 text-sm text-on-surface-variant">
+                Tokens by model over the same {days} days. A subscription is spent in tokens rather
+                than requests, so this is the half that explains a week.
+              </p>
+              <ModelMix buckets={byModel} />
+            </div>
+          )}
         </>
       )}
     </Card>

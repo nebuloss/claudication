@@ -20,7 +20,8 @@ PLATFORMS ?= linux/amd64 linux/arm64 linux/arm linux/riscv64 \
              freebsd/amd64
 
 .PHONY: help all build backend web web-deps dev dev-api run dist \
-        fmt fmt-check vet tidy test test-go test-web typecheck web-build check clean
+        fmt fmt-check vet tidy test test-go test-web typecheck web-build \
+        docs docs-check tools check clean
 
 ## help: list the targets worth knowing about
 help:
@@ -29,7 +30,7 @@ help:
 all: build
 
 ## build: compile the UI into the binary, producing dist/claudication
-build: web backend
+build: web tools backend
 
 backend:
 	@mkdir -p $(DIST)
@@ -85,7 +86,7 @@ fmt:
 fmt-check:
 	@test -z "$$(gofmt -l cmd internal)" || { gofmt -l cmd internal; echo 'run make fmt'; exit 1; }
 
-vet:
+vet: tools
 	go vet ./...
 
 tidy:
@@ -94,15 +95,37 @@ tidy:
 ## test: the Go suite, with the race detector
 test: test-go
 
-test-go:
+test-go: tools
 	CGO_ENABLED=1 go test ./... -race -count=1
 
 # Race detection needs cgo, which a musl or scratch toolchain may not have.
 test-norace:
 	CGO_ENABLED=0 go test ./... -count=1
 
-## check: everything CI runs — formatting, vet, tests, typecheck and the UI build
-check: fmt-check vet test typecheck web-build
+# The helper scripts the admin UI offers for download. scripts/ stays the one
+# copy; this puts them where go:embed can reach them, the same way `make web`
+# does for the built UI.
+TOOLS := codex-model-catalog.py
+
+## tools: stage the downloadable helper scripts for embedding
+tools:
+	@mkdir -p internal/httpapi/tools
+	@for t in $(TOOLS); do cp scripts/$$t internal/httpapi/tools/$$t; done
+	@touch internal/httpapi/tools/.gitkeep
+
+## docs: regenerate the documentation that comes from configs/
+docs:
+	scripts/gen-client-docs.py
+
+# The client recipes live in configs/clients.json and have two consumers: the
+# admin UI imports them at build time, and docs/clients.md is generated from
+# them. Checking here is what makes editing one stanza and forgetting the other
+# a build failure rather than a stale document nobody notices for months.
+docs-check:
+	@scripts/gen-client-docs.py --check
+
+## check: everything CI runs — formatting, vet, tests, typecheck, docs and the UI build
+check: fmt-check vet test typecheck docs-check web-build
 
 # tsc does not run Tailwind, so a stylesheet that cannot compile sails through
 # a typecheck. Building the UI is the only thing that proves it compiles.

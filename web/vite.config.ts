@@ -10,7 +10,17 @@ export default defineConfig({
   // API instead.
   base: '/',
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { '@': resolve(import.meta.dirname, './src') } },
+  resolve: {
+    alias: {
+      '@': resolve(import.meta.dirname, './src'),
+      // The client recipes are shared with docs/clients.md, which a script
+      // generates from the same file, so they live outside web/ where neither
+      // consumer owns them. The alias and the fs.allow below are what let the
+      // UI import from there — Vite treats web/ as the workspace root because
+      // the lockfile is here, and would otherwise refuse to serve it in dev.
+      '#configs': resolve(import.meta.dirname, '../configs'),
+    },
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -18,6 +28,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    fs: { allow: [resolve(import.meta.dirname, '..')] },
     // `npm run dev` serves the UI while the gateway runs separately. The proxy
     // keeps both on one origin so the admin session cookie is sent.
     proxy: {
