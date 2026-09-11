@@ -79,6 +79,17 @@
   --color-series-7: #4a3aa7;
   --color-series-8: #e34948;
 
+  /* Syntax colours for the config viewer. Five roles, which is all the three
+     languages it shows need: a comment, a key, a string, a number or keyword,
+     and punctuation. Chosen against --color-surface-lowest rather than the
+     card, because that is the ground the code sits on, and kept clear of the
+     series hues so a highlighted word never reads as a chart legend. */
+  --color-code-comment: #6b6560;
+  --color-code-key: #2a5db0;
+  --color-code-string: #1f7a52;
+  --color-code-number: #9a4b16;
+  --color-code-punct: #8a837c;
+
   /* MD3 shape scale */
   --radius-md3-xs: 4px;
   --radius-md3-s: 8px;
@@ -154,6 +165,13 @@
     --color-series-6: #008300;
     --color-series-7: #9085e9;
     --color-series-8: #e66767;
+
+    /* The same five roles stepped for the dark ground. */
+    --color-code-comment: #8d867f;
+    --color-code-key: #86b4f5;
+    --color-code-string: #6ecfa0;
+    --color-code-number: #e8a877;
+    --color-code-punct: #7f7973;
   }
 }
 
@@ -214,6 +232,12 @@ color-scheme: dark;
   --color-series-6: #008300;
   --color-series-7: #9085e9;
   --color-series-8: #e66767;
+  /* The same five roles stepped for the dark ground. */
+  --color-code-comment: #8d867f;
+  --color-code-key: #86b4f5;
+  --color-code-string: #6ecfa0;
+  --color-code-number: #e8a877;
+  --color-code-punct: #7f7973;
 }
 
 html {

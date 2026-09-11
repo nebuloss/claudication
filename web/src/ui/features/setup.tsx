@@ -12,6 +12,7 @@ import {
 } from '../../api/client'
 import { useLoader } from '../hooks'
 import { Banner, Card, CardTitle, CopyField, Spinner, SubNav } from '../primitives'
+import { CodeViewer, type Lang } from '../primitives/code'
 
 /**
  * The example address inside configs/clients/*. Swapping it for this gateway's
@@ -31,7 +32,7 @@ type Client = {
   /** Which API surface it talks to, so a switched-off one can warn. */
   surface: 'anthropic' | 'openai' | 'both'
   lead: string
-  files: { label: string; filename: string; body: string }[]
+  files: { label: string; filename: string; lang: Lang; body: string }[]
   notes?: string[]
 }
 
@@ -41,7 +42,7 @@ const CLIENTS: Client[] = [
     label: 'Claude Code',
     surface: 'anthropic',
     lead: 'No /v1 — Claude Code appends the path itself.',
-    files: [{ label: 'claudication.sh', filename: 'claude-code.sh', body: claudeCodeSh }],
+    files: [{ label: 'claudication.sh', filename: 'claude-code.sh', lang: 'sh', body: claudeCodeSh }],
   },
   {
     id: 'codex',
@@ -51,8 +52,13 @@ const CLIENTS: Client[] = [
       'With /v1, and the only client that goes through the OpenAI Responses API rather than ' +
       'the Anthropic one.',
     files: [
-      { label: '~/.codex/config.toml', filename: 'config.toml', body: codexToml },
-      { label: '~/.codex/claude-models.json', filename: 'claude-models.json', body: codexModels },
+      { label: '~/.codex/config.toml', filename: 'config.toml', lang: 'toml', body: codexToml },
+      {
+        label: '~/.codex/claude-models.json',
+        filename: 'claude-models.json',
+        lang: 'json',
+        body: codexModels,
+      },
     ],
     notes: [
       'Codex needs bubblewrap installed before it can run any shell command. Without it the ' +
@@ -75,6 +81,7 @@ const CLIENTS: Client[] = [
       {
         label: '~/.config/opencode/opencode.jsonc',
         filename: 'opencode.jsonc',
+        lang: 'jsonc',
         body: opencodeJsonc,
       },
     ],
@@ -86,7 +93,7 @@ const CLIENTS: Client[] = [
     lead:
       'Without /v1, and every model spelled out: crush never calls /v1/models, so one missing ' +
       'from this file cannot be selected however well the gateway serves it.',
-    files: [{ label: '~/.config/crush/crush.json', filename: 'crush.json', body: crushJson }],
+    files: [{ label: '~/.config/crush/crush.json', filename: 'crush.json', lang: 'json', body: crushJson }],
   },
 ]
 
@@ -292,11 +299,12 @@ export default function Setup({
         <div className="mt-4 flex flex-col gap-4">
           <p className="m-0 text-sm text-on-surface-variant">{recipe.lead}</p>
           {recipe.files.map((f) => (
-            <CopyField
+            <CodeViewer
               key={f.filename}
               label={f.label}
+              filename={f.filename}
+              lang={f.lang}
               value={f.body.split(EXAMPLE_BASE).join(base)}
-              download={f.filename}
             />
           ))}
           {(recipe.notes ?? []).map((n) => (
