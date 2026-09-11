@@ -13,6 +13,19 @@ claudication keys add -name laptop
 
 Keys look like `clc_…` and are shown once.
 
+**One key format, both APIs.** A Codex key is not a different kind of key, and
+nothing has to look like `sk-…`: the same `clc_…` works on `/v1/messages` and
+`/v1/responses` alike. Only the header the client chooses differs, and the
+gateway takes either on either surface —
+
+```
+Authorization: Bearer clc_…     what Codex and the OpenAI SDKs send
+x-api-key: clc_…                what Claude Code and the Anthropic SDKs send
+```
+
+— so the only thing to get right is that Codex reads its key from the
+*environment variable* named by `env_key`, never from the config file.
+
 ## Which base URL
 
 The admin UI shows it under **Point a client at it**. Two cases:
