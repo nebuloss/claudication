@@ -168,6 +168,51 @@ Three things are not optional:
   default, which means nothing upstream; the gateway then substitutes
   `openai.model` from its config. Naming one here keeps the choice visible.
 
+### Two things Codex needs that have nothing to do with the gateway
+
+Both were met running it for real, and both look like the gateway failing when
+they are not.
+
+**bubblewrap.** Codex sandboxes every shell command, and without `bwrap` the
+first tool call panics:
+
+```
+bubblewrap is unavailable: no system bwrap was found on PATH and no bundled
+codex-resources/bwrap binary was found next to the Codex executable
+```
+
+The model then explains, at length and convincingly, that it cannot run
+anything — which reads like a broken tool bridge and is not. Install
+`bubblewrap` from your package manager, or drop the one from the Codex release
+next to the binary at `codex-resources/bwrap`.
+
+**Model metadata.** Codex looks its model up in a catalog compiled into its own
+binary, and a Claude name is not in it:
+
+```
+warning: Model metadata for `claude-sonnet-5` not found. Defaulting to
+fallback metadata; this can degrade performance and cause issues.
+```
+
+The fallback is conservative, so a million-token model gets auto-compacted as
+though it were far smaller and long sessions start shedding context early.
+`model_context_window` in config.toml does **not** fix it — the lookup is by
+name. Generate a catalog instead:
+
+```sh
+scripts/codex-model-catalog.py --codex ~/bin/codex
+```
+
+then add the line it prints:
+
+```toml
+model_catalog_json = "/home/you/.codex/claude-models.json"
+```
+
+It clones a real entry out of your own Codex binary rather than writing one
+from scratch, because an entry carries Codex's whole system-prompt template and
+several dozen behaviour switches. Re-run it after upgrading Codex.
+
 ## curl, to check the plumbing
 
 Anthropic surface:
@@ -213,10 +258,8 @@ scripts/probe-codex.py --key clc_… --url https://claudication.example.com --ro
 
 ## A note on what is verified
 
-The opencode, crush and Claude Code stanzas above are the ones in use on this
-network. The Codex stanza is the shape a real Codex 0.154.0 install produced
-when pointed at a capture stub, and the gateway path behind it is checked by
-replaying that captured request — including a tool call and handing its output
-back — against the live subscription. Running the `codex` binary itself against
-the gateway end to end has not been done here; if something in its config
-handling differs from the capture, that is where it would show.
+All four stanzas have been run. The opencode, crush and Claude Code ones are in
+use on this network; the Codex one was checked by installing Codex CLI 0.154.0
+and pointing it at the gateway, which held a multi-turn session with real shell
+tool calls against a live subscription. The `bwrap` and model-catalog notes
+above come from that run.

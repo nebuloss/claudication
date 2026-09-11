@@ -3,6 +3,7 @@ import Accounts from './features/accounts'
 import Keys from './features/keys'
 import Overview from './features/overview'
 import Settings from './features/settings'
+import Setup from './features/setup'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import UsagePanel from './features/usage'
@@ -31,11 +32,14 @@ type State =
   | { phase: 'out' }
   | { phase: 'in'; session: Session }
 
-const TABS = ['overview', 'accounts', 'keys', 'usage', 'settings'] as const
+// Setup sits second: it is what a new gateway is for, and it is the only tab
+// that helps you use the thing rather than administer it.
+const TABS = ['overview', 'setup', 'accounts', 'keys', 'usage', 'settings'] as const
 type Tab = (typeof TABS)[number]
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
+  setup: 'Setup',
   accounts: 'Claude accounts',
   keys: 'API keys',
   usage: 'Usage',
@@ -160,6 +164,7 @@ export default function App() {
 
       <main className="mx-auto max-w-4xl px-4 pt-6 pb-16 sm:px-6">
         {tab === 'overview' && <Overview onExpired={expired} onGoTo={setTab} />}
+        {tab === 'setup' && <Setup onExpired={expired} onGoTo={setTab} />}
         {tab === 'accounts' && <Accounts onExpired={expired} />}
         {tab === 'keys' && <Keys onExpired={expired} onMinted={setMinted} />}
         {tab === 'usage' && <UsagePanel onExpired={expired} />}

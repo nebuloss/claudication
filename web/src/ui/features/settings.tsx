@@ -3,7 +3,7 @@ import Security from './security'
 import Surfaces from './surfaces'
 import { api, type GatewayConfig, type Session } from '../../api/client'
 import { useLoader } from '../hooks'
-import { Card, CardTitle, Empty, Spinner } from '../primitives'
+import { Card, Empty, Spinner } from '../primitives'
 
 /**
  * Settings: the admin account, which APIs are being served, how the gateway is
@@ -19,6 +19,10 @@ import { Card, CardTitle, Empty, Spinner } from '../primitives'
  * is a configuration value, so once the table started reporting all of them —
  * with where each came from, which the card could not say — the card was four
  * rows of the same facts and a note that had moved too.
+ *
+ * The shell commands that used to sit at the bottom have gone to Setup, which
+ * is where someone looks when they are trying to make something work rather
+ * than trying to change how it is configured.
  */
 export default function Settings({
   session,
@@ -49,36 +53,6 @@ export default function Settings({
           <ConfigTable config={data} />
         </>
       )}
-
-      <Card>
-        <CardTitle>From the shell</CardTitle>
-        <dl className="m-0 flex flex-col gap-3">
-          {[
-            [
-              'claudication passwd',
-              'Reset the admin password. The recovery path when it is lost — no old password ' +
-                'needed, since shell access to the state directory is already the higher privilege.',
-            ],
-            [
-              'claudication login-url',
-              'A single-use link that signs a browser in without typing the password. Spent the ' +
-                'first time it is used.',
-            ],
-            [
-              'claudication keys add -name NAME',
-              'The same thing the API keys tab does, for a provisioning script.',
-            ],
-          ].map(([cmd, what]) => (
-            <div
-              key={cmd}
-              className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3"
-            >
-              <dt className="font-mono text-xs text-on-surface">{cmd}</dt>
-              <dd className="m-0 mt-1 text-sm text-on-surface-variant">{what}</dd>
-            </div>
-          ))}
-        </dl>
-      </Card>
     </div>
   )
 }

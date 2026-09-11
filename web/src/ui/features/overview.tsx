@@ -5,7 +5,6 @@ import {
   ErrorState,
   Card,
   CardTitle,
-  CopyField,
   Spinner,
   Stat,
   TextButton,
@@ -14,19 +13,19 @@ import {
 } from '../primitives'
 
 /**
- * The first screen: is the gateway able to serve a request, and what does a
- * client have to be told to use it.
+ * The first screen: is the gateway able to serve a request, and what has it
+ * been doing.
  *
- * That second half is the reason this tab exists. Everything else in the UI
- * administers the gateway; this is the only part that helps you actually point
- * something at it.
+ * It used to carry the client instructions too, which meant the one job a new
+ * user arrives to do was a card at the bottom of a dashboard. Those live on
+ * Setup now, with the per-client configuration that was missing from them.
  */
 export default function Overview({
   onExpired,
   onGoTo,
 }: {
   onExpired: () => void
-  onGoTo: (tab: 'accounts' | 'keys') => void
+  onGoTo: (tab: 'accounts' | 'keys' | 'setup') => void
 }) {
   const { data, error, loading, reload } = useLoader<OverviewData>(() => api.overview(), onExpired)
 
@@ -47,21 +46,15 @@ export default function Overview({
     )
   }
 
-  // What to tell a client to point at.
+  // Whether the gateway can say where its relay is.
   //
-  // The origin this browser used is the right answer while one listener serves
-  // everything: it is reachable by definition, and better than the bind
-  // address, which is often 0.0.0.0 and resolves for nobody.
-  //
-  // It is the wrong answer once admin-listen splits them. Then this page is on
-  // the admin address and the relay is somewhere else — usually a different
-  // hostname on a different proxy — and nothing the gateway can see tells it
-  // that name. So it is configured, and until it is, this says so rather than
-  // handing out a URL that answers 404 to /v1/messages.
-  const baseURL = data.public_url ?? ''
-  const guessed = window.location.origin
-  const unknown = baseURL === '' && data.admin_split === true
-  const shown = baseURL !== '' ? baseURL : guessed
+  // While one listener serves everything, the origin this browser used is
+  // reachable by definition and Setup can hand it out. Once admin-listen
+  // splits them this page is on the admin address, the relay is somewhere else
+  // — usually a different hostname on a different proxy — and nothing the
+  // gateway can see tells it that name. Then public-url has to say, and until
+  // it does, every client instruction on Setup is a guess.
+  const unknown = (data.public_url ?? '') === '' && data.admin_split === true
   const day = data.last_24h
 
   return (
@@ -75,6 +68,19 @@ export default function Overview({
             onClick={() => onGoTo('accounts')}
           >
             Connect one
+          </button>
+          .
+        </Banner>
+      )}
+      {data.ready && (day?.requests ?? 0) === 0 && (
+        <Banner>
+          Ready, and nothing has called it yet.{' '}
+          <button
+            type="button"
+            className="underline underline-offset-2"
+            onClick={() => onGoTo('setup')}
+          >
+            Point a client at it
           </button>
           .
         </Banner>
@@ -126,66 +132,14 @@ export default function Overview({
         )}
       </Card>
 
-      <Card>
-        <CardTitle>Point a client at it</CardTitle>
-        <p className="mt-0 mb-4 text-sm text-on-surface">
-          Claude Code talks to the gateway exactly as it talks to Anthropic, and Codex talks to it
-          in OpenAI&rsquo;s Responses shape. Either way it needs the base URL and one of your{' '}
-          <button
-            type="button"
-            className="text-primary underline underline-offset-2"
-            onClick={() => onGoTo('keys')}
-          >
-            API keys
-          </button>
-          .
-        </p>
-        {unknown && (
-          <Banner tone="warn" className="mb-4">
-            <strong>This page is not the relay.</strong> The admin UI is on its own listener
-            (<code>admin-listen</code>), so the address in your browser serves the UI and answers
-            404 to <code>/v1/messages</code>. The gateway cannot see the hostname clients reach the
-            relay on — set <code>public-url</code> in the config and it will be shown here instead
-            of the guess below.
-          </Banner>
-        )}
-        <div className="flex flex-col gap-4">
-          <CopyField label="Base URL" value={shown} />
-          <CopyField
-            label="Claude Code"
-            value={`export ANTHROPIC_BASE_URL=${shown}\nexport ANTHROPIC_AUTH_TOKEN=clc_…\nclaude`}
-          />
-          <CopyField
-            label="Codex CLI (~/.codex/config.toml)"
-            value={`model_provider = "claudication"
-model = "claude-sonnet-5"
-
-[model_providers.claudication]
-name = "claudication"
-base_url = "${shown}/v1"
-env_key = "CLAUDICATION_API_KEY"
-wire_api = "responses"`}
-          />
-          <CopyField
-            label="curl"
-            value={`curl ${shown}/v1/messages \\
-  -H "x-api-key: clc_…" \\
-  -H "anthropic-version: 2023-06-01" \\
-  -H "content-type: application/json" \\
-  -d '{"model":"claude-haiku-4-5","max_tokens":64,
-       "messages":[{"role":"user","content":"hello"}]}'`}
-          />
-        </div>
-        <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">
-          Codex reads the key from the environment variable <code>env_key</code> names, so export{' '}
-          <code>CLAUDICATION_API_KEY</code> before running it — and <code>wire_api</code> must be{' '}
-          <code>responses</code>, which is the only shape Codex speaks.
-        </p>
-        <p className="mt-2 mb-0 text-xs text-on-surface-variant">
-          Served over plain HTTP unless something in front terminates TLS, so the key travels in the
-          clear on this network. A tunnel or a reverse proxy is the fix.
-        </p>
-      </Card>
+      {unknown && (
+        <Banner tone="warn">
+          <strong>This page is not the relay.</strong> The admin UI is on its own listener
+          (<code>admin-listen</code>), so the address in your browser answers 404 to{' '}
+          <code>/v1/messages</code>. Set <code>public-url</code> so Setup can tell clients where
+          the relay actually is.
+        </Banner>
+      )}
 
       <Card>
         <CardTitle>Build</CardTitle>
