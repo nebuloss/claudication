@@ -1,6 +1,6 @@
 # claudication docs
 
-Four documents, and one rule that matters more than any of them.
+Five documents, and one rule that matters more than any of them.
 
 **The rule:** when a request starts failing for a reason its error message does
 not name, do not reason about it. Bisect it. None of the three content triggers
@@ -11,6 +11,13 @@ took eleven requests once the script existed.
 scripts/bisect-refusal.py --key clc_... --url http://127.0.0.1:8317 body.json
 ```
 
+The other live probe checks the OpenAI surface the way Codex judges it —
+whether the stream opens, ends and carries usage the way Codex requires:
+
+```sh
+scripts/probe-codex.py --key clc_... --url http://127.0.0.1:8317 --roundtrip
+```
+
 ## The documents
 
 | | |
@@ -18,7 +25,8 @@ scripts/bisect-refusal.py --key clc_... --url http://127.0.0.1:8317 body.json
 | [refused-requests.md](refused-requests.md) | **Start here.** Every way a request is refused for a reason it does not name, what the relay rewrites to prevent it, what it deliberately leaves alone, and how to find the next one. |
 | [upstream-request-pipeline.md](upstream-request-pipeline.md) | What the official client assembles and sends between a prompt and its POST — system array, messages, cache breakpoints, headers, timeouts, truncation. The reference for judging whether a third-party client's request is unusual. |
 | [reversing.md](reversing.md) | How all of it was obtained, how to check any single claim again, and what could not be determined. |
-| [client-apis.md](client-apis.md) | The APIs clients speak to the gateway — Anthropic Messages and OpenAI Responses — how the two are switched on and off, how to point Codex at it, and how to add a third. |
+| [clients.md](clients.md) | **Setting one up.** Working configuration for Claude Code, opencode, crush and Codex CLI, and what each failure mode actually means. |
+| [client-apis.md](client-apis.md) | The APIs clients speak to the gateway — Anthropic Messages and OpenAI Responses — how the two are switched on and off, and how to add a third. |
 
 The same record as `refused-requests.md`, condensed, is in the code:
 `go doc ./internal/upstream`. That is the copy a maintainer meets first, so if

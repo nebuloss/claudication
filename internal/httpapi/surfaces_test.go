@@ -170,6 +170,52 @@ func TestCodexRefusalKeepsTheStatusAndTranslatesTheEnvelope(t *testing.T) {
 	}
 }
 
+// The request going upstream is one the gateway built, so Codex's own headers
+// describe a request that no longer exists. Anthropic ignores headers it does
+// not know, so this is not load-bearing — but the backend has refused requests
+// over their content three times, every one found by bisection, so sending it
+// something that looks like nothing else on earth is a risk taken for no gain.
+func TestCodexOwnHeadersDoNotTravelUpstream(t *testing.T) {
+	var got http.Header
+	srv, st, _ := newTestServer(t)
+	base, key := relayTo(t, srv, st, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, anthropicStream)
+	}))
+
+	req, err := http.NewRequest(http.MethodPost, base+"/v1/responses", strings.NewReader(codexRequest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Api-Key", key)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Originator", "codex_exec")
+	req.Header.Set("Session_id", "00000000-0000-0000-0000-000000000000")
+	req.Header.Set("Openai-Beta", "responses=experimental")
+	req.Header.Set("X-Stainless-Lang", "js")
+	// Not ours to drop: a client's own identity is forwarded on every other
+	// surface too, and nothing has ever shown it matters upstream.
+	req.Header.Set("User-Agent", "codex_cli_rs/0.54.0")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.ReadAll(resp.Body)
+
+	for _, name := range []string{"Originator", "Session_id", "Openai-Beta", "X-Stainless-Lang"} {
+		if v := got.Get(name); v != "" {
+			t.Errorf("%s reached the upstream as %q", name, v)
+		}
+	}
+	if got.Get("User-Agent") == "" {
+		t.Error("User-Agent was dropped; only the dialect's own headers should be")
+	}
+}
+
 func TestASwitchedOffSurfaceAnswersInItsOwnDialect(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	base, key := relayTo(t, srv, st, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

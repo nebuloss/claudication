@@ -5,14 +5,22 @@ starves the muscle under load: it comes on when you push, and eases when you
 rest. Also contains Claude. The name is a promise about the failure mode — it
 keeps walking, and it tells you where the narrowing is.
 
-**A gateway that puts your Claude subscription behind the Anthropic Messages
-API.** Point Claude Code, or anything else that speaks that API, at it: the
-gateway authenticates to Anthropic with a subscription OAuth account, pools
-several of them in an order you choose, and relays requests byte for byte. One
-static binary, with the admin UI inside it.
+**A gateway that puts your Claude subscription behind the APIs your tools
+already speak.** Point Claude Code, opencode or crush at its Anthropic
+Messages API, or Codex CLI at its OpenAI Responses API: the gateway
+authenticates to Anthropic with a subscription OAuth account, pools several of
+them in an order you choose, and relays requests byte for byte — translating
+only for the clients that do not speak Anthropic. One static binary, with the
+admin UI inside it.
 
-    Claude Code  ──►  claudication  ──►  api.anthropic.com
-                       your API key       your subscription
+    Claude Code ─┐
+    opencode  ───┼──►  /v1/messages  ──┐
+    crush     ───┘                     ├──►  claudication  ──►  api.anthropic.com
+    Codex     ──────►  /v1/responses ──┘      your API key       your subscription
+
+Either API can be switched off from the admin UI, together or separately,
+without a restart. Setting up each client:
+[docs/clients.md](docs/clients.md).
 
 ## Install
 

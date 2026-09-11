@@ -25,7 +25,10 @@ be switched on and off at runtime from Settings.
    what it does with the answer, and the measurement behind each mapping
    decision. Kept in the code so nobody has to reverse Codex twice.
 3. [`docs/client-apis.md`](docs/client-apis.md) — the operator's view: the
-   surfaces, their switches, and pointing Codex at the gateway.
+   surfaces, their switches, and how to add another.
+4. [`docs/clients.md`](docs/clients.md) — working configuration for each
+   client, and `scripts/probe-codex.py`, which replays a real Codex request
+   against a live gateway and judges it the way Codex does.
 
 One package per surface under `internal/api/`, with its own translation beside
 it. A dialect's mapping is only defensible next to the evidence for it, and the
