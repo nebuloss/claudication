@@ -26,6 +26,28 @@ x-api-key: clc_…                what Claude Code and the Anthropic SDKs send
 — so the only thing to get right is that Codex reads its key from the
 *environment variable* named by `env_key`, never from the config file.
 
+## Which models
+
+Whatever your accounts serve. The gateway has **no model allowlist**: it relays
+the name a client sends, `/v1/models` is proxied straight from the upstream,
+and the only model-name logic anywhere is the OpenAI surface substituting a
+Claude model when a caller asks for something that is not one. Fable, Opus,
+Sonnet and Haiku all work, on both APIs, and a model added upstream tomorrow
+works without a gateway change.
+
+Ask yours:
+
+```sh
+curl https://claudication.example.com/v1/models -H "x-api-key: clc_…"
+```
+
+The **Setup** tab lists the same thing and builds every configuration below
+from it, which is the version that cannot go stale.
+
+Two clients still need models named by hand, and both are the client's doing:
+crush never calls `/v1/models`, and Codex looks names up in a catalog compiled
+into its own binary. Everything else discovers them.
+
 ## Which base URL
 
 The admin UI shows it under **Point a client at it**. Two cases:
@@ -43,12 +65,18 @@ No `/v1`. Claude Code appends the path itself.
 ```sh
 export ANTHROPIC_BASE_URL=https://claudication.example.com
 export ANTHROPIC_AUTH_TOKEN=clc_…
+export ANTHROPIC_MODEL=claude-opus-5
+export ANTHROPIC_SMALL_FAST_MODEL=claude-haiku-4-5-20251001
 claude
 ```
 
 `ANTHROPIC_AUTH_TOKEN`, not `ANTHROPIC_API_KEY`: the token form is sent as a
 bearer credential, which is what the gateway expects. Both work today, but the
 token variable is the one the client documents for a custom base URL.
+
+The two model variables are optional — without them Claude Code discovers
+models through `/v1/models`. Set them to pin one, and keep the small one small:
+it runs many times a session for titles and summaries.
 
 ## opencode
 
@@ -79,9 +107,11 @@ winning. Check what it prints before believing a test that passed.
 
 ## crush
 
-**Without** `/v1`, and it needs the model list spelled out: crush does not call
-`/v1/models`, so a model absent from this file cannot be selected however well
-the gateway serves it.
+**Without** `/v1`, and it needs every model spelled out: crush does not call
+`/v1/models`, so one absent from this file cannot be selected however well the
+gateway serves it. The **Setup** tab generates the whole stanza from your live
+model list — use that rather than extending this by hand. Two entries are shown
+here to keep the shape readable.
 
 `~/.config/crush/crush.json`:
 
@@ -143,7 +173,8 @@ Anthropic one — see [client-apis.md](client-apis.md).
 
 ```toml
 model_provider = "claudication"
-model = "claude-sonnet-5"
+model = "claude-opus-5"
+model_catalog_json = "~/.codex/claude-models.json"
 
 [model_providers.claudication]
 name = "claudication"
@@ -203,6 +234,10 @@ name. Generate a catalog instead:
 scripts/codex-model-catalog.py --codex ~/bin/codex
 ```
 
+It writes an entry per model — Fable and Opus included — so they all appear in
+Codex's picker. A model missing from the catalog still works if `model` names
+it directly; it just will not be offered.
+
 then add the line it prints:
 
 ```toml
@@ -260,6 +295,7 @@ scripts/probe-codex.py --key clc_… --url https://claudication.example.com --ro
 
 All four stanzas have been run. The opencode, crush and Claude Code ones are in
 use on this network; the Codex one was checked by installing Codex CLI 0.154.0
-and pointing it at the gateway, which held a multi-turn session with real shell
-tool calls against a live subscription. The `bwrap` and model-catalog notes
-above come from that run.
+and pointing it at the gateway, which held multi-turn sessions with real shell
+tool calls against a live subscription on both Sonnet 5 and Opus 5. The `bwrap`
+and model-catalog notes above come from those runs. Fable was checked directly
+against both APIs.

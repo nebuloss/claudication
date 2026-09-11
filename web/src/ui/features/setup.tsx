@@ -1,14 +1,12 @@
 import { useState } from 'react'
-import { api, type GatewayConfig, type Overview as OverviewData } from '../../api/client'
-import { useLoader } from '../hooks'
 import {
-  Banner,
-  Card,
-  CardTitle,
-  CopyField,
-  Spinner,
-  SubNav,
-} from '../primitives'
+  api,
+  type GatewayConfig,
+  type Model,
+  type Overview as OverviewData,
+} from '../../api/client'
+import { useLoader } from '../hooks'
+import { Banner, Card, CardTitle, CopyField, Spinner, SubNav } from '../primitives'
 
 /** The clients this gateway has been set up against, in order of likelihood. */
 const CLIENTS = ['claude-code', 'codex', 'opencode', 'crush', 'curl'] as const
@@ -32,6 +30,42 @@ const CLIENT_SURFACE: Record<Client, 'anthropic' | 'openai' | 'both'> = {
 }
 
 /**
+ * Per-model figures the upstream model list does not carry.
+ *
+ * Only crush needs them — it never calls /v1/models, so every model it can
+ * select has to be described in its config file. Getting one wrong changes
+ * what crush displays and when it truncates; it changes nothing about what the
+ * gateway will serve, which is why a plain fallback is safe for a model that
+ * appears after this was written.
+ */
+const LARGE_CONTEXT = 1_000_000
+const SMALL_CONTEXT = 200_000
+
+function modelFacts(id: string): { context: number; maxTokens: number; reasons: boolean } {
+  // The 4.5-era models are the 200k ones; everything newer is a million.
+  const small = id.startsWith('claude-opus-4-5') || id.startsWith('claude-haiku-4-5')
+  const reasons = !id.startsWith('claude-haiku') && !id.startsWith('claude-sonnet-4-5')
+  return {
+    context: small ? SMALL_CONTEXT : LARGE_CONTEXT,
+    maxTokens: id.startsWith('claude-opus-5') || id.startsWith('claude-sonnet-5') ? 128_000 : 64_000,
+    reasons,
+  }
+}
+
+/** The model to put in an example when nothing better is known. */
+function preferred(models: Model[]): string {
+  for (const want of ['claude-opus-5', 'claude-sonnet-5', 'claude-fable-5-1']) {
+    if (models.some((m) => m.id === want)) return want
+  }
+  return models[0]?.id ?? 'claude-opus-5'
+}
+
+function smallest(models: Model[]): string {
+  const haiku = models.find((m) => m.id.startsWith('claude-haiku'))
+  return haiku?.id ?? preferred(models)
+}
+
+/**
  * Setup: everything about pointing something at this gateway, in one place.
  *
  * It used to be two halves of two other screens — a card at the bottom of
@@ -39,10 +73,11 @@ const CLIENT_SURFACE: Record<Client, 'anthropic' | 'openai' | 'both'> = {
  * new user actually arrives to do was split across two tabs, under the ones
  * that administer a gateway they have not connected to yet.
  *
- * The per-client configuration is the part that was missing. Every client
- * disagrees about whether the base URL carries `/v1`, and none of them says so
- * when you get it wrong: you just get 404s. Printing the exact stanza with the
- * gateway's own address already in it removes the whole class of mistake.
+ * The per-client configuration is the part that was missing, and it is built
+ * from this gateway's own address and its own model list rather than written
+ * out here. Every client disagrees about whether the base URL carries `/v1`
+ * and none of them says so when you get it wrong, and a hardcoded model list
+ * would start lying the day an account gains a model.
  */
 export default function Setup({
   onExpired,
@@ -53,10 +88,13 @@ export default function Setup({
 }) {
   const [client, setClient] = useState<Client>('claude-code')
   const { data, error, loading } = useLoader<OverviewData>(() => api.overview(), onExpired)
-  // Loaded separately and allowed to fail: the switches are useful context but
-  // not the point of the screen, and a config this admin cannot read should
-  // not blank out the instructions.
+  // Both loaded separately and both allowed to fail: they are context for the
+  // instructions, not the instructions themselves, and neither should be able
+  // to blank the screen.
   const { data: config } = useLoader<GatewayConfig>(() => api.config())
+  const { data: modelList, error: modelError } = useLoader<{ data: Model[] | null }>(() =>
+    api.models(),
+  )
 
   if (loading && data === null) {
     return (
@@ -85,6 +123,7 @@ export default function Setup({
   const base = configured !== '' ? configured : window.location.origin
   const insecure = base.startsWith('http://')
 
+  const models = modelList?.data ?? []
   const surfaces = config?.surfaces ?? []
   const needed = CLIENT_SURFACE[client]
   const off = surfaces.filter((s) => !s.enabled && (needed === 'both' || s.id === needed))
@@ -141,6 +180,38 @@ export default function Setup({
       </Card>
 
       <Card>
+        <CardTitle>Models</CardTitle>
+        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+          What your connected accounts can serve, read from the upstream just now. The gateway has
+          no allowlist of its own — it relays whatever model a client asks for — so anything here
+          works on both APIs, and anything absent is a subscription question rather than a gateway
+          one.
+        </p>
+        {modelError !== '' ? (
+          <Banner tone="warn">
+            Could not reach the upstream model list. The configurations below still work; only this
+            list is missing.
+          </Banner>
+        ) : models.length === 0 ? (
+          <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
+            <Spinner /> Loading…
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {models.map((m) => (
+              <span
+                key={m.id}
+                className="rounded-[var(--radius-md3-s)] border border-outline bg-surface-high px-2.5 py-1.5"
+                title={m.display_name ?? m.id}
+              >
+                <code className="font-mono text-xs text-on-surface">{m.id}</code>
+              </span>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card>
         <CardTitle>Configure a client</CardTitle>
         <SubNav
           label="Client"
@@ -157,7 +228,7 @@ export default function Setup({
         )}
 
         <div className="mt-4">
-          <ClientGuide client={client} base={base} />
+          <ClientGuide client={client} base={base} models={models} />
         </div>
       </Card>
 
@@ -184,7 +255,10 @@ export default function Setup({
         <CardTitle>When it does not work</CardTitle>
         <dl className="m-0 flex flex-col gap-3">
           {TROUBLE.map(([symptom, cause]) => (
-            <div key={symptom} className="border-b border-outline-variant pb-3 last:border-0 last:pb-0">
+            <div
+              key={symptom}
+              className="border-b border-outline-variant pb-3 last:border-0 last:pb-0"
+            >
               <dt className="text-sm font-medium text-on-surface">{symptom}</dt>
               <dd className="m-0 mt-1 text-sm text-on-surface-variant">{cause}</dd>
             </div>
@@ -236,8 +310,8 @@ const TROUBLE: [string, string][] = [
     'Also not a billing message. A content check refused the request. The Usage tab labels these; scripts/bisect-refusal.py finds the trigger.',
   ],
   [
-    'Only haiku works; opus and sonnet 429',
-    'The same attribution gate, seen from the other side.',
+    'A model works in one client and not another',
+    'The gateway does not filter models, so this is the client: crush needs every model listed in its own config, and Codex needs one in its catalog. The others discover them.',
   ],
   [
     'Codex: "stream closed before response.completed"',
@@ -245,8 +319,19 @@ const TROUBLE: [string, string][] = [
   ],
 ]
 
-/** The per-client stanza, with this gateway's address already in it. */
-function ClientGuide({ client, base }: { client: Client; base: string }) {
+/** The per-client stanza, with this gateway's address and models already in it. */
+function ClientGuide({
+  client,
+  base,
+  models,
+}: {
+  client: Client
+  base: string
+  models: Model[]
+}) {
+  const big = preferred(models)
+  const small = smallest(models)
+
   switch (client) {
     case 'claude-code':
       return (
@@ -258,8 +343,17 @@ function ClientGuide({ client, base }: { client: Client; base: string }) {
           </Note>
           <CopyField
             label="Environment"
-            value={`export ANTHROPIC_BASE_URL=${base}\nexport ANTHROPIC_AUTH_TOKEN=clc_…\nclaude`}
+            value={`export ANTHROPIC_BASE_URL=${base}
+export ANTHROPIC_AUTH_TOKEN=clc_…
+export ANTHROPIC_MODEL=${big}
+export ANTHROPIC_SMALL_FAST_MODEL=${small}
+claude`}
           />
+          <Note>
+            The two model variables are optional — without them Claude Code picks its own defaults
+            from <code>/v1/models</code>, which the gateway proxies. Set them to pin a model, and
+            keep the small one small: it is used for titles and summaries many times a session.
+          </Note>
         </div>
       )
 
@@ -277,7 +371,8 @@ function ClientGuide({ client, base }: { client: Client; base: string }) {
           <CopyField
             label="~/.codex/config.toml"
             value={`model_provider = "claudication"
-model = "claude-sonnet-5"
+model = "${big}"
+model_catalog_json = "~/.codex/claude-models.json"
 
 [model_providers.claudication]
 name = "claudication"
@@ -293,11 +388,12 @@ wire_api = "responses"`}
             upstream, and the gateway then substitutes whatever <code>openai.model</code> says.
           </Note>
           <Note>
-            Codex warns that it has no metadata for a Claude model and falls back to conservative
-            defaults, which makes it compact the conversation far too early.{' '}
-            <code>scripts/codex-model-catalog.py</code> in the repository writes a catalog that
-            fixes it. Codex also needs <code>bubblewrap</code> on the host before it can run any
-            shell command.
+            Codex looks its model up in a catalog compiled into its own binary, so a Claude name
+            falls back to conservative limits and long sessions start shedding context early.
+            Generate the catalog <code>model_catalog_json</code> points at with{' '}
+            <code>scripts/codex-model-catalog.py</code> from the repository. Codex also needs{' '}
+            <code>bubblewrap</code> installed before it can run any shell command — without it the
+            first tool call panics and the model explains, convincingly, that nothing works.
           </Note>
         </div>
       )
@@ -310,7 +406,7 @@ wire_api = "responses"`}
               With <code>/v1</code>
             </strong>
             . It overrides the built-in Anthropic provider rather than declaring a new one, so
-            models come from <code>/v1/models</code> and nothing needs listing by hand.
+            every model above is available without listing any of them.
           </Note>
           <CopyField
             label="~/.config/opencode/opencode.jsonc"
@@ -324,7 +420,8 @@ wire_api = "responses"`}
       }
     }
   },
-  "model": "anthropic/claude-opus-5"
+  "model": "anthropic/${big}",
+  "small_model": "anthropic/${small}"
 }`}
           />
           <Note>
@@ -342,58 +439,16 @@ wire_api = "responses"`}
             <strong>
               Without <code>/v1</code>
             </strong>
-            , and the model list has to be spelled out: crush never calls <code>/v1/models</code>,
-            so a model missing from this file cannot be chosen however well the gateway serves it.
+            , and every model has to be spelled out: crush never calls <code>/v1/models</code>, so
+            one missing from this file cannot be chosen however well the gateway serves it. This is
+            generated from the list above, so it already has all of them.
           </Note>
-          <CopyField
-            label="~/.config/crush/crush.json"
-            value={`{
-  "$schema": "https://charm.land/crush.json",
-  "providers": {
-    "claudication": {
-      "name": "Claudication Gateway",
-      "base_url": "${base}",
-      "type": "anthropic",
-      "api_key": "clc_…",
-      "models": [
-        {
-          "id": "claude-opus-5",
-          "name": "Claude Opus 5",
-          "context_window": 1000000,
-          "default_max_tokens": 128000,
-          "can_reason": true,
-          "supports_attachments": true,
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0,
-          "cost_per_1m_in_cached": 0,
-          "cost_per_1m_out_cached": 0,
-          "reasoning_levels": ["low", "medium", "high", "xhigh", "max"],
-          "default_reasoning_effort": "medium"
-        },
-        {
-          "id": "claude-haiku-4-5-20251001",
-          "name": "Claude Haiku 4.5",
-          "context_window": 200000,
-          "default_max_tokens": 64000,
-          "can_reason": false,
-          "supports_attachments": true,
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0,
-          "cost_per_1m_in_cached": 0,
-          "cost_per_1m_out_cached": 0
-        }
-      ]
-    }
-  },
-  "models": {
-    "large": { "provider": "claudication", "model": "claude-opus-5", "think": true },
-    "small": { "provider": "claudication", "model": "claude-haiku-4-5-20251001" }
-  }
-}`}
-          />
+          <CopyField label="~/.config/crush/crush.json" value={crushConfig(base, models, big, small)} />
           <Note>
             The zero costs are deliberate. A subscription is not billed per token, and leaving real
-            prices in makes crush display a running total that is fiction.
+            prices in makes crush display a running total that is fiction. The context windows are
+            a best guess per model — they affect what crush displays and when it truncates, never
+            what the gateway will serve.
           </Note>
         </div>
       )
@@ -411,7 +466,7 @@ wire_api = "responses"`}
   -H "x-api-key: clc_…" \\
   -H "anthropic-version: 2023-06-01" \\
   -H "content-type: application/json" \\
-  -d '{"model":"claude-haiku-4-5","max_tokens":64,
+  -d '{"model":"${small}","max_tokens":64,
        "messages":[{"role":"user","content":"hello"}]}'`}
           />
           <CopyField
@@ -419,13 +474,61 @@ wire_api = "responses"`}
             value={`curl -N ${base}/v1/responses \\
   -H "authorization: Bearer clc_…" \\
   -H "content-type: application/json" \\
-  -d '{"model":"claude-sonnet-5","stream":true,
+  -d '{"model":"${big}","stream":true,
        "input":[{"type":"message","role":"user",
                  "content":[{"type":"input_text","text":"say hi"}]}]}'`}
           />
+          <CopyField label="Every model this gateway can serve" value={`curl ${base}/v1/models \\
+  -H "x-api-key: clc_…"`} />
         </div>
       )
   }
+}
+
+/** crush's whole provider stanza, every model included. */
+function crushConfig(base: string, models: Model[], big: string, small: string): string {
+  const entries = models.map((m) => {
+    const f = modelFacts(m.id)
+    const lines = [
+      `        {`,
+      `          "id": "${m.id}",`,
+      `          "name": "${m.display_name ?? m.id}",`,
+      `          "context_window": ${f.context},`,
+      `          "default_max_tokens": ${f.maxTokens},`,
+      `          "can_reason": ${f.reasons},`,
+      `          "supports_attachments": true,`,
+      `          "cost_per_1m_in": 0,`,
+      `          "cost_per_1m_out": 0,`,
+      `          "cost_per_1m_in_cached": 0,`,
+      `          "cost_per_1m_out_cached": 0`,
+    ]
+    if (f.reasons) {
+      lines[lines.length - 1] += ','
+      lines.push(`          "reasoning_levels": ["low", "medium", "high", "xhigh", "max"],`)
+      lines.push(`          "default_reasoning_effort": "medium"`)
+    }
+    lines.push(`        }`)
+    return lines.join('\n')
+  })
+
+  return `{
+  "$schema": "https://charm.land/crush.json",
+  "providers": {
+    "claudication": {
+      "name": "Claudication Gateway",
+      "base_url": "${base}",
+      "type": "anthropic",
+      "api_key": "clc_…",
+      "models": [
+${entries.join(',\n')}
+      ]
+    }
+  },
+  "models": {
+    "large": { "provider": "claudication", "model": "${big}", "think": true },
+    "small": { "provider": "claudication", "model": "${small}" }
+  }
+}`
 }
 
 /** A line of prose between snippets, quieter than the snippet itself. */

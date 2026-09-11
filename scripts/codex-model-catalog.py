@@ -58,14 +58,38 @@ import sys
 # The template to clone: a plain, current model with no special tool mode.
 TEMPLATE = 'gpt-5.4'
 
-# What the gateway serves, and the context each model has.
+# Every model a subscription account serves, in the order Codex should list
+# them. Ask the gateway for the current list rather than trusting this one:
+#
+#     curl $BASE/v1/models -H "x-api-key: clc_..."
+#
+# Anything here the account cannot serve is harmless — Codex only offers it,
+# and the upstream decides. Anything missing simply will not appear in Codex's
+# picker, though it still works if named directly, because the gateway has no
+# model allowlist of its own.
 MODELS = [
     ('claude-opus-5', 'Claude Opus 5',
      'Most capable, for complex work.', 1_000_000, 10),
     ('claude-sonnet-5', 'Claude Sonnet 5',
      'Strong model for everyday coding.', 1_000_000, 20),
+    ('claude-fable-5-1', 'Claude Fable 5.1',
+     'Fable 5.1.', 1_000_000, 30),
+    ('claude-fable-5', 'Claude Fable 5',
+     'Fable 5.', 1_000_000, 40),
+    ('claude-opus-4-8', 'Claude Opus 4.8',
+     'Previous Opus.', 1_000_000, 50),
+    ('claude-opus-4-7', 'Claude Opus 4.7',
+     'Previous Opus.', 1_000_000, 60),
+    ('claude-opus-4-6', 'Claude Opus 4.6',
+     'Previous Opus.', 1_000_000, 70),
+    ('claude-sonnet-4-6', 'Claude Sonnet 4.6',
+     'Previous Sonnet.', 1_000_000, 80),
+    ('claude-sonnet-4-5-20250929', 'Claude Sonnet 4.5',
+     'Previous Sonnet.', 1_000_000, 90),
+    ('claude-opus-4-5-20251101', 'Claude Opus 4.5',
+     'Previous Opus, 200k context.', 200_000, 100),
     ('claude-haiku-4-5-20251001', 'Claude Haiku 4.5',
-     'Fast and cheap, for simple work.', 200_000, 30),
+     'Fast and cheap, for simple work.', 200_000, 110),
 ]
 
 

@@ -23,6 +23,18 @@ stream in flight" is not an answer to that. They show up in the configuration
 table with origin `database`, so one screen still tells the whole story of
 where each value came from.
 
+## Models
+
+Neither surface filters them. `/v1/models` is proxied from the upstream, the
+relay forwards whatever model a caller names, and the only model-name logic in
+the tree is one prefix test in `internal/api/openai/request.go`: a Responses
+request asking for something that is not a `claude-` model gets `openai.model`
+substituted, because the name it sent means nothing upstream.
+
+So every model an account serves works on both APIs, and a new one works the
+day it appears. The Setup tab reads the live list through `GET /admin/models`
+and builds each client's configuration from it.
+
 ## Where the code is
 
 ```

@@ -1,16 +1,122 @@
-import { api, type Overview as OverviewData } from '../../api/client'
+import { useState } from 'react'
+import { api, type Usage, type UsageBucket, type Overview as OverviewData } from '../../api/client'
 import { useLoader } from '../hooks'
 import {
   Banner,
   ErrorState,
   Card,
   CardTitle,
+  Segmented,
   Spinner,
   Stat,
   TextButton,
   compact,
   duration,
 } from '../primitives'
+
+
+/** How many days of history the chart can show. */
+const WINDOWS = [7, 14, 30] as const
+
+/**
+ * Requests per day, as columns.
+ *
+ * Columns rather than the horizontal bars the Usage tab uses for its
+ * breakdowns: this is one quantity over time and the shape of it is the
+ * information — a flat week and a week that stopped three days ago look
+ * identical in a list of numbers.
+ *
+ * Failures are drawn as a second segment on top of the same column rather than
+ * a second series beside it, because a failure is a request: putting them side
+ * by side would show a hundred requests and five failures as a tall bar and a
+ * short one, when what matters is that five of the hundred failed.
+ */
+function Traffic({
+  usage,
+  days,
+  onDays,
+}: {
+  usage: Usage | null
+  days: number
+  onDays: (d: number) => void
+}) {
+  const buckets: UsageBucket[] = usage?.report?.by_day ?? []
+  const peak = buckets.reduce((n, b) => Math.max(n, b.requests), 0)
+  const total = buckets.reduce((n, b) => n + b.requests, 0)
+  const failed = buckets.reduce((n, b) => n + b.errors, 0)
+
+  return (
+    <Card>
+      <CardTitle
+        aside={
+          <Segmented
+            label="History window"
+            value={String(days)}
+            onChange={(v) => onDays(Number(v))}
+            options={WINDOWS.map((d) => ({ id: String(d), label: `${d} days`, content: `${d}d` }))}
+          />
+        }
+      >
+        Traffic
+      </CardTitle>
+
+      {usage === null ? (
+        <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
+          <Spinner /> Loading…
+        </p>
+      ) : usage.enabled === false ? (
+        <p className="m-0 text-sm text-on-surface-variant">
+          Per-request history is off — <code>usage.retention-days</code> is 0, so the gateway
+          records nothing to chart.
+        </p>
+      ) : total === 0 ? (
+        <p className="m-0 text-sm text-on-surface-variant">
+          Nothing in the last {days} days.
+        </p>
+      ) : (
+        <>
+          <div className="flex h-28 items-end gap-1" role="img"
+               aria-label={`${compact(total)} requests over ${days} days`}>
+            {buckets.map((b) => {
+              // A day with traffic never renders as nothing: one pixel of
+              // colour is the difference between "quiet" and "down".
+              const height = peak > 0 ? Math.max(b.requests > 0 ? 3 : 0, (b.requests / peak) * 100) : 0
+              const errPart = b.requests > 0 ? (b.errors / b.requests) * height : 0
+              return (
+                <div
+                  key={b.label}
+                  className="flex h-full min-w-0 flex-1 flex-col justify-end"
+                  title={`${b.label}: ${b.requests} requests, ${b.errors} failed`}
+                >
+                  {errPart > 0 && (
+                    <div
+                      className="rounded-t-[var(--radius-md3-s)] bg-error"
+                      style={{ height: `${errPart}%` }}
+                    />
+                  )}
+                  <div
+                    className={`bg-primary ${errPart > 0 ? '' : 'rounded-t-[var(--radius-md3-s)]'}`}
+                    style={{ height: `${height - errPart}%` }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-2 flex justify-between text-xs text-on-surface-variant">
+            <span>{buckets[0]?.label}</span>
+            <span>
+              {compact(total)} requests
+              {failed > 0 && <span className="text-error"> · {compact(failed)} failed</span>}
+              {' · peak '}
+              {compact(peak)}/day
+            </span>
+            <span>{buckets[buckets.length - 1]?.label}</span>
+          </div>
+        </>
+      )}
+    </Card>
+  )
+}
 
 /**
  * The first screen: is the gateway able to serve a request, and what has it
@@ -28,6 +134,11 @@ export default function Overview({
   onGoTo: (tab: 'accounts' | 'keys' | 'setup') => void
 }) {
   const { data, error, loading, reload } = useLoader<OverviewData>(() => api.overview(), onExpired)
+  // The traffic series, on its own loader so changing the window does not
+  // re-fetch the status above it, and so a usage table that is off or empty
+  // cannot take the whole screen down with it.
+  const [days, setDays] = useState(14)
+  const { data: usage } = useLoader<Usage>(() => api.usage(days), undefined, [days])
 
   if (loading) {
     return (
@@ -141,21 +252,7 @@ export default function Overview({
         </Banner>
       )}
 
-      <Card>
-        <CardTitle>Build</CardTitle>
-        {/* Which binary is running, and for how long. Listen and History used
-            to sit here too; both are configuration, and Settings now reports
-            every setting with where its value came from — which this card
-            could not say, so it was the worse of the two places to read it. */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Stat
-            label="Version"
-            value={<span className="font-mono text-base">{data.version}</span>}
-          />
-          <Stat label="Commit" value={<span className="font-mono text-base">{data.commit}</span>} />
-          <Stat label="Started" value={duration(data.uptime_s)} hint="ago" />
-        </div>
-      </Card>
+      <Traffic usage={usage} days={days} onDays={setDays} />
     </div>
   )
 }

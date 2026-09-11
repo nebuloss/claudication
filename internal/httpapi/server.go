@@ -272,6 +272,7 @@ func (s *Server) routes(r0 role) http.Handler {
 		mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
 
 		mux.Handle("GET /admin/config", admin(s.handleConfig))
+		mux.Handle("GET /admin/models", admin(s.handleAdminModels))
 		mux.Handle("POST /admin/surfaces/{id}", admin(s.handleSetSurface))
 		mux.Handle("GET /admin/overview", admin(s.handleOverview))
 		mux.Handle("GET /admin/usage", admin(s.handleUsage))

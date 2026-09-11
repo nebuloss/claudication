@@ -197,6 +197,18 @@ export interface Surface {
   origin: Origin
 }
 
+/**
+ * One model the connected accounts can serve, as the upstream lists it.
+ *
+ * Read live rather than hardcoded: the gateway has no model allowlist — it
+ * relays whatever name a client sends — so any list written into the UI would
+ * be a second opinion that quietly goes stale.
+ */
+export interface Model {
+  id: string
+  display_name?: string
+}
+
 export interface GatewayConfig {
   /** The file it was read from, empty when there was none. */
   path: string
@@ -399,6 +411,8 @@ export const api = {
   overview: () => request<Overview>('GET', '/admin/overview'),
 
   config: () => request<GatewayConfig>('GET', '/admin/config'),
+
+  models: () => request<{ data: Model[] | null }>('GET', '/admin/models'),
   setSurface: (id: string, enabled: boolean) =>
     request<{ surfaces: Surface[] }>('POST', `/admin/surfaces/${encodeURIComponent(id)}`, {
       enabled,

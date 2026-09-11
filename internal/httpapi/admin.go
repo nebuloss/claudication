@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -682,6 +683,27 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		// gets flipped and then lost.
 		"surfaces": s.surfaces.state(),
 	})
+}
+
+// handleAdminModels lists the models the connected accounts can actually serve.
+//
+// The same upstream list /v1/models proxies, but reachable with an admin
+// session instead of an API key, because the Setup screen needs it and the
+// browser has a cookie rather than a key. Reusing fetchModels keeps one answer
+// to "which models exist" rather than a second, drifting copy of it in the UI.
+func (s *Server) handleAdminModels(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	body, err := s.fetchModels(ctx, "limit=1000")
+	if err != nil {
+		s.log.Warn("could not read the upstream model list", "err", err)
+		writeError(w, http.StatusBadGateway, "api_error",
+			"could not reach the upstream model list")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
 }
 
 // handleSetSurface turns one client-facing API on or off.
