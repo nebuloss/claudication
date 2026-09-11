@@ -102,8 +102,18 @@ test-go:
 test-norace:
 	CGO_ENABLED=0 go test ./... -count=1
 
+# The chart library's scales and stacking, compiled and exercised. Only the
+# pure modules: the React components need a DOM, and a headless browser to
+# check that a rect landed where the scale said it would is a lot of machinery
+# to re-test arithmetic this already covers.
+test-web:
+	@cd web && npx tsc --target es2022 --module esnext --moduleResolution bundler \
+	  --jsx react-jsx --outDir .charts-check src/ui/charts/scale.ts src/ui/charts/stack.ts
+	@node scripts/check-charts.mjs
+	@rm -rf web/.charts-check
+
 ## check: everything CI runs — formatting, vet, tests, typecheck and the UI build
-check: fmt-check vet test typecheck web-build
+check: fmt-check vet test typecheck test-web web-build
 
 # tsc does not run Tailwind, so a stylesheet that cannot compile sails through
 # a typecheck. Building the UI is the only thing that proves it compiles.

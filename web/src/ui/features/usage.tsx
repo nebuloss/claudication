@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, api, messageOf, type RequestRow, type Usage } from '../../api/client'
+import { RankedBars } from '../charts'
 import { useLoader } from '../hooks'
 import {
-  Bar,
   Banner,
   ErrorModal,
   ErrorState,
@@ -164,8 +164,9 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
           )}
 
           {view === 'day' && report !== undefined && (
-            <Breakdown
+            <RankedBars
               identity={false}
+              format={compact}
               rows={report.by_day.map((b) => ({
                 label: b.label,
                 value: b.requests,
@@ -175,7 +176,8 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
           )}
 
           {view === 'model' && report !== undefined && (
-            <Breakdown
+            <RankedBars
+              format={compact}
               rows={report.by_model.map((b) => ({
                 label: b.label,
                 value: b.input_tokens + b.output_tokens + b.cache_tokens,
@@ -186,7 +188,8 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
 
           {view === 'account' && report !== undefined && (
             <>
-              <Breakdown
+              <RankedBars
+                format={compact}
                 rows={report.by_account.map((b) => ({
                   label: b.label,
                   value: b.input_tokens + b.output_tokens + b.cache_tokens,
@@ -202,7 +205,8 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
           )}
 
           {view === 'key' && report !== undefined && (
-            <Breakdown
+            <RankedBars
+              format={compact}
               rows={report.by_key.map((b) => ({
                 label: b.label,
                 value: b.requests,
@@ -212,45 +216,6 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
           )}
         </div>
       </Card>
-    </div>
-  )
-}
-
-/**
- * Colour follows the entity, not its position in the list.
- *
- * The lists arrive sorted by traffic, so indexing by row would repaint every
- * bar the moment the ranking changed — the same model would be blue this hour
- * and orange the next. Sorting the labels gives each name a slot that only
- * moves when the set of names does.
- */
-function slotFor(labels: string[]): Map<string, number> {
-  const stable = [...new Set(labels)].sort()
-  return new Map(stable.map((l, i) => [l, i]))
-}
-
-function Breakdown({
-  rows,
-  identity = true,
-}: {
-  rows: { label: string; value: number; right: string }[]
-  /** False where the bar means magnitude over time rather than which thing. */
-  identity?: boolean
-}) {
-  const max = rows.reduce((m, r) => Math.max(m, r.value), 0)
-  const slots = identity ? slotFor(rows.map((r) => r.label)) : null
-  return (
-    <div className="flex flex-col gap-1.5">
-      {rows.map((r) => (
-        <Bar
-          key={r.label}
-          label={r.label}
-          value={r.value}
-          max={max}
-          right={r.right}
-          series={slots?.get(r.label)}
-        />
-      ))}
     </div>
   )
 }

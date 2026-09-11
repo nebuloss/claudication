@@ -17,3 +17,4 @@ config.yaml
 
 # Local agent/editor tooling, not project source.
 /.serena/
+/web/.charts-check/
