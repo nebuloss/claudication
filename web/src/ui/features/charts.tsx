@@ -23,25 +23,52 @@ const PAD = { top: 10, right: 6, bottom: 22, left: 46 }
 const PLOT_W = W - PAD.left - PAD.right
 const PLOT_H = H - PAD.top - PAD.bottom
 
-type Series = { key: string; label: string; colour: string; of: (b: UsageBucket) => number }
+type Series = {
+  key: string
+  label: string
+  colour: string
+  /** Painted with diagonal stripes as well as its colour — see HATCH_ID. */
+  hatched?: boolean
+  of: (b: UsageBucket) => number
+}
 
 /**
- * Succeeded and failed, and why succeeded is not the primary colour.
+ * The pattern that stripes the failure band.
  *
- * It was, and the two were indistinguishable. Measured as CIE76 dE between the
- * two fills, normal vision and simulated CVD:
+ * Colour alone is a single point of failure in a chart: it is the thing a
+ * viewer may not see, a projector may wash out, and a two-pixel band gives too
+ * little of it to judge by. Stripes are a second channel that survives all three,
+ * and a failure is the one series here worth reading at a glance.
+ */
+const HATCH_ID = 'traffic-hatch'
+
+/** The same stripes in CSS, so the legend swatch is not a lie about the bar. */
+const HATCH_CSS =
+  'repeating-linear-gradient(45deg, var(--color-series-8) 0 2.5px, ' +
+  'var(--color-surface-container) 2.5px 4px)'
+
+/**
+ * Succeeded and failed, and why neither is a theme colour.
  *
- *                           normal  protan  deutan  tritan
- *   light  primary/error      37.7     8.3    26.2    36.5
- *   dark   primary/error       7.7     7.5     4.2     6.9
- *   light  series-1/error    110.6    86.8    98.4   111.6
- *   dark   series-1/error     76.2    69.0    70.7    74.2
+ * They began as primary and error, which in the dark theme are #ffb59d and
+ * #ffb4ab — one point of green and fourteen of blue apart, or one block of
+ * peach once stacked. Measured as CIE76 dE, normal vision and simulated CVD:
  *
- * The dark pair is the worst of it: #ffb59d against #ffb4ab differs by one
- * point of green and fourteen of blue, which is the same colour with extra
- * steps, and 4.2 under deuteranopia is no colour difference at all.
+ *                            normal  protan  deutan
+ *   light  primary/error       37.7     8.3    26.2
+ *   dark   primary/error        7.7     7.5     4.2
+ *   light  series-1/error     110.6    86.8    98.4
+ *   dark   series-1/error      76.2    69.0    70.7
+ *   light  series-1/series-8  102.3    77.6    90.8
+ *   dark   series-1/series-8   89.1    69.0    78.4
  *
- * A series colour is also the more correct choice by the rule the Bar
+ * 4.2 under deuteranopia is no colour difference at all. The mistake was using
+ * --color-error as a fill: in a dark theme MD3 sets it to the tone meant for
+ * text on a dark surface, which is a pink, and a fill wants the saturated hue.
+ * series-8 is that red in both themes, is already validated as part of the
+ * categorical set, and in the dark theme beats --color-error outright.
+ *
+ * Series colours are also the more correct choice by the rule the Bar
  * primitive already states: series colours identify, plain primary means
  * magnitude. In a stacked column these two are identities, not sizes.
  */
@@ -52,7 +79,13 @@ const REQUEST_SERIES: Series[] = [
     colour: 'var(--color-series-1)',
     of: (b) => Math.max(0, b.requests - b.errors),
   },
-  { key: 'failed', label: 'Failed', colour: 'var(--color-error)', of: (b) => b.errors },
+  {
+    key: 'failed',
+    label: 'Failed',
+    colour: 'var(--color-series-8)',
+    hatched: true,
+    of: (b) => b.errors,
+  },
 ]
 
 const TOKEN_SERIES: Series[] = [
@@ -134,7 +167,7 @@ export function TrafficChart({
             <span key={s.key} className="flex items-center gap-1.5 text-xs text-on-surface-variant">
               <span
                 className="inline-block size-2.5 rounded-[2px]"
-                style={{ background: s.colour }}
+                style={s.hatched === true ? { background: HATCH_CSS } : { background: s.colour }}
               />
               {s.label}
               {shown !== undefined && (
@@ -152,6 +185,31 @@ export function TrafficChart({
         aria-label={`${compact(shownTotal)} ${metric} over ${buckets.length} days`}
         onMouseLeave={() => setHover(null)}
       >
+        <defs>
+          {/* Vertical lines rotated 45°, which is cheaper than drawing
+              diagonals and tiles without seams. The stripe is the card's own
+              colour rather than a lightened red, so it reads as the bar being
+              cut through in either theme. */}
+          <pattern
+            id={HATCH_ID}
+            width="6"
+            height="6"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width="6" height="6" fill="var(--color-series-8)" />
+            <line
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="6"
+              stroke="var(--color-surface-container)"
+              strokeWidth="2.5"
+              opacity="0.55"
+            />
+          </pattern>
+        </defs>
+
         {lines.map((v) => (
           <g key={v}>
             <line
@@ -188,7 +246,16 @@ export function TrafficChart({
                 // colour is the difference between "quiet" and "down".
                 const h = Math.max(1.5, (value / top) * PLOT_H)
                 cursor -= h
-                return <rect key={s.key} x={x} y={cursor} width={barW} height={h} fill={s.colour} />
+                return (
+                  <rect
+                    key={s.key}
+                    x={x}
+                    y={cursor}
+                    width={barW}
+                    height={h}
+                    fill={s.hatched === true ? `url(#${HATCH_ID})` : s.colour}
+                  />
+                )
               })}
               {/* A full-height target, so the thin columns of a quiet day are
                   still easy to point at. */}
