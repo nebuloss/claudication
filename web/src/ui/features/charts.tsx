@@ -25,11 +25,31 @@ const PLOT_H = H - PAD.top - PAD.bottom
 
 type Series = { key: string; label: string; colour: string; of: (b: UsageBucket) => number }
 
+/**
+ * Succeeded and failed, and why succeeded is not the primary colour.
+ *
+ * It was, and the two were indistinguishable. Measured as CIE76 dE between the
+ * two fills, normal vision and simulated CVD:
+ *
+ *                           normal  protan  deutan  tritan
+ *   light  primary/error      37.7     8.3    26.2    36.5
+ *   dark   primary/error       7.7     7.5     4.2     6.9
+ *   light  series-1/error    110.6    86.8    98.4   111.6
+ *   dark   series-1/error     76.2    69.0    70.7    74.2
+ *
+ * The dark pair is the worst of it: #ffb59d against #ffb4ab differs by one
+ * point of green and fourteen of blue, which is the same colour with extra
+ * steps, and 4.2 under deuteranopia is no colour difference at all.
+ *
+ * A series colour is also the more correct choice by the rule the Bar
+ * primitive already states: series colours identify, plain primary means
+ * magnitude. In a stacked column these two are identities, not sizes.
+ */
 const REQUEST_SERIES: Series[] = [
   {
     key: 'ok',
     label: 'Succeeded',
-    colour: 'var(--color-primary)',
+    colour: 'var(--color-series-1)',
     of: (b) => Math.max(0, b.requests - b.errors),
   },
   { key: 'failed', label: 'Failed', colour: 'var(--color-error)', of: (b) => b.errors },
