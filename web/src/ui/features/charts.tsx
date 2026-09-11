@@ -27,62 +27,79 @@ type Series = {
   key: string
   label: string
   colour: string
-  /** Painted with diagonal stripes as well as its colour — see HATCH_ID. */
+  /** Drawn as a shaded, striped tone of `colour` — a state, not an identity. */
   hatched?: boolean
   of: (b: UsageBucket) => number
 }
 
 /**
- * The pattern that stripes the failure band.
+ * How a failure is drawn: the same colour, shaded and hatched.
  *
- * Colour alone is a single point of failure in a chart: it is the thing a
- * viewer may not see, a projector may wash out, and a two-pixel band gives too
- * little of it to judge by. Stripes are a second channel that survives all three,
- * and a failure is the one series here worth reading at a glance.
+ * Not a red. Hue in this card means identity — which model, which kind of
+ * token — and the mix underneath spends the whole categorical palette on
+ * exactly that. Giving a *state* a hue of its own takes one of those away and
+ * puts the same red in two legends meaning two different things. State is
+ * better carried by value and texture, which are free.
+ *
+ * It also generalises the right way: split traffic by model tomorrow and each
+ * model's failures are that model's own colour, shaded and striped, with no
+ * palette to extend.
+ *
+ * Measured as CIE76 dE, for the two colours this chart uses and in both
+ * themes — base against the shaded band, band against its stripes, and band
+ * against the card it sits on:
+ *
+ *                      base/band  band/stripe  band/card
+ *   light  primary          12.4         14.2       70.4
+ *   dark   primary          18.3         22.0       57.0
+ *   light  series-1         15.5         19.0       73.2
+ *   dark   series-1         16.5         19.5       56.0
+ *
+ * The last column is the one that stops the shading going too far: darkening
+ * toward black is what "shaded" means in a light theme, and in a dark one it
+ * is the direction the background lies in, so it has to stay well clear.
  */
-const HATCH_ID = 'traffic-hatch'
+const DIM = 0.58
 
-/** The same stripes in CSS, so the legend swatch is not a lie about the bar. */
-const HATCH_CSS =
-  'repeating-linear-gradient(45deg, var(--color-series-8) 0 2.5px, ' +
-  'var(--color-surface-container) 2.5px 4px)'
+/** A darker tone of the same colour. Falls back to the colour itself. */
+function dim(colour: string): string {
+  return `color-mix(in oklab, ${colour} ${Math.round(DIM * 100)}%, black)`
+}
+
+/** One pattern per hatched series, so the id follows the series it paints. */
+function hatchID(key: string): string {
+  return `traffic-hatch-${key}`
+}
 
 /**
- * Succeeded and failed, and why neither is a theme colour.
+ * The same stripes in CSS, so the legend swatch is not a lie about the bar.
  *
- * They began as primary and error, which in the dark theme are #ffb59d and
- * #ffb4ab — one point of green and fourteen of blue apart, or one block of
- * peach once stacked. Measured as CIE76 dE, normal vision and simulated CVD:
- *
- *                            normal  protan  deutan
- *   light  primary/error       37.7     8.3    26.2
- *   dark   primary/error        7.7     7.5     4.2
- *   light  series-1/error     110.6    86.8    98.4
- *   dark   series-1/error      76.2    69.0    70.7
- *   light  series-1/series-8  102.3    77.6    90.8
- *   dark   series-1/series-8   89.1    69.0    78.4
- *
- * 4.2 under deuteranopia is no colour difference at all. The mistake was using
- * --color-error as a fill: in a dark theme MD3 sets it to the tone meant for
- * text on a dark surface, which is a pink, and a fill wants the saturated hue.
- * series-8 is that red in both themes, is already validated as part of the
- * categorical set, and in the dark theme beats --color-error outright.
- *
- * Series colours are also the more correct choice by the rule the Bar
- * primitive already states: series colours identify, plain primary means
- * magnitude. In a stacked column these two are identities, not sizes.
+ * The stripe is the card's own colour rather than a lighter tone of the fill:
+ * it reads as the bar being cut through, and it needs no second definition to
+ * follow the theme.
  */
+function hatchCSS(colour: string): string {
+  return (
+    `repeating-linear-gradient(45deg, ${dim(colour)} 0 2.5px, ` +
+    `var(--color-surface-container) 2.5px 4px)`
+  )
+}
+
 const REQUEST_SERIES: Series[] = [
   {
     key: 'ok',
     label: 'Succeeded',
-    colour: 'var(--color-series-1)',
+    // Primary rather than a series colour: with one metric there is one
+    // identity here, and the Bar primitive's rule is that a series colour
+    // identifies while plain primary means magnitude. It also leaves all
+    // eight categorical hues to the model mix below, which needs them.
+    colour: 'var(--color-primary)',
     of: (b) => Math.max(0, b.requests - b.errors),
   },
   {
     key: 'failed',
     label: 'Failed',
-    colour: 'var(--color-series-8)',
+    colour: 'var(--color-primary)',
     hatched: true,
     of: (b) => b.errors,
   },
@@ -167,7 +184,11 @@ export function TrafficChart({
             <span key={s.key} className="flex items-center gap-1.5 text-xs text-on-surface-variant">
               <span
                 className="inline-block size-2.5 rounded-[2px]"
-                style={s.hatched === true ? { background: HATCH_CSS } : { background: s.colour }}
+                style={
+                  s.hatched === true
+                    ? { background: s.colour, backgroundImage: hatchCSS(s.colour) }
+                    : { background: s.colour }
+                }
               />
               {s.label}
               {shown !== undefined && (
@@ -187,27 +208,33 @@ export function TrafficChart({
       >
         <defs>
           {/* Vertical lines rotated 45°, which is cheaper than drawing
-              diagonals and tiles without seams. The stripe is the card's own
-              colour rather than a lightened red, so it reads as the bar being
-              cut through in either theme. */}
-          <pattern
-            id={HATCH_ID}
-            width="6"
-            height="6"
-            patternUnits="userSpaceOnUse"
-            patternTransform="rotate(45)"
-          >
-            <rect width="6" height="6" fill="var(--color-series-8)" />
-            <line
-              x1="0"
-              y1="0"
-              x2="0"
-              y2="6"
-              stroke="var(--color-surface-container)"
-              strokeWidth="2.5"
-              opacity="0.55"
-            />
-          </pattern>
+              diagonals and tiles without seams. The shaded fill is set through
+              `style` over a plain `fill`, so a browser without color-mix drops
+              the declaration and keeps the series colour rather than painting
+              the band with nothing. */}
+          {series
+            .filter((s) => s.hatched === true)
+            .map((s) => (
+              <pattern
+                key={s.key}
+                id={hatchID(s.key)}
+                width="6"
+                height="6"
+                patternUnits="userSpaceOnUse"
+                patternTransform="rotate(45)"
+              >
+                <rect width="6" height="6" fill={s.colour} style={{ fill: dim(s.colour) }} />
+                <line
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="6"
+                  stroke="var(--color-surface-container)"
+                  strokeWidth="2.5"
+                  opacity="0.55"
+                />
+              </pattern>
+            ))}
         </defs>
 
         {lines.map((v) => (
@@ -253,7 +280,7 @@ export function TrafficChart({
                     y={cursor}
                     width={barW}
                     height={h}
-                    fill={s.hatched === true ? `url(#${HATCH_ID})` : s.colour}
+                    fill={s.hatched === true ? `url(#${hatchID(s.key)})` : s.colour}
                   />
                 )
               })}
