@@ -581,6 +581,19 @@ func TestRateLimitMapsToSlowDownNotRateLimitExceeded(t *testing.T) {
 	if code != "context_length_exceeded" {
 		t.Errorf("code = %q, want context_length_exceeded", code)
 	}
+
+	// Not Anthropic's vocabulary: these come from the gateway itself, and
+	// neither is a server error. Reporting one as server_error tells a client
+	// to retry something that will not change until a person changes it.
+	for _, kind := range []string{"not_found", "no_accounts"} {
+		if code, _ = mapError(kind, "x"); code != kind {
+			t.Errorf("mapError(%q) = %q, want it passed through", kind, code)
+		}
+	}
+	// A body whose type we could not read still needs some code.
+	if code, _ = mapError("", "x"); code != "server_error" {
+		t.Errorf("mapError(\"\") = %q, want server_error", code)
+	}
 }
 
 func TestStreamCutShortStillTerminates(t *testing.T) {
