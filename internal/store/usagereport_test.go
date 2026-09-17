@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -20,8 +21,8 @@ func TestSchemaAfterAllMigrations(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema version = %d, want 14", version)
+	if version != 15 {
+		t.Errorf("schema version = %d, want 15", version)
 	}
 
 	var n int
@@ -40,6 +41,18 @@ func TestSchemaAfterAllMigrations(t *testing.T) {
 	}
 	if n != 1 {
 		t.Error("idx_usage_at is missing; every usage query depends on it")
+	}
+
+	// 015's index is partial, and the WHERE clause is the point: the rows with
+	// no conversation id are the one group nobody drills into, and they would
+	// otherwise be the largest entry in it.
+	var sql string
+	if err := st.db.QueryRow(
+		`SELECT sql FROM sqlite_master WHERE name = 'idx_usage_chat_at'`).Scan(&sql); err != nil {
+		t.Fatalf("look for idx_usage_chat_at: %v", err)
+	}
+	if !strings.Contains(sql, "WHERE") {
+		t.Errorf("idx_usage_chat_at is not partial: %s", sql)
 	}
 }
 
