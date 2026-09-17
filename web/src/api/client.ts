@@ -165,6 +165,49 @@ export interface Usage {
   report?: UsageReport
 }
 
+/**
+ * One conversation's totals.
+ *
+ * The id is the one the client itself sent — Claude Code's session uuid,
+ * opencode's `ses_…`, Codex's session id. Nothing here is derived from the
+ * messages, which is why there is no title: see the Chats screen.
+ */
+export interface Chat {
+  id: string
+  client: string
+  key_name: string
+  account_email: string
+  /** In first-seen order. A chat that switched model mid-way shows both. */
+  models: string[]
+  requests: number
+  errors: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
+  first: string
+  last: string
+}
+
+export interface ChatReport {
+  chats: Chat[]
+  /**
+   * Every request whose client named no conversation, as one bucket. Shown
+   * rather than dropped: without it the totals here would not add up to the
+   * ones on the Overview, and it is how you find out something is talking to
+   * the gateway unlabelled.
+   */
+  unattributed: Chat
+  /** Distinct chats in the window, which is not chats.length once limit bites. */
+  total: number
+}
+
+export interface Chats {
+  enabled: boolean
+  days?: number
+  retention_days?: number
+  report?: ChatReport
+}
+
 export interface RequestRow {
   at: string
   key_name?: string
@@ -484,6 +527,9 @@ export const api = {
 
   usage: (days?: number) =>
     request<Usage>('GET', days === undefined ? '/admin/usage' : `/admin/usage?days=${days}`),
+
+  chats: (days?: number) =>
+    request<Chats>('GET', days === undefined ? '/admin/chats' : `/admin/chats?days=${days}`),
 
   recentRequests: async (
     limit = 50,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, api, messageOf, type RequestRow, type Usage } from '../../api/client'
 import { RankedBars } from '../charts'
+import ChatsPanel from './chats'
 import { Traffic } from './traffic'
 import { useLoader } from '../hooks'
 import {
@@ -27,10 +28,11 @@ import {
 
 const WINDOWS = [1, 7, 30] as const
 
-type View = 'requests' | 'day' | 'model' | 'account' | 'key'
+type View = 'requests' | 'chats' | 'day' | 'model' | 'account' | 'key'
 
 const VIEW_LABELS: Record<View, string> = {
   requests: 'Requests',
+  chats: 'Chats',
   day: 'Over time',
   model: 'Model',
   account: 'Account',
@@ -81,6 +83,11 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
   // four empty tabs. Requests is always there — "nothing yet" is an answer.
   const views: View[] = ['requests']
   if (report !== undefined) {
+    // Offered whenever anything was proxied, rather than gated on a count this
+    // report does not carry: the chat list fetches its own data and says "no
+    // conversations" for itself, which is a real answer worth being able to
+    // reach.
+    if (report.totals.requests > 0) views.push('chats')
     if (report.by_day.length > 0) views.push('day')
     if (report.by_model.length > 0) views.push('model')
     if (report.by_account.length > 0) views.push('account')
@@ -163,6 +170,10 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
             // and drops the cursor, which is exactly what reloading it means.
             <RecentRequests key={reloads} onExpired={onExpired} />
           )}
+
+          {/* Its own fetch, so opening Usage does not pay for a rollup most
+              visits never look at. */}
+          {view === 'chats' && <ChatsPanel days={days} onExpired={onExpired} />}
 
           {view === 'day' && report !== undefined && (
             <Traffic cross={report.cross} days={days} />
