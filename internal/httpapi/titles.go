@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -358,7 +359,7 @@ func titleBody(body []byte) ([]byte, bool) {
 		return nil, false
 	}
 	envelope["messages"] = encoded
-	envelope["max_tokens"] = json.RawMessage("48")
+	envelope["max_tokens"] = json.RawMessage(strconv.Itoa(titleMaxTokens))
 
 	// Streaming would mean parsing a stream to read one line. Thinking would
 	// spend the whole output budget before reaching the answer. A forced
