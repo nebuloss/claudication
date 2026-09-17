@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 	"testing"
 
 	"claudication/internal/store"
@@ -43,7 +44,11 @@ func lastEvent(t *testing.T, st *store.Store, answer string) store.UsageEvent {
 		t.Fatal(err)
 	}
 	if len(events) == 0 {
-		t.Fatalf("no usage was recorded; the gateway answered:\n%s", answer)
+		probe := st.RecordUsage(context.Background(), store.UsageEvent{
+			At: time.Now(), Model: "probe", Path: "/probe", Status: 200,
+		})
+		t.Fatalf("no usage was recorded.\n  direct RecordUsage: %v\n  answer was %d bytes",
+			probe, len(answer))
 	}
 	return events[0]
 }
