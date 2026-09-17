@@ -100,9 +100,9 @@ func TestTitleBodyRefusesWhatItCannotUse(t *testing.T) {
 	for _, body := range []string{
 		``,
 		`not json`,
-		`{"model":"claude-sonnet-5"}`,        // no messages
-		`{"model":"m","messages":[]}`,        // nothing to title
-		`{"model":"m","messages":"wrong"}`,   // messages is not a list
+		`{"model":"claude-sonnet-5"}`,      // no messages
+		`{"model":"m","messages":[]}`,      // nothing to title
+		`{"model":"m","messages":"wrong"}`, // messages is not a list
 	} {
 		if _, ok := titleBody([]byte(body)); ok {
 			t.Errorf("titleBody(%.30q) accepted a request it cannot use", body)
