@@ -27,7 +27,7 @@
  * shaded-and-hatched treatment for a failed state are decided once here rather
  * than argued out again per screen.
  */
-export { LinearScale, LogScale, BandScale, niceTicks } from './scale'
+export { LinearScale, LogScale, BandScale, niceTicks, edgeAnchor } from './scale'
 export {
   Solid,
   Hatch,

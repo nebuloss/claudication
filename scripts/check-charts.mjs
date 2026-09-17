@@ -11,7 +11,8 @@
 // re-test arithmetic that is already checked here.
 
 const OUT = process.env.OUT ?? new URL('../web/.charts-check', import.meta.url).pathname
-const { niceTicks, LinearScale, LogScale, BandScale } = await import(`${OUT}/scale.js`)
+const { niceTicks, LinearScale, LogScale, BandScale, edgeAnchor } =
+  await import(`${OUT}/scale.js`)
 const { Stack } = await import(`${OUT}/stack.js`)
 
 let failures = 0
@@ -81,6 +82,15 @@ const many = new BandScale(30, 0, 400)
 const shown = [...Array(30).keys()].filter(many.labelled(6))
 check('30 columns yield at most 6 labels', shown.length <= 6, true)
 check('the first is always labelled, to anchor the axis', shown[0], 0)
+
+console.log('\n— edgeAnchor: the outermost labels must not hang off the plot —')
+// The bug: a point scale puts the last vertex ON the right edge, so a label
+// centred there had half its text outside the viewBox and was clipped.
+check('the last label is right-aligned', edgeAnchor(4, 5), 'end')
+check('the first is left-aligned', edgeAnchor(0, 5), 'start')
+check('the rest are centred', edgeAnchor(2, 5), 'middle')
+check('a lone column is centred, not shoved left', edgeAnchor(0, 1), 'middle')
+check('an empty axis does not throw', edgeAnchor(0, 0), 'middle')
 
 console.log('\n— Stack: the sums a stacked column needs —')
 const data = [

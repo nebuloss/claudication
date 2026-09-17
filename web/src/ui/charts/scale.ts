@@ -127,6 +127,25 @@ export class LogScale {
 }
 
 /**
+ * Which way an axis label hangs off its tick.
+ *
+ * A point scale puts the first and last vertices *on* the edges of the plot,
+ * which is right for the line and wrong for its label: centred there, half the
+ * text sits outside the viewBox and is clipped. Anchoring the outermost labels
+ * inward fixes it without padding the plot, which would pull the line away
+ * from the edge it is supposed to touch.
+ *
+ * A band scale does not need this — its marks are centred inside slots, so the
+ * outermost labels are already inset by half a slot.
+ */
+export function edgeAnchor(i: number, count: number): 'start' | 'middle' | 'end' {
+  if (count <= 1) return 'middle'
+  if (i === 0) return 'start'
+  if (i === count - 1) return 'end'
+  return 'middle'
+}
+
+/**
  * A categorical axis: n equal slots across a span.
  *
  * Slots and bars are different things. The slot is the whole share of the axis

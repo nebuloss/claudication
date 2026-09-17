@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { Line, type Paint } from './paint'
-import { LinearScale, LogScale } from './scale'
+import { edgeAnchor, LinearScale, LogScale } from './scale'
 
 /** One line: a name, how to paint it, and its value on a given column. */
 export type LineSeries<T> = {
@@ -134,7 +134,7 @@ export function LineChart<T>({
             key={label(d)}
             x={x(i)}
             y={height - 8}
-            textAnchor="middle"
+            textAnchor={edgeAnchor(i, data.length)}
             fontSize={11}
             fill="currentColor"
             className="text-on-surface-variant"
