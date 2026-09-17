@@ -136,10 +136,10 @@ func SessionFromMetadata(body []byte) string {
 // the default: an unknown client is named, not discarded, so a new one shows up
 // in the UI the first time it connects instead of appearing as a blank.
 var clientNames = map[string]string{
-	"claude-cli":  "Claude Code",
-	"opencode":    "opencode",
+	"claude-cli":   "Claude Code",
+	"opencode":     "opencode",
 	"codex_cli_rs": "Codex",
-	"crush":       "crush",
+	"crush":        "crush",
 }
 
 // ClientName is the product a User-Agent claims to be.

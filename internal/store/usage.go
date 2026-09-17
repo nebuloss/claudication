@@ -15,14 +15,14 @@ type UsageEvent struct {
 	// ID is set on read, not on write: it is the table's own row id, and it is
 	// what makes a page boundary unambiguous when two requests share a
 	// timestamp.
-	ID               int64
-	At               time.Time
-	KeyID            string
-	KeyName          string
-	AccountID        string
-	AccountEmail     string
-	Model string
-	Path  string
+	ID           int64
+	At           time.Time
+	KeyID        string
+	KeyName      string
+	AccountID    string
+	AccountEmail string
+	Model        string
+	Path         string
 	// ConversationID is the chat this request belonged to, as the client named
 	// it, or empty when the client named none. Client is the product that made
 	// it. Both are read from the caller's own headers — never derived from the
