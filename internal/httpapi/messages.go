@@ -60,6 +60,16 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		outbound := ex.Request()
 		model, streaming := ex.Model(), ex.Streaming()
 
+		// Read before the clone, and before Headers strips anything.
+		//
+		// For a translating dialect the headers naming the conversation are
+		// exactly the ones that must not travel upstream — Codex's session_id
+		// is in dialectHeaders — so after the two lines below they are gone.
+		// This is the only point at which the caller's own request is still
+		// intact.
+		conversation := p.ConversationID(r.Header, body)
+		client := api.ClientName(r.UserAgent())
+
 		ctx, cancel := contextWithTimeout(r, upstream.Timeout(streaming))
 		defer cancel()
 		// Cloned rather than re-contexted, because the protocol is about to
@@ -90,7 +100,8 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 				At: started, KeyID: key.ID, KeyName: key.Name,
 				AccountID: res.AccountID, AccountEmail: res.AccountEmail,
 				Model: model, Path: route, Status: 0, Streaming: streaming,
-				Duration: elapsed, Error: res.Err.Error(),
+				ConversationID: conversation, Client: client,
+				Duration:       elapsed, Error: res.Err.Error(),
 			}, key.TokenBudget)
 			s.relayFailure(w, r, p, res.Err)
 			return
@@ -100,6 +111,8 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			At: started, KeyID: key.ID, KeyName: key.Name,
 			AccountID: res.AccountID, AccountEmail: res.AccountEmail,
 			Model: model, Path: route, Status: res.Status, Streaming: streaming,
+			ConversationID:   conversation,
+			Client:           client,
 			InputTokens:      res.Usage.InputTokens,
 			OutputTokens:     res.Usage.OutputTokens,
 			CacheReadTokens:  res.Usage.CacheReadTokens,

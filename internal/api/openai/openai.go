@@ -63,6 +63,20 @@ func (API) WriteError(w http.ResponseWriter, status int, kind, message string) {
 	_, _ = w.Write(ErrorEnvelope(kind, message))
 }
 
+// ConversationID reads the chat id Codex sends.
+//
+// It sends both, with the same UUID in each: session_id names the CLI session
+// and conversation_id the thread within it. session_id is taken first because
+// it is the one Codex sends on every request, conversation_id only once the
+// thread exists.
+//
+// Both are in dialectHeaders and so are stripped before the request goes
+// upstream — which is exactly why this reads the caller's own headers, before
+// the relay clones the request. Reading them afterwards finds nothing.
+func (API) ConversationID(h http.Header, _ []byte) string {
+	return api.HeaderID(h, "Session_id", "Conversation_id")
+}
+
 // exchange is one Responses request in flight. It is also the api.Reshaper for
 // its own answer, so the tool-origin map it carries is in scope for both
 // directions and cannot drift apart from the request that produced it.

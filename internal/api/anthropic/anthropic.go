@@ -56,6 +56,24 @@ func (API) WriteError(w http.ResponseWriter, status int, kind, message string) {
 	})
 }
 
+// ConversationID reads the chat id out of a request in this dialect.
+//
+// Three clients speak Anthropic to this gateway and they do not agree on a
+// header, so all of them are checked, most specific first:
+//
+//	X-Claude-Code-Session-Id  Claude Code, and only it
+//	x-session-id              opencode and crush, both of which also send
+//	                          x-session-affinity with the same value
+//
+// The body is the last resort and normally does not run, because Claude Code —
+// the only client that puts the id in a body at all — sends the header too.
+func (API) ConversationID(h http.Header, body []byte) string {
+	if id := api.HeaderID(h, "X-Claude-Code-Session-Id", "X-Session-Id"); id != "" {
+		return id
+	}
+	return api.SessionFromMetadata(body)
+}
+
 type exchange struct {
 	body     []byte
 	prologue upstream.Prologue

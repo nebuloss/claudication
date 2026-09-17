@@ -21,8 +21,15 @@ type UsageEvent struct {
 	KeyName          string
 	AccountID        string
 	AccountEmail     string
-	Model            string
-	Path             string
+	Model string
+	Path  string
+	// ConversationID is the chat this request belonged to, as the client named
+	// it, or empty when the client named none. Client is the product that made
+	// it. Both are read from the caller's own headers — never derived from the
+	// messages — which is why a chat can be grouped without the gateway
+	// storing any conversation content.
+	ConversationID   string
+	Client           string
 	Status           int
 	Streaming        bool
 	InputTokens      int
@@ -47,13 +54,14 @@ func (e UsageEvent) Tokens() int64 {
 func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO usage_events (at, key_id, key_name, account_id, account_email,
-		                           model, path, status, streaming,
+		                           model, path, conversation_id, client,
+		                           status, streaming,
 		                           input_tokens, output_tokens,
 		                           cache_read_tokens, cache_write_tokens,
 		                           duration_ms, error)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.At.UTC().Format(time.RFC3339Nano), e.KeyID, e.KeyName, e.AccountID, e.AccountEmail,
-		e.Model, e.Path, e.Status, e.Streaming,
+		e.Model, e.Path, e.ConversationID, e.Client, e.Status, e.Streaming,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens,
 		e.Duration.Milliseconds(), e.Error,
 	)
@@ -446,6 +454,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor) (
 	}
 
 	const columns = `id, at, key_id, key_name, account_id, account_email, model, path,
+	                 conversation_id, client,
 	                 status, streaming, input_tokens, output_tokens,
 	                 cache_read_tokens, cache_write_tokens, duration_ms, error`
 
@@ -475,7 +484,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor) (
 		var at string
 		var ms int64
 		if err := rows.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
-			&e.Model, &e.Path, &e.Status, &e.Streaming,
+			&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
 			&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
 			&ms, &e.Error); err != nil {
 			return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)

@@ -30,6 +30,19 @@ type Protocol interface {
 	// not parse, a surface that is switched off, a pool with no accounts. A
 	// client can only act on an error it can parse.
 	WriteError(w http.ResponseWriter, status int, kind, message string)
+
+	// ConversationID names the chat this request belongs to, or "" when the
+	// caller sends nothing that does.
+	//
+	// It takes the caller's own headers and body, so it must be called before
+	// the request is cloned and Headers has stripped anything: for a
+	// translating dialect the headers that name the conversation are exactly
+	// the ones that do not travel upstream.
+	//
+	// Which header means what is per dialect, which is why this is on the
+	// Protocol rather than in the relay — the evidence for each belongs beside
+	// the dialect it was measured from. See conversation.go for the table.
+	ConversationID(h http.Header, body []byte) string
 }
 
 // Exchange is one request in flight: the Anthropic request to relay, and the
