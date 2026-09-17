@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -62,6 +63,33 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 		"retention_days": s.cfg.Usage.RetentionDays,
 		"report":         report,
 	})
+}
+
+// handleSetChatTitles turns chat naming on or off.
+//
+// Its own endpoint rather than a config value, for the reason the API switches
+// have one: this decides whether the gateway may spend the operator's
+// subscription on its own behalf, and the answer to "stop doing that" cannot be
+// "edit a file and restart".
+func (s *Server) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", `expected {"enabled": true|false}`)
+		return
+	}
+	if body.Enabled == nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "enabled is required")
+		return
+	}
+	if err := s.titles.set(r.Context(), *body.Enabled); err != nil {
+		s.log.Error("could not store the chat-title switch", "err", err)
+		writeError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
+		return
+	}
+	s.log.Warn("chat titles switched", "enabled", *body.Enabled)
+	writeJSON(w, http.StatusOK, map[string]any{"chat_titles": s.titles.on()})
 }
 
 // handleChat answers one conversation's requests.

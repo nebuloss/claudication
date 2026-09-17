@@ -124,6 +124,16 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			Error: firstNonEmpty(res.StreamError, res.UpstreamError),
 		}, key.TokenBudget)
 
+		// After the answer, never before it: naming a chat is a convenience and
+		// the client's turn must not wait on one. Returns at once unless
+		// titling is on and this conversation has no name yet.
+		s.titles.consider(titleRequest{
+			conversation: conversation,
+			model:        model,
+			accountID:    res.AccountID,
+			body:         outbound,
+		})
+
 		attrs := []any{
 			"api", p.ID(),
 			"model", model,

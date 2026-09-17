@@ -42,7 +42,7 @@ var hopByHop = map[string]bool{
 // forwarded verbatim. It never parses what it does not need to, which is what
 // keeps it working with capabilities that do not exist yet.
 type Relay struct {
-	Pool accountPool
+	Pool AccountPool
 	// Attribution prepends Claude Code's system block when the caller did not.
 	// Off means non-Claude-Code clients reach haiku and nothing above it.
 	Attribution bool
@@ -74,12 +74,12 @@ type nopTee struct{}
 func (nopTee) feed([]byte) {}
 func (nopTee) done()       {}
 
-// accountPool is what the relay needs from the pool.
+// AccountPool is what the relay needs from the pool.
 //
 // An interface rather than the concrete type so the retry and refusal paths —
 // the part the contract is strictest about — can be exercised
 // without a database and a live provider behind them. *pool.Pool satisfies it.
-type accountPool interface {
+type AccountPool interface {
 	Acquire(ctx context.Context, provider string, exclude map[string]bool) (pool.Lease, error)
 	ReportFailure(id string, kind pool.FailureKind, detail string)
 	ReportSuccess(id string)

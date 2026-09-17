@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -21,7 +23,12 @@ type Chat struct {
 	// ID is the conversation id the client sent. Never empty in this list:
 	// requests that named no conversation are counted separately, because a
 	// single row lumping unrelated traffic together is not a chat.
-	ID     string `json:"id"`
+	ID string `json:"id"`
+	// Title is what the gateway asked a model to call this conversation, or
+	// empty when it never did — titling is off, or the chat predates it, or the
+	// request was refused. Empty is common and the UI falls back to the client
+	// and the id, which is why nothing here depends on it.
+	Title  string `json:"title"`
 	Client string `json:"client"`
 	// KeyName and AccountEmail are whichever served it most recently. A chat
 	// normally keeps one of each for its whole life; when a key is rotated or
@@ -104,7 +111,9 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 		          ORDER BY e3.at DESC LIMIT 1),
 		        (SELECT account_email FROM usage_events e4
 		          WHERE e4.conversation_id = e.conversation_id AND e4.at >= ?
-		          ORDER BY e4.at DESC LIMIT 1)
+		          ORDER BY e4.at DESC LIMIT 1),
+		        (SELECT title FROM chat_titles t
+		          WHERE t.conversation_id = e.conversation_id)
 		   FROM usage_events e
 		  WHERE at >= ? AND conversation_id <> ''
 		  GROUP BY conversation_id
@@ -144,15 +153,18 @@ type rowScanner interface {
 
 func scanChat(r rowScanner) (Chat, error) {
 	var (
-		c            Chat
-		first, last  string
-		models       *string
-		key, account *string
+		c                   Chat
+		first, last         string
+		models              *string
+		key, account, title *string
 	)
 	if err := r.Scan(&c.ID, &c.Client, &c.Requests, &c.Errors,
 		&c.InputTokens, &c.OutputTokens, &c.CacheTokens,
-		&first, &last, &models, &key, &account); err != nil {
+		&first, &last, &models, &key, &account, &title); err != nil {
 		return Chat{}, err
+	}
+	if title != nil {
+		c.Title = *title
 	}
 	c.First, _ = time.Parse(time.RFC3339Nano, first)
 	c.Last, _ = time.Parse(time.RFC3339Nano, last)
@@ -188,7 +200,7 @@ func (s *Store) unattributed(ctx context.Context, from string) (Chat, error) {
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events
 		              WHERE conversation_id = '' AND at >= ? AND model <> '')),
-		        '', ''
+		        '', '', ''
 		   FROM usage_events WHERE at >= ? AND conversation_id = ''`,
 		from, from)
 
@@ -245,4 +257,64 @@ func (s *Store) ChatEvents(ctx context.Context, id string, limit int) ([]UsageEv
 		return nil, fmt.Errorf("chat events: %w", err)
 	}
 	return out, nil
+}
+
+// maxTitle bounds what is stored. The model is asked for something short; this
+// is the guard for when it answers with an essay anyway, which a model told to
+// be brief does often enough to matter.
+const maxTitle = 120
+
+// ChatTitle returns the stored title for a conversation, if it has one.
+func (s *Store) ChatTitle(ctx context.Context, id string) (string, bool, error) {
+	var title string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT title FROM chat_titles WHERE conversation_id = ?`, id).Scan(&title)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("chat title: %w", err)
+	}
+	return title, true, nil
+}
+
+// SetChatTitle records a title, once.
+//
+// First writer wins. A chat is titled from its opening turn, and re-titling it
+// later from a conversation that has moved on would rename something the
+// operator has already learned to recognise. DO NOTHING rather than REPLACE
+// also makes the racing-turns case harmless: two turns of a new chat can both
+// decide it needs a title, and the loser simply does nothing.
+func (s *Store) SetChatTitle(ctx context.Context, id, title, model string) error {
+	title = strings.TrimSpace(title)
+	if id == "" || title == "" {
+		return nil
+	}
+	if len(title) > maxTitle {
+		title = strings.TrimSpace(title[:maxTitle])
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO chat_titles (conversation_id, title, model, created_at)
+		 VALUES (?, ?, ?, ?) ON CONFLICT (conversation_id) DO NOTHING`,
+		id, title, model, time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("set chat title: %w", err)
+	}
+	return nil
+}
+
+// PruneChatTitles drops titles whose conversations have no events left.
+//
+// usage_events is pruned on a schedule, and a title table that was not pruned
+// with it would grow without bound while keeping names for conversations
+// nobody can look at any more.
+func (s *Store) PruneChatTitles(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM chat_titles WHERE conversation_id NOT IN
+		   (SELECT DISTINCT conversation_id FROM usage_events WHERE conversation_id <> '')`)
+	if err != nil {
+		return 0, fmt.Errorf("prune chat titles: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }

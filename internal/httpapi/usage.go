@@ -57,6 +57,15 @@ func (s *Server) runUsagePruner() {
 			s.log.Info("pruned usage events", "rows", n,
 				"older_than_days", s.cfg.Usage.RetentionDays)
 		}
+		// Titles are keyed on conversations that only exist as events, so they
+		// are pruned here rather than on a schedule of their own: run
+		// separately they would drift, and a title outliving its events is a
+		// name for something nobody can look at.
+		if n, err := s.store.PruneChatTitles(ctx); err != nil {
+			s.log.Warn("could not prune chat titles", "err", err)
+		} else if n > 0 {
+			s.log.Info("pruned chat titles", "rows", n)
+		}
 	}
 
 	// Once at startup, because a gateway that was down for a month should not

@@ -49,6 +49,9 @@ type Server struct {
 	// default case — see internal/api.
 	protocols api.Registry
 	surfaces  *surfaces
+	// titles names conversations by asking a model, which is the only traffic
+	// this gateway originates rather than relays. Off until switched on.
+	titles *titler
 
 	mu   sync.Mutex
 	addr string
@@ -118,6 +121,15 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	defer cancelLoad()
 	if err := s.surfaces.load(loadCtx); err != nil {
 		log.Warn("could not read the API surface switches; serving every surface", "err", err)
+	}
+
+	// Same treatment, opposite default: a failure here leaves titling off,
+	// because it is the one thing that spends the operator's subscription on
+	// the gateway's own behalf and doing that by accident is not a state worth
+	// reaching.
+	s.titles = newTitler(s)
+	if err := s.titles.load(loadCtx); err != nil {
+		log.Warn("could not read the chat-title switch; leaving it off", "err", err)
 	}
 
 	s.pool = pool.New(st, sealer, s.httpClient, log)
@@ -278,6 +290,7 @@ func (s *Server) routes(r0 role) http.Handler {
 		mux.Handle("GET /admin/usage", admin(s.handleUsage))
 		mux.Handle("GET /admin/chats", admin(s.handleChats))
 		mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
+		mux.Handle("POST /admin/chat-titles", admin(s.handleSetChatTitles))
 		mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 
 	}

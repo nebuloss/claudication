@@ -1,3 +1,4 @@
+import ChatTitles from './chat-titles'
 import ConfigTable from './configtable'
 import Security from './security'
 import Surfaces from './surfaces'
@@ -50,6 +51,7 @@ export default function Settings({
       ) : (
         <>
           <Surfaces surfaces={data.surfaces} onChanged={() => void reload()} />
+          <ChatTitles enabled={data.chat_titles} onChanged={() => void reload()} />
           <ConfigTable config={data} />
         </>
       )}

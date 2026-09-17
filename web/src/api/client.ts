@@ -174,6 +174,12 @@ export interface Usage {
  */
 export interface Chat {
   id: string
+  /**
+   * What the gateway asked a model to call this conversation, or empty when it
+   * never did — titling is off, the chat predates it, or the model declined.
+   * Empty is normal, so the row falls back to the client and the id.
+   */
+  title: string
   client: string
   key_name: string
   account_email: string
@@ -275,6 +281,12 @@ export interface GatewayConfig {
   path: string
   settings: Setting[]
   surfaces: Surface[]
+  /**
+   * Whether the gateway may name conversations by asking a model. The only
+   * thing it does that spends the operator's subscription on its own behalf,
+   * which is why it is a switch and why it is off until turned on.
+   */
+  chat_titles: boolean
 }
 
 export interface Overview {
@@ -478,6 +490,9 @@ export const api = {
     request<{ surfaces: Surface[] }>('POST', `/admin/surfaces/${encodeURIComponent(id)}`, {
       enabled,
     }),
+
+  setChatTitles: (enabled: boolean) =>
+    request<{ chat_titles: boolean }>('POST', '/admin/chat-titles', { enabled }),
 
   listKeys: async (): Promise<{
     keys: ApiKey[]

@@ -682,6 +682,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		// about together with the rest, and separating them is how a switch
 		// gets flipped and then lost.
 		"surfaces": s.surfaces.state(),
+		// Beside the surfaces for the same reason, and because it is the one
+		// switch that decides whether the gateway spends the operator's
+		// subscription on its own behalf. That belongs where they are already
+		// looking at what this gateway is allowed to do.
+		"chat_titles": s.titles.on(),
 	})
 }
 

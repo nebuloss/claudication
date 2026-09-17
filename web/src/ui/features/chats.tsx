@@ -148,13 +148,17 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
       >
         {sorted.map((c) => (
           <tr key={c.id} className="border-b border-outline-variant last:border-0">
+            {/* The title when there is one, the client when there is not.
+                Either way the id stays on the line beneath: it is the join key
+                back to the client's own session list, which is where the
+                conversation itself can actually be read. */}
             <td className="px-2 py-2 whitespace-nowrap">
               <div className="flex flex-col">
-                <span className="font-medium text-on-surface">{c.client || 'Unknown client'}</span>
-                <span
-                  title={c.id}
-                  className="font-mono text-xs text-on-surface-variant"
-                >
+                <span className="font-medium text-on-surface">
+                  {c.title || c.client || 'Unknown client'}
+                </span>
+                <span title={c.id} className="font-mono text-xs text-on-surface-variant">
+                  {c.title !== '' && c.client !== '' ? `${c.client} · ` : ''}
                   {shortID(c.id)}
                 </span>
               </div>
