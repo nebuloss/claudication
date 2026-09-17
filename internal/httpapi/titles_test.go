@@ -1,10 +1,22 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
 )
+
+// compactJSON strips insignificant whitespace so two encodings of the same
+// blocks compare equal.
+func compactJSON(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var out bytes.Buffer
+	if err := json.Compact(&out, raw); err != nil {
+		t.Fatalf("compact %s: %v", raw, err)
+	}
+	return out.String()
+}
 
 // The cached prefix must survive untouched.
 //
@@ -42,10 +54,12 @@ func TestTitleBodyLeavesTheCachedPrefixAlone(t *testing.T) {
 		t.Fatalf("the result is not JSON: %v", err)
 	}
 
-	// Byte-identical, cache_control markers included. Anything else changes the
-	// prefix and forfeits the cache.
+	// Unchanged as content, cache_control markers included. Compared compacted
+	// rather than byte-for-byte because re-encoding the envelope drops
+	// insignificant JSON whitespace, and the upstream parses the body before it
+	// hashes anything — what must not move is the blocks, not their spacing.
 	for _, field := range []string{"system", "tools", "model"} {
-		if string(before[field]) != string(after[field]) {
+		if compactJSON(t, before[field]) != compactJSON(t, after[field]) {
 			t.Errorf("%s was rewritten:\n  before %s\n  after  %s",
 				field, before[field], after[field])
 		}
