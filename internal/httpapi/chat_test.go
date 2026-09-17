@@ -35,22 +35,40 @@ func postHeaders(t *testing.T, url, key, body string, headers map[string]string)
 	return resp
 }
 
-// lastEvent is the usage row the request just wrote. Recording is synchronous,
-// so there is nothing to wait for.
-func lastEvent(t *testing.T, st *store.Store, answer string) store.UsageEvent {
+// waitForEvents returns the newest n usage rows, waiting for them to arrive.
+//
+// The wait is not paranoia and it is not a sleep standing in for a fix. Usage
+// is recorded inside the handler, but *after* the last byte of the answer has
+// gone to the client — so a client that has finished reading the body can, and
+// does, get there before the handler has finished the request. Asserting
+// straight after io.ReadAll passes or fails on which goroutine wins.
+//
+// It showed up as three of four cases failing while the Codex one passed,
+// which looked like a bug in the Anthropic path and was nothing of the sort:
+// Codex's sink writes its terminal event during Close, later in the handler,
+// so it happened to win a race the others lost.
+func waitForEvents(t *testing.T, st *store.Store, n int) []store.UsageEvent {
 	t.Helper()
-	events, _, err := st.RecentUsage(context.Background(), 10, store.UsageCursor{})
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		events, _, err := st.RecentUsage(context.Background(), 20, store.UsageCursor{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) >= n {
+			return events
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("recorded %d usage events, want %d", len(events), n)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if len(events) == 0 {
-		probe := st.RecordUsage(context.Background(), store.UsageEvent{
-			At: time.Now(), Model: "probe", Path: "/probe", Status: 200,
-		})
-		t.Fatalf("no usage was recorded.\n  direct RecordUsage: %v\n  answer was %d bytes",
-			probe, len(answer))
-	}
-	return events[0]
+}
+
+// lastEvent is the usage row the request just wrote.
+func lastEvent(t *testing.T, st *store.Store) store.UsageEvent {
+	t.Helper()
+	return waitForEvents(t, st, 1)[0]
 }
 
 // okUpstream answers every request with one complete Anthropic stream.
@@ -129,7 +147,7 @@ func TestConversationIDIsRecordedForEveryClient(t *testing.T) {
 				t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
 			}
 
-			got := lastEvent(t, st, string(body))
+			got := lastEvent(t, st)
 			if got.ConversationID != c.want {
 				t.Errorf("conversation = %q, want %q", got.ConversationID, c.want)
 			}
@@ -150,9 +168,9 @@ func TestNoSessionIDLeavesTheChatEmpty(t *testing.T) {
 	resp := postHeaders(t, base+"/v1/messages", key, anthropicRequest,
 		map[string]string{"User-Agent": "curl/8.5.0"})
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	_, _ = io.ReadAll(resp.Body)
 
-	got := lastEvent(t, st, string(body))
+	got := lastEvent(t, st)
 	if got.ConversationID != "" {
 		t.Errorf("conversation = %q, want empty rather than a guess", got.ConversationID)
 	}
@@ -177,10 +195,7 @@ func TestTurnsOfOneChatShareTheirID(t *testing.T) {
 		resp.Body.Close()
 	}
 
-	events, _, err := st.RecentUsage(context.Background(), 10, store.UsageCursor{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	events := waitForEvents(t, st, 2)
 	if len(events) != 2 {
 		t.Fatalf("recorded %d events, want 2", len(events))
 	}

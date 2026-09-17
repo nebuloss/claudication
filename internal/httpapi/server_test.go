@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
-	"os"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -36,7 +35,7 @@ func newTestServer(t *testing.T) (*Server, *store.Store, config.Config) {
 		t.Fatalf("secret.Load: %v", err)
 	}
 
-	srv, err := New(cfg, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})), st, sealer)
+	srv, err := New(cfg, slog.New(slog.DiscardHandler), st, sealer)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
