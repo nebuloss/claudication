@@ -36,14 +36,14 @@ func postHeaders(t *testing.T, url, key, body string, headers map[string]string)
 
 // lastEvent is the usage row the request just wrote. Recording is synchronous,
 // so there is nothing to wait for.
-func lastEvent(t *testing.T, st *store.Store) store.UsageEvent {
+func lastEvent(t *testing.T, st *store.Store, answer string) store.UsageEvent {
 	t.Helper()
-	events, _, err := st.RecentUsage(context.Background(), 1, store.UsageCursor{})
+	events, _, err := st.RecentUsage(context.Background(), 10, store.UsageCursor{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(events) == 0 {
-		t.Fatal("no usage was recorded")
+		t.Fatalf("no usage was recorded; the gateway answered:\n%s", answer)
 	}
 	return events[0]
 }
@@ -124,7 +124,7 @@ func TestConversationIDIsRecordedForEveryClient(t *testing.T) {
 				t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
 			}
 
-			got := lastEvent(t, st)
+			got := lastEvent(t, st, string(body))
 			if got.ConversationID != c.want {
 				t.Errorf("conversation = %q, want %q", got.ConversationID, c.want)
 			}
@@ -145,9 +145,9 @@ func TestNoSessionIDLeavesTheChatEmpty(t *testing.T) {
 	resp := postHeaders(t, base+"/v1/messages", key, anthropicRequest,
 		map[string]string{"User-Agent": "curl/8.5.0"})
 	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 
-	got := lastEvent(t, st)
+	got := lastEvent(t, st, string(body))
 	if got.ConversationID != "" {
 		t.Errorf("conversation = %q, want empty rather than a guess", got.ConversationID)
 	}
