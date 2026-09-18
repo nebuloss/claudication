@@ -57,19 +57,31 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -eu
+          # The release is titled with its version, always.
+          #
+          # It used to take an annotated tag's subject line instead, which made
+          # the list of releases read as a mix: the lightweight tags showed
+          # v0.10.0 and the annotated ones showed whatever their first line
+          # said. A release page is found by version — that is what a changelog
+          # links to and what an operator is holding when they come looking —
+          # so the version is the name, and the tag's own words are the notes
+          # underneath it.
+          title="$TAG"
+
           # Only an annotated tag has a message of its own. On a lightweight
           # one %(contents) quietly falls through to the tagged commit's
           # message, which is not a release note and would be published as if
           # it were — so ask what kind of object this is rather than trusting
           # a non-empty answer.
+          #
+          # %(contents), not %(contents:body): the subject line is the one
+          # sentence saying what the release is, and with the title no longer
+          # carrying it, dropping it here would lose it altogether.
           if [ "$(git cat-file -t "$TAG")" = tag ]; then
-            title=$(git tag -l --format='%(contents:subject)' "$TAG")
-            git tag -l --format='%(contents:body)' "$TAG" > notes.md
+            git tag -l --format='%(contents)' "$TAG" > notes.md
           else
-            title="$TAG"
             : > notes.md
           fi
-          [ -n "$title" ] || title="$TAG"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Already published: update it. `gh release edit` has no
