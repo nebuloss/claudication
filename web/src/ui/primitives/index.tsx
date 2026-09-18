@@ -602,8 +602,184 @@ function SelectedValue({ value }: { value: string }) {
  */
 export type Column = {
   label: string
-  onSort?: () => void
+  /**
+   * Called with no direction to turn the column around, or with one to set it.
+   * The heading button uses the first; the menu, where there is one, offers
+   * both explicitly, because a menu that toggles is a menu whose two entries
+   * do the same thing.
+   */
+  onSort?: (dir?: 'asc' | 'desc') => void
   sorted?: 'asc' | 'desc'
+  /**
+   * A panel to drop under the heading — a column of checkboxes, typically.
+   * When present the heading opens this instead of sorting, and the sort moves
+   * inside it, so one click on a column title reaches everything that column
+   * can do.
+   */
+  menu?: ReactNode
+  /** This column is narrowing the table, so the heading can say so. */
+  filtered?: boolean
+}
+
+/**
+ * A column heading that opens a menu.
+ *
+ * Portalled rather than drawn inside the cell. A capped table scrolls under
+ * overflow-auto, which clips anything absolutely positioned within it, so a
+ * panel opened from a heading would be cut off at the first row — and the
+ * sticky header makes it worse, not better. Fixed coordinates are read from
+ * the heading at the moment it opens.
+ */
+function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null)
+  const anchor = useRef<HTMLButtonElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
+  const open = at !== null
+
+  useEscapeKey(() => setAt(null), open)
+
+  useEffect(() => {
+    if (!open) return
+    // Any scroll closes it rather than following: the panel sits at
+    // coordinates taken when it opened, and a menu drifting away from the
+    // heading it belongs to is worse than one that shuts.
+    const shut = () => setAt(null)
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (panel.current !== null && panel.current.contains(target)) return
+      if (anchor.current !== null && anchor.current.contains(target)) return
+      setAt(null)
+    }
+    window.addEventListener('scroll', shut, true)
+    window.addEventListener('resize', shut)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('scroll', shut, true)
+      window.removeEventListener('resize', shut)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [open])
+
+  const toggle = () => {
+    if (open) {
+      setAt(null)
+      return
+    }
+    const rect = anchor.current?.getBoundingClientRect()
+    if (rect === undefined) return
+    // Kept on screen: a menu on the last column would otherwise open past the
+    // right edge, where reading it means scrolling the page sideways.
+    const width = 264
+    setAt({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+      top: rect.bottom + 4,
+    })
+  }
+
+  return (
+    <>
+      <button
+        ref={anchor}
+        type="button"
+        onClick={toggle}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 text-left ${
+          col.sorted !== undefined || col.filtered === true
+            ? 'text-on-surface'
+            : 'hover:text-on-surface'
+        }`}
+      >
+        {col.label}
+        {/* Which way it is sorted, when it is. */}
+        <svg
+          viewBox="0 0 10 6"
+          aria-hidden
+          className={`h-2 w-3 shrink-0 fill-current ${col.sorted === 'asc' ? 'rotate-180' : ''} ${
+            col.sorted !== undefined ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          <path d="M0 0h10L5 6z" />
+        </svg>
+        {/* A funnel when the column is narrowing, so a filtered table says
+            which column did it without opening anything. Otherwise a chevron
+            that appears on hover, which is what says the heading opens. */}
+        {col.filtered === true ? (
+          <svg viewBox="0 0 12 12" aria-hidden className="h-3 w-3 shrink-0 fill-primary">
+            <path d="M1 2h10L7 6.5V11L5 9.5V6.5z" />
+          </svg>
+        ) : (
+          <svg
+            viewBox="0 0 10 6"
+            aria-hidden
+            className="h-2 w-3 shrink-0 fill-current opacity-0 group-hover:opacity-50"
+          >
+            <path d="M0 0h10L5 6z" />
+          </svg>
+        )}
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={panel}
+            role="menu"
+            aria-label={col.label}
+            style={{ left: at.left, top: at.top, width: 264 }}
+            className="fixed z-50 max-h-[22rem] overflow-auto rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest py-1 text-sm normal-case shadow-lg"
+          >
+            {col.onSort !== undefined && (
+              <>
+                <MenuRow
+                  onClick={() => {
+                    col.onSort?.('asc')
+                    setAt(null)
+                  }}
+                  active={col.sorted === 'asc'}
+                >
+                  Sort ascending
+                </MenuRow>
+                <MenuRow
+                  onClick={() => {
+                    col.onSort?.('desc')
+                    setAt(null)
+                  }}
+                  active={col.sorted === 'desc'}
+                >
+                  Sort descending
+                </MenuRow>
+                <div className="my-1 border-t border-outline-variant" />
+              </>
+            )}
+            {children}
+          </div>,
+          document.body,
+        )}
+    </>
+  )
+}
+
+/** One line of a header menu that does something when clicked. */
+export function MenuRow({
+  onClick,
+  active = false,
+  children,
+}: {
+  onClick: () => void
+  active?: boolean
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className={`state-layer flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-normal tracking-normal ${
+        active ? 'text-primary' : 'text-on-surface'
+      }`}
+    >
+      {children}
+    </button>
+  )
 }
 
 /**
@@ -743,15 +919,20 @@ export function Table({
                         : 'descending'
                   }
                   className={`relative border-b border-outline text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
-                    col.onSort === undefined ? 'px-2 py-2' : 'p-0'
+                    col.onSort === undefined && col.menu === undefined ? 'px-2 py-2' : 'p-0'
                   } ${cap ? 'sticky top-0 z-10 bg-surface-container' : ''}`}
                 >
-                  {col.onSort === undefined ? (
+                  {col.menu !== undefined ? (
+                    <HeaderMenu col={col}>{col.menu}</HeaderMenu>
+                  ) : col.onSort === undefined ? (
                     col.label
                   ) : (
                     <button
                       type="button"
-                      onClick={col.onSort}
+                      // Wrapped, not passed: onSort takes an optional
+                      // direction, and handing it the click event straight
+                      // would make every heading "sort by MouseEvent".
+                      onClick={() => col.onSort?.()}
                       className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 text-left ${
                         col.sorted ? 'text-on-surface' : 'hover:text-on-surface'
                       }`}

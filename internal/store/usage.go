@@ -468,16 +468,29 @@ func ParseUsageCursor(s string) (UsageCursor, bool) {
 // together answer "which requests of this conversation broke", which is the
 // question a count in the chat table raises and could not answer.
 //
+// The set-valued fields hold every value the caller kept rather than one,
+// because a column menu is a column of checkboxes and "sonnet or haiku" is a
+// question a single value cannot ask. One tick is a one-element set, so
+// nothing here special-cases the common case.
+//
+// An empty string in a set is a real choice, not an absent one: a refused
+// request has no model and the gateway's own titling rows carry no client, and
+// "the ones with nothing here" is a thing worth asking for. So a set that does
+// not narrow is nil, never present-and-empty.
+//
 // Named for the log rather than for usage, because they are different things.
 // Usage is what was spent; the log is what arrived — including requests that
 // spent nothing because they were refused.
 type RequestFilter struct {
-	// ConversationID limits to one chat.
-	ConversationID string
-	// KeyID limits to one credential, Model to one model, IP to one machine.
-	KeyID string
-	Model string
-	IP    string
+	// ConversationIDs limits to these chats, KeyIDs to these credentials,
+	// Models to these models, Clients to what was running, IPs to these
+	// machines, Statuses to these response codes.
+	ConversationIDs []string
+	KeyIDs          []string
+	Models          []string
+	Clients         []string
+	IPs             []string
+	Statuses        []int
 	// Kind narrows to "relayed" or "rejected"; empty is both, which is the
 	// point of one list.
 	Kind string
@@ -485,6 +498,10 @@ type RequestFilter struct {
 	// failure, or a stream that died after its 200. The two are different
 	// facts and both are failures, which is why this is one flag rather than
 	// a status-code field the caller has to know to combine.
+	//
+	// Not the same question as a Statuses set, and it composes with one: 429
+	// and 500 are two codes, "anything that went wrong" is a predicate over
+	// codes this gateway did not choose.
 	FailedOnly bool
 }
 
@@ -492,22 +509,29 @@ type RequestFilter struct {
 func (f RequestFilter) where() (string, []any) {
 	var clauses []string
 	var args []any
-	if f.ConversationID != "" {
-		clauses = append(clauses, "conversation_id = ?")
-		args = append(args, f.ConversationID)
+
+	set := func(column string, values []string) {
+		if len(values) == 0 {
+			return
+		}
+		clauses = append(clauses, column+" IN ("+placeholders(len(values))+")")
+		for _, v := range values {
+			args = append(args, v)
+		}
 	}
-	if f.KeyID != "" {
-		clauses = append(clauses, "key_id = ?")
-		args = append(args, f.KeyID)
+	set("conversation_id", f.ConversationIDs)
+	set("key_id", f.KeyIDs)
+	set("model", f.Models)
+	set("client", f.Clients)
+	set("ip", f.IPs)
+
+	if len(f.Statuses) > 0 {
+		clauses = append(clauses, "status IN ("+placeholders(len(f.Statuses))+")")
+		for _, v := range f.Statuses {
+			args = append(args, v)
+		}
 	}
-	if f.Model != "" {
-		clauses = append(clauses, "model = ?")
-		args = append(args, f.Model)
-	}
-	if f.IP != "" {
-		clauses = append(clauses, "ip = ?")
-		args = append(args, f.IP)
-	}
+
 	switch f.Kind {
 	case "relayed":
 		clauses = append(clauses, "rejected = 0")
@@ -521,6 +545,130 @@ func (f RequestFilter) where() (string, []any) {
 		return "", nil
 	}
 	return strings.Join(clauses, " AND "), args
+}
+
+// placeholders is "?, ?, ?" for three, so a set of values becomes an IN list.
+//
+// Built from the count and never from the values themselves, which is the
+// whole point: the values stay parameters, and a model name with a quote in it
+// is a string rather than a syntax error or worse.
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
+}
+
+// FacetValue is one line of a column's filter menu: what to narrow to, what to
+// show for it, and how many requests carry it.
+type FacetValue struct {
+	Value string `json:"value"`
+	Label string `json:"label,omitempty"`
+	Count int64  `json:"count"`
+}
+
+// RequestFacets is what each filterable column can be narrowed to.
+type RequestFacets struct {
+	Models   []FacetValue `json:"models"`
+	Clients  []FacetValue `json:"clients"`
+	IPs      []FacetValue `json:"ips"`
+	Statuses []FacetValue `json:"statuses"`
+}
+
+// RequestFacets lists what every filterable column holds, with counts.
+//
+// Read from the whole table rather than from the page on screen. The screen
+// holds fifty rows, which is about seven minutes of a busy gateway, and a menu
+// built from those can only ever offer what you are already looking at — the
+// exact defect that made the old model picker useless. The log searches all of
+// history and so does this.
+//
+// Deliberately not narrowed by the filter in force either. Counts that respond
+// to the other filters look clever and take away the only way back: tick a
+// model, and every value that model never used disappears from the other
+// menus, so the filter that trapped you is the one you can no longer widen.
+// These are totals, and the UI says so.
+//
+// Capped per column, commonest first. Addresses are the unbounded one — a
+// scanner can mint thousands in an afternoon — and a menu is not a place to
+// render them all; what a cap loses is the long tail of one-request values,
+// which the IP cell is clickable for.
+func (s *Store) RequestFacets(ctx context.Context, limit int) (RequestFacets, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	var out RequestFacets
+	var err error
+	if out.Models, err = s.facet(ctx, "model", limit); err != nil {
+		return RequestFacets{}, err
+	}
+	if out.Clients, err = s.facet(ctx, "client", limit); err != nil {
+		return RequestFacets{}, err
+	}
+	if out.IPs, err = s.facet(ctx, "ip", limit); err != nil {
+		return RequestFacets{}, err
+	}
+	if out.Statuses, err = s.statusFacet(ctx, limit); err != nil {
+		return RequestFacets{}, err
+	}
+	return out, nil
+}
+
+// facet counts one column whose value is also its label.
+//
+// The column name is a constant from the caller, never anything a request
+// carries: it is the one part of the statement that cannot be a parameter.
+func (s *Store) facet(ctx context.Context, column string, limit int) ([]FacetValue, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+column+`, COUNT(*) FROM usage_events
+		GROUP BY `+column+`
+		ORDER BY COUNT(*) DESC, `+column+` ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("facet %s: %w", column, err)
+	}
+	defer rows.Close()
+
+	out := []FacetValue{}
+	for rows.Next() {
+		var v FacetValue
+		if err := rows.Scan(&v.Value, &v.Count); err != nil {
+			return nil, fmt.Errorf("facet %s: %w", column, err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// statusFacet counts by response code, with 0 named for what it means.
+func (s *Store) statusFacet(ctx context.Context, limit int) ([]FacetValue, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT status, COUNT(*) FROM usage_events
+		GROUP BY status
+		ORDER BY COUNT(*) DESC, status ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("facet statuses: %w", err)
+	}
+	defer rows.Close()
+
+	out := []FacetValue{}
+	for rows.Next() {
+		var code int
+		var count int64
+		if err := rows.Scan(&code, &count); err != nil {
+			return nil, fmt.Errorf("facet statuses: %w", err)
+		}
+		// 0 is not a status any upstream sent; it is this gateway recording
+		// that nothing came back at all.
+		label := strconv.Itoa(code)
+		if code == 0 {
+			label = "no answer"
+		}
+		out = append(out, FacetValue{Value: strconv.Itoa(code), Label: label, Count: count})
+	}
+	return out, rows.Err()
 }
 
 // RecentUsage returns one page of events, newest first, along with the cursor

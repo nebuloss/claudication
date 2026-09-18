@@ -257,6 +257,30 @@ export interface RequestRow {
   client?: string
 }
 
+/** One line of a column's filter menu. */
+export interface FacetValue {
+  /** What to filter on. Empty means the rows with nothing in that column. */
+  value: string
+  /** What to show, when that is not the value itself — a key id is not a name. */
+  label?: string
+  count: number
+}
+
+/**
+ * What each filterable column of the request log holds.
+ *
+ * Counted over the whole log rather than the page on screen, and deliberately
+ * not narrowed by the filter in force: a menu that hid the values the current
+ * filter excludes would be a filter you cannot widen.
+ */
+export interface RequestFacets {
+  models: FacetValue[]
+  clients: FacetValue[]
+  keys: FacetValue[]
+  ips: FacetValue[]
+  statuses: FacetValue[]
+}
+
 /**
  * Where a value came from. The four are ranked: database beats environment
  * beats file beats default, and every one of them is silent about losing.
@@ -589,18 +613,30 @@ export const api = {
       `/admin/chats/${encodeURIComponent(id)}`,
     ),
 
+  requestFacets: () =>
+    request<{ enabled: boolean; facets?: RequestFacets }>('GET', '/admin/requests/facets'),
+
   recentRequests: async (
     limit = 50,
     after = '',
-    filter: { chat?: string; key?: string; model?: string; ip?: string; status?: string } = {},
+    filter: Record<string, string | string[]> = {},
   ): Promise<{ rows: RequestRow[]; nextCursor: string }> => {
     const query = new URLSearchParams({ limit: String(limit) })
     if (after !== '') query.set('after', after)
     // Passed straight through: the server decides what each one narrows, and
     // an unknown one is ignored rather than being a client-side allowlist that
     // has to be kept in step with it.
+    //
+    // A set becomes a repeated parameter rather than one comma-joined value:
+    // a model name or an address is not ours to reserve punctuation in. An
+    // empty member is appended too, because "the rows with nothing here" is a
+    // choice the menus offer and `?model=` is how it travels.
     for (const [k, v] of Object.entries(filter)) {
-      if (v !== undefined && v !== '') query.set(k, v)
+      if (Array.isArray(v)) {
+        for (const one of v) query.append(k, one)
+      } else if (v !== undefined && v !== '') {
+        query.set(k, v)
+      }
     }
     const res = await request<{ requests: RequestRow[] | null; next_cursor?: string }>(
       'GET',

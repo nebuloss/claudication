@@ -197,12 +197,16 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	// and bookmark.
 	q := r.URL.Query()
 	filter := store.RequestFilter{
-		ConversationID: api.CleanIdentifier(q.Get("chat")),
-		KeyID:          api.CleanIdentifier(q.Get("key")),
-		Model:          api.CleanIdentifier(q.Get("model")),
-		IP:             api.CleanIdentifier(q.Get("ip")),
-		FailedOnly:     q.Get("status") == "failed",
-		Kind:           q.Get("kind"),
+		ConversationIDs: cleanSet(q["chat"]),
+		KeyIDs:          cleanSet(q["key"]),
+		Models:          cleanSet(q["model"]),
+		Clients:         cleanSet(q["client"]),
+		IPs:             cleanSet(q["ip"]),
+		Statuses:        codeSet(q["code"]),
+		// status=failed is a predicate over codes rather than one of them, so
+		// it keeps its own name and composes with a set of codes.
+		FailedOnly: q.Get("status") == "failed",
+		Kind:       q.Get("kind"),
 	}
 
 	events, next, err := s.store.RecentUsage(r.Context(), limit, after, filter)
@@ -223,6 +227,75 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 		// offering more rather than discovering it by fetching none.
 		"next_cursor": next.String(),
 	})
+}
+
+// cleanSet reads a repeated query parameter as a filter set.
+//
+// Repeated (?model=a&model=b) rather than comma-separated: a value is not ours
+// to reserve punctuation in, and URLSearchParams both writes and reads this
+// shape without being told to.
+//
+// An absent parameter is nil, which does not narrow. A parameter that is
+// present and empty is a set holding the empty string, which narrows to the
+// rows with nothing in that column — a refused request has no model, and
+// "show me those" is a fair question rather than a mistake.
+func cleanSet(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, v := range values {
+		v = api.CleanIdentifier(v)
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
+}
+
+// codeSet is the same for status codes. Anything unreadable is dropped rather
+// than failing the request: a hand-edited URL should show more than it asked
+// for, never an error page.
+func codeSet(values []string) []int {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]int, 0, len(values))
+	seen := make(map[int]bool, len(values))
+	for _, v := range values {
+		n, err := strconv.Atoi(v)
+		if err != nil || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// handleRequestFacets answers what the filter menus can offer.
+//
+// Its own request rather than a field on the request list: the list is paged
+// and these are not, and recomputing five GROUP BYs for every page of fifty
+// rows would pay for the whole history on each scroll.
+func (s *Server) handleRequestFacets(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.Usage.Enabled() {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+		return
+	}
+	facets, err := s.store.RequestFacets(r.Context(), 50)
+	if err != nil {
+		s.log.Error("request facets", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "could not read the filter values")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "facets": facets})
 }
 
 // handleOverview answers "is this working, and what do I point at it" in one

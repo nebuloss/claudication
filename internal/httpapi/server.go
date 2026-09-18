@@ -292,6 +292,7 @@ func (s *Server) routes(r0 role) http.Handler {
 		mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
 		mux.Handle("POST /admin/chat-titles", admin(s.handleSetChatTitles))
 		mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
+		mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
 
 	}
 

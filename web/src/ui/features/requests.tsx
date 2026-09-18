@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ApiError, api, messageOf, type RequestRow } from '../../api/client'
+import {
+  ApiError,
+  api,
+  messageOf,
+  type FacetValue,
+  type RequestFacets,
+  type RequestRow,
+} from '../../api/client'
 import {
   Banner,
   ErrorModal,
@@ -7,6 +14,7 @@ import {
   Segmented,
   Empty,
   KeyValue,
+  MenuRow,
   Spinner,
   Table,
   type Column,
@@ -42,38 +50,76 @@ const PAGE = 50
  * about seven minutes of history on a busy gateway, which made "recent" the
  * only thing this could ever answer.
  */
+/**
+ * The columns that hold a set of values rather than one.
+ *
+ * A menu is a column of checkboxes, so "sonnet or haiku" has to be sayable;
+ * one tick is a one-element set and needs no special case. An empty string is
+ * a real member — a refused request has no model, the gateway's own titling
+ * rows carry no client — so `?model=` means the rows with nothing there.
+ */
+export const SET_FIELDS = ['chat', 'key', 'model', 'client', 'ip', 'code'] as const
+export type SetField = (typeof SET_FIELDS)[number]
+
 /** The filters this screen reads off the URL, and writes back to it. */
-export type RequestFilter = {
-  chat: string
-  key: string
-  model: string
-  ip: string
+export type RequestFilter = Record<SetField, string[]> & {
+  /**
+   * A predicate over statuses rather than one of them, which is why it is not
+   * in `code`: 429 and 500 are two values, "anything that went wrong" is a
+   * question about codes plus stream errors. The two compose.
+   */
   status: string
   /** '', 'relayed' or 'rejected' — whether it reached the upstream at all. */
   kind: string
 }
 
+/** Nothing narrowed. The one place the field list is spelled out. */
+export function emptyFilter(): RequestFilter {
+  return { chat: [], key: [], model: [], client: [], ip: [], code: [], status: '', kind: '' }
+}
+
 /** The query string as a filter. Unknown parameters are ignored. */
 export function filterFromSearch(search: string): RequestFilter {
   const q = new URLSearchParams(search)
-  return {
-    chat: q.get('chat') ?? '',
-    key: q.get('key') ?? '',
-    model: q.get('model') ?? '',
-    ip: q.get('ip') ?? '',
-    // Only one value means anything today; anything else reads as unfiltered
-    // rather than as an error, because a URL is something people edit.
-    status: q.get('status') === 'failed' ? 'failed' : '',
-    kind: ['relayed', 'rejected'].includes(q.get('kind') ?? '') ? (q.get('kind') as string) : '',
-  }
+  const out = emptyFilter()
+  // getAll, because a set travels as a repeated parameter: a model name is not
+  // ours to reserve a comma in.
+  for (const field of SET_FIELDS) out[field] = q.getAll(field)
+  // Only one value means anything today; anything else reads as unfiltered
+  // rather than as an error, because a URL is something people edit.
+  out.status = q.get('status') === 'failed' ? 'failed' : ''
+  out.kind = ['relayed', 'rejected'].includes(q.get('kind') ?? '') ? (q.get('kind') as string) : ''
+  return out
 }
 
 /** A filter as a path, for a link that carries it. */
 export function searchFromFilter(f: RequestFilter): string {
   const q = new URLSearchParams()
-  for (const [k, v] of Object.entries(f)) if (v !== '') q.set(k, v)
+  for (const [k, v] of Object.entries(f)) {
+    if (Array.isArray(v)) {
+      for (const one of v) q.append(k, one)
+    } else if (v !== '') {
+      q.set(k, v)
+    }
+  }
   const s = q.toString()
   return s === '' ? '/requests' : `/requests?${s}`
+}
+
+/**
+ * A link to this screen, narrowed to whatever the caller names.
+ *
+ * Callers pass only what they mean. Spelling out every empty field at each
+ * call site is how a new field silently fails to compile somewhere else — which
+ * is exactly what adding `client` did.
+ */
+export function requestsHref(narrow: Partial<RequestFilter>): string {
+  return searchFromFilter({ ...emptyFilter(), ...narrow })
+}
+
+/** With a value added, or taken out if it was already there. */
+function toggled(current: string[], value: string): string[] {
+  return current.includes(value) ? current.filter((v) => v !== value) : [...current, value]
 }
 
 export default function RequestsPanel({ onExpired }: { onExpired: () => void }) {
@@ -112,21 +158,60 @@ function RecentRequests({
   const [loadingMore, setLoadingMore] = useState(false)
   const [shown, setShown] = useState<RequestRow | null>(null)
   const [sort, setSort] = useState<Sort>({ key: 'at', dir: 'desc' })
+  const [facets, setFacets] = useState<RequestFacets | null>(null)
+
+  // What the column menus can offer, counted over the whole log rather than
+  // the page on screen — a menu built from fifty rows can only offer what you
+  // are already looking at, which is what made the old model picker pointless.
+  // Its own request because it is not paged and the list is: recomputing five
+  // GROUP BYs per scroll would pay for all of history on every page.
+  const loadFacets = useCallback(() => {
+    api
+      .requestFacets()
+      .then((res) => setFacets(res.facets ?? null))
+      // No banner: the table is fine without menus, and the values already
+      // filtered still show so they can be cleared.
+      .catch(() => undefined)
+  }, [])
+
+  useEffect(loadFacets, [loadFacets])
 
   // Clicking the column already in effect turns it around; clicking a new one
   // starts at the end people mean first — newest, biggest, worst — except for
   // the two text columns, where A-Z is what "sorted" means.
-  const sortBy = (key: SortKey) =>
-    setSort((prev) =>
-      prev.key === key
-        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-        : { key, dir: key === 'model' || key === 'client' ? 'asc' : 'desc' },
-    )
+  const sortBy = (key: SortKey, dir?: 'asc' | 'desc') =>
+    setSort((prev) => {
+      if (dir !== undefined) return { key, dir }
+      if (prev.key === key) return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+      return { key, dir: key === 'model' || key === 'client' || key === 'ip' ? 'asc' : 'desc' }
+    })
 
   const column = (label: string, key: SortKey): Column => ({
     label,
-    onSort: () => sortBy(key),
+    onSort: (dir) => sortBy(key, dir),
     sorted: sort.key === key ? sort.dir : undefined,
+  })
+
+  // The same heading, plus the values that column actually holds. Clicking the
+  // title opens them; clicking a cell still narrows to that one row's value,
+  // which is the faster move when what you want is already in front of you.
+  const faceted = (
+    label: string,
+    key: SortKey,
+    field: SetField,
+    values: FacetValue[] | undefined,
+  ): Column => ({
+    ...column(label, key),
+    filtered: filter[field].length > 0,
+    menu: (
+      <FacetList
+        values={values ?? []}
+        chosen={filter[field]}
+        loaded={facets !== null}
+        onToggle={(v) => onNarrow({ ...filter, [field]: toggled(filter[field], v) })}
+        onClear={() => onNarrow({ ...filter, [field]: [] })}
+      />
+    ),
   })
 
   const load = useCallback(
@@ -167,12 +252,13 @@ function RecentRequests({
   // that have been loaded — press Load more to sort over more of them.
   const data = useMemo(() => sortRows(rows, sort), [rows, sort])
 
-  // Set by clicking a cell or arriving from a link, so nothing else on screen
-  // says they are on. Each one is its own chip and removes itself.
-  const pinned = Object.entries(filter).filter(
-    ([k, v]) => v !== '' && (k === 'chat' || k === 'key' || k === 'ip' || k === 'model'),
+  // One chip per value, not per column: a column filtered to three models is
+  // three things you might want to stop doing, and a single chip that dropped
+  // all of them would make the third undoable only by re-ticking two.
+  const pinned = SET_FIELDS.flatMap((field) =>
+    filter[field].map((value) => ({ field, value })),
   )
-  const active = Object.entries(filter).filter(([, v]) => v !== '')
+  const narrowed = pinned.length > 0 || filter.status !== '' || filter.kind !== ''
 
   // No card and no title of its own: it is the body of a tab now, and the tab
   // is already called Requests.
@@ -214,20 +300,22 @@ function RecentRequests({
 
       {/* Only the filters with no control of their own. Show and Kind already
           say what they are set to, so a chip repeating them was two places to
-          read one fact; a chat, a key, an address or a model is set by a click
-          or a link and has nothing else on screen to say so. */}
+          read one fact. These arrive from a click, a menu or a link, and the
+          heading's funnel says which column without saying which value. */}
       {pinned.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
           <span className="text-on-surface-variant">Narrowed to</span>
-          {pinned.map(([k, v]) => (
+          {pinned.map(({ field, value }) => (
             <button
-              key={k}
+              key={`${field}:${value}`}
               type="button"
-              onClick={() => onNarrow({ ...filter, [k]: '' })}
-              title={`Stop filtering by ${k}`}
+              onClick={() =>
+                onNarrow({ ...filter, [field]: filter[field].filter((v) => v !== value) })
+              }
+              title={`Stop filtering by this ${fieldWord(field)}`}
               className="state-layer inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-md3-s)] border border-outline px-2.5 text-xs font-medium text-on-surface-variant"
             >
-              {k}: {v.length > 26 ? `${v.slice(0, 23)}…` : v}
+              {fieldWord(field)}: {chipValue(value)}
               <span aria-hidden className="text-base leading-none">
                 &times;
               </span>
@@ -248,9 +336,7 @@ function RecentRequests({
         </p>
       ) : data === null || data.length === 0 ? (
         <Empty>
-          {active.length > 0
-            ? 'No requests match this filter.'
-            : 'No requests recorded yet.'}
+          {narrowed ? 'No requests match this filter.' : 'No requests recorded yet.'}
         </Empty>
       ) : (
         <Table
@@ -259,10 +345,10 @@ function RecentRequests({
             // Not Date and not Time: the cell is a time on today's rows, a
             // date and a time on older ones, and an epoch once copied.
             column('Timestamp', 'at'),
-            column('Model', 'model'),
-            column('Client', 'client'),
-            'IP',
-            column('Status', 'status'),
+            faceted('Model', 'model', 'model', facets?.models),
+            faceted('Client', 'client', 'client', facets?.clients),
+            faceted('IP', 'ip', 'ip', facets?.ips),
+            faceted('Status', 'status', 'code', facets?.statuses),
             column('Tokens', 'tokens'),
             column('Duration', 'duration'),
             'Message',
@@ -286,7 +372,7 @@ function RecentRequests({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => onNarrow({ ...filter, model: r.model ?? '' })}
+                    onClick={() => onNarrow({ ...filter, model: [r.model ?? ''] })}
                     title={`Only requests for ${r.model}`}
                     className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
                   >
@@ -309,7 +395,7 @@ function RecentRequests({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => onNarrow({ ...filter, ip: r.ip ?? '' })}
+                    onClick={() => onNarrow({ ...filter, ip: [r.ip ?? ''] })}
                     title={`Only requests from ${r.ip}`}
                     className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
                   >
@@ -542,7 +628,7 @@ function asText(r: RequestRow): string {
   ].join('\n')
 }
 
-type SortKey = 'at' | 'model' | 'client' | 'status' | 'tokens' | 'duration'
+type SortKey = 'at' | 'model' | 'client' | 'ip' | 'status' | 'tokens' | 'duration'
 type Sort = { key: SortKey; dir: 'asc' | 'desc' }
 
 /**
@@ -563,6 +649,8 @@ function sortValue(r: RequestRow, key: SortKey): string | number {
       return r.model ?? ''
     case 'client':
       return r.client ?? ''
+    case 'ip':
+      return r.ip ?? ''
     case 'status':
       return r.status === 0 ? 1000 : r.status
     case 'tokens':
@@ -616,4 +704,85 @@ function statusTone(r: RequestRow): 'ok' | 'warn' | 'error' {
   if (r.status === 0 || r.status >= 500) return 'error'
   if (r.status >= 400) return 'warn'
   return 'ok'
+}
+
+/** What a filter field is called where someone reads it. */
+function fieldWord(field: SetField): string {
+  return field === 'code' ? 'status' : field
+}
+
+/** A filtered value in a chip: short enough to sit in one, and never blank. */
+function chipValue(value: string): string {
+  if (value === '') return 'none'
+  return value.length > 26 ? `${value.slice(0, 23)}…` : value
+}
+
+/**
+ * The checkboxes under a column heading.
+ *
+ * Anything already filtered stays in the list even when the server did not
+ * offer it — past the cap, or arrived from a link — because a tick you cannot
+ * see is a filter you cannot lift.
+ */
+function FacetList({
+  values,
+  chosen,
+  loaded,
+  onToggle,
+  onClear,
+}: {
+  values: FacetValue[]
+  chosen: string[]
+  loaded: boolean
+  onToggle: (value: string) => void
+  onClear: () => void
+}) {
+  const offered = new Set(values.map((v) => v.value))
+  const rows = [
+    ...values,
+    ...chosen.filter((v) => !offered.has(v)).map((v): FacetValue => ({ value: v, count: 0 })),
+  ]
+
+  if (rows.length === 0) {
+    return (
+      <p className="px-3 py-2 text-xs font-normal tracking-normal text-on-surface-variant">
+        {loaded ? 'Nothing recorded in this column yet.' : 'Loading…'}
+      </p>
+    )
+  }
+
+  return (
+    <>
+      {chosen.length > 0 && (
+        <>
+          <MenuRow onClick={onClear}>Clear {chosen.length} selected</MenuRow>
+          <div className="my-1 border-t border-outline-variant" />
+        </>
+      )}
+      {rows.map((v) => (
+        <label
+          key={v.value}
+          className="state-layer flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm font-normal tracking-normal text-on-surface"
+        >
+          <input
+            type="checkbox"
+            checked={chosen.includes(v.value)}
+            onChange={() => onToggle(v.value)}
+            className="size-4 shrink-0 accent-primary"
+          />
+          <span className="min-w-0 flex-1 truncate" title={v.label ?? v.value}>
+            {v.label ?? (v.value === '' ? 'none' : v.value)}
+          </span>
+          {/* Totals over the whole log, not over what this filter leaves, so
+              they do not move as you tick things and cannot talk you into a
+              corner you then cannot see the way out of. */}
+          {v.count > 0 && (
+            <span className="shrink-0 text-xs tabular-nums text-on-surface-variant">
+              {compact(v.count)}
+            </span>
+          )}
+        </label>
+      ))}
+    </>
+  )
 }

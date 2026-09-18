@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { api, type Chat, type Chats } from '../../api/client'
 import { LogScale, Palette } from '../charts'
 import { useLoader } from '../hooks'
-import { searchFromFilter } from './requests'
+import { requestsHref, type RequestFilter } from './requests'
 import { navigate } from '../route'
 import { Empty, ErrorState, Spinner, Table, compact, type Column } from '../primitives'
 
@@ -86,11 +86,11 @@ function RequestLink({
   tone,
   children,
 }: {
-  filter: { chat: string; key: string; model: string; ip: string; status: string; kind: string }
+  filter: Partial<RequestFilter>
   tone?: 'error'
   children: ReactNode
 }) {
-  const href = searchFromFilter(filter)
+  const href = requestsHref(filter)
   return (
     <a
       href={href}
@@ -243,13 +243,13 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
                 filter, so it can be shared, bookmarked and walked back to —
                 rather than a list this table grows for itself. */}
             <td className="px-2 py-2 tabular-nums whitespace-nowrap">
-              <RequestLink filter={{ chat: c.id, key: '', model: '', ip: '', status: '', kind: '' }}>
+              <RequestLink filter={{ chat: [c.id] }}>
                 {c.requests}
               </RequestLink>
               {c.errors > 0 && (
                 <RequestLink
                   tone="error"
-                  filter={{ chat: c.id, key: '', model: '', ip: '', status: 'failed', kind: '' }}
+                  filter={{ chat: [c.id], status: 'failed' }}
                 >
                   · {c.errors} failed
                 </RequestLink>
