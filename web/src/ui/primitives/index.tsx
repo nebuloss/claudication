@@ -782,8 +782,18 @@ export function Table({
                           return rest
                         })
                       }}
-                      className="absolute inset-y-0 -right-[3px] z-20 w-[6px] cursor-col-resize touch-none select-none hover:bg-primary/40"
-                    />
+                      className="group/resize absolute inset-y-0 -right-[5px] z-20 flex w-[10px] cursor-col-resize touch-none select-none justify-center"
+                    >
+                      {/* A rule you can see, so the column edge is visible and
+                          there is something to aim at. Drawn inside a wider
+                          invisible strip: a 1px target is nearly impossible to
+                          hit with a mouse, and the strip is what you actually
+                          grab. */}
+                      <span
+                        aria-hidden
+                        className="h-full w-px bg-outline-variant transition-colors group-hover/resize:w-[3px] group-hover/resize:bg-primary"
+                      />
+                    </div>
                   )}
                 </th>
               )
@@ -1007,7 +1017,12 @@ export function SubNav<T extends string>({
             role="tab"
             aria-selected={value === o.id}
             onClick={() => onChange(o.id)}
-            className={`state-layer relative rounded-t-[var(--radius-md3-s)] px-3 py-2 text-xs font-medium whitespace-nowrap ${
+            // 14px, not 12. These are the primary navigation of the screen
+            // they sit on — the thing you read to decide where to go — and at
+            // text-xs they were set smaller than the table rows underneath
+            // them, which inverts the hierarchy: the labels mattered more and
+            // looked like a footnote.
+            className={`state-layer relative rounded-t-[var(--radius-md3-s)] px-3.5 py-2.5 text-sm font-medium whitespace-nowrap ${
               value === o.id ? 'text-primary' : 'text-on-surface-variant'
             }`}
           >
