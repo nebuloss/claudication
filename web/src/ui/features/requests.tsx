@@ -352,7 +352,7 @@ function RecentRequests({
                       }`}
                       title={r.error}
                     >
-                      {messageOf(r)}
+                      {shortMessage(r)}
                     </span>
                     <TextButton size="sm" onClick={() => setShown(r)}>
                       Log
@@ -598,7 +598,7 @@ function sortRows(rows: RequestRow[], sort: Sort): RequestRow[] {
  * else falls back to the upstream's own error type, which is usually one word
  * and is the word an operator would search for.
  */
-function messageOf(r: RequestRow): string {
+function shortMessage(r: RequestRow): string {
   if (r.error_kind === 'content_check') return 'refused on content'
   const text = r.error ?? ''
   // The envelope is JSON often enough to be worth reading, and the type inside
