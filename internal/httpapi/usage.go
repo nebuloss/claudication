@@ -132,6 +132,28 @@ type requestJSON struct {
 	ErrorKind string `json:"error_kind,omitempty"`
 }
 
+// toRequestJSON is the one conversion from a stored event to what the UI
+// reads. Shared, because a chat's requests and the recent-requests list are
+// the same rows rendered by the same table — and a second copy of this is how
+// one of them quietly starts reporting a different duration unit.
+func toRequestJSON(e store.UsageEvent) requestJSON {
+	return requestJSON{
+		At:           e.At.UTC().Format(time.RFC3339),
+		KeyName:      e.KeyName,
+		AccountEmail: e.AccountEmail,
+		Model:        e.Model,
+		Path:         e.Path,
+		Status:       e.Status,
+		Streaming:    e.Streaming,
+		InputTokens:  e.InputTokens,
+		OutputTokens: e.OutputTokens,
+		CacheTokens:  e.CacheReadTokens + e.CacheWriteTokens,
+		DurationMS:   e.Duration.Milliseconds(),
+		Error:        e.Error,
+		ErrorKind:    string(upstream.ClassifyRefusal(e.Error)),
+	}
+}
+
 func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Usage.Enabled() {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "requests": []requestJSON{}})
@@ -165,21 +187,7 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]requestJSON, 0, len(events))
 	for _, e := range events {
-		out = append(out, requestJSON{
-			At:           e.At.UTC().Format(time.RFC3339),
-			KeyName:      e.KeyName,
-			AccountEmail: e.AccountEmail,
-			Model:        e.Model,
-			Path:         e.Path,
-			Status:       e.Status,
-			Streaming:    e.Streaming,
-			InputTokens:  e.InputTokens,
-			OutputTokens: e.OutputTokens,
-			CacheTokens:  e.CacheReadTokens + e.CacheWriteTokens,
-			DurationMS:   e.Duration.Milliseconds(),
-			Error:        e.Error,
-			ErrorKind:    string(upstream.ClassifyRefusal(e.Error)),
-		})
+		out = append(out, toRequestJSON(e))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,

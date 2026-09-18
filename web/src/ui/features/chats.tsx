@@ -1,12 +1,16 @@
 import { useMemo, useState } from 'react'
-import { api, type Chat, type Chats } from '../../api/client'
+import { api, type Chat, type Chats, type RequestRow } from '../../api/client'
 import { LogScale, Palette } from '../charts'
 import { useLoader } from '../hooks'
 import {
+  Chip,
   Empty,
   ErrorState,
+  Modal,
   Spinner,
   Table,
+  TextButton,
+  Verbatim,
   compact,
   type Column,
 } from '../primitives'
@@ -83,8 +87,109 @@ function tokens(c: Chat): number {
   return c.input_tokens + c.output_tokens + c.cache_tokens
 }
 
+/** Which requests of a chat the drill-down is showing. */
+type Drill = { id: string; label: string; failedOnly: boolean }
+
+function statusTone(r: RequestRow): 'ok' | 'warn' | 'error' {
+  if (r.error !== undefined && r.error !== '') return 'error'
+  if (r.status === 0 || r.status >= 500) return 'error'
+  if (r.status >= 400) return 'warn'
+  return 'ok'
+}
+
+/**
+ * One chat's requests, opened from its row.
+ *
+ * The count in the table answers "how many failed" and immediately raises
+ * "which ones" — a number you cannot open is a dead end. This is the answer,
+ * and it is the reason /admin/chats/{id} exists.
+ *
+ * It opens filtered to the failures when the failure count was clicked, and to
+ * everything when the request count was: the two are different questions asked
+ * from two different words in the same cell.
+ */
+function ChatRequests({ drill, onClose }: { drill: Drill; onClose: () => void }) {
+  const [failedOnly, setFailedOnly] = useState(drill.failedOnly)
+  const { data, error, loading } = useLoader(() => api.chat(drill.id), undefined, [drill.id])
+
+  const all = data?.requests ?? []
+  const failed = all.filter((r) => statusTone(r) !== 'ok')
+  const rows = failedOnly ? failed : all
+
+  return (
+    <Modal title={drill.label} onClose={onClose} size="lg">
+      {loading && (
+        <p className="flex items-center gap-2 text-sm text-on-surface-variant">
+          <Spinner /> Loading…
+        </p>
+      )}
+      {error !== '' && <p className="text-sm text-error">{error}</p>}
+
+      {!loading && error === '' && (
+        <>
+          <div className="mb-3 flex items-center gap-3 text-sm text-on-surface-variant">
+            <span>
+              {all.length} request{all.length === 1 ? '' : 's'}
+              {failed.length > 0 && <>, {failed.length} failed</>}
+            </span>
+            {failed.length > 0 && (
+              <TextButton onClick={() => setFailedOnly((v) => !v)}>
+                {failedOnly ? 'Show all' : 'Failures only'}
+              </TextButton>
+            )}
+          </div>
+
+          {rows.length === 0 ? (
+            <Empty>Nothing to show.</Empty>
+          ) : (
+            <Table cap head={['Time', 'Model', 'Status', 'Tokens', 'Took', 'What happened']}>
+              {rows.map((r, i) => (
+                <tr key={`${r.at}-${i}`} className="border-b border-outline-variant last:border-0">
+                  <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
+                    {new Date(r.at).toLocaleTimeString()}
+                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {(r.model ?? '').replace(/^claude-/, '') || '—'}
+                  </td>
+                  <td className="px-2 py-2">
+                    <Chip tone={statusTone(r)}>{r.status === 0 ? 'no answer' : r.status}</Chip>
+                  </td>
+                  <td className="px-2 py-2 tabular-nums whitespace-nowrap">
+                    {r.input_tokens + r.output_tokens > 0
+                      ? `${compact(r.input_tokens)} / ${compact(r.output_tokens)}`
+                      : '—'}
+                  </td>
+                  <td className="px-2 py-2 tabular-nums whitespace-nowrap">{r.duration_ms}ms</td>
+                  <td className="px-2 py-2">
+                    {r.error !== undefined && r.error !== '' ? (
+                      <div className="flex flex-col gap-1">
+                        {/* The refusal that does not mean what it says. Named
+                            here because it costs hours every time someone meets
+                            it fresh and reads it as a rate limit. */}
+                        {r.error_kind === 'content_check' && (
+                          <span className="text-xs font-medium text-warning">
+                            refused on content, not rate limited
+                          </span>
+                        )}
+                        <Verbatim>{r.error}</Verbatim>
+                      </div>
+                    ) : (
+                      <span className="text-on-surface-variant">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </>
+      )}
+    </Modal>
+  )
+}
+
 export default function ChatsPanel({ days, onExpired }: { days: number; onExpired: () => void }) {
   const [sort, setSort] = useState<SortKey>('tokens')
+  const [drill, setDrill] = useState<Drill | null>(null)
   const { data, error, loading, reload } = useLoader<Chats>(
     () => api.chats(days),
     onExpired,
@@ -208,10 +313,29 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
                 <span className="tabular-nums">{compact(tokens(c))}</span>
               </div>
             </td>
+            {/* Both numbers open the same drill-down, on different filters:
+                the total asks "what happened in this chat", the failures ask
+                "which ones broke". A count you cannot open is a dead end. */}
             <td className="px-2 py-2 tabular-nums whitespace-nowrap">
-              {c.requests}
+              <button
+                type="button"
+                className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
+                onClick={() =>
+                  setDrill({ id: c.id, label: c.title || c.client || c.id, failedOnly: false })
+                }
+              >
+                {c.requests}
+              </button>
               {c.errors > 0 && (
-                <span className="text-on-surface-variant"> · {c.errors} failed</span>
+                <button
+                  type="button"
+                  className="state-layer rounded-[var(--radius-md3-xs)] px-1 text-error underline decoration-dotted underline-offset-2"
+                  onClick={() =>
+                    setDrill({ id: c.id, label: c.title || c.client || c.id, failedOnly: true })
+                  }
+                >
+                  · {c.errors} failed
+                </button>
               )}
             </td>
             <td
@@ -253,6 +377,8 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
           </tr>
         )}
       </Table>
+
+      {drill !== null && <ChatRequests drill={drill} onClose={() => setDrill(null)} />}
 
       <p className="m-0 text-xs text-on-surface-variant">
         A chat is grouped by the session id its client sends, never by anything read from the

@@ -563,6 +563,13 @@ export const api = {
   chats: (days?: number) =>
     request<Chats>('GET', days === undefined ? '/admin/chats' : `/admin/chats?days=${days}`),
 
+  /** One conversation's requests, oldest first — the drill-down behind a row. */
+  chat: (id: string) =>
+    request<{ enabled: boolean; id: string; requests: RequestRow[] }>(
+      'GET',
+      `/admin/chats/${encodeURIComponent(id)}`,
+    ),
+
   recentRequests: async (
     limit = 50,
     after = '',

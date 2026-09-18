@@ -142,9 +142,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The same shape the recent-requests list uses, through the same
+	// conversion. store.UsageEvent carries no JSON tags, so returning it raw
+	// would put Go field names on the wire and give this one endpoint a
+	// vocabulary of its own.
+	out := make([]requestJSON, 0, len(events))
+	for _, e := range events {
+		out = append(out, toRequestJSON(e))
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled": true,
-		"id":      id,
-		"events":  events,
+		"enabled":  true,
+		"id":       id,
+		"requests": out,
 	})
 }
