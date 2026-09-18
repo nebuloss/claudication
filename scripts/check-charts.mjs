@@ -20,6 +20,7 @@ const { niceTicks, LinearScale, LogScale, BandScale, edgeAnchor } =
   await import(`${OUT}/charts/scale.js`)
 const { Stack } = await import(`${OUT}/charts/stack.js`)
 const { tabFromPath, pathForTab, panelFromHash } = await import(`${OUT}/route.js`)
+const { Solid, Hatch, Line } = await import(`${OUT}/charts/paint.js`)
 
 let failures = 0
 function check(what, got, want) {
@@ -140,6 +141,27 @@ check('a series total spans every column', stack.seriesTotal(series[1]), 2)
 
 const negative = new Stack([{ ok: -5, bad: 3 }], series)
 check('a negative value cannot pull a column below zero', negative.peak, 3)
+
+console.log('\n— paint: a fill colours something, a swatch is a whole square —')
+// The bug this exists for. A ranked bar computed its width from the scale and
+// then spread swatch() over it — and swatch() is a legend square, carrying
+// width: 10. Every bar rendered at 10px regardless of value, so the log scale
+// above was correct and invisible, and two releases "fixed" nothing.
+//
+// The scale tests passed throughout, because they never looked at what reached
+// the DOM. This checks the seam they missed.
+for (const [what, paint] of [
+  ['solid', new Solid('#2a78d6')],
+  ['hatch', new Hatch('#2a78d6')],
+  ['line', new Line('#2a78d6')],
+]) {
+  check(`${what}: a fill sets no width`, 'width' in paint.fill(), false)
+  check(`${what}: a fill sets no height`, 'height' in paint.fill(), false)
+  check(`${what}: its swatch still does`, 'width' in paint.swatch(), true)
+}
+// A bar keeps the width it computed once the paint is spread over it.
+const barStyle = { width: '57%', ...new Solid('#2a78d6').fill() }
+check('a bar keeps the width the scale gave it', barStyle.width, '57%')
 
 console.log('\n— route: the screen is the path, the panel is the hash —')
 const TABS = ['overview', 'setup', 'accounts', 'keys', 'usage', 'settings']

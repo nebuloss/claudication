@@ -15,10 +15,24 @@ import { type CSSProperties, type ReactNode } from 'react'
  * showing eight models does not have to surrender one of its eight hues to
  * mean "error".
  */
+/** The legend square every swatch draws its colour inside. */
+const SWATCH_BOX: CSSProperties = { width: 10, height: 10, borderRadius: 2 }
+
 export interface Paint {
   /** Props to spread onto an SVG shape. */
   shape(): { fill: string; style?: CSSProperties }
-  /** Style for an HTML legend swatch. */
+  /**
+   * How this paint colours an HTML element, and nothing else.
+   *
+   * Separate from swatch because swatch is a *whole legend square* — it
+   * carries width, height and a radius along with the colour. Spreading that
+   * onto anything with a size of its own silently replaces it, which is
+   * exactly what happened to the ranked bars: every bar was set to the
+   * swatch's 10px and no scale could reach the DOM. Anything that has already
+   * decided how big it is wants this.
+   */
+  fill(): CSSProperties
+  /** Style for an HTML legend swatch: the fill, plus the box around it. */
   swatch(): CSSProperties
   /** What this paint contributes to `<defs>`, or null. */
   defs(): ReactNode
@@ -62,8 +76,12 @@ export class Solid implements Paint {
     return { fill: this.colour }
   }
 
+  fill(): CSSProperties {
+    return { background: this.colour }
+  }
+
   swatch(): CSSProperties {
-    return { width: 10, height: 10, borderRadius: 2, background: this.colour }
+    return { ...SWATCH_BOX, ...this.fill() }
   }
 
   defs(): ReactNode {
@@ -95,18 +113,19 @@ export class Hatch implements Paint {
     return { fill: `url(#${this.id})` }
   }
 
-  swatch(): CSSProperties {
+  fill(): CSSProperties {
     // The flat colour underneath, so a browser without color-mix still shows
     // the identity rather than nothing.
     return {
-      width: 10,
-      height: 10,
-      borderRadius: 2,
       background: this.colour,
       backgroundImage:
         `repeating-linear-gradient(45deg, ${darker(this.colour)} 0 2.5px, ` +
         `var(--color-surface-container) 2.5px 4px)`,
     }
+  }
+
+  swatch(): CSSProperties {
+    return { ...SWATCH_BOX, ...this.fill() }
   }
 
   defs(): ReactNode {
@@ -173,14 +192,18 @@ export class Line implements Paint {
     }
   }
 
-  swatch(): CSSProperties {
+  fill(): CSSProperties {
+    // A line has no area to fill; what identifies it is its stroke, so that is
+    // what an HTML element gets.
     return {
-      width: 16,
-      height: 0,
       borderTopWidth: 2,
       borderTopStyle: this.dash === undefined ? 'solid' : 'dashed',
       borderTopColor: this.colour,
     }
+  }
+
+  swatch(): CSSProperties {
+    return { width: 16, height: 0, ...this.fill() }
   }
 
   defs(): ReactNode {

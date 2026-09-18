@@ -116,7 +116,11 @@ function RankedBar({
       <div className="h-5 min-w-0 flex-1 rounded-[var(--radius-md3-s)] bg-surface-high">
         <div
           className="h-full rounded-[var(--radius-md3-s)]"
-          style={{ width: `${pct}%`, ...paint.swatch() }}
+          // fill(), not swatch(): swatch is a whole legend square and carries
+          // a 10px width, which spread over this one replaced the width the
+          // scale just computed. Every bar came out 10px, and no change to the
+          // scale could reach the DOM.
+          style={{ width: `${pct}%`, ...paint.fill() }}
         />
       </div>
       <div className="w-28 shrink-0 text-right tabular-nums text-on-surface">
@@ -170,7 +174,12 @@ export function CompositionBar({
           <div
             key={row.label}
             className="h-full"
-            style={{ width: `${(row.value / total) * 100}%`, ...palette.paint(row.label).swatch() }}
+            // Same reason as above: a segment has already decided how wide it
+            // is, so it wants the paint and not the legend box.
+            style={{
+              width: `${(row.value / total) * 100}%`,
+              ...palette.paint(row.label).fill(),
+            }}
             title={`${row.label}: ${format(row.value)}`}
           />
         ))}
