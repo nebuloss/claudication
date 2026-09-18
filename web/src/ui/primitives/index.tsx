@@ -169,12 +169,22 @@ export function TextButton({
   onClick,
   disabled,
   tone,
+  size = 'md',
   type = 'button',
 }: {
   children: ReactNode
   onClick?: () => void
   disabled?: boolean
   tone?: 'error'
+  /**
+   * 'sm' for a control inside a table row.
+   *
+   * The 40px target is right for a button you go to, and wrong for one that
+   * sits in a row of 13px text: it made those rows taller than their
+   * neighbours, so a column of timestamps stepped up and down the page
+   * depending on which requests had failed.
+   */
+  size?: 'md' | 'sm'
   type?: 'submit' | 'button'
 }) {
   return (
@@ -182,9 +192,9 @@ export function TextButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`state-layer inline-flex h-10 items-center rounded-[var(--radius-md3-full)] border border-outline px-3 text-sm font-medium disabled:pointer-events-none disabled:opacity-40 ${
-        tone === 'error' ? 'text-error' : 'text-primary'
-      }`}
+      className={`state-layer inline-flex items-center rounded-[var(--radius-md3-full)] border border-outline font-medium disabled:pointer-events-none disabled:opacity-40 ${
+        size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-10 px-3 text-sm'
+      } ${tone === 'error' ? 'text-error' : 'text-primary'}`}
     >
       {children}
     </button>
@@ -694,7 +704,9 @@ export function Table({
   return (
     <div className={`-mx-2 px-2 ${cap ? 'max-h-[30rem] overflow-auto' : 'overflow-x-auto'}`}>
       <table
-        className={`text-sm ${resizable === undefined ? 'w-full min-w-max' : 'min-w-full'}`}
+        className={`text-sm [&_td]:align-middle ${
+          resizable === undefined ? 'w-full min-w-max' : 'min-w-full'
+        }`}
         // Fixed only once something has been dragged: until then the browser
         // sizes the columns to their content, which is the better default and
         // the one every other table here relies on.
@@ -808,8 +820,16 @@ export function Table({
 
 /** Thousands separators and a k/M suffix, so a token count stays readable. */
 export function compact(n: number): string {
+  // A billion tokens is an ordinary week here — cache reads are counted, and
+  // they dwarf everything else. Without this tier the biggest number on the
+  // screen read "1936M", which is four digits and a unit that has run out: the
+  // eye has to divide by a thousand to learn it is about two billion.
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(n >= 10_000_000_000 ? 0 : 1)}B`
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
-  if (n >= 10_000) return `${(n / 1000).toFixed(0)}k`
+  // One decimal below ten of a unit and none above it, everywhere: 1.9B, 19B,
+  // 1.9M, 19M, 1.9k, 19k. Three significant figures is more than a chart label
+  // can be read to anyway, and the exact value is a hover away.
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`
   return n.toLocaleString()
 }
 

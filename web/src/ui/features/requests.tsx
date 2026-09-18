@@ -165,6 +165,8 @@ function RecentRequests({
   // that have been loaded — press Load more to sort over more of them.
   const data = useMemo(() => sortRows(rows, sort), [rows, sort])
 
+  // Filters arriving from a link, which no control on this screen displays.
+  const pinned = Object.entries(filter).filter(([k, v]) => v !== '' && (k === 'chat' || k === 'key'))
   const active = Object.entries(filter).filter(([, v]) => v !== '')
 
   // Options for the two pickers. Models come from the rows on screen, because
@@ -233,17 +235,27 @@ function RecentRequests({
         <TextButton onClick={() => void load('')}>Refresh</TextButton>
       </div>
 
-      {active.length > 0 && (
+      {/* Only the filters with no control of their own. The pickers above
+          already show what they are set to, so repeating them here was two
+          places to read one fact — and the two that arrive from a link, a chat
+          and a key, are the ones with nothing on screen to say so. */}
+      {pinned.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-on-surface-variant">Showing</span>
-          {active.map(([k, v]) => (
-            <Chip key={k} tone={k === 'status' ? 'error' : 'neutral'}>
-              {k === 'status' ? 'failures only' : `${k}: ${v.length > 24 ? `${v.slice(0, 21)}…` : v}`}
-            </Chip>
+          <span className="text-on-surface-variant">Narrowed to</span>
+          {pinned.map(([k, v]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => onNarrow({ ...filter, [k]: '' })}
+              title={`Stop filtering by ${k}`}
+              className="state-layer inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-md3-s)] border border-outline px-2.5 text-xs font-medium text-on-surface-variant"
+            >
+              {k}: {v.length > 26 ? `${v.slice(0, 23)}…` : v}
+              <span aria-hidden className="text-base leading-none">
+                &times;
+              </span>
+            </button>
           ))}
-          <TextButton onClick={() => onNarrow({ chat: '', key: '', model: '', status: '', kind: '' })}>
-            Clear
-          </TextButton>
         </div>
       )}
 
@@ -307,18 +319,23 @@ function RecentRequests({
                   read without saying what about — the reason is the thing you
                   came for, so the short form is here and the button opens the
                   upstream's own words. */}
-              <td className="px-2 py-2">
+              <td className="max-w-[24rem] px-2 py-2">
                 {r.error !== undefined && r.error !== '' ? (
                   <div className="flex items-center gap-2">
+                    {/* min-w-0 is what lets it truncate: a flex item defaults
+                        to min-content, so without it the text refuses to
+                        shrink and pushes the button out of the column. */}
                     <span
-                      className={`truncate text-xs ${
+                      className={`min-w-0 flex-1 truncate text-xs ${
                         r.error_kind === 'content_check' ? 'text-warning' : 'text-on-surface-variant'
                       }`}
                       title={r.error}
                     >
                       {reasonOf(r)}
                     </span>
-                    <TextButton onClick={() => setShown(r)}>Log</TextButton>
+                    <TextButton size="sm" onClick={() => setShown(r)}>
+                      Log
+                    </TextButton>
                   </div>
                 ) : (
                   <span className="text-on-surface-variant">—</span>
