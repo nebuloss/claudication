@@ -52,7 +52,14 @@ export function RankedBars({
   const palette = identity ? new Palette(rows.map((r) => r.label)) : null
   // 0..100 rather than pixels: the bar is a CSS width, so the scale's range is
   // already the unit it is measured in.
+  //
+  // Normalised against the leader afterwards, because LogScale rounds its top
+  // up to a whole decade — right for an axis, which needs a gridline there, and
+  // wrong for a list, where a 1.9e9 leader against a 1e10 ceiling gives up 8%
+  // of every row to a decade nothing reaches. In a ranked list the longest bar
+  // is the unit of comparison, so it fills the track.
   const log = scale === 'log' ? new LogScale(rows.map((r) => r.value), 0, 100) : null
+  const leader = log !== null && max > 0 ? log.y(max) : 0
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -62,6 +69,7 @@ export function RankedBars({
           row={row}
           max={max}
           log={log}
+          leader={leader}
           paint={palette?.paint(row.label) ?? MAGNITUDE}
           format={format}
         />
@@ -74,18 +82,27 @@ function RankedBar({
   row,
   max,
   log,
+  leader,
   paint,
   format,
 }: {
   row: Rank
   max: number
   log: LogScale | null
+  leader: number
   paint: Paint
   format: (value: number) => string
 }) {
   // Never zero-width where there is something to show: a bar you cannot see is
   // indistinguishable from a row that should not be there.
-  const share = log !== null ? log.y(row.value) : max > 0 ? (row.value / max) * 100 : 0
+  const share =
+    log !== null
+      ? leader > 0
+        ? (log.y(row.value) / leader) * 100
+        : 0
+      : max > 0
+        ? (row.value / max) * 100
+        : 0
   const pct = Math.max(row.value > 0 ? 2 : 0, Math.round(share))
 
   return (

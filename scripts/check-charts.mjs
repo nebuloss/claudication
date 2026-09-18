@@ -72,17 +72,21 @@ check('all-zero does not divide by zero', Number.isFinite(nothing.y(0)), true)
 // every row but the leader computed under 0.03% and was clamped to the 2%
 // minimum, so four of five bars were the same length and the picture said
 // nothing. Ranked bars run the scale over 0..100 because a bar is a CSS width.
+// Normalised against the leader, as RankedBars does: LogScale rounds its top
+// up to a whole decade, which an axis needs for its gridline and a list does
+// not — unnormalised this leader sits at 92% against a 1e10 ceiling nothing
+// reaches.
 const spread = [1935946849, 548979, 187269, 106, 96]
 const ranked = new LogScale(spread, 0, 100)
-const widths = spread.map((v) => Math.round(ranked.y(v)))
-check('the leader still fills the row', widths[0], 100)
-check('the smallest is visible rather than clamped', widths[4] > 5, true)
-check(
-  'every row is distinguishable from the one above it',
-  widths.every((w, i) => i === 0 || widths[i - 1] - w >= 4),
-  true,
-)
-check('and they still descend with the data', [...widths].sort((a, b) => b - a), widths)
+const top = ranked.y(Math.max(...spread))
+const widths = spread.map((v) => Math.round((ranked.y(v) / top) * 100))
+check('the leader fills the row', widths[0], 100)
+check('the smallest is visible rather than clamped to the floor', widths[4] > 5, true)
+check('three decades down is around half, not 0%', widths[1] > 40 && widths[1] < 70, true)
+check('they descend with the data', [...widths].sort((a, b) => b - a), widths)
+// 106 and 96 are near-equal and must look it. The bug was rows that differed
+// by seven orders of magnitude looking identical, not rows that genuinely are.
+check('near-equal rows stay near-equal', widths[3] - widths[4] <= 2, true)
 
 console.log('\n— BandScale: a slot is what you point at, a bar is what is drawn —')
 const x = new BandScale(4, 0, 400, { maxWidth: 34 })
