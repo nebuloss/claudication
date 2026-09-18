@@ -4,6 +4,7 @@ import {
   Banner,
   ErrorModal,
   Chip,
+  Segmented,
   Empty,
   KeyValue,
   Spinner,
@@ -42,7 +43,14 @@ const PAGE = 50
  * only thing this could ever answer.
  */
 /** The filters this screen reads off the URL, and writes back to it. */
-export type RequestFilter = { chat: string; key: string; model: string; status: string }
+export type RequestFilter = {
+  chat: string
+  key: string
+  model: string
+  status: string
+  /** '', 'relayed' or 'rejected' — whether it reached the upstream at all. */
+  kind: string
+}
 
 /** The query string as a filter. Unknown parameters are ignored. */
 export function filterFromSearch(search: string): RequestFilter {
@@ -54,6 +62,7 @@ export function filterFromSearch(search: string): RequestFilter {
     // Only one value means anything today; anything else reads as unfiltered
     // rather than as an error, because a URL is something people edit.
     status: q.get('status') === 'failed' ? 'failed' : '',
+    kind: ['relayed', 'rejected'].includes(q.get('kind') ?? '') ? (q.get('kind') as string) : '',
   }
 }
 
@@ -158,13 +167,72 @@ function RecentRequests({
 
   const active = Object.entries(filter).filter(([, v]) => v !== '')
 
+  // Options for the two pickers. Models come from the rows on screen, because
+  // filtering to a model you cannot see is not a thing anyone wants; keys come
+  // from the key list, because a key that has been quiet is exactly the one
+  // worth asking about. The value currently filtered on is kept in its list
+  // even when nothing on screen carries it, so a filter set from a link can be
+  // seen and cleared.
+  const models = useMemo(() => {
+    const seen = new Set(rows.map((r) => r.model ?? '').filter((m) => m !== ''))
+    if (filter.model !== '') seen.add(filter.model)
+    return [...seen].sort()
+  }, [rows, filter.model])
+
   // No card and no title of its own: it is the body of a tab now, and the tab
   // is already called Requests.
   return (
     <>
-      {/* What the URL is asking for, stated rather than implied. A filtered
-          list that looks like the whole list is how someone concludes the
-          gateway has served four requests all week. */}
+      {/* The controls, and then what the URL is asking for. Both: the pickers
+          say what can be narrowed, the summary says what is narrowed — and a
+          filtered list that looks like the whole list is how someone concludes
+          the gateway served four requests all week. */}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <Segmented
+          label="Show"
+          value={filter.status === 'failed' ? 'failed' : 'all'}
+          onChange={(v) => onNarrow({ ...filter, status: v === 'failed' ? 'failed' : '' })}
+          options={[
+            { id: 'all', label: 'All requests', content: 'All' },
+            { id: 'failed', label: 'Failures only', content: 'Failures' },
+          ]}
+        />
+
+        <label className="flex flex-col gap-1 text-xs text-on-surface-variant">
+          Model
+          <select
+            value={filter.model}
+            onChange={(e) => onNarrow({ ...filter, model: e.target.value })}
+            className="h-9 rounded-[var(--radius-md3-xs)] border border-outline bg-transparent px-2 text-sm text-on-surface"
+          >
+            <option value="">Any</option>
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/* Only offered once the log holds both kinds, so a gateway that has
+            never refused anything is not asked to choose between them. */}
+        {(filter.kind !== '' || rows.some((r) => r.rejected)) && (
+          <Segmented
+            label="Kind"
+            value={filter.kind === '' ? 'any' : filter.kind}
+            onChange={(v) => onNarrow({ ...filter, kind: v === 'any' ? '' : v })}
+            options={[
+              { id: 'any', label: 'Relayed and refused', content: 'Any' },
+              { id: 'relayed', label: 'Reached the upstream', content: 'Relayed' },
+              { id: 'rejected', label: 'Refused by this gateway', content: 'Refused' },
+            ]}
+          />
+        )}
+
+        <span className="flex-grow" />
+        <TextButton onClick={() => void load('')}>Refresh</TextButton>
+      </div>
+
       {active.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
           <span className="text-on-surface-variant">Showing</span>
@@ -173,7 +241,7 @@ function RecentRequests({
               {k === 'status' ? 'failures only' : `${k}: ${v.length > 24 ? `${v.slice(0, 21)}…` : v}`}
             </Chip>
           ))}
-          <TextButton onClick={() => onNarrow({ chat: '', key: '', model: '', status: '' })}>
+          <TextButton onClick={() => onNarrow({ chat: '', key: '', model: '', status: '', kind: '' })}>
             Clear
           </TextButton>
         </div>

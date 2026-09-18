@@ -15,9 +15,16 @@
 -- isolate a write volume of a few thousand rows a week.
 --
 -- So: a column that says which kind a row is, and every aggregate filters on
--- it. Defaulting to 1 is what makes this migration correct — every row that
--- already exists got here by being relayed.
-ALTER TABLE usage_events ADD COLUMN relayed INTEGER NOT NULL DEFAULT 1;
+-- it.
+--
+-- Named for the exception rather than the rule, so that zero means the common
+-- case in both places. A `relayed` column defaulting to 1 would have a Go field
+-- whose zero value is false, and every caller that forgot to set it would file
+-- a relayed request as a refused one — silently, and in the direction that
+-- removes rows from the usage figures. Naming it `rejected` makes the defaults
+-- agree: the column defaults to 0, the field to false, and both mean "this was
+-- relayed", which every row already in the table was.
+ALTER TABLE usage_events ADD COLUMN rejected INTEGER NOT NULL DEFAULT 0;
 
 -- Who it came from, which is the only identity a refused request has. A
 -- relayed one is identified by its key; a rejected one has none, and without an
@@ -31,5 +38,5 @@ ALTER TABLE usage_events ADD COLUMN ip TEXT NOT NULL DEFAULT '';
 -- The request log reads newest-first and filters; usage reads a window and
 -- groups. This serves the first without making the second pay for it — the
 -- existing idx_usage_at still covers the aggregates, which all narrow on
--- relayed = 1 now.
-CREATE INDEX IF NOT EXISTS idx_usage_relayed_at ON usage_events (relayed, at DESC);
+-- rejected = 0 now.
+CREATE INDEX IF NOT EXISTS idx_usage_rejected_at ON usage_events (rejected, at DESC);

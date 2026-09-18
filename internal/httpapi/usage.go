@@ -131,10 +131,10 @@ type requestJSON struct {
 	// Computed on read rather than stored: it is a reading of the recorded
 	// text, and one that will get better as more of these are identified.
 	ErrorKind string `json:"error_kind,omitempty"`
-	// Relayed is false for a request the gateway refused itself, and IP is
-	// where it came from — the only identity such a request has.
-	Relayed bool   `json:"relayed"`
-	IP      string `json:"ip,omitempty"`
+	// Rejected marks a request the gateway refused itself, and IP is where it
+	// came from — the only identity such a request has.
+	Rejected bool   `json:"rejected"`
+	IP       string `json:"ip,omitempty"`
 }
 
 // toRequestJSON is the one conversion from a stored event to what the UI
@@ -156,7 +156,7 @@ func toRequestJSON(e store.UsageEvent) requestJSON {
 		DurationMS:   e.Duration.Milliseconds(),
 		Error:        e.Error,
 		ErrorKind:    string(upstream.ClassifyRefusal(e.Error)),
-		Relayed:      e.Relayed,
+		Rejected:     e.Rejected,
 		IP:           e.IP,
 	}
 }

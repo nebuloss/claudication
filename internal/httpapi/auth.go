@@ -47,7 +47,7 @@ func writeError(w http.ResponseWriter, status int, kind, msg string) {
 //
 // Its own helper because the fields are the interesting part: no key, no model,
 // no tokens, and an address — which is the only identity a refused request has.
-// Relayed is false, so every aggregate steps over it and only the request log
+// Rejected is true, so every aggregate steps over it and only the request log
 // shows it.
 //
 // Deliberately not called for the anonymous rate limiter's own refusal. That
@@ -60,9 +60,10 @@ func (s *Server) recordRejected(r *http.Request, ip string, status int, reason s
 		At:     time.Now(),
 		Path:   r.URL.Path,
 		Status: status,
-		Client: api.ClientName(r.UserAgent()),
-		IP:     ip,
-		Error:  reason,
+		Client:   api.ClientName(r.UserAgent()),
+		IP:       ip,
+		Rejected: true,
+		Error:    reason,
 	}, 0)
 }
 
@@ -119,8 +120,8 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 			s.recordUsage(store.UsageEvent{
 				At: time.Now(), KeyID: key.ID, KeyName: key.Name,
 				Path: r.URL.Path, Status: http.StatusTooManyRequests,
-				Client: api.ClientName(r.UserAgent()), IP: ip,
-				Error: "rate limited by this gateway, not by the upstream",
+				Client: api.ClientName(r.UserAgent()), IP: ip, Rejected: true,
+				Error:  "rate limited by this gateway, not by the upstream",
 			}, 0)
 			writeError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
 			return

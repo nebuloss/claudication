@@ -86,7 +86,7 @@ function RequestLink({
   tone,
   children,
 }: {
-  filter: { chat: string; key: string; model: string; status: string }
+  filter: { chat: string; key: string; model: string; status: string; kind: string }
   tone?: 'error'
   children: ReactNode
 }) {
@@ -243,13 +243,13 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
                 filter, so it can be shared, bookmarked and walked back to —
                 rather than a list this table grows for itself. */}
             <td className="px-2 py-2 tabular-nums whitespace-nowrap">
-              <RequestLink filter={{ chat: c.id, key: '', model: '', status: '' }}>
+              <RequestLink filter={{ chat: c.id, key: '', model: '', status: '', kind: '' }}>
                 {c.requests}
               </RequestLink>
               {c.errors > 0 && (
                 <RequestLink
                   tone="error"
-                  filter={{ chat: c.id, key: '', model: '', status: 'failed' }}
+                  filter={{ chat: c.id, key: '', model: '', status: 'failed', kind: '' }}
                 >
                   · {c.errors} failed
                 </RequestLink>
