@@ -181,6 +181,7 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
 
           {view === 'model' && report !== undefined && (
             <RankedBars
+              scale="log"
               format={compact}
               rows={report.by_model.map((b) => ({
                 label: b.label,
@@ -193,6 +194,7 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
           {view === 'account' && report !== undefined && (
             <>
               <RankedBars
+                scale="log"
                 format={compact}
                 rows={report.by_account.map((b) => ({
                   label: b.label,
@@ -210,6 +212,7 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
 
           {view === 'key' && report !== undefined && (
             <RankedBars
+              scale="log"
               format={compact}
               rows={report.by_key.map((b) => ({
                 label: b.label,

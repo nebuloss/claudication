@@ -46,8 +46,163 @@ import (
 // per-model too and a cheaper model would miss it entirely — a Haiku call that
 // re-sends everything costs more than a Sonnet call that reads it back.
 
+// Reading a name the client asked for itself.
+//
+// opencode and crush both name their own conversations by asking a model, and
+// that request comes through this gateway carrying the same session id as the
+// chat it belongs to. Its answer is the title the client will display —
+// verbatim, not an approximation — so for those clients the name is already
+// going past and only has to be noticed.
+//
+// Measured on the wire (2026-09-17). opencode sends it as a separate turn with
+// no tools and a system prompt that says what it is:
+//
+//	model   claude-haiku-4-5-20251001     tools: 0
+//	system  "You are a title generator. You output ONLY a thread title."
+//	user    Generate a title for this conversation: "say ok"
+//
+// crush does the same with "You will generate a short title based on the first
+// message a user begins a conversation with."
+//
+// Matching on a prompt string is brittle and will drift as those clients
+// change. It fails safe in both directions: a missed match costs nothing but a
+// name, and generation still covers the chat if it is switched on.
+//
+// It also stops generation wasting a request. For opencode the title call is
+// the *first* request of a session — measured: 2,618 bytes before the 42,284
+// byte main turn — so without this the gateway would ask for a title of a
+// conversation whose only content is a request for a title.
+
+// titleMarkers identify a client asking a model to name a conversation. Lower
+// case; the system text is folded before comparison.
+var titleMarkers = []string{
+	"you are a title generator",  // opencode
+	"generate a short title",     // crush
+	"generate a concise title",   // crush's user prompt
+	"you output only a thread title",
+}
+
+// maxCapturedTitleAnswer bounds what is held while watching for a title. A
+// title is a line; anything past this is not one, and a cap keeps a
+// misbehaving upstream from streaming into memory.
+const maxCapturedTitleAnswer = 64 << 10
+
+// isClientTitleRequest reports whether this request is a client naming its own
+// conversation.
+//
+// Two conditions, both required. No tools, because an agent turn always binds
+// them and a title call never does — that alone excludes nearly everything.
+// And a marker in the system text, which is what distinguishes a title request
+// from any other tool-less turn.
+func isClientTitleRequest(body []byte) bool {
+	var envelope struct {
+		Tools  []json.RawMessage `json:"tools"`
+		System json.RawMessage   `json:"system"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return false
+	}
+	if len(envelope.Tools) > 0 {
+		return false
+	}
+	text := strings.ToLower(systemText(envelope.System))
+	if text == "" {
+		return false
+	}
+	for _, marker := range titleMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// systemText flattens a system field that may be a plain string or an array of
+// blocks, which is the difference between what different clients send.
+func systemText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var plain string
+	if err := json.Unmarshal(raw, &plain); err == nil {
+		return plain
+	}
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	var out strings.Builder
+	for _, b := range blocks {
+		out.WriteString(b.Text)
+		out.WriteByte('\n')
+	}
+	return out.String()
+}
+
+// titleFromRelayedAnswer reads the assistant's text out of whatever the
+// upstream sent, streamed or not.
+//
+// Its own small reader rather than the scanner in internal/upstream: that one
+// is on the hot path for every relayed byte and is written to allocate nothing,
+// and teaching it to accumulate text would spend that everywhere to serve a
+// handful of tiny requests.
+func titleFromRelayedAnswer(body []byte) string {
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		return titleFromAnswer(trimmed)
+	}
+
+	var text strings.Builder
+	for _, line := range bytes.Split(body, []byte("\n")) {
+		data, found := bytes.CutPrefix(bytes.TrimRight(line, "\r"), []byte("data: "))
+		if !found {
+			continue
+		}
+		var event struct {
+			Type  string `json:"type"`
+			Delta struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal(data, &event); err != nil {
+			continue
+		}
+		if event.Type == "content_block_delta" && event.Delta.Type == "text_delta" {
+			text.WriteString(event.Delta.Text)
+		}
+	}
+	return cleanTitle(text.String())
+}
+
+// captureSink tees a relayed answer into a buffer on its way to the client.
+//
+// It never gates or alters the write: the client's bytes go out first and the
+// copy is incidental, so a chat name can never be the reason a response was
+// slow or truncated.
+type captureSink struct {
+	api.Sink
+	seen bytes.Buffer
+}
+
+func (c *captureSink) Write(p []byte) (int, error) {
+	n, err := c.Sink.Write(p)
+	if n > 0 && c.seen.Len() < maxCapturedTitleAnswer {
+		c.seen.Write(p[:n])
+	}
+	return n, err
+}
+
 // titleSetting is the settings row holding the switch.
 const titleSetting = "chat.titles.enabled"
+
+// captureSetting is the switch for reading names clients generate themselves.
+// Separate from generation because they are different bargains: this one costs
+// nothing and only notices an answer already going past, while generation
+// spends the operator's subscription.
+const captureSetting = "chat.titles.capture"
 
 // titleKeySetting remembers which API key the gateway issued itself.
 const titleKeySetting = "chat.titles.key"
@@ -86,6 +241,7 @@ type titler struct {
 
 	mu      sync.Mutex
 	enabled bool
+	capture bool
 	keyID   string
 	keyName string
 	// inFlight stops two turns of the same new chat each asking for a title.
@@ -108,6 +264,7 @@ func (t *titler) load(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.enabled = stored[titleSetting] == "true"
+	t.capture = stored[captureSetting] == "true"
 	t.keyID = stored[titleKeySetting]
 	return nil
 }
@@ -118,18 +275,29 @@ func (t *titler) on() bool {
 	return t.enabled
 }
 
-// set changes the switch. The store is written first, so a switch that took
+func (t *titler) capturing() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.capture
+}
+
+// set changes a switch. The store is written first, so a switch that took
 // effect but did not survive a restart is not a state this can reach.
-func (t *titler) set(ctx context.Context, on bool) error {
+func (t *titler) set(ctx context.Context, key string, on bool) error {
 	value := "false"
 	if on {
 		value = "true"
 	}
-	if err := t.server.store.SetSetting(ctx, titleSetting, value); err != nil {
+	if err := t.server.store.SetSetting(ctx, key, value); err != nil {
 		return err
 	}
 	t.mu.Lock()
-	t.enabled = on
+	switch key {
+	case titleSetting:
+		t.enabled = on
+	case captureSetting:
+		t.capture = on
+	}
 	t.mu.Unlock()
 	return nil
 }
@@ -222,6 +390,14 @@ func (t *titler) consider(ev titleRequest) {
 	if len(ev.body) == 0 {
 		return
 	}
+	// Never title a title request. For opencode this is the first request of a
+	// session, so without this the gateway would spend a call asking what to
+	// call a conversation whose only content is a request for a name — and the
+	// answer to the real question is already coming back on this very request,
+	// which is what captureTitle picks up.
+	if isClientTitleRequest(ev.body) {
+		return
+	}
 	if !t.claim(ev.conversation) {
 		return
 	}
@@ -232,6 +408,33 @@ func (t *titler) consider(ev titleRequest) {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		t.run(ctx, ev)
+	}()
+}
+
+// captureTitle stores a name the client asked a model for, off the answer the
+// gateway just relayed.
+//
+// Nothing is spent here: the request was the client's, the answer was going to
+// it anyway, and this only reads the copy. Silent on every failure for the same
+// reason consider is — a name is a convenience, and the model declining to give
+// one is not an event worth a log line.
+func (t *titler) captureTitle(conversation, model string, answer []byte) {
+	if conversation == "" || len(answer) == 0 {
+		return
+	}
+	title := titleFromRelayedAnswer(answer)
+	if title == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := t.server.store.SetChatTitle(ctx, conversation, title, model); err != nil {
+			t.server.log.Warn("could not store a captured chat title", "err", err)
+			return
+		}
+		t.server.log.Debug("read a chat name from the client's own title request",
+			"chat", conversation, "title", title)
 	}()
 }
 

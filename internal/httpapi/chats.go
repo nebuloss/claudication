@@ -71,25 +71,48 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 // have one: this decides whether the gateway may spend the operator's
 // subscription on its own behalf, and the answer to "stop doing that" cannot be
 // "edit a file and restart".
+// Two switches, because they are two different bargains. Capture only notices
+// a name already going past and costs nothing; generation spends the
+// operator's subscription. Either may be sent alone.
 func (s *Server) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Enabled *bool `json:"enabled"`
+		Capture *bool `json:"capture"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", `expected {"enabled": true|false}`)
+		writeError(w, http.StatusBadRequest, "invalid_request",
+			`expected {"enabled": true|false} or {"capture": true|false}`)
 		return
 	}
-	if body.Enabled == nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "enabled is required")
+	if body.Enabled == nil && body.Capture == nil {
+		writeError(w, http.StatusBadRequest, "invalid_request",
+			"one of enabled or capture is required")
 		return
 	}
-	if err := s.titles.set(r.Context(), *body.Enabled); err != nil {
-		s.log.Error("could not store the chat-title switch", "err", err)
-		writeError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
-		return
+
+	for _, change := range []struct {
+		key   string
+		value *bool
+		what  string
+	}{
+		{titleSetting, body.Enabled, "generate"},
+		{captureSetting, body.Capture, "capture"},
+	} {
+		if change.value == nil {
+			continue
+		}
+		if err := s.titles.set(r.Context(), change.key, *change.value); err != nil {
+			s.log.Error("could not store the chat-title switch", "which", change.what, "err", err)
+			writeError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
+			return
+		}
+		s.log.Warn("chat titles switched", "which", change.what, "enabled", *change.value)
 	}
-	s.log.Warn("chat titles switched", "enabled", *body.Enabled)
-	writeJSON(w, http.StatusOK, map[string]any{"chat_titles": s.titles.on()})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"chat_titles":         s.titles.on(),
+		"chat_titles_capture": s.titles.capturing(),
+	})
 }
 
 // handleChat answers one conversation's requests.

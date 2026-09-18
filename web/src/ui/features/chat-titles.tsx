@@ -3,38 +3,40 @@ import { api } from '../../api/client'
 import { Banner, Card, CardTitle, Switch } from '../primitives'
 
 /**
- * The switch for naming conversations.
+ * The switches for naming conversations.
  *
- * Its own card rather than a row among the API surfaces, because it is a
- * different kind of decision. Those switches say what the gateway will answer;
- * this one says whether it may spend the operator's subscription on its own
- * behalf — the only thing in the gateway that originates upstream traffic
- * rather than relaying someone else's.
+ * Two of them, because they are two different bargains and collapsing them
+ * into one would hide the only part worth deciding about.
  *
- * Off until switched on, and the copy says plainly what turning it on costs.
- * A gateway whose whole job is managing a metered resource should not quietly
- * spend it, and an operator who finds out afterwards is right to be annoyed.
+ * Reading a name costs nothing: opencode and crush already ask a model to name
+ * their own conversations, and that answer passes through this gateway on its
+ * way back to them. Asking for a name spends the operator's subscription — the
+ * only thing the gateway does that originates upstream traffic rather than
+ * relaying someone else's — so it is off until switched on and says plainly
+ * what it costs.
  */
 export default function ChatTitles({
   enabled,
+  capture,
   onChanged,
 }: {
   enabled: boolean
+  capture: boolean
   onChanged: () => void
 }) {
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
-  async function toggle(next: boolean) {
-    setBusy(true)
+  async function toggle(which: 'enabled' | 'capture', next: boolean) {
+    setBusy(which)
     setError('')
     try {
-      await api.setChatTitles(next)
+      await api.setChatTitles({ [which]: next })
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not change the setting.')
     } finally {
-      setBusy(false)
+      setBusy('')
     }
   }
 
@@ -43,9 +45,8 @@ export default function ChatTitles({
       <CardTitle>Chat names</CardTitle>
 
       <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-        Claude Code never asks a model to name its own conversations, so unlike opencode and crush
-        there is no name on the wire to read. With this on, the gateway asks for one itself — once
-        per conversation, the first time it sees one.
+        Conversations are grouped by the session id their client sends, which is always just an
+        identifier. These decide whether they also get a readable name.
       </p>
 
       {error !== '' && (
@@ -54,27 +55,46 @@ export default function ChatTitles({
         </Banner>
       )}
 
-      <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
-        <Switch
-          checked={enabled}
-          disabled={busy}
-          onChange={(v) => void toggle(v)}
-          label="Name conversations"
-        />
-        <div className="mt-2 sm:ml-16">
-          <p className="mt-0 mb-2 text-xs text-on-surface-variant">
-            This is the one thing the gateway does that spends your subscription rather than
-            relaying someone else&rsquo;s request. It is one short request per conversation, made on
-            that chat&rsquo;s own model and account so it reads the prompt cache that is already
-            warm instead of re-sending the conversation — measured at 11,406 cached tokens read and
-            none written.
+      <div className="flex flex-col gap-3">
+        <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
+          <Switch
+            checked={capture}
+            disabled={busy !== ''}
+            onChange={(v) => void toggle('capture', v)}
+            label="Read names clients generate"
+          />
+          <p className="mt-2 mb-0 text-xs text-on-surface-variant sm:ml-16">
+            opencode and crush name their own conversations by asking a model, and that request
+            comes through here carrying the same session id. Its answer is the name they display,
+            so this reads it rather than guessing one. Costs nothing — the request was theirs and
+            the answer was going to them anyway.
           </p>
-          <p className="m-0 text-xs text-on-surface-variant">
-            It is billed to an API key the gateway issues itself, called{' '}
-            <code className="font-mono">gateway (internal)</code>, so what it costs shows up in
-            Usage like anything else. Give that key a token budget to cap it, or delete it to stop
-            it.
-          </p>
+        </div>
+
+        <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
+          <Switch
+            checked={enabled}
+            disabled={busy !== ''}
+            onChange={(v) => void toggle('enabled', v)}
+            label="Ask for a name when the client does not"
+          />
+          <div className="mt-2 sm:ml-16">
+            <p className="mt-0 mb-2 text-xs text-on-surface-variant">
+              Claude Code never asks a model to name its conversations, so there is nothing to
+              read. With this on the gateway asks for one itself, once per conversation.{' '}
+              <strong className="font-medium text-on-surface">
+                This spends your subscription
+              </strong>{' '}
+              rather than relaying someone else&rsquo;s request — one short call, made on that
+              chat&rsquo;s own model and account so it reads the prompt cache that is already warm
+              instead of re-sending the conversation.
+            </p>
+            <p className="m-0 text-xs text-on-surface-variant">
+              Billed to an API key the gateway issues itself, called{' '}
+              <code className="font-mono">gateway (internal)</code>, so the cost shows up in Usage
+              like anything else. Give that key a token budget to cap it, or delete it to stop it.
+            </p>
+          </div>
         </div>
       </div>
     </Card>

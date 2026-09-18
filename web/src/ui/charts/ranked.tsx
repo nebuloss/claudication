@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
 import { MAGNITUDE, Palette, type Paint } from './paint'
+import { LogScale } from './scale'
 
 /** One row of a ranked list: a name, how much of it, and what to print. */
 export type Rank = {
@@ -22,15 +23,36 @@ export type Rank = {
 export function RankedBars({
   rows,
   identity = true,
+  scale = 'linear',
   format,
 }: {
   rows: Rank[]
   /** False where a bar means magnitude over time rather than which thing. */
   identity?: boolean
+  /**
+   * How bar length relates to value.
+   *
+   * Linear is the honest default and is right whenever the rows are within an
+   * order of magnitude of each other. It is useless when they are not, which
+   * for this gateway is the normal case: measured in production, one model
+   * held 1,935,946,849 tokens and the next 548,979 — seven orders of
+   * magnitude, so every row but the leader computed under 0.03% and was
+   * clamped to the minimum width. Five bars, four of them identical, and the
+   * picture said nothing the numbers beside it did not already say.
+   *
+   * 'log' gives each decade equal room, the same decision and the same reason
+   * as the traffic chart's axis. It is only ever paired with the printed value
+   * on the right, because a log-scaled bar is a ranking aid and not a
+   * quantity: twice the length is ten times the number.
+   */
+  scale?: 'linear' | 'log'
   format: (value: number) => string
 }) {
   const max = rows.reduce((m, r) => Math.max(m, r.value), 0)
   const palette = identity ? new Palette(rows.map((r) => r.label)) : null
+  // 0..100 rather than pixels: the bar is a CSS width, so the scale's range is
+  // already the unit it is measured in.
+  const log = scale === 'log' ? new LogScale(rows.map((r) => r.value), 0, 100) : null
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -39,6 +61,7 @@ export function RankedBars({
           key={row.label}
           row={row}
           max={max}
+          log={log}
           paint={palette?.paint(row.label) ?? MAGNITUDE}
           format={format}
         />
@@ -50,17 +73,20 @@ export function RankedBars({
 function RankedBar({
   row,
   max,
+  log,
   paint,
   format,
 }: {
   row: Rank
   max: number
+  log: LogScale | null
   paint: Paint
   format: (value: number) => string
 }) {
   // Never zero-width where there is something to show: a bar you cannot see is
   // indistinguishable from a row that should not be there.
-  const pct = max > 0 ? Math.max(row.value > 0 ? 2 : 0, Math.round((row.value / max) * 100)) : 0
+  const share = log !== null ? log.y(row.value) : max > 0 ? (row.value / max) * 100 : 0
+  const pct = Math.max(row.value > 0 ? 2 : 0, Math.round(share))
 
   return (
     <div className="flex items-center gap-3 text-sm">

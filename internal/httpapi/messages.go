@@ -81,7 +81,16 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// translating protocol are not the ones that arrived.
 		prologue := upstream.Peek(outbound)
 
+		// A client naming its own conversation is answered with the name it
+		// will display. Tee that one answer so the gateway can read it; every
+		// other request is untouched, and the tee never gates the write.
 		sink := ex.Sink(w)
+		var captured *captureSink
+		if conversation != "" && s.titles.capturing() && isClientTitleRequest(outbound) {
+			captured = &captureSink{Sink: sink}
+			sink = captured
+		}
+
 		started := time.Now()
 		res := s.relay.Do(sink, r, "anthropic", upstreamPath, outbound, prologue)
 		elapsed := time.Since(started)
@@ -124,9 +133,13 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			Error: firstNonEmpty(res.StreamError, res.UpstreamError),
 		}, key.TokenBudget)
 
-		// After the answer, never before it: naming a chat is a convenience and
-		// the client's turn must not wait on one. Returns at once unless
-		// titling is on and this conversation has no name yet.
+		// Both after the answer, never before it: naming a chat is a
+		// convenience and the client's turn must not wait on one.
+		if captured != nil && res.Status == http.StatusOK {
+			s.titles.captureTitle(conversation, model, captured.seen.Bytes())
+		}
+		// Returns at once unless titling is on and this conversation has no
+		// name yet.
 		s.titles.consider(titleRequest{
 			conversation: conversation,
 			model:        model,

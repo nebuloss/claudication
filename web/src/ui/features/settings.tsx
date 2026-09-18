@@ -51,7 +51,11 @@ export default function Settings({
       ) : (
         <>
           <Surfaces surfaces={data.surfaces} onChanged={() => void reload()} />
-          <ChatTitles enabled={data.chat_titles} onChanged={() => void reload()} />
+          <ChatTitles
+            enabled={data.chat_titles}
+            capture={data.chat_titles_capture}
+            onChanged={() => void reload()}
+          />
           <ConfigTable config={data} />
         </>
       )}

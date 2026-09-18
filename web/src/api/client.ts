@@ -287,6 +287,12 @@ export interface GatewayConfig {
    * which is why it is a switch and why it is off until turned on.
    */
   chat_titles: boolean
+  /**
+   * Whether the gateway reads names that clients generate for themselves.
+   * Costs nothing — opencode and crush ask a model to name their own
+   * conversations, and that answer already passes through here.
+   */
+  chat_titles_capture: boolean
 }
 
 export interface Overview {
@@ -491,8 +497,12 @@ export const api = {
       enabled,
     }),
 
-  setChatTitles: (enabled: boolean) =>
-    request<{ chat_titles: boolean }>('POST', '/admin/chat-titles', { enabled }),
+  setChatTitles: (change: { enabled?: boolean; capture?: boolean }) =>
+    request<{ chat_titles: boolean; chat_titles_capture: boolean }>(
+      'POST',
+      '/admin/chat-titles',
+      change,
+    ),
 
   listKeys: async (): Promise<{
     keys: ApiKey[]
