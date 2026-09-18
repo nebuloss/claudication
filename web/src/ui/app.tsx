@@ -3,6 +3,7 @@ import Accounts from './features/accounts'
 import Keys from './features/keys'
 import Overview from './features/overview'
 import Settings from './features/settings'
+import RequestsPanel from './features/requests'
 import Setup from './features/setup'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
@@ -34,7 +35,10 @@ type State =
 
 // Setup sits second: it is what a new gateway is for, and it is the only tab
 // that helps you use the thing rather than administer it.
-const TABS = ['overview', 'setup', 'accounts', 'keys', 'usage', 'settings'] as const
+// Requests sits beside Usage rather than inside it: usage is what was spent
+// and groups by key, model and account, while the log is what arrived —
+// including requests refused before they had a key to group under.
+const TABS = ['overview', 'setup', 'accounts', 'keys', 'usage', 'requests', 'settings'] as const
 type Tab = (typeof TABS)[number]
 
 /**
@@ -50,7 +54,7 @@ type Tab = (typeof TABS)[number]
  * work on the others — Settings is mostly sentences, and sentences set to
  * 1800px are unreadable.
  */
-const WIDE: readonly Tab[] = ['usage']
+const WIDE: readonly Tab[] = ['usage', 'requests']
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
@@ -58,6 +62,7 @@ const TAB_LABELS: Record<Tab, string> = {
   accounts: 'Claude accounts',
   keys: 'API keys',
   usage: 'Usage',
+  requests: 'Requests',
   settings: 'Settings',
 }
 
@@ -188,6 +193,7 @@ export default function App() {
         {tab === 'accounts' && <Accounts onExpired={expired} />}
         {tab === 'keys' && <Keys onExpired={expired} onMinted={setMinted} />}
         {tab === 'usage' && <UsagePanel onExpired={expired} />}
+        {tab === 'requests' && <RequestsPanel onExpired={expired} />}
         {tab === 'settings' && (
           <Settings session={state.session} onSessionChanged={() => void probe()} />
         )}

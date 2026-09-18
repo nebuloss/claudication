@@ -59,3 +59,18 @@ export function panelFromHash<T extends string>(
   const first = raw.replace(/^#/, '').split('&')[0]
   return (panels as readonly string[]).includes(first) ? (first as T) : fallback
 }
+
+/**
+ * Go somewhere, query string and all, without reloading the app.
+ *
+ * pushState alone is invisible to everything watching the location: the
+ * listeners are on popstate, which the browser fires only for Back and
+ * Forward. Dispatching one says "the location changed" in the vocabulary every
+ * screen is already listening in, so the tab and its filters both follow —
+ * where a plain <a href> would throw the whole app away and rebuild it to
+ * change one query parameter.
+ */
+export function navigate(url: string) {
+  window.history.pushState(null, '', url)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}

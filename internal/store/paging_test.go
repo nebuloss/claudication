@@ -42,7 +42,7 @@ func TestPagingCoversEveryRowExactlyOnce(t *testing.T) {
 	var cursor UsageCursor
 	var pages int
 	for {
-		rows, next, err := st.RecentUsage(ctx, page, cursor)
+		rows, next, err := st.RecentUsage(ctx, page, cursor, RequestFilter{})
 		if err != nil {
 			t.Fatalf("RecentUsage: %v", err)
 		}
@@ -74,11 +74,11 @@ func TestPagingIsNewestFirst(t *testing.T) {
 	st, _ := pagingFixture(t, 25)
 	ctx := context.Background()
 
-	first, next, err := st.RecentUsage(ctx, 10, UsageCursor{})
+	first, next, err := st.RecentUsage(ctx, 10, UsageCursor{}, RequestFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _, err := st.RecentUsage(ctx, 10, next)
+	second, _, err := st.RecentUsage(ctx, 10, next, RequestFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestNewRowsDoNotDisturbAPageBoundary(t *testing.T) {
 	st, base := pagingFixture(t, 20)
 	ctx := context.Background()
 
-	first, next, err := st.RecentUsage(ctx, 10, UsageCursor{})
+	first, next, err := st.RecentUsage(ctx, 10, UsageCursor{}, RequestFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestNewRowsDoNotDisturbAPageBoundary(t *testing.T) {
 		}
 	}
 
-	second, _, err := st.RecentUsage(ctx, 10, next)
+	second, _, err := st.RecentUsage(ctx, 10, next, RequestFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestPagingWithIdenticalTimestamps(t *testing.T) {
 	seen := map[int]int{}
 	var cursor UsageCursor
 	for range 10 {
-		rows, next, err := st.RecentUsage(ctx, 3, cursor)
+		rows, next, err := st.RecentUsage(ctx, 3, cursor, RequestFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -184,7 +184,7 @@ func TestPagingWithIdenticalTimestamps(t *testing.T) {
 // than finding out by fetching nothing.
 func TestTheLastPageHasNoCursor(t *testing.T) {
 	st, _ := pagingFixture(t, 5)
-	rows, next, err := st.RecentUsage(context.Background(), 10, UsageCursor{})
+	rows, next, err := st.RecentUsage(context.Background(), 10, UsageCursor{}, RequestFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

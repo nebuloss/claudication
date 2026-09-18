@@ -573,9 +573,16 @@ export const api = {
   recentRequests: async (
     limit = 50,
     after = '',
+    filter: { chat?: string; key?: string; model?: string; status?: string } = {},
   ): Promise<{ rows: RequestRow[]; nextCursor: string }> => {
     const query = new URLSearchParams({ limit: String(limit) })
     if (after !== '') query.set('after', after)
+    // Passed straight through: the server decides what each one narrows, and
+    // an unknown one is ignored rather than being a client-side allowlist that
+    // has to be kept in step with it.
+    for (const [k, v] of Object.entries(filter)) {
+      if (v !== undefined && v !== '') query.set(k, v)
+    }
     const res = await request<{ requests: RequestRow[] | null; next_cursor?: string }>(
       'GET',
       `/admin/requests?${query.toString()}`,

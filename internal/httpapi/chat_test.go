@@ -51,7 +51,7 @@ func waitForEvents(t *testing.T, st *store.Store, n int) []store.UsageEvent {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		events, _, err := st.RecentUsage(context.Background(), 20, store.UsageCursor{})
+		events, _, err := st.RecentUsage(context.Background(), 20, store.UsageCursor{}, store.RequestFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}

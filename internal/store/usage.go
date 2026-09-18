@@ -446,9 +446,56 @@ func ParseUsageCursor(s string) (UsageCursor, bool) {
 	return UsageCursor{At: t, ID: n}, true
 }
 
+// RequestFilter narrows the request log.
+//
+// Every field is optional and they compose: a chat and a failure state
+// together answer "which requests of this conversation broke", which is the
+// question a count in the chat table raises and could not answer.
+//
+// Named for the log rather than for usage, because they are different things.
+// Usage is what was spent; the log is what arrived — including requests that
+// spent nothing because they were refused.
+type RequestFilter struct {
+	// ConversationID limits to one chat.
+	ConversationID string
+	// KeyID limits to one credential, Model to one model.
+	KeyID string
+	Model string
+	// FailedOnly keeps what did not work: a status the caller would call a
+	// failure, or a stream that died after its 200. The two are different
+	// facts and both are failures, which is why this is one flag rather than
+	// a status-code field the caller has to know to combine.
+	FailedOnly bool
+}
+
+// where builds the clause and its arguments, without the leading keyword.
+func (f RequestFilter) where() (string, []any) {
+	var clauses []string
+	var args []any
+	if f.ConversationID != "" {
+		clauses = append(clauses, "conversation_id = ?")
+		args = append(args, f.ConversationID)
+	}
+	if f.KeyID != "" {
+		clauses = append(clauses, "key_id = ?")
+		args = append(args, f.KeyID)
+	}
+	if f.Model != "" {
+		clauses = append(clauses, "model = ?")
+		args = append(args, f.Model)
+	}
+	if f.FailedOnly {
+		clauses = append(clauses, "(status = 0 OR status >= 400 OR error <> '')")
+	}
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return strings.Join(clauses, " AND "), args
+}
+
 // RecentUsage returns one page of events, newest first, along with the cursor
 // for the page after it. An empty next cursor means the end of the list.
-func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor) ([]UsageEvent, UsageCursor, error) {
+func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, filter RequestFilter) ([]UsageEvent, UsageCursor, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
@@ -458,20 +505,30 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor) (
 	                 status, streaming, input_tokens, output_tokens,
 	                 cache_read_tokens, cache_write_tokens, duration_ms, error`
 
-	var rows *sql.Rows
-	var err error
+	narrow, args := filter.where()
+	// The cursor is a condition like any other, so it joins the same AND
+	// chain. Written separately the two used to be two whole statements that
+	// had to be kept in step, which is how a filter ends up applying to the
+	// first page and not the rest.
+	var conditions []string
+	var params []any
 	if after.ID > 0 {
 		// Row values, so the comparison is the same one the ORDER BY makes.
-		rows, err = s.db.QueryContext(ctx,
-			`SELECT `+columns+` FROM usage_events
-			  WHERE (at, id) < (?, ?)
-			  ORDER BY at DESC, id DESC LIMIT ?`,
-			after.At.UTC().Format(time.RFC3339Nano), after.ID, limit)
-	} else {
-		rows, err = s.db.QueryContext(ctx,
-			`SELECT `+columns+` FROM usage_events
-			  ORDER BY at DESC, id DESC LIMIT ?`, limit)
+		conditions = append(conditions, "(at, id) < (?, ?)")
+		params = append(params, after.At.UTC().Format(time.RFC3339Nano), after.ID)
 	}
+	if narrow != "" {
+		conditions = append(conditions, narrow)
+		params = append(params, args...)
+	}
+	query := `SELECT ` + columns + ` FROM usage_events`
+	if len(conditions) > 0 {
+		query += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+	query += ` ORDER BY at DESC, id DESC LIMIT ?`
+	params = append(params, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, params...)
 	if err != nil {
 		return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)
 	}

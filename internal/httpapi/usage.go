@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"claudication/internal/api"
 	"claudication/internal/store"
 	"claudication/internal/upstream"
 	"claudication/internal/version"
@@ -178,7 +179,19 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	// requests, not an error.
 	after, _ := store.ParseUsageCursor(r.URL.Query().Get("after"))
 
-	events, next, err := s.store.RecentUsage(r.Context(), limit, after)
+	// Filters come off the query string so a link can carry them. That is the
+	// point: the chat table links here rather than growing a request list of
+	// its own, and the URL someone lands on is one they can also edit, share
+	// and bookmark.
+	q := r.URL.Query()
+	filter := store.RequestFilter{
+		ConversationID: api.CleanIdentifier(q.Get("chat")),
+		KeyID:          api.CleanIdentifier(q.Get("key")),
+		Model:          api.CleanIdentifier(q.Get("model")),
+		FailedOnly:     q.Get("status") == "failed",
+	}
+
+	events, next, err := s.store.RecentUsage(r.Context(), limit, after, filter)
 	if err != nil {
 		s.log.Error("recent requests", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not read recent requests")
