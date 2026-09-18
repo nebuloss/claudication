@@ -203,11 +203,10 @@ func scanChat(r rowScanner) (Chat, error) {
 // operator how much traffic is arriving unlabelled.
 func (s *Store) unattributed(ctx context.Context, from string) (Chat, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT '',
-		        COALESCE((SELECT client FROM usage_events e1
-		                   WHERE e1.conversation_id = e.conversation_id AND e1.at >= ?
-		                     AND e1.client <> '' AND e1.path <> ?
-		                   ORDER BY e1.at DESC LIMIT 1), ''),
+		// No client, and not because it is hard to pick one: these rows have
+		// nothing in common but the absence of a conversation id, so naming any
+		// one of their clients would read as a fact about all of them.
+		`SELECT '', '',
 		        COUNT(*),
 		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
 		        COALESCE(SUM(input_tokens), 0),
@@ -225,9 +224,6 @@ func (s *Store) unattributed(ctx context.Context, from string) (Chat, error) {
 	if err != nil {
 		return Chat{}, fmt.Errorf("unattributed usage: %w", err)
 	}
-	// MAX(client) over a mixed bag names one arbitrary client, which would read
-	// as a fact about all of them.
-	c.Client = ""
 	return c, nil
 }
 
