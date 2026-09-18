@@ -535,8 +535,13 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	t.server.recordUsage(store.UsageEvent{
 		At: started, KeyID: keyID, KeyName: keyName,
 		AccountID: res.AccountID, AccountEmail: res.AccountEmail,
-		Model: ev.model, Path: "/internal/title",
-		ConversationID: ev.conversation, Client: internalKeyName,
+		Model: ev.model, Path: store.InternalPath,
+		// No Client: this row is the gateway's own, and the column means "who
+		// was having this conversation". Stamping it here put the gateway's
+		// name on a crush chat, because the rollup picked a client with
+		// MAX(client) and a lowercase g sorts above Charm-Crush's C. The key
+		// name already says whose request it was.
+		ConversationID: ev.conversation,
 		Status:           res.Status,
 		InputTokens:      res.Usage.InputTokens,
 		OutputTokens:     res.Usage.OutputTokens,

@@ -18,6 +18,15 @@ import (
 // free for the same reason: when the pruner drops old events the chats they
 // belonged to stop existing, with nothing left behind pointing at nothing.
 
+// InternalPath marks a request the gateway made on its own behalf rather than
+// relayed for a client — today, the call that asks a model to name a chat.
+//
+// It is the discriminator the rollup uses to answer "whose chat is this",
+// because those rows are part of the conversation's cost but say nothing about
+// who was having it. A path rather than a key name: names are editable and get
+// reused, and this has to keep working when someone renames something.
+const InternalPath = "/internal/title"
+
 // Chat is one conversation's totals.
 type Chat struct {
 	// ID is the conversation id the client sent. Never empty in this list:
@@ -94,7 +103,10 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 	// group_concat, hence the inner SELECT.
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT conversation_id,
-		        COALESCE(MAX(client), ''),
+		        COALESCE((SELECT client FROM usage_events e1
+		                   WHERE e1.conversation_id = e.conversation_id AND e1.at >= ?
+		                     AND e1.client <> '' AND e1.path <> ?
+		                   ORDER BY e1.at DESC LIMIT 1), ''),
 		        COUNT(*),
 		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
 		        COALESCE(SUM(input_tokens), 0),
@@ -108,9 +120,11 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 		              ORDER BY e2.at)),
 		        (SELECT key_name FROM usage_events e3
 		          WHERE e3.conversation_id = e.conversation_id AND e3.at >= ?
+		            AND e3.path <> ?
 		          ORDER BY e3.at DESC LIMIT 1),
 		        (SELECT account_email FROM usage_events e4
 		          WHERE e4.conversation_id = e.conversation_id AND e4.at >= ?
+		            AND e4.path <> ?
 		          ORDER BY e4.at DESC LIMIT 1),
 		        (SELECT title FROM chat_titles t
 		          WHERE t.conversation_id = e.conversation_id)
@@ -120,7 +134,7 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 		  ORDER BY SUM(input_tokens + output_tokens
 		               + cache_read_tokens + cache_write_tokens) DESC
 		  LIMIT ?`,
-		from, from, from, from, limit)
+		from, InternalPath, from, from, InternalPath, from, InternalPath, from, limit)
 	if err != nil {
 		return ChatReport{}, fmt.Errorf("chats: %w", err)
 	}
@@ -190,7 +204,10 @@ func scanChat(r rowScanner) (Chat, error) {
 func (s *Store) unattributed(ctx context.Context, from string) (Chat, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT '',
-		        COALESCE(MAX(client), ''),
+		        COALESCE((SELECT client FROM usage_events e1
+		                   WHERE e1.conversation_id = e.conversation_id AND e1.at >= ?
+		                     AND e1.client <> '' AND e1.path <> ?
+		                   ORDER BY e1.at DESC LIMIT 1), ''),
 		        COUNT(*),
 		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
 		        COALESCE(SUM(input_tokens), 0),

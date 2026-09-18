@@ -100,6 +100,53 @@ func TestChatsRollUpPerConversation(t *testing.T) {
 	}
 }
 
+// The gateway's own requests are part of what a chat cost and say nothing
+// about who was having it.
+//
+// The bug: naming a chat records a usage row against that conversation, and
+// the rollup picked its client with MAX(client). A lowercase "g" sorts above
+// "Charm-Crush", so a crush chat was attributed to the gateway. The key name
+// went the same way, since key and account take the latest row and the title
+// call is always the latest.
+func TestTheGatewaysOwnRequestsDoNotRenameTheChat(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+
+	record(t, st, UsageEvent{At: t0, ConversationID: "457c888e", Client: "Charm-Crush",
+		KeyName: "laptop", AccountEmail: "a@example.com", Model: "claude-opus-5",
+		Path: "/v1/messages", Status: 200, InputTokens: 100, OutputTokens: 20})
+	// Later than every real turn, which is what made it win.
+	record(t, st, UsageEvent{At: t0.Add(time.Minute), ConversationID: "457c888e",
+		KeyName: "gateway (internal)", AccountEmail: "a@example.com",
+		Model: "claude-opus-5", Path: InternalPath, Status: 200,
+		InputTokens: 4, OutputTokens: 9, CacheReadTokens: 11406})
+
+	rep, err := st.Chats(ctx, t0.Add(-time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Chats) != 1 {
+		t.Fatalf("got %d chats, want 1", len(rep.Chats))
+	}
+	got := rep.Chats[0]
+
+	if got.Client != "Charm-Crush" {
+		t.Errorf("client = %q, want the client that was actually talking", got.Client)
+	}
+	if got.KeyName != "laptop" {
+		t.Errorf("key = %q, want the key the client used", got.KeyName)
+	}
+	// Counted, though: naming a chat is part of what that chat cost, and
+	// hiding it would leave a total that does not add up to the Overview's.
+	if got.Requests != 2 {
+		t.Errorf("requests = %d, want both turns counted", got.Requests)
+	}
+	if got.Tokens() != 11539 {
+		t.Errorf("tokens = %d, want the naming call included", got.Tokens())
+	}
+}
+
 // An empty window is an empty list, not a nil one: the UI renders "no chats"
 // from a list it can measure.
 func TestChatsOnAnEmptyWindow(t *testing.T) {
