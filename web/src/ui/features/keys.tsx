@@ -131,13 +131,27 @@ export default function Keys({
                     <TextButton disabled={busy === k.id} onClick={() => setEditing(k.id)}>
                       Edit
                     </TextButton>
-                    <TextButton
-                      tone="error"
-                      disabled={busy === k.id}
-                      onClick={() => void act(k.id, () => api.deleteKey(k.id))}
-                    >
-                      Delete
-                    </TextButton>
+                    {/* A key the gateway issued to itself has no Delete,
+                        because the server refuses it — and because deleting it
+                        never did what the button implied: the next request
+                        needing one simply issued another. Edit stays, since a
+                        token budget is how you actually cap what it spends. */}
+                    {k.managed ? (
+                      <span
+                        className="px-2 text-xs text-on-surface-variant"
+                        title="Issued by the gateway for its own requests. Cap it with a token budget, or turn off chat names in Settings."
+                      >
+                        gateway
+                      </span>
+                    ) : (
+                      <TextButton
+                        tone="error"
+                        disabled={busy === k.id}
+                        onClick={() => void act(k.id, () => api.deleteKey(k.id))}
+                      >
+                        Delete
+                      </TextButton>
+                    )}
                   </div>
                 </td>
               </tr>

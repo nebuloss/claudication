@@ -107,6 +107,13 @@ export interface ApiKey {
   spent_today: number
   requests: number
   tokens: number
+  /**
+   * The key the gateway issued to itself — today, the one chat titling bills
+   * to. The row shows no Delete, because deleting it never stopped anything:
+   * the next chat needing a name just gets another issued. Its limits stay
+   * editable, and a token budget is how you actually cap it.
+   */
+  managed: boolean
 }
 
 export interface UsageTotals {

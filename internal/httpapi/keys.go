@@ -34,9 +34,17 @@ type keyJSON struct {
 	// Traffic over the reporting window, so a key nobody uses is visible.
 	Requests int64 `json:"requests"`
 	Tokens   int64 `json:"tokens"`
+	// Managed marks the key the gateway issued to itself, so the UI can leave
+	// the Delete off that row — deleting it never did what the button implied,
+	// since the next chat needing a name just gets another issued.
+	//
+	// Derived from the settings row the titler wrote rather than stored on the
+	// key: one boolean that is always computable from something already
+	// recorded does not need a column of its own.
+	Managed bool `json:"managed"`
 }
 
-func toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
+func (s *Server) toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
 	out := keyJSON{
 		ID:          k.ID,
 		Name:        k.Name,
@@ -45,6 +53,7 @@ func toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
 		RPMLimit:    k.RPMLimit,
 		RatePeriodS: int(k.Period().Seconds()),
 		TokenBudget: k.TokenBudget,
+		Managed:     s.titles.isOwnKey(k.ID),
 		Requests:    use.Requests,
 		Tokens:      use.InputTokens + use.OutputTokens + use.CacheTokens,
 	}
@@ -82,7 +91,7 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]keyJSON, 0, len(keys))
 	for _, k := range keys {
-		j := toKeyJSON(k, usage[k.ID])
+		j := s.toKeyJSON(k, usage[k.ID])
 		if b, ok := spend[k.ID]; ok {
 			j.SpentToday = b.InputTokens + b.OutputTokens + b.CacheTokens
 		}
@@ -160,7 +169,7 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("api key created", "id", key.ID, "name", key.Name,
 		"ip", clientIPFrom(r.Context()))
 	writeJSON(w, http.StatusOK, map[string]any{
-		"key":       toKeyJSON(key, store.UsageBucket{}),
+		"key":       s.toKeyJSON(key, store.UsageBucket{}),
 		"plaintext": plaintext,
 	})
 }
@@ -195,7 +204,7 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		for _, k := range keys {
 			if k.ID == id {
-				writeJSON(w, http.StatusOK, map[string]any{"key": toKeyJSON(k, store.UsageBucket{})})
+				writeJSON(w, http.StatusOK, map[string]any{"key": s.toKeyJSON(k, store.UsageBucket{})})
 				return
 			}
 		}

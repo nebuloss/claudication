@@ -215,6 +215,11 @@ const titleKeySetting = "chat.titles.key"
 // capped with the same token budget. An operator who thinks titling is not
 // worth it can give it a budget of a few thousand tokens a day and watch it
 // stop, without the gateway needing a second mechanism for that.
+//
+// The admin UI offers no Delete for it, because deleting it was once presented
+// as the way to turn titling off and it never was: the next request needing a
+// name issues a fresh key under a new id, and the usage attributed to the old
+// one is orphaned. The controls that work are the switch and the budget.
 const internalKeyName = "gateway (internal)"
 
 // titleMaxTokens is the whole output budget. A title is a handful of words; a
@@ -276,6 +281,17 @@ func (t *titler) on() bool {
 	return t.enabled
 }
 
+// isOwnKey reports whether an id is the key the gateway issued itself, so the
+// keys screen can leave the Delete off that row.
+func (t *titler) isOwnKey(id string) bool {
+	if id == "" {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.keyID == id
+}
+
 func (t *titler) capturing() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -326,10 +342,9 @@ func (t *titler) key(ctx context.Context) (id, name string, err error) {
 			t.mu.Unlock()
 			return id, k.Name, nil
 		}
-		// The id is stored but the key is gone — an operator deleted it, which
-		// is a legitimate way to say "stop". Issue a fresh one rather than
-		// recording usage against a key that no longer exists; deleting it
-		// again alongside switching titling off is the way to mean it.
+		// The id is stored but the key is gone — deleted through the API, or
+		// lost with a restored database. Issue a fresh one rather than
+		// recording usage against a key that does not exist.
 	}
 
 	key, _, err := t.server.store.CreateKey(ctx, internalKeyName, store.KeyLimits{})
