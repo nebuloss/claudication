@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useEscapeKey } from '../hooks'
 
@@ -589,19 +596,121 @@ export type Column = {
   sorted?: 'asc' | 'desc'
 }
 
+/**
+ * Column widths an operator has dragged, remembered per table.
+ *
+ * In localStorage because it is a preference about this browser, not a fact
+ * about the gateway: two people looking at the same instance want their own
+ * widths, and a width does not belong in a database that gets backed up
+ * alongside the sealing key. Every read and write is guarded — private
+ * windows, cleared site data and blocked storage all throw rather than return
+ * empty — and a failure means unresized columns, which is the state everyone
+ * starts in anyway.
+ */
+function loadWidths(key: string): Record<string, number> {
+  try {
+    const raw = window.localStorage.getItem(`claudication.cols.${key}`)
+    if (raw === null) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return {}
+    const out: Record<string, number> = {}
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v >= MIN_COL) out[k] = v
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function saveWidths(key: string, widths: Record<string, number>) {
+  try {
+    window.localStorage.setItem(`claudication.cols.${key}`, JSON.stringify(widths))
+  } catch {
+    // Not worth telling anyone about: the table still works, it just forgets.
+  }
+}
+
+/** Narrow enough to be a deliberate choice, wide enough to still be grabbable. */
+const MIN_COL = 56
+
 export function Table({
   head,
   children,
   cap = false,
+  resizable,
 }: {
   /** A plain label, or a column that can be sorted. */
   head: (string | Column)[]
   children: ReactNode
   cap?: boolean
+  /**
+   * Enable column resizing, remembering widths under this key.
+   *
+   * Opt-in rather than always on: most tables here are four columns of numbers
+   * that need no adjusting, and a drag handle on every heading is a thing to
+   * hit by accident. It earns its place on the wide ones, where what you want
+   * to read — a chat name, a model list — is exactly what gets truncated.
+   */
+  resizable?: string
 }) {
+  const [widths, setWidths] = useState<Record<string, number>>(() =>
+    resizable === undefined ? {} : loadWidths(resizable),
+  )
+  // The drag in flight. In a ref because it changes on every pointer move and
+  // none of those should re-render anything but the one column being dragged.
+  const drag = useRef<{ label: string; startX: number; startW: number } | null>(null)
+
+  const labels = head.map((entry, i) => {
+    const label = typeof entry === 'string' ? entry : entry.label
+    return label === '' ? `blank-${i}` : label
+  })
+
+  const onDown = (label: string) => (e: ReactPointerEvent<HTMLDivElement>) => {
+    const th = (e.currentTarget.parentElement as HTMLElement | null) ?? null
+    if (th === null) return
+    e.preventDefault()
+    e.stopPropagation()
+    drag.current = { label, startX: e.clientX, startW: th.getBoundingClientRect().width }
+    // Captured on the handle, so a fast drag that outruns the pointer keeps
+    // resizing instead of stopping the moment the cursor leaves the 6px strip.
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const onMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current
+    if (d === null) return
+    const next = Math.max(MIN_COL, Math.round(d.startW + (e.clientX - d.startX)))
+    setWidths((w) => ({ ...w, [d.label]: next }))
+  }
+
+  const onUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current === null) return
+    drag.current = null
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    if (resizable !== undefined) saveWidths(resizable, widths)
+  }
+
   return (
     <div className={`-mx-2 px-2 ${cap ? 'max-h-[30rem] overflow-auto' : 'overflow-x-auto'}`}>
-      <table className="w-full min-w-max text-sm">
+      <table
+        className={`text-sm ${resizable === undefined ? 'w-full min-w-max' : 'min-w-full'}`}
+        // Fixed only once something has been dragged: until then the browser
+        // sizes the columns to their content, which is the better default and
+        // the one every other table here relies on.
+        style={
+          resizable !== undefined && Object.keys(widths).length > 0
+            ? { tableLayout: 'fixed' }
+            : undefined
+        }
+      >
+        {resizable !== undefined && Object.keys(widths).length > 0 && (
+          <colgroup>
+            {labels.map((label) => (
+              <col key={label} style={widths[label] ? { width: widths[label] } : undefined} />
+            ))}
+          </colgroup>
+        )}
         <thead>
           <tr>
             {/* The rule sits on the cells, not the row: a sticky cell carries
@@ -621,7 +730,7 @@ export function Table({
                         ? 'ascending'
                         : 'descending'
                   }
-                  className={`border-b border-outline text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
+                  className={`relative border-b border-outline text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
                     col.onSort === undefined ? 'px-2 py-2' : 'p-0'
                   } ${cap ? 'sticky top-0 z-10 bg-surface-container' : ''}`}
                 >
@@ -651,6 +760,30 @@ export function Table({
                         <path d="M0 0h10L5 6z" />
                       </svg>
                     </button>
+                  )}
+                  {/* The grab strip. Last column excluded: dragging it widens
+                      the table into space that is not there, which reads as
+                      the whole layout jumping. */}
+                  {resizable !== undefined && i < head.length - 1 && (
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`Resize ${col.label}`}
+                      onPointerDown={onDown(labels[i])}
+                      onPointerMove={onMove}
+                      onPointerUp={onUp}
+                      onPointerCancel={onUp}
+                      onDoubleClick={() => {
+                        // Back to content width: the escape hatch for a column
+                        // dragged to something unreadable.
+                        setWidths((w) => {
+                          const { [labels[i]]: _drop, ...rest } = w
+                          if (resizable !== undefined) saveWidths(resizable, rest)
+                          return rest
+                        })
+                      }}
+                      className="absolute inset-y-0 -right-[3px] z-20 w-[6px] cursor-col-resize touch-none select-none hover:bg-primary/40"
+                    />
                   )}
                 </th>
               )

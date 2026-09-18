@@ -37,6 +37,21 @@ type State =
 const TABS = ['overview', 'setup', 'accounts', 'keys', 'usage', 'settings'] as const
 type Tab = (typeof TABS)[number]
 
+/**
+ * Screens that earn more than the reading width.
+ *
+ * 56rem is right for prose and for four columns of numbers, and wrong for a
+ * table of chats: a name, a client, a model list and four figures do not fit,
+ * so the interesting column is the one that gets truncated. These get the width
+ * of the window instead, capped so a very wide monitor does not stretch a table
+ * across a metre of glass.
+ *
+ * Per screen rather than everywhere, because the narrow measure is doing real
+ * work on the others — Settings is mostly sentences, and sentences set to
+ * 1800px are unreadable.
+ */
+const WIDE: readonly Tab[] = ['usage']
+
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
   setup: 'Setup',
@@ -114,11 +129,16 @@ export default function App() {
     void probe()
   }
   const expired = () => void probe()
+  // One value for the header, the nav and the page, so the tab underline stays
+  // over its tab when the measure changes.
+  const measure = WIDE.includes(tab) ? 'max-w-[110rem]' : 'max-w-4xl'
 
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-10 bg-surface/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 pt-4 sm:px-6">
+        <div
+          className={`mx-auto flex ${measure} items-center justify-between gap-4 px-4 pt-4 sm:px-6`}
+        >
           <div className="flex items-center gap-3">
             <Mark />
             <div>
@@ -138,7 +158,7 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="mx-auto max-w-4xl overflow-x-auto px-4 sm:px-6">
+        <nav className={`mx-auto ${measure} overflow-x-auto px-4 sm:px-6`}>
           <div className="flex min-w-max border-b border-outline-variant">
             {TABS.map((id) => (
               <a
@@ -162,7 +182,7 @@ export default function App() {
         </nav>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 pt-6 pb-16 sm:px-6">
+      <main className={`mx-auto ${measure} px-4 pt-6 pb-16 sm:px-6`}>
         {tab === 'overview' && <Overview onExpired={expired} onGoTo={setTab} />}
         {tab === 'setup' && <Setup onExpired={expired} onGoTo={setTab} />}
         {tab === 'accounts' && <Accounts onExpired={expired} />}

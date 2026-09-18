@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { api, type Chat, type Chats } from '../../api/client'
-import { Palette } from '../charts'
+import { LogScale, Palette } from '../charts'
 import { useLoader } from '../hooks'
 import {
   Empty,
@@ -107,7 +107,19 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
 
   // Every bar is read against the busiest chat, so the column compares chats
   // with each other rather than against an axis nobody drew.
-  const peak = useMemo(() => Math.max(1, ...sorted.map(tokens)), [sorted])
+  //
+  // On a decade scale, and for the reason the Usage bars are: chats differ by
+  // orders of magnitude, so linear widths put the leader at 100% and pinned
+  // every other row to the minimum — a column of identical stubs. Normalised so
+  // the leader fills, because in a ranked list the longest bar is the unit of
+  // comparison. The number is printed beside it, since a log bar ranks rather
+  // than quantifies.
+  const width = useMemo(() => {
+    const values = sorted.map(tokens)
+    const scale = new LogScale(values, 0, 100)
+    const leader = scale.y(Math.max(1, ...values))
+    return (v: number) => (leader > 0 ? Math.max(2, (scale.y(v) / leader) * 100) : 2)
+  }, [sorted])
 
   if (loading && data === null) {
     return (
@@ -137,8 +149,10 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
     <div className="flex flex-col gap-3">
       <Table
         cap
+        resizable="chats"
         head={[
           'Chat',
+          'Client',
           'Models',
           column('Tokens', 'tokens'),
           column('Requests', 'requests'),
@@ -148,20 +162,22 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
       >
         {sorted.map((c) => (
           <tr key={c.id} className="border-b border-outline-variant last:border-0">
-            {/* The title when there is one, the client when there is not.
-                Either way the id stays on the line beneath: it is the join key
-                back to the client's own session list, which is where the
-                conversation itself can actually be read. */}
-            <td className="px-2 py-2 whitespace-nowrap">
+            {/* The name when there is one, the id when there is not. The id
+                stays on the line beneath either way: it is the join key back to
+                the client's own session list, which is where the conversation
+                itself can actually be read. */}
+            <td className="px-2 py-2">
               <div className="flex flex-col">
-                <span className="font-medium text-on-surface">
-                  {c.title || c.client || 'Unknown client'}
+                <span className="truncate font-medium text-on-surface" title={c.title}>
+                  {c.title || 'Unnamed'}
                 </span>
-                <span title={c.id} className="font-mono text-xs text-on-surface-variant">
-                  {c.title !== '' && c.client !== '' ? `${c.client} · ` : ''}
+                <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
                   {shortID(c.id)}
                 </span>
               </div>
+            </td>
+            <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
+              {c.client || '—'}
             </td>
             <td className="px-2 py-2 whitespace-nowrap">
               <div className="flex items-center gap-2">
@@ -184,7 +200,7 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
                   <span
                     className="block h-full"
                     style={{
-                      width: `${Math.max(2, (tokens(c) / peak) * 100)}%`,
+                      width: `${width(tokens(c))}%`,
                       background: palette.colour(c.models[0] ?? ''),
                     }}
                   />
@@ -217,12 +233,13 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
             once it is in the table. */}
         {anonymous && (
           <tr className="border-t border-outline-variant bg-surface-container/40">
-            <td className="px-2 py-2 whitespace-nowrap">
+            <td className="px-2 py-2">
               <div className="flex flex-col">
                 <span className="font-medium text-on-surface-variant">Unattributed</span>
                 <span className="text-xs text-on-surface-variant italic">no session id sent</span>
               </div>
             </td>
+            <td className="px-2 py-2 text-on-surface-variant">—</td>
             <td className="px-2 py-2 text-on-surface-variant">—</td>
             <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
               {compact(tokens(unattributed))}
