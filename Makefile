@@ -108,7 +108,8 @@ test-norace:
 # to re-test arithmetic this already covers.
 test-web:
 	@cd web && npx tsc --target es2022 --module esnext --moduleResolution bundler \
-	  --jsx react-jsx --outDir .charts-check src/ui/charts/scale.ts src/ui/charts/stack.ts
+	  --jsx react-jsx --rootDir src/ui --outDir .charts-check \
+	  src/ui/charts/scale.ts src/ui/charts/stack.ts src/ui/route.ts
 	@node scripts/check-charts.mjs
 	@rm -rf web/.charts-check
 

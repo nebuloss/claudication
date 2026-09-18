@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { Banner, Card, CardTitle, Switch } from '../primitives'
 
@@ -26,14 +26,31 @@ export default function ChatTitles({
 }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  // Shown state, which leads the server rather than following it.
+  //
+  // These switches were driven straight off the reloaded config, so flipping
+  // one did nothing until the write and the refetch had both come back — a
+  // visible pause in which the control sits where you did not put it, which
+  // reads as the click having missed. It moves now and is corrected if the
+  // write fails.
+  const [shown, setShown] = useState({ enabled, capture })
+
+  // The server is still the authority: when the reload lands, or something
+  // else changes the setting, that is what the switch shows.
+  useEffect(() => {
+    setShown({ enabled, capture })
+  }, [enabled, capture])
 
   async function toggle(which: 'enabled' | 'capture', next: boolean) {
+    const before = shown
+    setShown({ ...shown, [which]: next })
     setBusy(which)
     setError('')
     try {
       await api.setChatTitles({ [which]: next })
       onChanged()
     } catch (e) {
+      setShown(before)
       setError(e instanceof Error ? e.message : 'Could not change the setting.')
     } finally {
       setBusy('')
@@ -58,7 +75,7 @@ export default function ChatTitles({
       <div className="flex flex-col gap-3">
         <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
           <Switch
-            checked={capture}
+            checked={shown.capture}
             disabled={busy !== ''}
             onChange={(v) => void toggle('capture', v)}
             label="Read names clients generate"
@@ -73,7 +90,7 @@ export default function ChatTitles({
 
         <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
           <Switch
-            checked={enabled}
+            checked={shown.enabled}
             disabled={busy !== ''}
             onChange={(v) => void toggle('enabled', v)}
             label="Ask for a name when the client does not"

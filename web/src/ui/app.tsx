@@ -7,7 +7,7 @@ import Setup from './features/setup'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import UsagePanel from './features/usage'
-import { useHashTab, useLoader } from './hooks'
+import { usePathTab, useLoader } from './hooks'
 // OverviewData, because Overview is already the panel above.
 import {
   ApiError,
@@ -56,7 +56,7 @@ const TAB_LABELS: Record<Tab, string> = {
  */
 export default function App() {
   const [state, setState] = useState<State>({ phase: 'probing' })
-  const [tab, setTab] = useHashTab<Tab>(TABS, 'overview')
+  const [tab, setTab] = usePathTab<Tab>(TABS, 'overview')
   // A freshly minted API key lives here, not in the Keys panel: panels unmount
   // on a tab change, and the tabs are hash routes, so Back unmounts one too.
   // The plaintext exists nowhere else — the store keeps only its hash — so
@@ -143,7 +143,7 @@ export default function App() {
             {TABS.map((id) => (
               <a
                 key={id}
-                href={`#${id}`}
+                href={id === 'overview' ? '/' : `/${id}`}
                 onClick={(e) => {
                   e.preventDefault()
                   setTab(id)

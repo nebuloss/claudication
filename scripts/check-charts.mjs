@@ -1,19 +1,25 @@
-// Exercise the chart library's arithmetic against the real compiled sources.
+// Exercise the UI's pure logic against the real compiled sources.
 //
-// Geometry is the part of a chart that can be silently wrong: one with a bad
-// scale still draws, it just lies. This caught exactly that — niceTicks used
-// to return a top gridline *below* the data for some maxima, which draws a
-// column taller than the plot and out through the top of the chart.
+// Mostly the chart library's arithmetic, because geometry is the part of a
+// chart that can be silently wrong: one with a bad scale still draws, it just
+// lies. This caught exactly that — niceTicks used to return a top gridline
+// *below* the data for some maxima, which draws a column taller than the plot
+// and out through the top of the chart.
 //
-// `make test-web` compiles the two pure modules and runs this. Only the pure
-// ones: the React components need a DOM, and a headless browser to check that
-// a rect landed where the scale said it would is a great deal of machinery to
-// re-test arithmetic that is already checked here.
+// And now the routing, for the same reason in a different shape: a URL that
+// parses to the wrong tab still renders a screen, just not the one the link
+// asked for.
+//
+// `make test-web` compiles the pure modules and runs this. Only the pure ones:
+// the React components need a DOM, and a headless browser to check that a rect
+// landed where the scale said it would is a great deal of machinery to re-test
+// arithmetic that is already checked here.
 
 const OUT = process.env.OUT ?? new URL('../web/.charts-check', import.meta.url).pathname
 const { niceTicks, LinearScale, LogScale, BandScale, edgeAnchor } =
-  await import(`${OUT}/scale.js`)
-const { Stack } = await import(`${OUT}/stack.js`)
+  await import(`${OUT}/charts/scale.js`)
+const { Stack } = await import(`${OUT}/charts/stack.js`)
+const { tabFromPath, pathForTab, panelFromHash } = await import(`${OUT}/route.js`)
 
 let failures = 0
 function check(what, got, want) {
@@ -134,6 +140,42 @@ check('a series total spans every column', stack.seriesTotal(series[1]), 2)
 
 const negative = new Stack([{ ok: -5, bad: 3 }], series)
 check('a negative value cannot pull a column below zero', negative.peak, 3)
+
+console.log('\n— route: the screen is the path, the panel is the hash —')
+const TABS = ['overview', 'setup', 'accounts', 'keys', 'usage', 'settings']
+const PANELS = ['requests', 'chats', 'day', 'model', 'account', 'key']
+const tab = (p) => tabFromPath(p, TABS, 'overview')
+const panel = (h) => panelFromHash(h, PANELS, 'requests')
+
+check('a plain screen', tab('/usage'), 'usage')
+check('the root is the default screen', tab('/'), 'overview')
+check('and so is an empty path', tab(''), 'overview')
+// A URL is something people type, edit and truncate.
+check('a trailing slash is the same screen', tab('/usage/'), 'usage')
+check('a doubled slash is forgiven', tab('//usage'), 'usage')
+check('a deeper path still names its screen', tab('/usage/whatever'), 'usage')
+// A bookmark to a tab that has since been renamed lands somewhere sensible
+// rather than on a blank screen.
+check('an unknown screen falls back', tab('/nonesuch'), 'overview')
+
+check('the default screen lives at the root, not at its own name', pathForTab('overview', 'overview'), '/')
+check('every other screen is its name', pathForTab('usage', 'overview'), '/usage')
+// Round trip: whatever pathForTab writes, tabFromPath has to read back.
+check(
+  'every tab survives the round trip',
+  TABS.map((t) => tab(pathForTab(t, 'overview'))),
+  TABS,
+)
+
+check('a panel', panel('#chats'), 'chats')
+check('no hash is the default panel', panel(''), 'requests')
+check('a bare hash is too', panel('#'), 'requests')
+// A link that has been through a mail client comes back encoded.
+check('a percent-encoded hash still opens its panel', panel('%23model'), 'model')
+check('the panel is the first of several hash parts', panel('#model&x=1'), 'model')
+check('an unknown panel falls back', panel('#nonesuch'), 'requests')
+// A malformed escape must not throw inside a render.
+check('a broken escape does not throw', panel('#%E0%A4%A'), 'requests')
 
 console.log('\n— every axis covers its data —')
 for (const m of [1, 7, 42, 99, 100, 101, 999, 1183402, 5e9, 0.3]) {

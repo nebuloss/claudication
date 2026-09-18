@@ -3,7 +3,7 @@ import { ApiError, api, messageOf, type RequestRow, type Usage } from '../../api
 import { RankedBars } from '../charts'
 import ChatsPanel from './chats'
 import { Traffic } from './traffic'
-import { useLoader } from '../hooks'
+import { useHashPanel, useLoader } from '../hooks'
 import {
   Banner,
   ErrorModal,
@@ -28,7 +28,12 @@ import {
 
 const WINDOWS = [1, 7, 30] as const
 
-type View = 'requests' | 'chats' | 'day' | 'model' | 'account' | 'key'
+// The hash values, and the order the sub-nav lists them. These are a URL
+// surface now — /usage#chats is a link someone can send — so renaming one
+// breaks a bookmark, the same way renaming a tab id would.
+const VIEWS = ['requests', 'chats', 'day', 'model', 'account', 'key'] as const
+
+type View = (typeof VIEWS)[number]
 
 const VIEW_LABELS: Record<View, string> = {
   requests: 'Requests',
@@ -49,7 +54,8 @@ const VIEW_LABELS: Record<View, string> = {
  */
 export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
   const [days, setDays] = useState<number>(7)
-  const [chosen, setChosen] = useState<View>('requests')
+  // In the hash, so /usage#chats opens straight onto that panel.
+  const [chosen, setChosen] = useHashPanel<View>(VIEWS, 'requests')
   // Bumped to remount the activity list, which is what refreshing it means.
   const [reloads, setReloads] = useState(0)
   const { data, error, loading, reload } = useLoader<Usage>(() => api.usage(days), onExpired, [days])
