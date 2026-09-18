@@ -76,9 +76,9 @@ import (
 // titleMarkers identify a client asking a model to name a conversation. Lower
 // case; the system text is folded before comparison.
 var titleMarkers = []string{
-	"you are a title generator",  // opencode
-	"generate a short title",     // crush
-	"generate a concise title",   // crush's user prompt
+	"you are a title generator", // opencode
+	"generate a short title",    // crush
+	"generate a concise title",  // crush's user prompt
 	"you output only a thread title",
 }
 
