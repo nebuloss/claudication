@@ -541,7 +541,7 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 		// name on a crush chat, because the rollup picked a client with
 		// MAX(client) and a lowercase g sorts above Charm-Crush's C. The key
 		// name already says whose request it was.
-		ConversationID: ev.conversation,
+		ConversationID:   ev.conversation,
 		Status:           res.Status,
 		InputTokens:      res.Usage.InputTokens,
 		OutputTokens:     res.Usage.OutputTokens,
