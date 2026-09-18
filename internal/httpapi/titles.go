@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"claudication/internal/api"
 	"claudication/internal/pool"
 	"claudication/internal/store"
 	"claudication/internal/upstream"
