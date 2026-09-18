@@ -288,11 +288,11 @@ function RecentRequests({
             column('Timestamp', 'at'),
             column('Model', 'model'),
             column('Key', 'key_name'),
-            'From',
+            'IP',
             column('Status', 'status'),
             column('Tokens', 'tokens'),
             column('Duration', 'duration'),
-            'Reason',
+            'Message',
           ]}
         >
           {data.map((r, i) => (
@@ -352,7 +352,7 @@ function RecentRequests({
                       }`}
                       title={r.error}
                     >
-                      {reasonOf(r)}
+                      {messageOf(r)}
                     </span>
                     <TextButton size="sm" onClick={() => setShown(r)}>
                       Log
@@ -590,7 +590,7 @@ function sortRows(rows: RequestRow[], sort: Sort): RequestRow[] {
 }
 
 /**
- * The short reason a request failed.
+ * The short message a request came back with.
  *
  * A content refusal is named as one, because the message it arrives with is
  * about billing and means nothing of the sort — the whole point of classifying
@@ -598,7 +598,7 @@ function sortRows(rows: RequestRow[], sort: Sort): RequestRow[] {
  * else falls back to the upstream's own error type, which is usually one word
  * and is the word an operator would search for.
  */
-function reasonOf(r: RequestRow): string {
+function messageOf(r: RequestRow): string {
   if (r.error_kind === 'content_check') return 'refused on content'
   const text = r.error ?? ''
   // The envelope is JSON often enough to be worth reading, and the type inside
