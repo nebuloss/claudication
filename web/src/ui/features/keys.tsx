@@ -23,6 +23,18 @@ import {
 } from '../primitives'
 
 /**
+ * Why the gateway's own key has no working controls.
+ *
+ * Deleting it never did what the button implied — the next chat needing a name
+ * issued a fresh one under a new id and orphaned the usage attributed to the
+ * old one — and editing it is the operator changing limits on something they
+ * did not create and do not call. The control that governs what it spends is
+ * the switch that turns the feature on.
+ */
+const MANAGED_HINT =
+  'Issued by the gateway for its own requests. Turn off chat names in Settings to stop it.'
+
+/**
  * Client API keys — the credential you hand to Claude Code.
  *
  * The store keeps sha256(key) and a lookup prefix, never the key, so the
@@ -128,30 +140,28 @@ export default function Keys({
                 </td>
                 <td className="px-2 py-3">
                   <div className="flex justify-end gap-2">
-                    <TextButton disabled={busy === k.id} onClick={() => setEditing(k.id)}>
-                      Edit
-                    </TextButton>
-                    {/* A key the gateway issued to itself has no Delete,
-                        because the server refuses it — and because deleting it
-                        never did what the button implied: the next request
-                        needing one simply issued another. Edit stays, since a
-                        token budget is how you actually cap what it spends. */}
-                    {k.managed ? (
-                      <span
-                        className="px-2 text-xs text-on-surface-variant"
-                        title="Issued by the gateway for its own requests. Cap it with a token budget, or turn off chat names in Settings."
+                    {/* A key the gateway issued to itself is not an operator's
+                        to edit or withdraw. Disabled rather than removed, so
+                        the row keeps the shape of every other one and the
+                        absence reads as a rule rather than a rendering bug;
+                        the tooltip says where the control actually is. */}
+                    <span title={k.managed ? MANAGED_HINT : undefined}>
+                      <TextButton
+                        disabled={busy === k.id || k.managed}
+                        onClick={() => setEditing(k.id)}
                       >
-                        gateway
-                      </span>
-                    ) : (
+                        Edit
+                      </TextButton>
+                    </span>
+                    <span title={k.managed ? MANAGED_HINT : undefined}>
                       <TextButton
                         tone="error"
-                        disabled={busy === k.id}
+                        disabled={busy === k.id || k.managed}
                         onClick={() => void act(k.id, () => api.deleteKey(k.id))}
                       >
                         Delete
                       </TextButton>
-                    )}
+                    </span>
                   </div>
                 </td>
               </tr>

@@ -109,9 +109,9 @@ export default function ChatTitles({
             <p className="m-0 text-xs text-on-surface-variant">
               Billed to an API key the gateway issues itself, called{' '}
               <code className="font-mono">gateway (internal)</code>, so the cost shows up in Usage
-              like anything else. Give that key a token budget to cap it. This switch is what stops
-              it — deleting the key never did, because the next chat needing a name just gets
-              another one issued.
+              like anything else alongside the chat it named. That key is the gateway&rsquo;s, not
+              yours to edit or withdraw — this switch is the control, and turning it off is what
+              stops it.
             </p>
           </div>
         </div>
