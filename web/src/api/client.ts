@@ -236,6 +236,15 @@ export interface RequestRow {
   error?: string
   /** Set when the refusal does not mean what its message says. */
   error_kind?: string
+  /**
+   * True for a request this gateway refused before it reached the upstream —
+   * no key, or one it does not recognise. Those spent nothing and have no key,
+   * model or account, so every usage figure steps over them; this log is the
+   * only place they appear.
+   */
+  rejected?: boolean
+  /** Where a refused request came from. Its only identity. */
+  ip?: string
 }
 
 /**
