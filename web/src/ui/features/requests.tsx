@@ -385,7 +385,18 @@ function RecentRequests({
                   because a key is named by whoever minted it and one called
                   "test" can serve every request on the gateway. */}
               <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
-                {dash(r.client)}
+                {r.client === undefined || r.client === '' ? (
+                  '—'
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onNarrow({ ...filter, client: [r.client ?? ''] })}
+                    title={`Only requests from ${r.client}`}
+                    className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
+                  >
+                    {r.client}
+                  </button>
+                )}
               </td>
               {/* Clickable, because "everything from that machine" is the next
                   question the moment one address looks wrong. */}
@@ -403,11 +414,28 @@ function RecentRequests({
                   </button>
                 )}
               </td>
+              {/* Clickable like the model and the address. The chip is what
+                  you already read to decide the row is interesting, so it is
+                  also what you reach for to see the rest of its kind. Narrows
+                  on the exact code, which is not the same question as the
+                  Failures switch: that one spans every code plus the streams
+                  that died after a 200. */}
               <td className="px-2 py-2">
-                <Chip tone={statusTone(r)}>
-                  {r.status === 0 ? 'failed' : r.status}
-                  {r.streaming && r.status === 200 ? ' ·' : ''}
-                </Chip>
+                <button
+                  type="button"
+                  onClick={() => onNarrow({ ...filter, code: [String(r.status)] })}
+                  title={
+                    r.status === 0
+                      ? 'Only requests that got no answer'
+                      : `Only requests that answered ${r.status}`
+                  }
+                  className="state-layer rounded-[var(--radius-md3-s)]"
+                >
+                  <Chip tone={statusTone(r)}>
+                    {r.status === 0 ? 'failed' : r.status}
+                    {r.streaming && r.status === 200 ? ' ·' : ''}
+                  </Chip>
+                </button>
               </td>
               <td className="px-2 py-2 tabular-nums whitespace-nowrap">
                 {r.input_tokens + r.output_tokens > 0
