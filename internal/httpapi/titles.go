@@ -542,6 +542,7 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 		// MAX(client) and a lowercase g sorts above Charm-Crush's C. The key
 		// name already says whose request it was.
 		ConversationID:   ev.conversation,
+		Relayed:          true,
 		Status:           res.Status,
 		InputTokens:      res.Usage.InputTokens,
 		OutputTokens:     res.Usage.OutputTokens,

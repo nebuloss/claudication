@@ -93,7 +93,7 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(DISTINCT conversation_id) FROM usage_events
-		  WHERE at >= ? AND conversation_id <> ''`, from).Scan(&report.Total); err != nil {
+		  WHERE relayed = 1 AND at >= ? AND conversation_id <> ''`, from).Scan(&report.Total); err != nil {
 		return ChatReport{}, fmt.Errorf("count chats: %w", err)
 	}
 
@@ -104,7 +104,7 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT conversation_id,
 		        COALESCE((SELECT client FROM usage_events e1
-		                   WHERE e1.conversation_id = e.conversation_id AND e1.at >= ?
+		                   WHERE e1.conversation_id = e.conversation_id AND e1.relayed = 1 AND e1.at >= ?
 		                     AND e1.client <> '' AND e1.path <> ?
 		                   ORDER BY e1.at DESC LIMIT 1), ''),
 		        COUNT(*),
@@ -115,21 +115,21 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 		        MIN(at), MAX(at),
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events e2
-		              WHERE e2.conversation_id = e.conversation_id AND e2.at >= ?
+		              WHERE e2.conversation_id = e.conversation_id AND e2.relayed = 1 AND e2.at >= ?
 		                AND e2.model <> ''
 		              ORDER BY e2.at)),
 		        (SELECT key_name FROM usage_events e3
-		          WHERE e3.conversation_id = e.conversation_id AND e3.at >= ?
+		          WHERE e3.conversation_id = e.conversation_id AND e3.relayed = 1 AND e3.at >= ?
 		            AND e3.path <> ?
 		          ORDER BY e3.at DESC LIMIT 1),
 		        (SELECT account_email FROM usage_events e4
-		          WHERE e4.conversation_id = e.conversation_id AND e4.at >= ?
+		          WHERE e4.conversation_id = e.conversation_id AND e4.relayed = 1 AND e4.at >= ?
 		            AND e4.path <> ?
 		          ORDER BY e4.at DESC LIMIT 1),
 		        (SELECT title FROM chat_titles t
 		          WHERE t.conversation_id = e.conversation_id)
 		   FROM usage_events e
-		  WHERE at >= ? AND conversation_id <> ''
+		  WHERE relayed = 1 AND at >= ? AND conversation_id <> ''
 		  GROUP BY conversation_id
 		  ORDER BY SUM(input_tokens + output_tokens
 		               + cache_read_tokens + cache_write_tokens) DESC
@@ -215,9 +215,9 @@ func (s *Store) unattributed(ctx context.Context, from string) (Chat, error) {
 		        COALESCE(MIN(at), ''), COALESCE(MAX(at), ''),
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events
-		              WHERE conversation_id = '' AND at >= ? AND model <> '')),
+		              WHERE relayed = 1 AND conversation_id = '' AND at >= ? AND model <> '')),
 		        '', '', ''
-		   FROM usage_events WHERE at >= ? AND conversation_id = ''`,
+		   FROM usage_events WHERE relayed = 1 AND at >= ? AND conversation_id = ''`,
 		from, from)
 
 	c, err := scanChat(row)

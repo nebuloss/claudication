@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"claudication/internal/api"
 	"claudication/internal/store"
 )
 
@@ -42,6 +43,29 @@ func writeError(w http.ResponseWriter, status int, kind, msg string) {
 
 // requireAPIKey authenticates, applies the per-key rate limit, and attaches
 // the credential to the request context.
+// recordRejected files a request that never reached the upstream.
+//
+// Its own helper because the fields are the interesting part: no key, no model,
+// no tokens, and an address — which is the only identity a refused request has.
+// Relayed is false, so every aggregate steps over it and only the request log
+// shows it.
+//
+// Deliberately not called for the anonymous rate limiter's own refusal. That
+// check runs before the key lookup precisely to keep a flood off the database,
+// and writing a row there would hand back the cost it exists to avoid. A flood
+// shows up as rejections up to the per-IP cap and then as nothing, which is
+// what the cap means; the access log still records every one.
+func (s *Server) recordRejected(r *http.Request, ip string, status int, reason string) {
+	s.recordUsage(store.UsageEvent{
+		At:     time.Now(),
+		Path:   r.URL.Path,
+		Status: status,
+		Client: api.ClientName(r.UserAgent()),
+		IP:     ip,
+		Error:  reason,
+	}, 0)
+}
+
 func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIPFrom(r.Context())
@@ -66,6 +90,7 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 		cred := extractCredential(r)
 		if cred == "" {
 			anon()
+			s.recordRejected(r, ip, http.StatusUnauthorized, "missing API key")
 			writeError(w, http.StatusUnauthorized, "authentication_error", "missing API key")
 			return
 		}
@@ -73,6 +98,7 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 		key, err := s.store.Authenticate(r.Context(), cred)
 		if errors.Is(err, store.ErrKeyNotFound) {
 			anon()
+			s.recordRejected(r, ip, http.StatusUnauthorized, "invalid API key")
 			writeError(w, http.StatusUnauthorized, "authentication_error", "invalid API key")
 			return
 		}
@@ -88,6 +114,14 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 			count, period = s.cfg.Limits.RequestsPerMinute, time.Minute
 		}
 		if !s.keyLimiter.allow(key.ID, count, period) {
+			// A key that exists and is going too fast: recorded under its own
+			// name, because this one is a client to fix rather than a stranger.
+			s.recordUsage(store.UsageEvent{
+				At: time.Now(), KeyID: key.ID, KeyName: key.Name,
+				Path: r.URL.Path, Status: http.StatusTooManyRequests,
+				Client: api.ClientName(r.UserAgent()), IP: ip,
+				Error: "rate limited by this gateway, not by the upstream",
+			}, 0)
 			writeError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
 			return
 		}

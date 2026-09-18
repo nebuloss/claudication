@@ -109,7 +109,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 				At: started, KeyID: key.ID, KeyName: key.Name,
 				AccountID: res.AccountID, AccountEmail: res.AccountEmail,
 				Model: model, Path: route, Status: 0, Streaming: streaming,
-				ConversationID: conversation, Client: client,
+				ConversationID: conversation, Client: client, Relayed: true,
 				Duration: elapsed, Error: res.Err.Error(),
 			}, key.TokenBudget)
 			s.relayFailure(w, r, p, res.Err)
@@ -122,6 +122,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			Model: model, Path: route, Status: res.Status, Streaming: streaming,
 			ConversationID:   conversation,
 			Client:           client,
+			Relayed:          true,
 			InputTokens:      res.Usage.InputTokens,
 			OutputTokens:     res.Usage.OutputTokens,
 			CacheReadTokens:  res.Usage.CacheReadTokens,

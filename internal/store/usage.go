@@ -37,6 +37,16 @@ type UsageEvent struct {
 	CacheWriteTokens int
 	Duration         time.Duration
 	Error            string
+	// Relayed is false for a request refused before it reached the upstream —
+	// no key, an unknown key. Those spent nothing and have no key, model or
+	// account to group under, so every aggregate narrows to the relayed ones
+	// and only the request log shows both.
+	Relayed bool
+	// IP is where a refused request came from, which is the only identity it
+	// has. Left empty for a relayed request: that one carries a key that names
+	// it, and recording an address beside it would collect more than the
+	// question needs.
+	IP string
 }
 
 // Tokens is the billable total: cache reads are counted because they are
@@ -57,12 +67,12 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 		                           status, streaming,
 		                           input_tokens, output_tokens,
 		                           cache_read_tokens, cache_write_tokens,
-		                           duration_ms, error)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                           duration_ms, error, relayed, ip)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.At.UTC().Format(time.RFC3339Nano), e.KeyID, e.KeyName, e.AccountID, e.AccountEmail,
 		e.Model, e.Path, e.ConversationID, e.Client, e.Status, e.Streaming,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens,
-		e.Duration.Milliseconds(), e.Error,
+		e.Duration.Milliseconds(), e.Error, e.Relayed, e.IP,
 	)
 	if err != nil {
 		return fmt.Errorf("record usage: %w", err)
@@ -147,7 +157,7 @@ func (s *Store) Totals(ctx context.Context, since time.Time) (UsageTotals, error
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
 		        COALESCE(SUM(cache_write_tokens), 0)
-		   FROM usage_events WHERE at >= ?`, from).
+		   FROM usage_events WHERE relayed = 1 AND at >= ?`, from).
 		Scan(&t.Requests, &t.Errors, &t.InputTokens, &t.OutputTokens,
 			&t.CacheReadTokens, &t.CacheWriteTokens)
 	if err != nil {
@@ -192,7 +202,7 @@ func (s *Store) Usage(ctx context.Context, since time.Time) (UsageReport, error)
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
 		        COALESCE(SUM(cache_write_tokens), 0)
-		   FROM usage_events WHERE at >= ?
+		   FROM usage_events WHERE relayed = 1 AND at >= ?
 		  GROUP BY day, model, key_id, key_name, account_id, account_email, status`, from)
 	if err != nil {
 		return rep, fmt.Errorf("usage report: %w", err)
@@ -374,7 +384,7 @@ func (s *Store) durationPercentile(ctx context.Context, from string, n int64, pc
 	}
 	var ms int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT duration_ms FROM usage_events WHERE at >= ?
+		`SELECT duration_ms FROM usage_events WHERE relayed = 1 AND at >= ?
 		  ORDER BY duration_ms ASC LIMIT 1 OFFSET ?`, from, offset).Scan(&ms)
 	if err != nil {
 		return 0
@@ -460,6 +470,9 @@ type RequestFilter struct {
 	// KeyID limits to one credential, Model to one model.
 	KeyID string
 	Model string
+	// Kind narrows to "relayed" or "rejected"; empty is both, which is the
+	// point of one list.
+	Kind string
 	// FailedOnly keeps what did not work: a status the caller would call a
 	// failure, or a stream that died after its 200. The two are different
 	// facts and both are failures, which is why this is one flag rather than
@@ -483,6 +496,12 @@ func (f RequestFilter) where() (string, []any) {
 		clauses = append(clauses, "model = ?")
 		args = append(args, f.Model)
 	}
+	switch f.Kind {
+	case "relayed":
+		clauses = append(clauses, "relayed = 1")
+	case "rejected":
+		clauses = append(clauses, "relayed = 0")
+	}
 	if f.FailedOnly {
 		clauses = append(clauses, "(status = 0 OR status >= 400 OR error <> '')")
 	}
@@ -502,7 +521,8 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 	const columns = `id, at, key_id, key_name, account_id, account_email, model, path,
 	                 conversation_id, client,
 	                 status, streaming, input_tokens, output_tokens,
-	                 cache_read_tokens, cache_write_tokens, duration_ms, error`
+	                 cache_read_tokens, cache_write_tokens, duration_ms, error,
+	                 relayed, ip`
 
 	narrow, args := filter.where()
 	// The cursor is a condition like any other, so it joins the same AND
@@ -542,7 +562,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 		if err := rows.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
 			&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
 			&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
-			&ms, &e.Error); err != nil {
+			&ms, &e.Error, &e.Relayed, &e.IP); err != nil {
 			return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)
 		}
 		e.At, _ = time.Parse(time.RFC3339Nano, at)
@@ -569,7 +589,7 @@ func (s *Store) KeyUsage(ctx context.Context, since time.Time) (map[string]Usage
 		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
 		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0)
-		   FROM usage_events WHERE at >= ? GROUP BY key_id`,
+		   FROM usage_events WHERE relayed = 1 AND at >= ? GROUP BY key_id`,
 		since.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
@@ -595,7 +615,7 @@ func (s *Store) KeySpend(ctx context.Context, keyID string, since time.Time) (in
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(input_tokens + output_tokens
 		                    + cache_read_tokens + cache_write_tokens), 0)
-		   FROM usage_events WHERE at >= ? AND key_id = ?`,
+		   FROM usage_events WHERE relayed = 1 AND at >= ? AND key_id = ?`,
 		since.UTC().Format(time.RFC3339Nano), keyID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("key spend: %w", err)
@@ -610,7 +630,7 @@ func (s *Store) OldestSpendAt(ctx context.Context, keyID string, since time.Time
 	var at string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT MIN(at) FROM usage_events
-		  WHERE at >= ? AND key_id = ?
+		  WHERE relayed = 1 AND at >= ? AND key_id = ?
 		    AND input_tokens + output_tokens + cache_read_tokens + cache_write_tokens > 0`,
 		since.UTC().Format(time.RFC3339Nano), keyID).Scan(&at)
 	if err != nil || at == "" {
@@ -631,7 +651,7 @@ func (s *Store) AccountUsage(ctx context.Context, since time.Time) (map[string]U
 		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
 		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0)
-		   FROM usage_events WHERE at >= ? GROUP BY account_id`,
+		   FROM usage_events WHERE relayed = 1 AND at >= ? GROUP BY account_id`,
 		since.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
