@@ -167,23 +167,12 @@ function RecentRequests({
   // that have been loaded — press Load more to sort over more of them.
   const data = useMemo(() => sortRows(rows, sort), [rows, sort])
 
-  // Filters arriving from a link, which no control on this screen displays.
+  // Set by clicking a cell or arriving from a link, so nothing else on screen
+  // says they are on. Each one is its own chip and removes itself.
   const pinned = Object.entries(filter).filter(
-    ([k, v]) => v !== '' && (k === 'chat' || k === 'key' || k === 'ip'),
+    ([k, v]) => v !== '' && (k === 'chat' || k === 'key' || k === 'ip' || k === 'model'),
   )
   const active = Object.entries(filter).filter(([, v]) => v !== '')
-
-  // Options for the two pickers. Models come from the rows on screen, because
-  // filtering to a model you cannot see is not a thing anyone wants; keys come
-  // from the key list, because a key that has been quiet is exactly the one
-  // worth asking about. The value currently filtered on is kept in its list
-  // even when nothing on screen carries it, so a filter set from a link can be
-  // seen and cleared.
-  const models = useMemo(() => {
-    const seen = new Set(rows.map((r) => r.model ?? '').filter((m) => m !== ''))
-    if (filter.model !== '') seen.add(filter.model)
-    return [...seen].sort()
-  }, [rows, filter.model])
 
   // No card and no title of its own: it is the body of a tab now, and the tab
   // is already called Requests.
@@ -204,22 +193,6 @@ function RecentRequests({
           ]}
         />
 
-        <label className="flex flex-col gap-1 text-xs text-on-surface-variant">
-          Model
-          <select
-            value={filter.model}
-            onChange={(e) => onNarrow({ ...filter, model: e.target.value })}
-            className="h-9 rounded-[var(--radius-md3-xs)] border border-outline bg-transparent px-2 text-sm text-on-surface"
-          >
-            <option value="">Any</option>
-            {models.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </label>
-
         {/* Only offered once the log holds both kinds, so a gateway that has
             never refused anything is not asked to choose between them. */}
         {(filter.kind !== '' || rows.some((r) => r.rejected)) && (
@@ -239,10 +212,10 @@ function RecentRequests({
         <TextButton onClick={() => void load('')}>Refresh</TextButton>
       </div>
 
-      {/* Only the filters with no control of their own. The pickers above
-          already show what they are set to, so repeating them here was two
-          places to read one fact — and the two that arrive from a link, a chat
-          and a key, are the ones with nothing on screen to say so. */}
+      {/* Only the filters with no control of their own. Show and Kind already
+          say what they are set to, so a chip repeating them was two places to
+          read one fact; a chat, a key, an address or a model is set by a click
+          or a link and has nothing else on screen to say so. */}
       {pinned.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
           <span className="text-on-surface-variant">Narrowed to</span>
@@ -303,7 +276,24 @@ function RecentRequests({
               >
                 {stamp(r.at)}
               </td>
-              <td className="px-2 py-2 whitespace-nowrap">{dash(r.model)}</td>
+              {/* Clickable for the same reason the address is: the model is
+                  right there in the row you are reading, and hunting for it
+                  again in a list of every model the gateway has ever served is
+                  work the row can do for you. */}
+              <td className="px-2 py-2 whitespace-nowrap">
+                {r.model === undefined || r.model === '' ? (
+                  '—'
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onNarrow({ ...filter, model: r.model ?? '' })}
+                    title={`Only requests for ${r.model}`}
+                    className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
+                  >
+                    {r.model}
+                  </button>
+                )}
+              </td>
               <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
                 {dash(r.key_name)}
               </td>
