@@ -130,16 +130,18 @@ func SessionFromMetadata(body []byte) string {
 //	claude-cli/2.1.274 (external, sdk-cli)                     -> Claude Code
 //	opencode/1.17.13 ai-sdk/provider-utils/4.0.27 runtime/bun  -> opencode
 //	codex_cli_rs/0.54.0                                        -> Codex
+//	Charm-Crush/...                                            -> crush
 //
-// crush is absent because it would not route to the stub; it falls through to
-// the default below, which prints whatever token it sends. That is the point of
-// the default: an unknown client is named, not discarded, so a new one shows up
-// in the UI the first time it connects instead of appearing as a blank.
+// crush's token is the one that had to be read off production traffic rather
+// than a capture stub, because it would not route to one. It is Charm-Crush,
+// not crush — the guess was wrong, and the only reason it did not matter is the
+// default below: an unknown client is named from its own token rather than
+// discarded, so it appeared as "Charm-Crush" instead of as a blank.
 var clientNames = map[string]string{
 	"claude-cli":   "Claude Code",
 	"opencode":     "opencode",
 	"codex_cli_rs": "Codex",
-	"crush":        "crush",
+	"Charm-Crush":  "crush",
 }
 
 // ClientName is the product a User-Agent claims to be.

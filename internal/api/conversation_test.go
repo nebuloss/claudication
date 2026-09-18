@@ -83,6 +83,9 @@ func TestClientName(t *testing.T) {
 		{"claude-cli/2.1.274 (external, sdk-cli)", "Claude Code"},
 		{"opencode/1.17.13 ai-sdk/provider-utils/4.0.27 runtime/bun/1.3.14", "opencode"},
 		{"codex_cli_rs/0.54.0", "Codex"},
+		// Read off production traffic, not a stub: crush calls itself
+		// Charm-Crush, which is not what this map first guessed.
+		{"Charm-Crush/0.93.1", "crush"},
 		// An unknown client is named from its own token rather than discarded,
 		// so a new one is visible the first time it connects.
 		{"something-new/9.9", "something-new"},
