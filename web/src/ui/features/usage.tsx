@@ -1,29 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ApiError, api, messageOf, type RequestRow, type Usage } from '../../api/client'
+import { useState } from 'react'
+import { api, type Usage } from '../../api/client'
 import { RankedBars } from '../charts'
 import ChatsPanel from './chats'
 import { Traffic } from './traffic'
 import { useHashPanel, useLoader } from '../hooks'
 import {
-  Banner,
-  ErrorModal,
   ErrorState,
   Card,
   CardTitle,
-  Chip,
   Empty,
-  KeyValue,
   Spinner,
   Segmented,
   Stat,
   SubNav,
-  Table,
-  type Column,
-  TonalButton,
   TextButton,
-  Verbatim,
   compact,
-  copyText,
 } from '../primitives'
 
 const WINDOWS = [1, 7, 30] as const
