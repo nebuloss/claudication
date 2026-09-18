@@ -57,9 +57,9 @@ func writeError(w http.ResponseWriter, status int, kind, msg string) {
 // what the cap means; the access log still records every one.
 func (s *Server) recordRejected(r *http.Request, ip string, status int, reason string) {
 	s.recordUsage(store.UsageEvent{
-		At:     time.Now(),
-		Path:   r.URL.Path,
-		Status: status,
+		At:       time.Now(),
+		Path:     r.URL.Path,
+		Status:   status,
 		Client:   api.ClientName(r.UserAgent()),
 		IP:       ip,
 		Rejected: true,
@@ -121,7 +121,7 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 				At: time.Now(), KeyID: key.ID, KeyName: key.Name,
 				Path: r.URL.Path, Status: http.StatusTooManyRequests,
 				Client: api.ClientName(r.UserAgent()), IP: ip, Rejected: true,
-				Error:  "rate limited by this gateway, not by the upstream",
+				Error: "rate limited by this gateway, not by the upstream",
 			}, 0)
 			writeError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
 			return
