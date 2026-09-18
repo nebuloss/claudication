@@ -249,6 +249,12 @@ export interface RequestRow {
    * which is where it ran.
    */
   ip?: string
+  /**
+   * What was running, read from the User-Agent. Not the same question as the
+   * key, which names whoever is paying and is whatever they typed when they
+   * minted it.
+   */
+  client?: string
 }
 
 /**

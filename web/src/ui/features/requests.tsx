@@ -120,7 +120,7 @@ function RecentRequests({
     setSort((prev) =>
       prev.key === key
         ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-        : { key, dir: key === 'model' || key === 'key_name' ? 'asc' : 'desc' },
+        : { key, dir: key === 'model' || key === 'client' ? 'asc' : 'desc' },
     )
 
   const column = (label: string, key: SortKey): Column => ({
@@ -260,7 +260,7 @@ function RecentRequests({
             // date and a time on older ones, and an epoch once copied.
             column('Timestamp', 'at'),
             column('Model', 'model'),
-            column('Key', 'key_name'),
+            column('Client', 'client'),
             'IP',
             column('Status', 'status'),
             column('Tokens', 'tokens'),
@@ -294,8 +294,12 @@ function RecentRequests({
                   </button>
                 )}
               </td>
+              {/* What was running, not who is paying. The key is still what
+                  the chip and the links filter on; it just made a poor column,
+                  because a key is named by whoever minted it and one called
+                  "test" can serve every request on the gateway. */}
               <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
-                {dash(r.key_name)}
+                {dash(r.client)}
               </td>
               {/* Clickable, because "everything from that machine" is the next
                   question the moment one address looks wrong. */}
@@ -455,8 +459,10 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
               <Chip tone={statusTone(row)}>{row.status === 0 ? 'failed' : row.status}</Chip>,
             ],
             ['Model', dash(row.model)],
+            ['Client', dash(row.client)],
             ['Key', dash(row.key_name)],
             ['Account', dash(row.account_email)],
+            ['IP', dash(row.ip)],
             ['Path', row.path],
             ['Streaming', row.streaming ? 'yes' : 'no'],
             ['Tokens', tokens],
@@ -523,8 +529,10 @@ function asText(r: RequestRow): string {
     `epoch:     ${Number.isNaN(epoch) ? '—' : epoch}`,
     `status:    ${r.status === 0 ? 'failed (no response)' : r.status}`,
     `model:     ${dash(r.model)}`,
+    `client:    ${dash(r.client)}`,
     `key:       ${dash(r.key_name)}`,
     `account:   ${dash(r.account_email)}`,
+    `ip:        ${dash(r.ip)}`,
     `path:      ${r.path}`,
     `streaming: ${r.streaming ? 'yes' : 'no'}`,
     `tokens:    ${r.input_tokens} in / ${r.output_tokens} out / ${r.cache_tokens} cache`,
@@ -534,7 +542,7 @@ function asText(r: RequestRow): string {
   ].join('\n')
 }
 
-type SortKey = 'at' | 'model' | 'key_name' | 'status' | 'tokens' | 'duration'
+type SortKey = 'at' | 'model' | 'client' | 'status' | 'tokens' | 'duration'
 type Sort = { key: SortKey; dir: 'asc' | 'desc' }
 
 /**
@@ -553,8 +561,8 @@ function sortValue(r: RequestRow, key: SortKey): string | number {
       return new Date(r.at).getTime()
     case 'model':
       return r.model ?? ''
-    case 'key_name':
-      return r.key_name ?? ''
+    case 'client':
+      return r.client ?? ''
     case 'status':
       return r.status === 0 ? 1000 : r.status
     case 'tokens':

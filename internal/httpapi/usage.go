@@ -135,6 +135,11 @@ type requestJSON struct {
 	// made it, recorded for both kinds.
 	Rejected bool   `json:"rejected"`
 	IP       string `json:"ip,omitempty"`
+	// Client is what was running, read from the User-Agent. A key says who is
+	// paying and is named by whoever minted it — one key called "test" served
+	// every request on this gateway for a week, from crush. The client is the
+	// answer to what sent it, and a refused request has one too.
+	Client string `json:"client,omitempty"`
 }
 
 // toRequestJSON is the one conversion from a stored event to what the UI
@@ -158,6 +163,7 @@ func toRequestJSON(e store.UsageEvent) requestJSON {
 		ErrorKind:    string(upstream.ClassifyRefusal(e.Error)),
 		Rejected:     e.Rejected,
 		IP:           e.IP,
+		Client:       e.Client,
 	}
 }
 
