@@ -131,8 +131,8 @@ type requestJSON struct {
 	// Computed on read rather than stored: it is a reading of the recorded
 	// text, and one that will get better as more of these are identified.
 	ErrorKind string `json:"error_kind,omitempty"`
-	// Rejected marks a request the gateway refused itself, and IP is where it
-	// came from — the only identity such a request has.
+	// Rejected marks a request the gateway refused itself. IP is which machine
+	// made it, recorded for both kinds.
 	Rejected bool   `json:"rejected"`
 	IP       string `json:"ip,omitempty"`
 }
@@ -194,6 +194,7 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 		ConversationID: api.CleanIdentifier(q.Get("chat")),
 		KeyID:          api.CleanIdentifier(q.Get("key")),
 		Model:          api.CleanIdentifier(q.Get("model")),
+		IP:             api.CleanIdentifier(q.Get("ip")),
 		FailedOnly:     q.Get("status") == "failed",
 		Kind:           q.Get("kind"),
 	}

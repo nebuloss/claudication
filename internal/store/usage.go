@@ -46,10 +46,13 @@ type UsageEvent struct {
 	// not think about this files a relayed request, which is what all but two
 	// call sites are.
 	Rejected bool
-	// IP is where a refused request came from, which is the only identity it
-	// has. Left empty for a relayed request: that one carries a key that names
-	// it, and recording an address beside it would collect more than the
-	// question needs.
+	// IP is which machine made the request. For a refused one it is the only
+	// identity there is; for a relayed one it is the question a key and a
+	// User-Agent cannot answer, which is where it ran.
+	//
+	// Only as true as the proxy in front makes it: without that proxy's address
+	// in trusted-proxies, X-Forwarded-For is ignored and every client is
+	// recorded as the proxy.
 	IP string
 }
 
@@ -471,9 +474,10 @@ func ParseUsageCursor(s string) (UsageCursor, bool) {
 type RequestFilter struct {
 	// ConversationID limits to one chat.
 	ConversationID string
-	// KeyID limits to one credential, Model to one model.
+	// KeyID limits to one credential, Model to one model, IP to one machine.
 	KeyID string
 	Model string
+	IP    string
 	// Kind narrows to "relayed" or "rejected"; empty is both, which is the
 	// point of one list.
 	Kind string
@@ -499,6 +503,10 @@ func (f RequestFilter) where() (string, []any) {
 	if f.Model != "" {
 		clauses = append(clauses, "model = ?")
 		args = append(args, f.Model)
+	}
+	if f.IP != "" {
+		clauses = append(clauses, "ip = ?")
+		args = append(args, f.IP)
 	}
 	switch f.Kind {
 	case "relayed":

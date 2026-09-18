@@ -47,6 +47,7 @@ export type RequestFilter = {
   chat: string
   key: string
   model: string
+  ip: string
   status: string
   /** '', 'relayed' or 'rejected' — whether it reached the upstream at all. */
   kind: string
@@ -59,6 +60,7 @@ export function filterFromSearch(search: string): RequestFilter {
     chat: q.get('chat') ?? '',
     key: q.get('key') ?? '',
     model: q.get('model') ?? '',
+    ip: q.get('ip') ?? '',
     // Only one value means anything today; anything else reads as unfiltered
     // rather than as an error, because a URL is something people edit.
     status: q.get('status') === 'failed' ? 'failed' : '',
@@ -166,7 +168,9 @@ function RecentRequests({
   const data = useMemo(() => sortRows(rows, sort), [rows, sort])
 
   // Filters arriving from a link, which no control on this screen displays.
-  const pinned = Object.entries(filter).filter(([k, v]) => v !== '' && (k === 'chat' || k === 'key'))
+  const pinned = Object.entries(filter).filter(
+    ([k, v]) => v !== '' && (k === 'chat' || k === 'key' || k === 'ip'),
+  )
   const active = Object.entries(filter).filter(([, v]) => v !== '')
 
   // Options for the two pickers. Models come from the rows on screen, because
@@ -284,6 +288,7 @@ function RecentRequests({
             column('Timestamp', 'at'),
             column('Model', 'model'),
             column('Key', 'key_name'),
+            'From',
             column('Status', 'status'),
             column('Tokens', 'tokens'),
             column('Duration', 'duration'),
@@ -301,6 +306,22 @@ function RecentRequests({
               <td className="px-2 py-2 whitespace-nowrap">{dash(r.model)}</td>
               <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
                 {dash(r.key_name)}
+              </td>
+              {/* Clickable, because "everything from that machine" is the next
+                  question the moment one address looks wrong. */}
+              <td className="px-2 py-2 font-mono text-xs whitespace-nowrap text-on-surface-variant">
+                {r.ip === undefined || r.ip === '' ? (
+                  '—'
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onNarrow({ ...filter, ip: r.ip ?? '' })}
+                    title={`Only requests from ${r.ip}`}
+                    className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
+                  >
+                    {r.ip}
+                  </button>
+                )}
               </td>
               <td className="px-2 py-2">
                 <Chip tone={statusTone(r)}>

@@ -26,13 +26,19 @@
 -- relayed", which every row already in the table was.
 ALTER TABLE usage_events ADD COLUMN rejected INTEGER NOT NULL DEFAULT 0;
 
--- Who it came from, which is the only identity a refused request has. A
--- relayed one is identified by its key; a rejected one has none, and without an
--- address there is nothing to tell one client's misconfiguration from a scan.
+-- Which machine made the request.
 --
--- It is written for rejected requests only. A relayed request already carries a
--- key that names it, and recording an address beside it would collect more than
--- the question needs.
+-- For a refused one it is the only identity there is: no key, no client, and
+-- without an address nothing to tell one misconfigured client from a scan.
+--
+-- Recorded for relayed requests too. A key says who is paying and the
+-- User-Agent says what they are running, and neither says where it ran — so
+-- when one host out of several is burning a subscription, this is the only
+-- column that answers it.
+--
+-- It is only as true as the proxy in front makes it: without the fronting
+-- address in trusted-proxies, X-Forwarded-For is ignored and every client is
+-- recorded as the proxy. See config.trusted-proxies.
 ALTER TABLE usage_events ADD COLUMN ip TEXT NOT NULL DEFAULT '';
 
 -- The request log reads newest-first and filters; usage reads a window and

@@ -243,7 +243,11 @@ export interface RequestRow {
    * only place they appear.
    */
   rejected?: boolean
-  /** Where a refused request came from. Its only identity. */
+  /**
+   * Which machine made the request. For a refused one it is the only identity
+   * there is; for a relayed one it answers what a key and a User-Agent cannot,
+   * which is where it ran.
+   */
   ip?: string
 }
 
@@ -582,7 +586,7 @@ export const api = {
   recentRequests: async (
     limit = 50,
     after = '',
-    filter: { chat?: string; key?: string; model?: string; status?: string } = {},
+    filter: { chat?: string; key?: string; model?: string; ip?: string; status?: string } = {},
   ): Promise<{ rows: RequestRow[]; nextCursor: string }> => {
     const query = new URLSearchParams({ limit: String(limit) })
     if (after !== '') query.set('after', after)

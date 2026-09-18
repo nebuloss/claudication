@@ -69,6 +69,12 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// intact.
 		conversation := p.ConversationID(r.Header, body)
 		client := api.ClientName(r.UserAgent())
+		// Which machine made this. A key says who is paying and a client says
+		// what they are running; neither says where it ran, and when one host
+		// out of several is burning a subscription that is the only question
+		// worth asking. Read here with the rest of what the caller tells us
+		// about itself.
+		ip := clientIPFrom(r.Context())
 
 		ctx, cancel := contextWithTimeout(r, upstream.Timeout(streaming))
 		defer cancel()
@@ -109,7 +115,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 				At: started, KeyID: key.ID, KeyName: key.Name,
 				AccountID: res.AccountID, AccountEmail: res.AccountEmail,
 				Model: model, Path: route, Status: 0, Streaming: streaming,
-				ConversationID: conversation, Client: client,
+				ConversationID: conversation, Client: client, IP: ip,
 				Duration: elapsed, Error: res.Err.Error(),
 			}, key.TokenBudget)
 			s.relayFailure(w, r, p, res.Err)
@@ -122,6 +128,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			Model: model, Path: route, Status: res.Status, Streaming: streaming,
 			ConversationID:   conversation,
 			Client:           client,
+			IP:               ip,
 			InputTokens:      res.Usage.InputTokens,
 			OutputTokens:     res.Usage.OutputTokens,
 			CacheReadTokens:  res.Usage.CacheReadTokens,
