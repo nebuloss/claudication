@@ -688,6 +688,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		// looking at what this gateway is allowed to do.
 		"chat_titles":         s.titles.on(),
 		"chat_titles_capture": s.titles.capturing(),
+		"fit_images":          s.images.enabled(),
 	})
 }
 

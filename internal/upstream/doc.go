@@ -1,9 +1,9 @@
 // Package upstream relays a request to Anthropic on behalf of a pooled
 // subscription account.
 //
-// # The rule, and its five exceptions
+// # The rule, and its six exceptions
 //
-// The caller's bytes go upstream unchanged. There are five deliberate
+// The caller's bytes go upstream unchanged. There are six deliberate
 // exceptions, and every one exists because without it the affected request
 // cannot succeed at all. In the order [Relay.Do] applies them:
 //
@@ -17,6 +17,15 @@
 //  4. [DropEmptyMessageText] — the same empty-block rule, in messages.
 //  5. [RewriteRefusedToolNames] — tool names the backend refuses, sent in a
 //     shape it accepts and restored on the response.
+//  6. [ShrinkImages] — an image over 2000 px on a side in a request carrying
+//     more than twenty of them, which the upstream refuses by name.
+//
+// The sixth is the only optional one, and the only one off by default. The
+// other five repair an envelope the upstream rejects over its shape, and the
+// caller cannot tell the difference. This one re-encodes the caller's own
+// picture: the model is shown something slightly different from what was sent,
+// and only the caller knows whether the detail mattered. So it is a switch an
+// operator turns on, stored where the other runtime switches are.
 //
 // Each carries its measurements in the file that implements it. Ordering
 // matters in one place: the prologue is peeked from the body before any of

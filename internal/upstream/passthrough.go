@@ -46,9 +46,22 @@ type Relay struct {
 	// Attribution prepends Claude Code's system block when the caller did not.
 	// Off means non-Claude-Code clients reach haiku and nothing above it.
 	Attribution bool
-	Client      *http.Client
-	Log         *slog.Logger
-	BaseURL     string
+	// FitImages reports whether to cap oversized images in a many-image
+	// request. A predicate rather than a bool because it is a runtime switch
+	// an operator flips while the gateway runs; nil is off, which is what
+	// every test and every caller that has not wired it get.
+	FitImages func() bool
+	// Images remembers what each oversized image was rewritten to, so a
+	// conversation that resends its history does the work once.
+	//
+	// A plain pointer and not built on demand: the titler copies a Relay to
+	// pin it to one account, and a sync primitive in here would make that copy
+	// a vet error. Nil is allowed and simply means no caching, so a Relay
+	// assembled by a test still works.
+	Images  *ImageCache
+	Client  *http.Client
+	Log     *slog.Logger
+	BaseURL string
 }
 
 // logger is the relay's log, or one that discards. Log is optional — the
@@ -209,6 +222,18 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	// Nil for every request that carries no such name, which is the common
 	// case and costs one scan of the body.
 	body, names := RewriteRefusedToolNames(body)
+
+	// Last, and only when switched on. It touches messages alone, so nothing
+	// above it reads what this rewrites — and it is the one pass that changes
+	// what the model is shown rather than the shape of the envelope, which is
+	// why it is the one an operator has to ask for.
+	if r.FitImages != nil && r.FitImages() {
+		if fitted, n := ShrinkImages(body, r.Images); n > 0 {
+			body = fitted
+			r.logger().Info("capped oversized images for a many-image request",
+				"images", n, "max_edge", MaxEdge)
+		}
+	}
 
 	var res Result
 	tried := map[string]bool{}

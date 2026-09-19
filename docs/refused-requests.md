@@ -122,18 +122,42 @@ would mean reshaping a conversation or changing what the caller is billed:
 - A message whose every content block is empty. Dropping them all leaves an
   empty array, which is refused too; inventing filler text is the client's
   decision, not ours.
-- An image over 2000 pixels on a side, in a request carrying many images:
-  `messages.70.content.1.image.source.base64.data: At least one of the image
-  dimensions exceed max allowed size for many-image requests: 2000 pixels`.
-  Conditional, which is what makes it look flaky: the same crush conversation
-  served 878 requests either side of two failures a day apart
-  (`req_011CfBZ2fQDt7dxDRQ3aifZy`, `req_011CfCQK8xKkhi86JgC2uaED`), because a
-  single image may be far larger and only the *many-image* case caps at 2000.
-  So a conversation that was fine becomes refused as it accumulates images,
-  over an image that has been sitting in its history for hours. Repairing it
-  means decoding and re-encoding the caller's image: the model is then shown
-  something it was not sent, and the rewritten bytes land in the middle of a
-  cached prefix. The client is the one that knows whether the detail mattered.
+- An image over 2000 pixels on a side, in a request carrying many images.
+  Now repaired, but only on request — see *The one rewrite you have to ask
+  for*, below.
+
+---
+
+## The one rewrite you have to ask for
+
+[measured] `passthrough.fit-oversized-images`, off by default, switched from
+Settings.
+
+    messages.70.content.1.image.source.base64.data: At least one of the image
+    dimensions exceed max allowed size for many-image requests: 2000 pixels
+
+More than 20 image blocks in a request and every one of them is capped at 2000
+pixels a side; at 20 or fewer the limit is 8000. Every block counts — images
+resent from earlier turns, and images nested inside `tool_result` content.
+
+Which is what makes it look flaky rather than broken. The crush conversation it
+was found on served 878 requests either side of two failures a day apart
+(`req_011CfBZ2fQDt7dxDRQ3aifZy`, `req_011CfCQK8xKkhi86JgC2uaED`), both naming
+`messages.70`: one screenshot, sitting in the history since yesterday, becoming
+illegal as the conversation accumulated images around it.
+
+With the switch on, `ShrinkImages` caps the long edge at 2000 and leaves
+everything else alone. What that costs is bounded and usually nothing — the
+upstream already downscales to a 2576 px long edge on Claude 4.7 and later, and
+to 1568 px before that, so the loss is at most the band between 2000 and 2576.
+The rescale is deterministic and cached per source image, because a transform
+that varied would change the prefix on every turn and miss the prompt cache it
+sits inside.
+
+It is off by default because it is the only pass that changes what the model is
+shown rather than the shape of the envelope, and the client is the one that
+knows whether the detail mattered. The real fix is upstream of here: a client
+sending screenshots should downscale before it sends them.
 
 ---
 

@@ -52,6 +52,7 @@ type Server struct {
 	// titles names conversations by asking a model, which is the only traffic
 	// this gateway originates rather than relays. Off until switched on.
 	titles *titler
+	images *imageFit
 
 	mu   sync.Mutex
 	addr string
@@ -132,11 +133,20 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		log.Warn("could not read the chat-title switch; leaving it off", "err", err)
 	}
 
+	// And again: off is the pass-through rule, so a switch we cannot read
+	// leaves the caller's bytes alone.
+	s.images = newImageFit(s)
+	if err := s.images.load(loadCtx); err != nil {
+		log.Warn("could not read the image-fit switch; leaving it off", "err", err)
+	}
+
 	s.pool = pool.New(st, sealer, s.httpClient, log)
 	s.relay = &upstream.Relay{
 		Pool:        s.pool,
 		Log:         log,
 		Attribution: cfg.Passthrough.ClaudeCodeAttribution,
+		FitImages:   s.images.enabled,
+		Images:      upstream.NewImageCache(upstream.DefaultImageCacheBytes),
 		// Relayed inference gets its own client with NO client-level timeout:
 		// a streaming response legitimately runs for many minutes, and a
 		// Timeout here would sever it mid-flight. The per-request context
@@ -291,6 +301,7 @@ func (s *Server) routes(r0 role) http.Handler {
 		mux.Handle("GET /admin/chats", admin(s.handleChats))
 		mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
 		mux.Handle("POST /admin/chat-titles", admin(s.handleSetChatTitles))
+		mux.Handle("POST /admin/fit-images", admin(s.handleSetImageFit))
 		mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 		mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
 

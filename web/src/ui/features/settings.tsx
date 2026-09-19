@@ -1,5 +1,6 @@
 import ChatTitles from './chat-titles'
 import ConfigTable from './configtable'
+import ImageFit from './image-fit'
 import Security from './security'
 import Surfaces from './surfaces'
 import { api, type GatewayConfig, type Session } from '../../api/client'
@@ -56,6 +57,7 @@ export default function Settings({
             capture={data.chat_titles_capture}
             onChanged={() => void reload()}
           />
+          <ImageFit enabled={data.fit_images} onChanged={() => void reload()} />
           <ConfigTable config={data} />
         </>
       )}

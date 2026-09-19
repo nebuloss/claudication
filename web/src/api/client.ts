@@ -343,6 +343,12 @@ export interface GatewayConfig {
    * conversations, and that answer already passes through here.
    */
   chat_titles_capture: boolean
+  /**
+   * Whether the relay caps oversized images in a many-image request. The one
+   * pass that changes what the model is shown rather than the shape of the
+   * envelope, so it is off until an operator asks for it.
+   */
+  fit_images: boolean
 }
 
 export interface Overview {
@@ -546,6 +552,9 @@ export const api = {
     request<{ surfaces: Surface[] }>('POST', `/admin/surfaces/${encodeURIComponent(id)}`, {
       enabled,
     }),
+
+  setFitImages: (enabled: boolean) =>
+    request<{ fit_images: boolean }>('POST', '/admin/fit-images', { enabled }),
 
   setChatTitles: (change: { enabled?: boolean; capture?: boolean }) =>
     request<{ chat_titles: boolean; chat_titles_capture: boolean }>(
