@@ -122,6 +122,18 @@ would mean reshaping a conversation or changing what the caller is billed:
 - A message whose every content block is empty. Dropping them all leaves an
   empty array, which is refused too; inventing filler text is the client's
   decision, not ours.
+- An image over 2000 pixels on a side, in a request carrying many images:
+  `messages.70.content.1.image.source.base64.data: At least one of the image
+  dimensions exceed max allowed size for many-image requests: 2000 pixels`.
+  Conditional, which is what makes it look flaky: the same crush conversation
+  served 878 requests either side of two failures a day apart
+  (`req_011CfBZ2fQDt7dxDRQ3aifZy`, `req_011CfCQK8xKkhi86JgC2uaED`), because a
+  single image may be far larger and only the *many-image* case caps at 2000.
+  So a conversation that was fine becomes refused as it accumulates images,
+  over an image that has been sitting in its history for hours. Repairing it
+  means decoding and re-encoding the caller's image: the model is then shown
+  something it was not sent, and the rewritten bytes land in the middle of a
+  cached prefix. The client is the one that knows whether the detail mattered.
 
 ---
 
