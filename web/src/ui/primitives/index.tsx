@@ -650,10 +650,21 @@ function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
 
   useEffect(() => {
     if (!open) return
-    // Any scroll closes it rather than following: the panel sits at
-    // coordinates taken when it opened, and a menu drifting away from the
+    // A scroll of the *page* closes it rather than following: the panel sits
+    // at coordinates taken when it opened, and a menu drifting away from the
     // heading it belongs to is worse than one that shuts.
-    const shut = () => setAt(null)
+    //
+    // A scroll *inside* the panel does not. The listener is on the capture
+    // phase so it sees scrolling anywhere, which includes the panel's own
+    // list — and that list is scrollable exactly when there are more values
+    // than fit, so the menus worth scrolling were the ones that closed the
+    // moment you tried. Reaching the value you wanted dismissed the thing you
+    // wanted it from.
+    const shut = (e: Event) => {
+      const target = e.target as Node | null
+      if (target !== null && panel.current !== null && panel.current.contains(target)) return
+      setAt(null)
+    }
     const onDown = (e: MouseEvent) => {
       const target = e.target as Node
       if (panel.current !== null && panel.current.contains(target)) return
