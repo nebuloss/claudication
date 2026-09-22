@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import Docs from './ui/features/docs'
 import ThemeToggle from './ui/features/theme-toggle'
-import './ui/styles/index.css'
+import './ui/styles/docs.css'
 
 /**
  * The public docs page: its own entry, its own document, its own listener.

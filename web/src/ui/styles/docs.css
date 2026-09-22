@@ -1,0 +1,50 @@
+@import './index.css';
+
+/*
+  The docs page wears the secondary hue where the admin UI wears the clay.
+
+  Same reason its favicon differs, carried through to the page itself: these
+  are two surfaces of one gateway and they are not interchangeable. One
+  administers it, one is published to anyone who has its address. Somebody with
+  both open should be able to tell at a glance which they are typing into, and
+  a mark in the tab strip does that only until the tab is focused.
+
+  Redefining the tokens rather than restyling anything. Tailwind 4 emits
+  utilities as var() references, so every button, link, focus ring and state
+  layer that reads --color-primary follows from these four lines without a
+  single component knowing which page it is on.
+
+  The values are the secondary family already in the palette — not a new
+  colour, the other one that was already there — so the two pages stay
+  demonstrably the same design rather than looking like different products.
+*/
+:root {
+  --color-primary: #4a6572;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #d3e4ec;
+  --color-on-primary-container: #0b1f28;
+}
+
+/*
+  Dark has its own pair, as everywhere else in this token set: the light
+  secondary at 20% lightness on a dark ground is unreadable, so the palette
+  carries a proper dark tone rather than an opacity trick.
+
+  Guarded the same way index.css guards its dark block, so an explicit light
+  choice in the header control still wins over the system preference.
+*/
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-primary: #a8cad9;
+    --color-on-primary: #0f333f;
+    --color-primary-container: #33474f;
+    --color-on-primary-container: #d3e4ec;
+  }
+}
+
+:root[data-theme='dark'] {
+  --color-primary: #a8cad9;
+  --color-on-primary: #0f333f;
+  --color-primary-container: #33474f;
+  --color-on-primary-container: #d3e4ec;
+}
