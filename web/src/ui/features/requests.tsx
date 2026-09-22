@@ -11,7 +11,6 @@ import {
   Banner,
   Modal,
   Chip,
-  Segmented,
   Empty,
   KeyValue,
   MenuRow,
@@ -41,9 +40,6 @@ import {
  */
 
 const PAGE = 50
-
-/** Columns whose first click should sort A-Z, because that is what sorted means for a word. */
-const TEXT_COLUMNS: SortKey[] = ['model', 'client', 'ip', 'chat', 'kind', 'message']
 
 /**
  * The activity list, paged.
@@ -182,13 +178,12 @@ function RecentRequests({
   useEffect(loadFacets, [loadFacets])
 
   // Clicking the column already in effect turns it around; clicking a new one
-  // starts at the end people mean first — newest, biggest, worst — except for
-  // the two text columns, where A-Z is what "sorted" means.
+  // starts at the end people mean first — newest, biggest, longest.
   const sortBy = (key: SortKey, dir?: 'asc' | 'desc') =>
     setSort((prev) => {
       if (dir !== undefined) return { key, dir }
       if (prev.key === key) return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-      return { key, dir: TEXT_COLUMNS.includes(key) ? 'asc' : 'desc' }
+      return { key, dir: 'desc' }
     })
 
   const column = (label: string, key: SortKey): Column => ({
@@ -214,7 +209,14 @@ function RecentRequests({
       case 'chat':
         return facets?.chats ?? []
       case 'message':
-        return facets?.messages ?? []
+        // Labelled here, once, so the menu and the chip read the way the
+        // column does. The stored codes are the upstream's own words and the
+        // cell translates them; without this the column said "failed" while
+        // the chip it set said "other".
+        return (facets?.messages ?? []).map((v) => ({
+          ...v,
+          label: v.value === '' ? 'no error' : messageLabel(v.value),
+        }))
       case 'kind':
         return facets?.kinds ?? []
       default:
@@ -233,19 +235,44 @@ function RecentRequests({
   // The same heading, plus the values that column actually holds. Clicking the
   // title opens them; clicking a cell still narrows to that one row's value,
   // which is the faster move when what you want is already in front of you.
-  const faceted = (label: string, key: SortKey, field: SetField): Column => ({
-    ...column(label, key),
-    filtered: filter[field].length > 0,
+  const faceted = (label: string, field: SetField, lead?: ReactNode): Column => ({
+    label,
+    filtered: filter[field].length > 0 || (field === 'code' && filter.status !== ''),
     menu: (
-      <FacetList
+      <>
+        {lead}
+        <FacetList
         values={facetFor(field)}
         chosen={filter[field]}
         loaded={facets !== null}
-        onToggle={(v) => onNarrow({ ...filter, [field]: toggled(filter[field], v) })}
-        onClear={() => onNarrow({ ...filter, [field]: [] })}
-      />
+          onToggle={(v) => onNarrow({ ...filter, [field]: toggled(filter[field], v) })}
+          onClear={() => onNarrow({ ...filter, [field]: [] })}
+        />
+      </>
     ),
   })
+
+  // Did it work, which is the question asked of this column far more often
+  // than "which code". It lives here rather than above the table because this
+  // is the column it is about, and a switch up there was the last filter on
+  // the screen that was not where its column is.
+  const outcomeRows = (
+    <>
+      <MenuRow
+        onClick={() => onNarrow({ ...filter, status: filter.status === 'ok' ? '' : 'ok' })}
+        active={filter.status === 'ok'}
+      >
+        Successful only
+      </MenuRow>
+      <MenuRow
+        onClick={() => onNarrow({ ...filter, status: filter.status === 'failed' ? '' : 'failed' })}
+        active={filter.status === 'failed'}
+      >
+        Failed only
+      </MenuRow>
+      <div className="my-1 border-t border-outline-variant" />
+    </>
+  )
 
   const load = useCallback(
     async (after: string) => {
@@ -291,7 +318,31 @@ function RecentRequests({
   const pinned = SET_FIELDS.flatMap((field) =>
     filter[field].map((value) => ({ field, value })),
   )
-  const narrowed = pinned.length > 0 || filter.status !== ''
+  // Every filter on this screen, as something you can see and take off.
+  //
+  // There were two kinds before: sets, which showed as chips, and a Failures
+  // switch above the table, which showed as itself. The switch is gone — the
+  // Status and Message columns answer the same question from their own
+  // headings, where every other filter lives — but the predicate behind it
+  // stays, because the chat table links to it and because "anything that went
+  // wrong" spans codes the upstream chose plus streams that died after a 200.
+  // Reachable from a link and invisible on arrival is the one state it must
+  // not have, so it is a chip.
+  const chips = pinned.map(({ field, value }) => ({
+    key: `${field}:${value}`,
+    label: `${fieldWord(field)}: ${chipValue(labelOf(field, value))}`,
+    title: `Stop filtering by this ${fieldWord(field)}`,
+    clear: () => onNarrow({ ...filter, [field]: filter[field].filter((v) => v !== value) }),
+  }))
+  if (filter.status === 'failed') {
+    chips.push({
+      key: 'status',
+      label: 'failures only',
+      title: 'Show every request again',
+      clear: () => onNarrow({ ...filter, status: '' }),
+    })
+  }
+  const narrowed = chips.length > 0
 
   const query = queryFromFilter(filter)
   const downloadQuery = query === '' ? '' : `?${query}`
@@ -305,17 +356,7 @@ function RecentRequests({
           filtered list that looks like the whole list is how someone concludes
           the gateway served four requests all week. */}
       <div className="mb-4 flex flex-wrap items-end gap-3">
-        <Segmented
-          label="Show"
-          value={filter.status === 'failed' ? 'failed' : 'all'}
-          onChange={(v) => onNarrow({ ...filter, status: v === 'failed' ? 'failed' : '' })}
-          options={[
-            { id: 'all', label: 'All requests', content: 'All' },
-            { id: 'failed', label: 'Failures only', content: 'Failures' },
-          ]}
-        />
-
-kind control        <span className="flex-grow" />
+        <span className="flex-grow" />
         {/* An anchor rather than a fetch-and-blob: the browser already knows
             how to save a response it is given, it carries the session cookie
             on its own, and a download that streams from the server never has
@@ -333,24 +374,22 @@ kind control        <span className="flex-grow" />
         <TextButton onClick={() => void load('')}>Refresh</TextButton>
       </div>
 
-      {/* Only the filters with no control of their own. Show and Kind already
-          say what they are set to, so a chip repeating them was two places to
-          read one fact. These arrive from a click, a menu or a link, and the
-          heading's funnel says which column without saying which value. */}
-      {pinned.length > 0 && (
+      {/* What is narrowed, all of it, in one place. A filtered list that looks
+          like the whole list is how someone concludes the gateway served four
+          requests all week, and the heading's funnel says which column without
+          saying which value. */}
+      {chips.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
           <span className="text-on-surface-variant">Narrowed to</span>
-          {pinned.map(({ field, value }) => (
+          {chips.map((c) => (
             <button
-              key={`${field}:${value}`}
+              key={c.key}
               type="button"
-              onClick={() =>
-                onNarrow({ ...filter, [field]: filter[field].filter((v) => v !== value) })
-              }
-              title={`Stop filtering by this ${fieldWord(field)}`}
+              onClick={c.clear}
+              title={c.title}
               className="state-layer inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-md3-s)] border border-outline px-2.5 text-xs font-medium text-on-surface-variant"
             >
-              {fieldWord(field)}: {chipValue(labelOf(field, value))}
+              {c.label}
               <span aria-hidden className="text-base leading-none">
                 &times;
               </span>
@@ -384,15 +423,15 @@ kind control        <span className="flex-grow" />
             // Not Date and not Time: the cell is a time on today's rows, a
             // date and a time on older ones, and an epoch once copied.
             column('Timestamp', 'at'),
-            faceted('Model', 'model', 'model'),
-            faceted('Chat', 'chat', 'chat'),
-            faceted('Client', 'client', 'client'),
-            faceted('IP', 'ip', 'ip'),
-            faceted('Status', 'status', 'code'),
-            faceted('Forwarded', 'kind', 'kind'),
+            faceted('Model', 'model'),
+            faceted('Chat', 'chat'),
+            faceted('Client', 'client'),
+            faceted('IP', 'ip'),
+            faceted('Status', 'code', outcomeRows),
+            faceted('Forwarded', 'kind'),
             column('Tokens', 'tokens'),
             column('Duration', 'duration'),
-            faceted('Message', 'message', 'message'),
+            faceted('Message', 'message'),
           ]}
         >
           {data.map((r, i) => (
@@ -756,47 +795,26 @@ function asText(r: RequestRow): string {
   return lines.join('\n')
 }
 
-type SortKey =
-  | 'at'
-  | 'model'
-  | 'client'
-  | 'ip'
-  | 'chat'
-  | 'kind'
-  | 'message'
-  | 'status'
-  | 'tokens'
-  | 'duration'
+/**
+ * The columns worth ordering by.
+ *
+ * Three, not ten. Sorting a categorical column — a model, a client, an address
+ * — groups rows that the column's own menu can simply select, and it only ever
+ * reorders the rows already loaded, so on a filtered log it answers a question
+ * about this page rather than about the log. Where the menu is the better
+ * tool, the heading offers the menu and nothing else.
+ *
+ * What is left is the three where order is the whole question: when, how much,
+ * how long.
+ */
+type SortKey = 'at' | 'tokens' | 'duration'
 type Sort = { key: SortKey; dir: 'asc' | 'desc' }
 
-/**
- * What a row is worth for a given column.
- *
- * Status is the one that is not simply its own value. A request that never got
- * an answer is recorded as 0, which sorts below 200 and would put the worst
- * failures at the far end from the 4xx and 5xx ones — so sorting by status,
- * the thing you do to find what went wrong, would scatter the failures to both
- * ends of the table. Ranked above every real status instead, so one click puts
- * every failure together at the top.
- */
+/** What a row is worth for a given column. */
 function sortValue(r: RequestRow, key: SortKey): string | number {
   switch (key) {
     case 'at':
       return new Date(r.at).getTime()
-    case 'model':
-      return r.model ?? ''
-    case 'client':
-      return r.client ?? ''
-    case 'ip':
-      return r.ip ?? ''
-    case 'chat':
-      return r.conversation_id ?? ''
-    case 'kind':
-      return r.rejected === true ? 'no' : 'yes'
-    case 'message':
-      return r.error_code ?? ''
-    case 'status':
-      return r.status === 0 ? 1000 : r.status
     case 'tokens':
       return r.input_tokens + r.output_tokens
     case 'duration':

@@ -248,11 +248,21 @@ func requestFilterFrom(q url.Values) store.RequestFilter {
 		IPs:             cleanSet(q["ip"]),
 		Statuses:        codeSet(q["code"]),
 		ErrorCodes:      cleanSet(q["message"]),
-		// status=failed is a predicate over codes rather than one of them, so
-		// it keeps its own name and composes with a set of codes.
-		FailedOnly: q.Get("status") == "failed",
-		Kinds:      cleanSet(q["kind"]),
+		// status= is a predicate over codes rather than one of them, so it
+		// keeps its own name and composes with a set of codes. Anything else
+		// reads as unfiltered rather than as an error, because a URL is
+		// something people edit.
+		Outcome: outcomeOf(q.Get("status")),
+		Kinds:   cleanSet(q["kind"]),
 	}
+}
+
+// outcomeOf reads the success-or-failure predicate.
+func outcomeOf(v string) string {
+	if v == "failed" || v == "ok" {
+		return v
+	}
+	return ""
 }
 
 // cleanSet reads a repeated query parameter as a filter set.

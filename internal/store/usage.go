@@ -511,15 +511,15 @@ type RequestFilter struct {
 	// A set like the others, because it is a column now rather than a control
 	// above the table, and a column's menu is a column of checkboxes.
 	Kinds []string
-	// FailedOnly keeps what did not work: a status the caller would call a
-	// failure, or a stream that died after its 200. The two are different
-	// facts and both are failures, which is why this is one flag rather than
-	// a status-code field the caller has to know to combine.
+	// Outcome keeps what did, or did not, work: "failed" is a status the
+	// caller would call a failure or a stream that died after its 200, "ok" is
+	// the rest, and empty is both.
 	//
-	// Not the same question as a Statuses set, and it composes with one: 429
-	// and 500 are two codes, "anything that went wrong" is a predicate over
-	// codes this gateway did not choose.
-	FailedOnly bool
+	// A predicate rather than a set, and not the same question as Statuses: 429
+	// and 500 are two codes, "anything that went wrong" is a statement about
+	// codes this gateway did not choose plus a failure mode that has no code
+	// at all. The two compose.
+	Outcome string
 }
 
 // where builds the clause and its arguments, without the leading keyword.
@@ -559,8 +559,13 @@ func (f RequestFilter) where() (string, []any) {
 	case rejected && !relayed:
 		clauses = append(clauses, "rejected = 1")
 	}
-	if f.FailedOnly {
+	switch f.Outcome {
+	case "failed":
 		clauses = append(clauses, "(status = 0 OR status >= 400 OR error <> '')")
+	case "ok":
+		// The exact complement of the line above, so the two partition the
+		// table and a request cannot be neither.
+		clauses = append(clauses, "(status > 0 AND status < 400 AND error = '')")
 	}
 	if len(clauses) == 0 {
 		return "", nil
