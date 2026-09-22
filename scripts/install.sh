@@ -55,6 +55,9 @@ CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config.yaml}"
 TRUSTED_PROXIES_GIVEN="${TRUSTED_PROXIES+yes}"
 TRUSTED_PROXIES="${TRUSTED_PROXIES:-}"
 BOOT_TIMEOUT="${BOOT_TIMEOUT:-30}"    # seconds to wait for the first response
+# Seconds to wait for the old process to let go of its listeners. Longer than
+# the shutdown grace it is draining under, or the wait is pointless.
+STOP_TIMEOUT="${STOP_TIMEOUT:-150}"
 SET_PASSWORD="${SET_PASSWORD:-1}"     # 0 to leave the gateway unclaimed
 QUIET="${QUIET:-0}"                   # 1 to drop the progress dots
 
@@ -459,12 +462,46 @@ EOF
   systemctl enable "$SERVICE_NAME" >/dev/null 2>&1
 }
 
+# Wait for the running gateway to release its listeners.
+#
+# It shuts down gracefully, which means it holds them while requests in flight
+# finish — and a streaming request here legitimately runs for minutes. Until it
+# lets go, nothing else can bind those ports.
+#
+# Bounded, so a wedged process delays an upgrade rather than blocking it for
+# ever. Reaching the bound is worth saying out loud: what follows will probably
+# fail to bind, and the reason will be in the log rather than here.
+wait_released() {
+  i=0
+  while responding; do
+    i=$((i + 1))
+    if [ "$i" -gt "$STOP_TIMEOUT" ]; then
+      endline
+      warn "the old process is still holding its port after ${STOP_TIMEOUT}s"
+      return 1
+    fi
+    [ $((i % 2)) -eq 0 ] && tick
+    sleep 1
+  done
+  [ "$i" -gt 0 ] && endline
+  return 0
+}
+
 service_start() {
   info "Starting $SERVICE_NAME"
+  # Stop, wait for the port, then start — rather than one restart.
+  #
+  # A restart starts the new process the moment the supervisor considers the
+  # old one stopped, which is not the moment it has finished draining. The new
+  # one then fails with "bind: address already in use", and on Alpine that is
+  # worse than being late: supervise-daemon respawns it into the same failure
+  # every few seconds and gives up for good once respawn_max is reached. An
+  # upgrade run while a long stream was in flight left the gateway stopped.
+  service_stop
+  wait_released || true
   case "$OS" in
-    alpine) rc-service "$SERVICE_NAME" restart >/dev/null 2>&1 ||
-            rc-service "$SERVICE_NAME" start >/dev/null 2>&1 ;;
-    debian) systemctl restart "$SERVICE_NAME" ;;
+    alpine) rc-service "$SERVICE_NAME" start >/dev/null 2>&1 ;;
+    debian) systemctl start "$SERVICE_NAME" ;;
   esac
 }
 
