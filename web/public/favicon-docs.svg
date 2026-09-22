@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="claudication docs">
+  <!--
+    The same vessel as favicon.svg, in the secondary hue rather than the clay.
+
+    Two tabs, two pages, and they are not interchangeable: one administers this
+    gateway and one is published to anyone who has its address. A tab strip is
+    read at 16px out of the corner of an eye, and at that size the drawing is
+    the same silhouette either way — the hue is the only thing that survives to
+    tell them apart. Clay against slate is a hue difference rather than a
+    shade, which is what keeps them distinct on a bad monitor and for most
+    kinds of colour blindness.
+  -->
+  <g fill="none" stroke="#4a6572" stroke-width="3.5" stroke-linecap="round">
+    <path d="M3 8c6.5 0 6.5 6 10 6s3.5-6 10-6" />
+    <path d="M3 24c6.5 0 6.5-6 10-6s3.5 6 10 6" />
+  </g>
+  <circle cx="27.5" cy="16" r="2.75" fill="#4a6572" />
+</svg>

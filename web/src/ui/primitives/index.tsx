@@ -1103,6 +1103,34 @@ export function IconLink({
 }
 
 /**
+ * A labelled link out, shaped like the icon links beside it.
+ *
+ * A word rather than a glyph, for anything whose icon would be a guess. A
+ * document, a book and a question mark all get drawn for "documentation" and
+ * none of them is read that way reliably; the header already spends a word on
+ * "Sign out", so one more is in keeping.
+ *
+ * The arrow is the part the word cannot say: this leaves the admin UI.
+ */
+export function TextLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      // noreferrer as well as noopener: the opened page has no business
+      // knowing which gateway sent it.
+      rel="noopener noreferrer"
+      className="state-layer inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[var(--radius-md3-full)] border border-outline px-3 text-sm font-medium text-on-surface-variant"
+    >
+      {children}
+      <svg viewBox="0 0 24 24" aria-hidden className="size-3.5 shrink-0 fill-current">
+        <path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h5v2H7v10h10v-3h2v5H5V5z" />
+      </svg>
+    </a>
+  )
+}
+
+/**
  * A small outlined pill, for a control sitting inside a card header.
  *
  * on-surface with a visible outline rather than bare primary-coloured text:
