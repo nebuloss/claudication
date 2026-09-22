@@ -64,14 +64,23 @@ function TrafficCard({
  *
  * It used to carry the client instructions too, which meant the one job a new
  * user arrives to do was a card at the bottom of a dashboard. Those live on
- * Setup now, with the per-client configuration that was missing from them.
+ * the public setup page now, with the per-client configuration that was
+ * missing from them.
  */
 export default function Overview({
   onExpired,
   onGoTo,
+  docsURL,
 }: {
   onExpired: () => void
-  onGoTo: (tab: 'accounts' | 'keys' | 'setup') => void
+  onGoTo: (tab: 'accounts' | 'keys') => void
+  /**
+   * The public setup page, or empty when there is none. Setup used to be a tab
+   * and this used to be a link to it; now it is a page of its own, on its own
+   * listener, and an operator with no docs listener configured has nowhere for
+   * this to point.
+   */
+  docsURL: string
 }) {
   const { data, error, loading, reload } = useLoader<OverviewData>(() => api.overview(), onExpired)
   // The traffic series, on its own loader so changing the window does not
@@ -125,15 +134,21 @@ export default function Overview({
       )}
       {data.ready && (day?.requests ?? 0) === 0 && (
         <Banner>
-          Ready, and nothing has called it yet.{' '}
-          <button
-            type="button"
-            className="underline underline-offset-2"
-            onClick={() => onGoTo('setup')}
-          >
-            Point a client at it
-          </button>
-          .
+          Ready, and nothing has called it yet.
+          {docsURL !== '' && (
+            <>
+              {' '}
+              <a
+                href={docsURL}
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2"
+              >
+                Point a client at it
+              </a>
+              .
+            </>
+          )}
         </Banner>
       )}
       {data.accounts.needs_reauth_soon > 0 && (

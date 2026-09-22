@@ -689,6 +689,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		"chat_titles":         s.titles.on(),
 		"chat_titles_capture": s.titles.capturing(),
 		"fit_images":          s.images.enabled(),
+		// Empty unless a public docs page is both configured and published,
+		// in which case the header links out to it.
+		// Where the page is: its own address when it has one, otherwise the
+		// relay's, which is where the relay serves it.
+		"docs_url":     docsURL(s.cfg),
+		"docs_enabled": s.docs.enabled(),
 	})
 }
 

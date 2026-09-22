@@ -139,14 +139,21 @@ func (a asset) serve(w http.ResponseWriter, r *http.Request) {
 // A binary with no UI compiled in still starts and still proxies: the gateway's
 // job is inference, and the admin screens are a convenience on top. Saying so
 // on a page beats a bare 503 that looks like the whole thing is broken.
-func (s *Server) staticHandler() http.Handler {
+// staticHandler serves the embedded build, with entry as the document a
+// path-like miss falls back to.
+//
+// Parameterised because there are two entries now: index.html is the admin
+// single-page app, and docs.html is the public setup page on its own listener.
+// They share the build, the chunks and this handler; what differs is which
+// document the root resolves to.
+func (s *Server) staticHandler(entry string) http.Handler {
 	root, err := fs.Sub(webdist, "webdist")
 	if err != nil {
 		s.log.Error("embedded UI unreadable", "err", err)
 		return http.HandlerFunc(notBuilt)
 	}
-	if _, err := fs.ReadFile(root, "index.html"); err != nil {
-		s.log.Warn("no embedded admin UI; serving the API only")
+	if _, err := fs.ReadFile(root, entry); err != nil {
+		s.log.Warn("no embedded UI for this listener; serving the API only", "entry", entry)
 		return http.HandlerFunc(notBuilt)
 	}
 
@@ -178,12 +185,12 @@ func (s *Server) staticHandler() http.Handler {
 	}
 	s.log.Debug("admin UI prepared", "files", len(assets), "bytes", raw, "gzipped", packed)
 
-	index := assets["index.html"]
+	index := assets[entry]
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clean := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if clean == "." || clean == "" {
-			clean = "index.html"
+			clean = entry
 		}
 
 		if a, ok := assets[clean]; ok {

@@ -68,6 +68,18 @@ type Config struct {
 	// localhost or a management interface and it cannot be reached from
 	// outside however the proxy is configured.
 	AdminListen string `yaml:"admin-listen"`
+	// DocsListen puts the public setup page on a third address as well.
+	//
+	// Not needed to have the page: with the switch on, the relay serves it at
+	// the root it otherwise 404s, which is the address someone pointing a
+	// client at this gateway already has. This is for a deployment that wants
+	// the instructions somewhere /v1 is not — bind it separately and publish
+	// only this one.
+	DocsListen string `yaml:"docs-listen"`
+	// DocsURL is what that page is published as, for the link to it in the
+	// admin UI. Only needed with DocsListen set: served from the relay, the
+	// page is at PublicURL, which is already configured and already correct.
+	DocsURL string `yaml:"docs-url"`
 	// StateDir holds the SQLite database and any other durable state.
 	StateDir string `yaml:"state-dir"`
 	// TrustedProxies are CIDRs whose X-Forwarded-For we honour. Empty means
@@ -258,6 +270,14 @@ func applyEnv(cfg *Config) map[string]bool {
 		cfg.AdminListen = v
 		took["admin-listen"] = true
 	}
+	if v := os.Getenv("CLAUDICATION_DOCS_LISTEN"); v != "" {
+		cfg.DocsListen = v
+		took["docs-listen"] = true
+	}
+	if v := os.Getenv("CLAUDICATION_DOCS_URL"); v != "" {
+		cfg.DocsURL = v
+		took["docs-url"] = true
+	}
 	if v := os.Getenv("CLAUDICATION_PUBLIC_URL"); v != "" {
 		cfg.PublicURL = v
 		took["public-url"] = true
@@ -321,6 +341,13 @@ func (c Config) validate() error {
 	// the admin surface is not split at all.
 	if c.AdminListen != "" && c.AdminListen == c.Listen {
 		return errors.New("admin-listen must differ from listen, or be empty to share one listener")
+	}
+	// The docs page is public and the other two are not, so sharing an address
+	// with either would publish something that is meant to stay behind a key
+	// or a password. Refused rather than resolved: there is no sensible way to
+	// guess which of the two the operator meant.
+	if c.DocsListen != "" && (c.DocsListen == c.Listen || c.DocsListen == c.AdminListen) {
+		return errors.New("docs-listen must differ from listen and admin-listen, or be empty for no docs page")
 	}
 	if c.Limits.MaxBodyBytes <= 0 {
 		return errors.New("limits.max-body-bytes must be positive")

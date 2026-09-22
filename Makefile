@@ -123,4 +123,4 @@ web-build:
 	cd web && npm run build
 
 clean:
-	rm -rf $(DIST) web/dist $(WEBDIST)/assets $(WEBDIST)/index.html web/node_modules
+	rm -rf $(DIST) web/dist $(WEBDIST)/assets $(WEBDIST)/index.html $(WEBDIST)/docs.html web/node_modules

@@ -26,6 +26,17 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     target: 'es2022',
+    // Two documents, because there are two listeners. index.html is the admin
+    // app and is served only where a session can be had; docs.html is the
+    // public setup page and is served on its own address with no sign-in.
+    // They share the primitives and the token set through the usual chunking,
+    // and nothing that administers the gateway is reachable from the second.
+    rollupOptions: {
+      input: {
+        index: resolve(import.meta.dirname, 'index.html'),
+        docs: resolve(import.meta.dirname, 'docs.html'),
+      },
+    },
   },
   server: {
     port: 5173,

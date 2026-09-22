@@ -349,6 +349,30 @@ export interface GatewayConfig {
    * envelope, so it is off until an operator asks for it.
    */
   fit_images: boolean
+  /**
+   * Where the public setup page is published, or empty when there is none.
+   * The gateway cannot see its own outside name, so this is configured.
+   */
+  docs_url: string
+  /** Whether the public setup page is being served right now. */
+  docs_enabled: boolean
+}
+
+/**
+ * Everything the public setup page is told, and nothing else.
+ *
+ * Deliberately not the admin overview or the configuration: those carry the
+ * listen addresses, the state directory and every limit. This is four facts —
+ * what to point a client at, which APIs are on, whether an account is
+ * connected, and which models exist.
+ */
+export interface DocsInfo {
+  /** The relay's address. Empty when nobody has configured public-url. */
+  public_url: string
+  surfaces: Surface[]
+  ready: boolean
+  /** Cached upstream list; absent when the upstream could not be reached. */
+  models?: { data: Model[] | null }
 }
 
 export interface Overview {
@@ -621,6 +645,11 @@ export const api = {
       'GET',
       `/admin/chats/${encodeURIComponent(id)}`,
     ),
+
+  docsInfo: () => request<DocsInfo>('GET', '/api/docs'),
+
+  setDocs: (enabled: boolean) =>
+    request<{ docs_enabled: boolean }>('POST', '/admin/docs', { enabled }),
 
   requestFacets: () =>
     request<{ enabled: boolean; facets?: RequestFacets }>('GET', '/admin/requests/facets'),

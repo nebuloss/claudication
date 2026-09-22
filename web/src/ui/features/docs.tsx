@@ -4,12 +4,7 @@ import codexToml from '#configs/clients/codex.toml?raw'
 import codexModels from '#configs/clients/codex-models.json?raw'
 import crushJson from '#configs/clients/crush.json?raw'
 import opencodeJsonc from '#configs/clients/opencode.jsonc?raw'
-import {
-  api,
-  type GatewayConfig,
-  type Model,
-  type Overview as OverviewData,
-} from '../../api/client'
+import { api, type DocsInfo } from '../../api/client'
 import { useLoader } from '../hooks'
 import { Banner, Card, CardTitle, CopyField, Spinner, SubNav } from '../primitives'
 import { CodeViewer, type Lang } from '../primitives/code'
@@ -147,22 +142,12 @@ const TROUBLE: [string, string][] = [
  * new user actually arrives to do was split across two tabs, under the ones
  * that administer a gateway they have not connected to yet.
  */
-export default function Setup({
-  onExpired,
-  onGoTo,
-}: {
-  onExpired: () => void
-  onGoTo: (tab: 'accounts' | 'keys') => void
-}) {
+export default function Docs() {
   const [client, setClient] = useState(CLIENTS[0].id)
-  const { data, error, loading } = useLoader<OverviewData>(() => api.overview(), onExpired)
-  // Both loaded separately and both allowed to fail: they are context for the
-  // instructions, not the instructions themselves, and neither should be able
-  // to blank the screen.
-  const { data: config } = useLoader<GatewayConfig>(() => api.config())
-  const { data: modelList, error: modelError } = useLoader<{ data: Model[] | null }>(() =>
-    api.models(),
-  )
+  // One request, and a public one. The in-app version of this screen read
+  // /admin/overview, /admin/config and /admin/models — an inventory of the
+  // deployment, for four facts. This asks for the four.
+  const { data, error, loading } = useLoader<DocsInfo>(() => api.docsInfo())
 
   if (loading && data === null) {
     return (
@@ -186,13 +171,18 @@ export default function Setup({
   // hostname on a different proxy — and nothing the gateway can see tells it
   // that name. So it is configured, and until it is, this says so rather than
   // handing out files that point at the wrong host.
+  // No fallback to this browser's origin: that is the address of this page,
+  // and the page is on its own listener. Pointing a client at it would send
+  // every request somewhere that answers 404. Unset means unset, and the
+  // snippets keep the example address with a banner saying so.
   const configured = data.public_url ?? ''
-  const unknown = configured === '' && data.admin_split === true
-  const base = configured !== '' ? configured : window.location.origin
+  const unknown = configured === ''
+  const base = configured !== '' ? configured : EXAMPLE_BASE
 
-  const models = modelList?.data ?? []
+  const models = data.models?.data ?? []
+  const modelError = ''
   const recipe = CLIENTS.find((c) => c.id === client) ?? CLIENTS[0]
-  const surfaces = config?.surfaces ?? []
+  const surfaces = data.surfaces ?? []
   const off = surfaces.filter(
     (s) => !s.enabled && (recipe.surface === 'both' || s.id === recipe.surface),
   )
@@ -202,38 +192,25 @@ export default function Setup({
       <Card>
         <CardTitle>What a client needs</CardTitle>
         <p className="mt-0 mb-4 text-sm text-on-surface">
-          Two things, the same for every client: the address below, and one of your{' '}
-          <button
-            type="button"
-            className="text-primary underline underline-offset-2"
-            onClick={() => onGoTo('keys')}
-          >
-            API keys
-          </button>
-          . One key works on both APIs — nothing needs to look like an OpenAI key.
+          Two things, the same for every client: the address below, and an API key, which the
+          operator of this gateway issues from its admin UI. One key works on both APIs — nothing
+          needs to look like an OpenAI key.
         </p>
 
         {!data.ready && (
           <Banner tone="warn" className="mb-4">
-            No account is connected yet, so the gateway cannot answer a request however a client is
-            configured.{' '}
-            <button
-              type="button"
-              className="underline underline-offset-2"
-              onClick={() => onGoTo('accounts')}
-            >
-              Connect one
-            </button>
-            .
+            No account is connected yet, so the gateway cannot answer a request however a client
+            is configured. Its operator has to connect one before any of this will work.
           </Banner>
         )}
 
         {unknown && (
           <Banner tone="warn" className="mb-4">
-            <strong>This page is not the relay.</strong> The admin UI is on its own listener
-            (<code>admin-listen</code>), so the address in your browser serves this page and answers
-            404 to <code>/v1/messages</code>. The gateway cannot see the hostname clients reach the
-            relay on — set <code>public-url</code> and the files below will carry it.
+            <strong>This page is not the relay.</strong> It is served on its own listener
+            (<code>docs-listen</code>), so the address in your browser answers 404 to
+            <code>/v1/messages</code>. Nothing the gateway can see tells it the hostname clients
+            reach the relay on — until <code>public-url</code> is set, the files below carry the
+            example address and you will have to edit it.
           </Banner>
         )}
 

@@ -4,7 +4,6 @@ import Keys from './features/keys'
 import Overview from './features/overview'
 import Settings from './features/settings'
 import RequestsPanel from './features/requests'
-import Setup from './features/setup'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import UsagePanel from './features/usage'
@@ -14,6 +13,7 @@ import {
   ApiError,
   api,
   type ApiKey,
+  type GatewayConfig,
   type Overview as OverviewData,
   type Session,
 } from '../api/client'
@@ -33,12 +33,16 @@ type State =
   | { phase: 'out' }
   | { phase: 'in'; session: Session }
 
-// Setup sits second: it is what a new gateway is for, and it is the only tab
-// that helps you use the thing rather than administer it.
+// Setup is not here any more. Every tab is something you administer; setup was
+// the one that helped you *use* the gateway, and it was the one screen a
+// person configuring a client needed and could not reach without the admin
+// password. It is a page of its own now, on its own listener, linked from the
+// header — see the doc icon beside GitHub.
+//
 // Requests sits beside Usage rather than inside it: usage is what was spent
 // and groups by key, model and account, while the log is what arrived —
 // including requests refused before they had a key to group under.
-const TABS = ['overview', 'setup', 'accounts', 'keys', 'usage', 'requests', 'settings'] as const
+const TABS = ['overview', 'accounts', 'keys', 'usage', 'requests', 'settings'] as const
 type Tab = (typeof TABS)[number]
 
 /**
@@ -58,7 +62,6 @@ const WIDE: readonly Tab[] = ['usage', 'requests']
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
-  setup: 'Setup',
   accounts: 'Claude accounts',
   keys: 'API keys',
   usage: 'Usage',
@@ -77,6 +80,11 @@ const TAB_LABELS: Record<Tab, string> = {
 export default function App() {
   const [state, setState] = useState<State>({ phase: 'probing' })
   const [tab, setTab] = usePathTab<Tab>(TABS, 'overview')
+  // The one configuration value the shell itself needs: where the public setup
+  // page is, for the header link. Declared with the other hooks so the order
+  // never changes across the early returns below, and allowed to fail — signed
+  // out this 401s, and a missing link is the right outcome then anyway.
+  const { data: docs } = useLoader<GatewayConfig>(() => api.config())
   // A freshly minted API key lives here, not in the Keys panel: panels unmount
   // on a tab change, and the tabs are hash routes, so Back unmounts one too.
   // The plaintext exists nowhere else — the store keeps only its hash — so
@@ -137,6 +145,10 @@ export default function App() {
   // One value for the header, the nav and the page, so the tab underline stays
   // over its tab when the measure changes.
   const measure = WIDE.includes(tab) ? 'max-w-[110rem]' : 'max-w-4xl'
+  // Empty unless a public setup page is configured, published and switched on,
+  // in which case the header links out to it. Allowed to fail silently: a
+  // missing link is a missing link, not a reason to fail the shell.
+  const docsURL = docs?.docs_enabled === true ? (docs.docs_url ?? '') : ''
 
   return (
     <div className="min-h-dvh">
@@ -160,6 +172,14 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {docsURL !== '' && (
+              // Opens in a tab of its own: it is a different site on a
+              // different listener, and the person reading it is usually
+              // copying out of it while doing something else.
+              <IconLink label="Client setup guide" href={docsURL}>
+                <path d="M6 2h9l5 5v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm8 1.5V8h4.5L14 3.5zM8 12h8v1.5H8V12zm0 4h8v1.5H8V16zm0-8h4v1.5H8V8z" />
+              </IconLink>
+            )}
             <IconLink label="Source on GitHub" href={REPO}>
               <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
             </IconLink>
@@ -193,9 +213,8 @@ export default function App() {
       </header>
 
       <main className={`mx-auto ${measure} px-4 pt-6 pb-16 sm:px-6`}>
-        {tab === 'overview' && <Overview onExpired={expired} onGoTo={setTab} />}
-        {tab === 'setup' && <Setup onExpired={expired} onGoTo={setTab} />}
-        {tab === 'accounts' && <Accounts onExpired={expired} />}
+        {tab === 'overview' && <Overview onExpired={expired} onGoTo={setTab} docsURL={docsURL} />}
+                {tab === 'accounts' && <Accounts onExpired={expired} />}
         {tab === 'keys' && <Keys onExpired={expired} onMinted={setMinted} />}
         {tab === 'usage' && <UsagePanel onExpired={expired} />}
         {tab === 'requests' && <RequestsPanel onExpired={expired} />}

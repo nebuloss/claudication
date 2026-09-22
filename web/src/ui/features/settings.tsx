@@ -1,6 +1,7 @@
 import ChatTitles from './chat-titles'
 import ConfigTable from './configtable'
 import ImageFit from './image-fit'
+import PublicDocs from './public-docs'
 import Security from './security'
 import Surfaces from './surfaces'
 import { api, type GatewayConfig, type Session } from '../../api/client'
@@ -58,6 +59,11 @@ export default function Settings({
             onChanged={() => void reload()}
           />
           <ImageFit enabled={data.fit_images} onChanged={() => void reload()} />
+          <PublicDocs
+            enabled={data.docs_enabled}
+            url={data.docs_url}
+            onChanged={() => void reload()}
+          />
           <ConfigTable config={data} />
         </>
       )}

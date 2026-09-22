@@ -35,15 +35,18 @@ type Server struct {
 	trustedProxies []*net.IPNet
 	httpServer     *http.Server
 	adminServer    *http.Server
-	adminAddr      string
-	stopSweeper    chan struct{}
-	sealer         *secret.Sealer
-	pool           *pool.Pool
-	relay          *upstream.Relay
-	pending        *oauth.Pending
-	sessions       *sessions
-	httpClient     *http.Client
-	startedAt      time.Time
+	docsServer     *http.Server
+	// docsModels keeps the public page from spending an upstream call per hit.
+	docsModels  modelCache
+	adminAddr   string
+	stopSweeper chan struct{}
+	sealer      *secret.Sealer
+	pool        *pool.Pool
+	relay       *upstream.Relay
+	pending     *oauth.Pending
+	sessions    *sessions
+	httpClient  *http.Client
+	startedAt   time.Time
 	// protocols are the client-facing dialects this gateway serves, in the
 	// order the admin UI lists them. Anthropic is one of them rather than the
 	// default case — see internal/api.
@@ -53,6 +56,7 @@ type Server struct {
 	// this gateway originates rather than relays. Off until switched on.
 	titles *titler
 	images *imageFit
+	docs   *docsSwitch
 
 	mu   sync.Mutex
 	addr string
@@ -140,6 +144,13 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		log.Warn("could not read the image-fit switch; leaving it off", "err", err)
 	}
 
+	// Opposite default again: configuring docs-listen is the decision to serve
+	// the page, so a switch we cannot read leaves it serving.
+	s.docs = newDocsSwitch(s)
+	if err := s.docs.load(loadCtx); err != nil {
+		log.Warn("could not read the docs switch; serving the page anyway", "err", err)
+	}
+
 	s.pool = pool.New(st, sealer, s.httpClient, log)
 	s.relay = &upstream.Relay{
 		Pool:        s.pool,
@@ -175,8 +186,18 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	// move to adminServer below. Unset, it keeps serving both.
 	split := cfg.AdminListen != ""
 	s.httpServer = &http.Server{
-		Addr:    cfg.Listen,
-		Handler: s.routes(role{gateway: true, admin: !split}),
+		Addr: cfg.Listen,
+		// The relay also carries the public page, at the root it otherwise
+		// answers 404 on. That is where someone pointing a client at this
+		// gateway is already looking: they have the address, they typed it,
+		// and until now it told them nothing. Behind the switch, so it is off
+		// until an operator asks for it.
+		//
+		// Unless the admin UI is here too, in which case the root is the admin
+		// UI and the page has nowhere to go: on a single-listener deployment
+		// the whole surface is already private, and a public page would be a
+		// contradiction rather than a feature.
+		Handler: s.routes(role{gateway: true, admin: !split, docs: split}),
 		// No WriteTimeout: responses are long-lived SSE streams and a write
 		// deadline would sever them mid-flight. ReadHeaderTimeout still
 		// protects against slowloris on the request side.
@@ -188,6 +209,19 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		s.adminServer = &http.Server{
 			Addr:              cfg.AdminListen,
 			Handler:           s.routes(role{admin: true}),
+			ReadHeaderTimeout: 30 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+		}
+	}
+	// And optionally on an address of its own, for a deployment that wants the
+	// instructions somewhere the relay is not. Not needed to have the page —
+	// the relay serves it above — but it is the way to publish it without
+	// publishing /v1 alongside.
+	if cfg.DocsListen != "" {
+		s.docsServer = &http.Server{
+			Addr:              cfg.DocsListen,
+			Handler:           s.routes(role{docs: true}),
 			ReadHeaderTimeout: 30 * time.Second,
 			IdleTimeout:       120 * time.Second,
 			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
@@ -205,6 +239,10 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 type role struct {
 	gateway bool
 	admin   bool
+	// docs serves the public setup page, and only that: one document at /, the
+	// assets it needs, and one read-only endpoint behind it. No session, no
+	// relay, nothing that can change anything.
+	docs bool
 }
 
 func (s *Server) routes(r0 role) http.Handler {
@@ -302,9 +340,14 @@ func (s *Server) routes(r0 role) http.Handler {
 		mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
 		mux.Handle("POST /admin/chat-titles", admin(s.handleSetChatTitles))
 		mux.Handle("POST /admin/fit-images", admin(s.handleSetImageFit))
+		mux.Handle("POST /admin/docs", admin(s.handleSetDocs))
 		mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 		mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
 
+	}
+
+	if r0.docs {
+		mux.HandleFunc("GET /api/docs", s.handleDocsInfo)
 	}
 
 	// Anything under an API prefix that did not match above is a client error,
@@ -328,12 +371,20 @@ func (s *Server) routes(r0 role) http.Handler {
 	// more specific than the other, which is precisely what ServeMux panics on.
 	// A method-less "/" is the most general pattern there is, so every API
 	// prefix above is a strict subset of it and nothing conflicts.
-	ui := s.staticHandler()
+	entry := "index.html"
+	if r0.docs && !r0.admin {
+		entry = "docs.html"
+	}
+	ui := s.staticHandler(entry)
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A listener that serves only the relay has no UI and no sign-in link
 		// to spend: everything that is not an API path it knows is a 404, in
 		// the client's own language.
-		if !r0.admin || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
+		if r0.docs && !r0.admin && !s.docs.enabled() {
+			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+			return
+		}
+		if !(r0.admin || r0.docs) || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
 			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
 			return
 		}
@@ -347,7 +398,7 @@ func (s *Server) routes(r0 role) http.Handler {
 		// favicon, a stylesheet, or a service worker fetching `/?token=…`
 		// would each burn a single-use sign-in link and leave the operator
 		// looking at "already used" on the request they actually made.
-		if isNavigation(r) && s.tokenLogin(w, r, "/") {
+		if r0.admin && isNavigation(r) && s.tokenLogin(w, r, "/") {
 			return
 		}
 		ui.ServeHTTP(w, r)
@@ -466,9 +517,22 @@ func (s *Server) Run(ctx context.Context) error {
 		s.mu.Unlock()
 	}
 
-	// Buffered for both, so neither goroutine blocks on a send once the other
-	// has already reported and the select has moved on.
-	errCh := make(chan error, 2)
+	// Likewise for the public page, when one is configured.
+	var docsLn net.Listener
+	if s.docsServer != nil {
+		docsLn, err = net.Listen("tcp", s.cfg.DocsListen)
+		if err != nil {
+			_ = ln.Close()
+			if adminLn != nil {
+				_ = adminLn.Close()
+			}
+			return fmt.Errorf("listen on %s: %w", s.cfg.DocsListen, err)
+		}
+	}
+
+	// Buffered for every listener, so no goroutine blocks on a send once
+	// another has already reported and the select has moved on.
+	errCh := make(chan error, 3)
 	go func() {
 		s.log.Info("listening",
 			"addr", ln.Addr().String(),
@@ -493,6 +557,18 @@ func (s *Server) Run(ctx context.Context) error {
 		}()
 	}
 
+	if docsLn != nil {
+		go func() {
+			s.log.Info("docs listening", "addr", docsLn.Addr().String(),
+				"serving", "the public setup page")
+			if err := s.docsServer.Serve(docsLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+				return
+			}
+			errCh <- nil
+		}()
+	}
+
 	select {
 	case err := <-errCh:
 		close(s.stopSweeper)
@@ -508,10 +584,15 @@ func (s *Server) Run(ctx context.Context) error {
 
 	err = s.httpServer.Shutdown(shutdownCtx)
 	if s.adminServer != nil {
-		// Same deadline for both, and the relay's error wins: an admin page
+		// Same deadline for all of them, and the relay's error wins: a page
 		// cut short is not worth reporting over a severed stream.
 		if aerr := s.adminServer.Shutdown(shutdownCtx); err == nil {
 			err = aerr
+		}
+	}
+	if s.docsServer != nil {
+		if derr := s.docsServer.Shutdown(shutdownCtx); err == nil {
+			err = derr
 		}
 	}
 	close(s.stopSweeper)
