@@ -132,6 +132,11 @@ export function useLoader<T>(
   const [loading, setLoading] = useState(true)
 
   const reload = useCallback(async () => {
+    // Cleared first, so a retry does not render the last failure while it is
+    // in flight. Anything that reloads is saying "try again", and showing the
+    // previous error until the new answer lands reads as the retry having
+    // failed instantly.
+    setError('')
     try {
       setData(await loadRef.current())
       setError('')

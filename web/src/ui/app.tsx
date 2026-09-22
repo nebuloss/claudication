@@ -94,7 +94,13 @@ export default function App() {
   // Declared with the other hooks so the order never changes across the early
   // returns below, and allowed to fail — signed out this 401s, and no link is
   // the right outcome then anyway.
-  const config = useLoader<GatewayConfig>(() => api.config())
+  //
+  // Keyed on the phase, which is the part that bit: without it this ran once,
+  // on mount, while the shell was still probing or showing a sign-in screen —
+  // so it 401'd, set an error, and never tried again once a session existed.
+  // Settings then rendered "Could not read the configuration" at a signed-in
+  // operator forever.
+  const config = useLoader<GatewayConfig>(() => api.config(), undefined, [state.phase])
   // A freshly minted API key lives here, not in the Keys panel: panels unmount
   // on a tab change, and the tabs are hash routes, so Back unmounts one too.
   // The plaintext exists nowhere else — the store keeps only its hash — so
