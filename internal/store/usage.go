@@ -703,9 +703,13 @@ func (s *Store) kindFacet(ctx context.Context) ([]FacetValue, error) {
 		if err := rows.Scan(&rejected, &count); err != nil {
 			return nil, fmt.Errorf("facet kinds: %w", err)
 		}
-		v := FacetValue{Value: "relayed", Label: "forwarded", Count: count}
+		// The column is called Forwarded and answers yes or no, so the menu
+		// does too. The stored values keep their own names — "relayed" and
+		// "rejected" are what the filter and the URL have always said, and a
+		// link written last week still works.
+		v := FacetValue{Value: "relayed", Label: "yes", Count: count}
 		if rejected {
-			v = FacetValue{Value: "rejected", Label: "refused here", Count: count}
+			v = FacetValue{Value: "rejected", Label: "no", Count: count}
 		}
 		out = append(out, v)
 	}

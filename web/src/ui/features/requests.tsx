@@ -512,7 +512,7 @@ kind control        <span className="flex-grow" />
                   }
                 >
                   <span className={r.rejected === true ? 'text-warning' : 'text-on-surface-variant'}>
-                    {r.rejected === true ? 'refused here' : 'forwarded'}
+                    {r.rejected === true ? 'no' : 'yes'}
                   </span>
                 </Filterable>
               </td>
@@ -792,7 +792,7 @@ function sortValue(r: RequestRow, key: SortKey): string | number {
     case 'chat':
       return r.conversation_id ?? ''
     case 'kind':
-      return r.rejected === true ? 'refused here' : 'forwarded'
+      return r.rejected === true ? 'no' : 'yes'
     case 'message':
       return r.error_code ?? ''
     case 'status':
@@ -833,7 +833,16 @@ function statusTone(r: RequestRow): 'ok' | 'warn' | 'error' {
 
 /** What a filter field is called where someone reads it. */
 function fieldWord(field: SetField): string {
-  return field === 'code' ? 'status' : field
+  // The query parameter and the column heading are not always the same word,
+  // and the chip belongs to the heading: `code` is what the URL says and
+  // Status is what the column says, `kind` is what the URL says and Forwarded
+  // is what the column says.
+  return FIELD_WORDS[field] ?? field
+}
+
+const FIELD_WORDS: Partial<Record<SetField, string>> = {
+  code: 'status',
+  kind: 'forwarded',
 }
 
 /** A filtered value in a chip: short enough to sit in one, and never blank. */

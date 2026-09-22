@@ -957,20 +957,19 @@ export function Table({
             ? 'w-full min-w-max'
             : // Column rules, on a resizable table only.
               //
-              // The heading already draws one at each edge, as the thing you
-              // aim at to drag — but it stopped at the header, so below it
-              // there was nothing saying where one column ended and the next
-              // began, and on a wide table of short values the eye has to
-              // guess. Continuing the line down the body makes the edge a
-              // whole edge, which is both easier to read and easier to reach
-              // for.
+              // On the cells, heading included, so each edge is one unbroken
+              // line from the top of the table to the bottom. It was two
+              // before — a rule the resize handle drew inside the heading, and
+              // a border on the body cells — which met at the heading's own
+              // bottom border and left a visible step where they did not quite
+              // line up.
               //
               // Lighter than the row rules: these run the height of the table
               // and there are ten of them, so at full strength they read as a
               // spreadsheet rather than a list. Never on the last column,
               // where the rule would be the table's own right edge drawn
               // twice.
-              'min-w-full [&_td]:border-r [&_td]:border-outline-variant/50 [&_td:last-child]:border-r-0'
+              'min-w-full [&_td]:border-r [&_th]:border-r [&_td]:border-outline-variant/50 [&_th]:border-outline-variant/50 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0'
         }`}
         // Fixed only once something has been dragged: until then the browser
         // sizes the columns to their content, which is the better default and
@@ -1066,14 +1065,17 @@ export function Table({
                       }}
                       className="group/resize absolute inset-y-0 -right-[5px] z-20 flex w-[10px] cursor-col-resize touch-none select-none justify-center"
                     >
-                      {/* A rule you can see, so the column edge is visible and
-                          there is something to aim at. Drawn inside a wider
-                          invisible strip: a 1px target is nearly impossible to
-                          hit with a mouse, and the strip is what you actually
-                          grab. */}
+                      {/* Nothing until it is pointed at: the edge is already
+                          drawn, by the cells, all the way down. This only says
+                          which one you are about to take hold of, and it sits
+                          over the top of that line rather than beside it.
+
+                          The strip around it stays wide. A 1px target is
+                          nearly impossible to hit with a mouse, and the strip
+                          is what you actually grab. */}
                       <span
                         aria-hidden
-                        className="h-full w-px bg-outline-variant transition-colors group-hover/resize:w-[3px] group-hover/resize:bg-primary"
+                        className="h-full w-0 bg-primary transition-all group-hover/resize:w-[3px]"
                       />
                     </div>
                   )}
