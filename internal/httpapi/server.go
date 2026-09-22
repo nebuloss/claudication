@@ -390,6 +390,7 @@ func (s *Server) routes(r0 role) http.Handler {
 		mux.Handle("POST /admin/docs", admin(s.handleSetDocs))
 		mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 		mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
+		mux.Handle("GET /admin/requests/export", admin(s.handleExportRequests))
 
 	}
 

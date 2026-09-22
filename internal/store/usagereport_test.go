@@ -21,8 +21,8 @@ func TestSchemaAfterAllMigrations(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 17 {
-		t.Errorf("schema version = %d, want 17", version)
+	if version != 18 {
+		t.Errorf("schema version = %d, want 18", version)
 	}
 
 	var n int

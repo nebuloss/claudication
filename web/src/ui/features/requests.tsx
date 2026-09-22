@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ApiError,
   api,
@@ -9,7 +9,7 @@ import {
 } from '../../api/client'
 import {
   Banner,
-  ErrorModal,
+  Modal,
   Chip,
   Segmented,
   Empty,
@@ -43,7 +43,7 @@ import {
 const PAGE = 50
 
 /** Columns whose first click should sort A-Z, because that is what sorted means for a word. */
-const TEXT_COLUMNS: SortKey[] = ['model', 'client', 'ip', 'chat']
+const TEXT_COLUMNS: SortKey[] = ['model', 'client', 'ip', 'chat', 'kind', 'message']
 
 /**
  * The activity list, paged.
@@ -61,7 +61,7 @@ const TEXT_COLUMNS: SortKey[] = ['model', 'client', 'ip', 'chat']
  * a real member — a refused request has no model, the gateway's own titling
  * rows carry no client — so `?model=` means the rows with nothing there.
  */
-export const SET_FIELDS = ['chat', 'key', 'model', 'client', 'ip', 'code'] as const
+export const SET_FIELDS = ['chat', 'key', 'model', 'client', 'ip', 'code', 'message', 'kind'] as const
 export type SetField = (typeof SET_FIELDS)[number]
 
 /** The filters this screen reads off the URL, and writes back to it. */
@@ -72,13 +72,11 @@ export type RequestFilter = Record<SetField, string[]> & {
    * question about codes plus stream errors. The two compose.
    */
   status: string
-  /** '', 'relayed' or 'rejected' — whether it reached the upstream at all. */
-  kind: string
 }
 
 /** Nothing narrowed. The one place the field list is spelled out. */
 export function emptyFilter(): RequestFilter {
-  return { chat: [], key: [], model: [], client: [], ip: [], code: [], status: '', kind: '' }
+  return { chat: [], key: [], model: [], client: [], ip: [], code: [], message: [], kind: [], status: '' }
 }
 
 /** The query string as a filter. Unknown parameters are ignored. */
@@ -91,12 +89,11 @@ export function filterFromSearch(search: string): RequestFilter {
   // Only one value means anything today; anything else reads as unfiltered
   // rather than as an error, because a URL is something people edit.
   out.status = q.get('status') === 'failed' ? 'failed' : ''
-  out.kind = ['relayed', 'rejected'].includes(q.get('kind') ?? '') ? (q.get('kind') as string) : ''
   return out
 }
 
-/** A filter as a path, for a link that carries it. */
-export function searchFromFilter(f: RequestFilter): string {
+/** A filter as a query string, without the path in front of it. */
+export function queryFromFilter(f: RequestFilter): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(f)) {
     if (Array.isArray(v)) {
@@ -105,7 +102,12 @@ export function searchFromFilter(f: RequestFilter): string {
       q.set(k, v)
     }
   }
-  const s = q.toString()
+  return q.toString()
+}
+
+/** A filter as a path, for a link that carries it. */
+export function searchFromFilter(f: RequestFilter): string {
+  const s = queryFromFilter(f)
   return s === '' ? '/requests' : `/requests?${s}`
 }
 
@@ -211,6 +213,10 @@ function RecentRequests({
         return facets?.statuses ?? []
       case 'chat':
         return facets?.chats ?? []
+      case 'message':
+        return facets?.messages ?? []
+      case 'kind':
+        return facets?.kinds ?? []
       default:
         return []
     }
@@ -285,7 +291,10 @@ function RecentRequests({
   const pinned = SET_FIELDS.flatMap((field) =>
     filter[field].map((value) => ({ field, value })),
   )
-  const narrowed = pinned.length > 0 || filter.status !== '' || filter.kind !== ''
+  const narrowed = pinned.length > 0 || filter.status !== ''
+
+  const query = queryFromFilter(filter)
+  const downloadQuery = query === '' ? '' : `?${query}`
 
   // No card and no title of its own: it is the body of a tab now, and the tab
   // is already called Requests.
@@ -306,22 +315,21 @@ function RecentRequests({
           ]}
         />
 
-        {/* Only offered once the log holds both kinds, so a gateway that has
-            never refused anything is not asked to choose between them. */}
-        {(filter.kind !== '' || rows.some((r) => r.rejected)) && (
-          <Segmented
-            label="Kind"
-            value={filter.kind === '' ? 'any' : filter.kind}
-            onChange={(v) => onNarrow({ ...filter, kind: v === 'any' ? '' : v })}
-            options={[
-              { id: 'any', label: 'Relayed and refused', content: 'Any' },
-              { id: 'relayed', label: 'Reached the upstream', content: 'Relayed' },
-              { id: 'rejected', label: 'Refused by this gateway', content: 'Refused' },
-            ]}
-          />
-        )}
+kind control        <span className="flex-grow" />
+        {/* An anchor rather than a fetch-and-blob: the browser already knows
+            how to save a response it is given, it carries the session cookie
+            on its own, and a download that streams from the server never has
+            the whole file in the page.
 
-        <span className="flex-grow" />
+            The same filter as the table, so what lands in the file is what was
+            on the screen — including the rows below the ones loaded, which is
+            the reason to download rather than select and copy. */}
+        <a
+          href={`/admin/requests/export${downloadQuery}`}
+          className="state-layer inline-flex h-10 items-center rounded-[var(--radius-md3-full)] border border-outline px-3 text-sm font-medium text-primary"
+        >
+          Download CSV
+        </a>
         <TextButton onClick={() => void load('')}>Refresh</TextButton>
       </div>
 
@@ -381,13 +389,26 @@ function RecentRequests({
             faceted('Client', 'client', 'client'),
             faceted('IP', 'ip', 'ip'),
             faceted('Status', 'status', 'code'),
+            faceted('Forwarded', 'kind', 'kind'),
             column('Tokens', 'tokens'),
             column('Duration', 'duration'),
-            'Message',
+            faceted('Message', 'message', 'message'),
           ]}
         >
           {data.map((r, i) => (
-            <tr key={`${r.at}-${i}`} className="border-b border-outline-variant last:border-0">
+            // The whole row opens the log. The Log button it replaces was a
+            // control in every row of a table where the row itself did
+            // nothing, which is a lot of width spent saying "clickable" — and
+            // once every request has a record worth reading, not only the
+            // failed ones, a button per row is a button on every row.
+            //
+            // The cells that filter stop the click before it gets here, so a
+            // narrow-by-this-value click does not also open a dialog.
+            <tr
+              key={`${r.at}-${i}`}
+              onClick={() => setShown(r)}
+              className="state-layer cursor-pointer border-b border-outline-variant last:border-0 hover:bg-surface-container"
+            >
               <td
                 title={r.at}
                 className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant"
@@ -408,14 +429,9 @@ function RecentRequests({
                 {r.model === undefined || r.model === '' ? (
                   '—'
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => onNarrow({ ...filter, model: [r.model ?? ''] })}
-                    title={`Only requests for ${r.model}`}
-                    className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
-                  >
-                    {r.model}
-                  </button>
+                  <Filterable onClick={() => onNarrow({ ...filter, model: [r.model ?? ''] })} title={`Only requests for ${r.model}`}>
+                      {r.model}
+                    </Filterable>
                 )}
                 </div>
               </td>
@@ -427,14 +443,9 @@ function RecentRequests({
                   {r.conversation_id === undefined || r.conversation_id === '' ? (
                     '—'
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => onNarrow({ ...filter, chat: [r.conversation_id ?? ''] })}
-                      title={`Only requests in ${r.conversation_id}`}
-                      className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
-                    >
+                    <Filterable onClick={() => onNarrow({ ...filter, chat: [r.conversation_id ?? ''] })} title={`Only requests in ${r.conversation_id}`}>
                       {r.conversation_id.slice(0, 12)}
-                    </button>
+                    </Filterable>
                   )}
                 </div>
               </td>
@@ -446,14 +457,9 @@ function RecentRequests({
                 {r.client === undefined || r.client === '' ? (
                   '—'
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => onNarrow({ ...filter, client: [r.client ?? ''] })}
-                    title={`Only requests from ${r.client}`}
-                    className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
-                  >
-                    {r.client}
-                  </button>
+                  <Filterable onClick={() => onNarrow({ ...filter, client: [r.client ?? ''] })} title={`Only requests from ${r.client}`}>
+                      {r.client}
+                    </Filterable>
                 )}
               </td>
               {/* Clickable, because "everything from that machine" is the next
@@ -462,14 +468,9 @@ function RecentRequests({
                 {r.ip === undefined || r.ip === '' ? (
                   '—'
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => onNarrow({ ...filter, ip: [r.ip ?? ''] })}
-                    title={`Only requests from ${r.ip}`}
-                    className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
-                  >
-                    {r.ip}
-                  </button>
+                  <Filterable onClick={() => onNarrow({ ...filter, ip: [r.ip ?? ''] })} title={`Only requests from ${r.ip}`}>
+                      {r.ip}
+                    </Filterable>
                 )}
               </td>
               {/* Clickable like the model and the address. The chip is what
@@ -479,21 +480,41 @@ function RecentRequests({
                   Failures switch: that one spans every code plus the streams
                   that died after a 200. */}
               <td className="px-2 py-2">
-                <button
-                  type="button"
+                <Filterable
+                  plain
                   onClick={() => onNarrow({ ...filter, code: [String(r.status)] })}
                   title={
                     r.status === 0
                       ? 'Only requests that got no answer'
                       : `Only requests that answered ${r.status}`
                   }
-                  className="state-layer rounded-[var(--radius-md3-s)]"
                 >
                   <Chip tone={statusTone(r)}>
                     {r.status === 0 ? 'failed' : r.status}
                     {r.streaming && r.status === 200 ? ' ·' : ''}
                   </Chip>
-                </button>
+                </Filterable>
+              </td>
+              {/* What the Kind control above the table used to say. A column,
+                  because it is a property of the row like every other filter
+                  here, and a control above the table for one of them and
+                  menus in the headings for the rest was two idioms for one
+                  job. */}
+              <td className="px-2 py-2 whitespace-nowrap">
+                <Filterable
+                  onClick={() =>
+                    onNarrow({ ...filter, kind: [r.rejected === true ? 'rejected' : 'relayed'] })
+                  }
+                  title={
+                    r.rejected === true
+                      ? 'Only requests this gateway refused'
+                      : 'Only requests that reached the upstream'
+                  }
+                >
+                  <span className={r.rejected === true ? 'text-warning' : 'text-on-surface-variant'}>
+                    {r.rejected === true ? 'refused here' : 'forwarded'}
+                  </span>
+                </Filterable>
               </td>
               <td className="px-2 py-2 tabular-nums whitespace-nowrap">
                 {r.input_tokens + r.output_tokens > 0
@@ -501,32 +522,29 @@ function RecentRequests({
                   : '—'}
               </td>
               <td className="px-2 py-2 tabular-nums whitespace-nowrap">{r.duration_ms}ms</td>
-              {/* Named, not blank with a button in it. A column whose heading
-                  is empty and whose cell says "Log" tells you there is more to
-                  read without saying what about — the reason is the thing you
-                  came for, so the short form is here and the button opens the
-                  upstream's own words. */}
-              <td className="max-w-[24rem] px-2 py-2">
-                {r.error !== undefined && r.error !== '' ? (
-                  <div className="flex items-center gap-2">
-                    {/* min-w-0 is what lets it truncate: a flex item defaults
-                        to min-content, so without it the text refuses to
-                        shrink and pushes the button out of the column. */}
-                    <span
-                      className={`min-w-0 flex-1 truncate text-xs ${
-                        r.error_kind === 'content_check' ? 'text-warning' : 'text-on-surface-variant'
-                      }`}
+              {/* The stored class rather than the text: the text ends in a
+                  request_id, so it is unique per row and filters to one. */}
+              <td className="max-w-[18rem] px-2 py-2">
+                <div className="truncate text-xs">
+                  {r.error_code === undefined || r.error_code === '' ? (
+                    <span className="text-on-surface-variant">—</span>
+                  ) : (
+                    <Filterable
+                      onClick={() => onNarrow({ ...filter, message: [r.error_code ?? ''] })}
                       title={r.error}
                     >
-                      {shortMessage(r)}
-                    </span>
-                    <TextButton size="sm" onClick={() => setShown(r)}>
-                      Log
-                    </TextButton>
-                  </div>
-                ) : (
-                  <span className="text-on-surface-variant">—</span>
-                )}
+                      <span
+                        className={
+                          r.error_kind === 'content_check'
+                            ? 'text-warning'
+                            : 'text-on-surface-variant'
+                        }
+                      >
+                        {messageLabel(r.error_code)}
+                      </span>
+                    </Filterable>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
@@ -552,70 +570,61 @@ function RecentRequests({
         </div>
       )}
 
-      {shown !== null && shown.error !== undefined && shown.error !== '' && (
-        <RequestLog row={shown} onClose={() => setShown(null)} />
-      )}
+      {shown !== null && <RequestLog row={shown} onClose={() => setShown(null)} />}
     </>
   )
 }
 
 /**
- * One failed request, in full.
+ * One request, in full.
  *
  * A dialog rather than a panel under the table: the row it belongs to is
- * usually scrolled well out of view by the time the text appears below fifty
+ * usually scrolled well out of view by the time anything appears below fifty
  * others, and reading an upstream error means reading all of it — which is the
  * one thing a strip at the bottom of a long list makes hard.
  *
- * The identifying columns come along because the operator opened this from a
- * row they can no longer see, and "which request was that" is the first thing
- * they lose.
+ * Every row opens this, not only the failed ones. A successful request has a
+ * record worth reading too — which account served it, what the cache did, how
+ * long it took — and the row is the obvious thing to click for it. That is
+ * also why the copy here is the whole record rather than the error text: an
+ * error pasted into an issue without the model and the account beside it is a
+ * sentence with no subject, and a request that worked has no error to paste.
  */
 function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) {
-  const [copied, setCopied] = useState(false)
-  const [copyFailed, setCopyFailed] = useState(false)
+  const failed = row.error !== undefined && row.error !== ''
 
   const tokens =
     row.input_tokens + row.output_tokens > 0
-      ? `${compact(row.input_tokens)} in / ${compact(row.output_tokens)} out`
+      ? `${compact(row.input_tokens)} in / ${compact(row.output_tokens)} out` +
+        (row.cache_tokens > 0 ? ` / ${compact(row.cache_tokens)} cached` : '')
       : '—'
 
-  const copy = async () => {
-    setCopyFailed(false)
-    if (await copyText(asText(row))) {
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
-      return
-    }
-    // Not a modal on top of this one: the text is already on screen and
-    // selectable, so saying which keys to press is the whole remedy.
-    setCopyFailed(true)
-  }
-
   return (
-    <ErrorModal
-      title="Request log"
-      size="lg"
-      onClose={onClose}
-      message={
-        <>
-          The upstream's own words, unmodified — it is the only thing that separates an expired
-          token from a plan restriction.
-        </>
-      }
-    >
+    <Modal title="Request" onClose={onClose} size="lg">
       <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <Chip tone={statusTone(row)}>
+            {row.status === 0 ? 'failed' : row.status}
+            {row.streaming && row.status === 200 ? ' ·' : ''}
+          </Chip>
+          <span className="text-sm text-on-surface-variant">
+            {row.rejected === true ? 'refused by this gateway' : 'forwarded to the upstream'}
+          </span>
+          <span className="flex-grow" />
+          <CopyButton label="Copy record" value={asText(row)} />
+        </div>
+
         {row.error_kind === 'content_check' && (
           <Banner tone="warn">
             <strong>This is a content check, not a quota limit.</strong> The message below talks
             about billing, but adding usage credit will not fix it — the upstream classified this
-            request's <em>content</em> as coming from a third-party app rather than from Claude
-            Code. The same key usually succeeds on the next request with slightly different
+            request&rsquo;s <em>content</em> as coming from a third-party app rather than from
+            Claude Code. The same key usually succeeds on the next request with slightly different
             content, which is what makes it look like a flaky quota problem.
             <br />
             <br />
             Two triggers are known and already rewritten on the way out: a tool named{' '}
-            <code>mcp_x</code> instead of <code>mcp__x</code>, and Claude Code's own{' '}
+            <code>mcp_x</code> instead of <code>mcp__x</code>, and Claude Code&rsquo;s own{' '}
             <code>Is directory a git repo:</code> line inside a foreign system prompt. Seeing this
             anyway means a third trigger — bisect the request body to find it.
           </Banner>
@@ -626,44 +635,72 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
             // The exact instant, not "3m ago": this is the value that gets
             // matched against an upstream request_id or somebody else's log.
             ['Timestamp', <span className="tabular-nums">{row.at}</span>],
-            [
-              'Status',
-              <Chip tone={statusTone(row)}>{row.status === 0 ? 'failed' : row.status}</Chip>,
-            ],
+            ['Outcome', messageLabel(row.error_code) === '—' ? 'no error' : messageLabel(row.error_code)],
             ['Model', dash(row.model)],
+            ['Chat', <Mono>{dash(row.conversation_id)}</Mono>],
             ['Client', dash(row.client)],
             ['Key', dash(row.key_name)],
             ['Account', dash(row.account_email)],
-            ['IP', dash(row.ip)],
-            ['Path', row.path],
-            ['Streaming', row.streaming ? 'yes' : 'no'],
+            ['IP', <Mono>{dash(row.ip)}</Mono>],
+            ['Path', <Mono>{row.path}</Mono>],
             ['Tokens', tokens],
             ['Duration', `${row.duration_ms}ms`],
           ]}
         />
 
-        <div>
-          <div className="mb-2 flex items-center justify-between gap-4">
-            <span className="text-xs font-medium tracking-wide text-on-surface-variant uppercase">
-              Error
-            </span>
-            {/* The whole log, not just the error text: what gets pasted into an
-                issue is useless without the model and the status beside it. */}
-            <TonalButton onClick={() => void copy()}>
-              {copied ? 'Copied' : 'Copy log'}
-            </TonalButton>
+        {failed && (
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-4">
+              <span className="text-xs font-medium tracking-wide text-on-surface-variant uppercase">
+                What the upstream said
+              </span>
+              {/* Separate from the record above, because the two get pasted in
+                  different places: the record into a message to somebody, this
+                  into a search. */}
+              <CopyButton label="Copy message" value={row.error ?? ''} />
+            </div>
+            <Verbatim>{row.error ?? ''}</Verbatim>
           </div>
-          <Verbatim>{row.error ?? ''}</Verbatim>
-          {copyFailed && (
-            <p className="mt-2 mb-0 text-xs text-error">
-              The browser only gives a page the clipboard over HTTPS, and this gateway is being
-              served over plain HTTP. Select the text above and press{' '}
-              <span className="font-mono">⌘C</span> or <span className="font-mono">Ctrl-C</span>.
-            </p>
-          )}
-        </div>
+        )}
       </div>
-    </ErrorModal>
+    </Modal>
+  )
+}
+
+/** An identifier, in the face that makes one readable. */
+function Mono({ children }: { children: ReactNode }) {
+  return <span className="font-mono text-xs">{children}</span>
+}
+
+/**
+ * Copy one thing, and say whether it worked.
+ *
+ * The failure is worth its own words rather than silence: the clipboard is
+ * refused over plain HTTP, which is exactly how this gateway is served behind
+ * a proxy that terminates TLS — so the button does nothing and there is no way
+ * to tell that from a copy that succeeded.
+ */
+function CopyButton({ label, value }: { label: string; value: string }) {
+  const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle')
+
+  const copy = async () => {
+    if (await copyText(value)) {
+      setState('done')
+      window.setTimeout(() => setState('idle'), 1500)
+      return
+    }
+    setState('failed')
+  }
+
+  return (
+    <span className="flex items-center gap-2">
+      {state === 'failed' && (
+        <span className="text-xs text-error">
+          Needs HTTPS — select it and press <span className="font-mono">⌘C</span>
+        </span>
+      )}
+      <TonalButton onClick={() => void copy()}>{state === 'done' ? 'Copied' : label}</TonalButton>
+    </span>
   )
 }
 
@@ -696,11 +733,14 @@ function asText(r: RequestRow): string {
   // Both spellings of the instant: the ISO one to read, the epoch to grep a
   // log with.
   const epoch = Math.round(new Date(r.at).getTime() / 1000)
-  return [
+  const lines = [
     `timestamp: ${r.at}`,
     `epoch:     ${Number.isNaN(epoch) ? '—' : epoch}`,
     `status:    ${r.status === 0 ? 'failed (no response)' : r.status}`,
+    `outcome:   ${messageLabel(r.error_code) === '—' ? 'no error' : messageLabel(r.error_code)}`,
+    `forwarded: ${r.rejected === true ? 'no, refused by the gateway' : 'yes'}`,
     `model:     ${dash(r.model)}`,
+    `chat:      ${dash(r.conversation_id)}`,
     `client:    ${dash(r.client)}`,
     `key:       ${dash(r.key_name)}`,
     `account:   ${dash(r.account_email)}`,
@@ -709,12 +749,24 @@ function asText(r: RequestRow): string {
     `streaming: ${r.streaming ? 'yes' : 'no'}`,
     `tokens:    ${r.input_tokens} in / ${r.output_tokens} out / ${r.cache_tokens} cache`,
     `duration:  ${r.duration_ms}ms`,
-    '',
-    r.error ?? '',
-  ].join('\n')
+  ]
+  // Only when there is one: a blank heading followed by nothing reads as
+  // something having gone missing.
+  if (r.error !== undefined && r.error !== '') lines.push('', r.error)
+  return lines.join('\n')
 }
 
-type SortKey = 'at' | 'model' | 'client' | 'ip' | 'chat' | 'status' | 'tokens' | 'duration'
+type SortKey =
+  | 'at'
+  | 'model'
+  | 'client'
+  | 'ip'
+  | 'chat'
+  | 'kind'
+  | 'message'
+  | 'status'
+  | 'tokens'
+  | 'duration'
 type Sort = { key: SortKey; dir: 'asc' | 'desc' }
 
 /**
@@ -739,6 +791,10 @@ function sortValue(r: RequestRow, key: SortKey): string | number {
       return r.ip ?? ''
     case 'chat':
       return r.conversation_id ?? ''
+    case 'kind':
+      return r.rejected === true ? 'refused here' : 'forwarded'
+    case 'message':
+      return r.error_code ?? ''
     case 'status':
       return r.status === 0 ? 1000 : r.status
     case 'tokens':
@@ -763,25 +819,6 @@ function sortRows(rows: RequestRow[], sort: Sort): RequestRow[] {
   })
 }
 
-/**
- * The short message a request came back with.
- *
- * A content refusal is named as one, because the message it arrives with is
- * about billing and means nothing of the sort — the whole point of classifying
- * it is that reading the raw text sends people to the wrong problem. Everything
- * else falls back to the upstream's own error type, which is usually one word
- * and is the word an operator would search for.
- */
-function shortMessage(r: RequestRow): string {
-  if (r.error_kind === 'content_check') return 'refused on content'
-  const text = r.error ?? ''
-  // The envelope is JSON often enough to be worth reading, and the type inside
-  // it is the useful half.
-  const match = /"type"\s*:\s*"([a-z_]+)"/.exec(text)
-  if (match !== null && match[1] !== 'error') return match[1].replace(/_/g, ' ')
-  if (r.status === 0) return 'no answer'
-  return text.length > 40 ? `${text.slice(0, 37)}…` : text
-}
 
 function dash(v: string | undefined): string {
   return v === undefined || v === '' ? '—' : v
@@ -873,4 +910,63 @@ function FacetList({
       ))}
     </>
   )
+}
+
+/**
+ * A value in a row that narrows the table to itself.
+ *
+ * One component rather than the same markup in every cell, and it is the one
+ * place that knows the click must not reach the row. The row opens the log
+ * now, so without this, narrowing to a model would also open a dialog about
+ * the request that happened to be carrying it.
+ *
+ * `plain` for a cell that brings its own appearance — the status chip — where
+ * the dotted underline would be drawn through it.
+ */
+function Filterable({
+  onClick,
+  title,
+  plain = false,
+  children,
+}: {
+  onClick: () => void
+  title?: string
+  plain?: boolean
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      className={
+        plain
+          ? 'state-layer rounded-[var(--radius-md3-s)]'
+          : 'state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary'
+      }
+    >
+      {children}
+    </button>
+  )
+}
+
+/**
+ * What to call a stored outcome class.
+ *
+ * The upstream's own words with the underscores taken out, which is what it
+ * calls them in its own documentation, plus the two this gateway names itself:
+ * a content check, and nothing having come back at all.
+ */
+const MESSAGE_LABELS: Record<string, string> = {
+  content_check: 'refused on content',
+  no_answer: 'no answer',
+  other: 'failed',
+}
+
+function messageLabel(code: string | undefined): string {
+  if (code === undefined || code === '') return '—'
+  return MESSAGE_LABELS[code] ?? code.replace(/_/g, ' ')
 }

@@ -37,6 +37,15 @@ type UsageEvent struct {
 	CacheWriteTokens int
 	Duration         time.Duration
 	Error            string
+	// ErrorCode is that failure in one word, decided once when the request was
+	// recorded: the upstream's own type, "content_check" for the refusal whose
+	// message is about billing and is not, "no_answer" when nothing came back,
+	// or empty when the request worked.
+	//
+	// Stored rather than read back out of the text, because the text ends in a
+	// request_id and so no two are equal — which makes it useless as a filter
+	// and unusable as a menu.
+	ErrorCode string
 	// Rejected is true for a request the gateway refused before it reached the
 	// upstream — no key, an unknown key. Those spent nothing and have no key,
 	// model or account to group under, so every aggregate steps over them and
@@ -74,12 +83,12 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 		                           status, streaming,
 		                           input_tokens, output_tokens,
 		                           cache_read_tokens, cache_write_tokens,
-		                           duration_ms, error, rejected, ip)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                           duration_ms, error, error_code, rejected, ip)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.At.UTC().Format(time.RFC3339Nano), e.KeyID, e.KeyName, e.AccountID, e.AccountEmail,
 		e.Model, e.Path, e.ConversationID, e.Client, e.Status, e.Streaming,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens,
-		e.Duration.Milliseconds(), e.Error, e.Rejected, e.IP,
+		e.Duration.Milliseconds(), e.Error, e.ErrorCode, e.Rejected, e.IP,
 	)
 	if err != nil {
 		return fmt.Errorf("record usage: %w", err)
@@ -491,9 +500,17 @@ type RequestFilter struct {
 	Clients         []string
 	IPs             []string
 	Statuses        []int
-	// Kind narrows to "relayed" or "rejected"; empty is both, which is the
-	// point of one list.
-	Kind string
+	// ErrorCodes limits to these outcomes: the class each request was given
+	// when it was recorded, which is the only thing on the row the message
+	// column can be filtered by. The text itself ends in a request_id, so no
+	// two are equal.
+	ErrorCodes []string
+	// Kinds narrows to "relayed", "rejected", or both — which is the same as
+	// neither, and is the point of one list.
+	//
+	// A set like the others, because it is a column now rather than a control
+	// above the table, and a column's menu is a column of checkboxes.
+	Kinds []string
 	// FailedOnly keeps what did not work: a status the caller would call a
 	// failure, or a stream that died after its 200. The two are different
 	// facts and both are failures, which is why this is one flag rather than
@@ -524,6 +541,7 @@ func (f RequestFilter) where() (string, []any) {
 	set("model", f.Models)
 	set("client", f.Clients)
 	set("ip", f.IPs)
+	set("error_code", f.ErrorCodes)
 
 	if len(f.Statuses) > 0 {
 		clauses = append(clauses, "status IN ("+placeholders(len(f.Statuses))+")")
@@ -532,10 +550,13 @@ func (f RequestFilter) where() (string, []any) {
 		}
 	}
 
-	switch f.Kind {
-	case "relayed":
+	// Both ticked is every row, so it narrows nothing and says nothing — the
+	// same as neither, which is what an untouched menu means.
+	relayed, rejected := contains(f.Kinds, "relayed"), contains(f.Kinds, "rejected")
+	switch {
+	case relayed && !rejected:
 		clauses = append(clauses, "rejected = 0")
-	case "rejected":
+	case rejected && !relayed:
 		clauses = append(clauses, "rejected = 1")
 	}
 	if f.FailedOnly {
@@ -545,6 +566,15 @@ func (f RequestFilter) where() (string, []any) {
 		return "", nil
 	}
 	return strings.Join(clauses, " AND "), args
+}
+
+func contains(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 // placeholders is "?, ?, ?" for three, so a set of values becomes an IN list.
@@ -574,6 +604,8 @@ type RequestFacets struct {
 	IPs      []FacetValue `json:"ips"`
 	Statuses []FacetValue `json:"statuses"`
 	Chats    []FacetValue `json:"chats"`
+	Messages []FacetValue `json:"messages"`
+	Kinds    []FacetValue `json:"kinds"`
 }
 
 // RequestFacets lists what every filterable column holds, with counts.
@@ -616,6 +648,12 @@ func (s *Store) RequestFacets(ctx context.Context, limit int) (RequestFacets, er
 	if out.Chats, err = s.chatFacet(ctx, limit); err != nil {
 		return RequestFacets{}, err
 	}
+	if out.Messages, err = s.facet(ctx, "error_code", limit); err != nil {
+		return RequestFacets{}, err
+	}
+	if out.Kinds, err = s.kindFacet(ctx); err != nil {
+		return RequestFacets{}, err
+	}
 	return out, nil
 }
 
@@ -639,6 +677,35 @@ func (s *Store) facet(ctx context.Context, column string, limit int) ([]FacetVal
 		var v FacetValue
 		if err := rows.Scan(&v.Value, &v.Count); err != nil {
 			return nil, fmt.Errorf("facet %s: %w", column, err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// kindFacet counts what did and did not reach the upstream.
+//
+// Two rows at most, and it speaks the filter's vocabulary rather than the
+// column's storage: the table holds a boolean, the filter says "relayed" or
+// "rejected", and translating here keeps that word in one place.
+func (s *Store) kindFacet(ctx context.Context) ([]FacetValue, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT rejected, COUNT(*) FROM usage_events GROUP BY rejected ORDER BY COUNT(*) DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("facet kinds: %w", err)
+	}
+	defer rows.Close()
+
+	out := []FacetValue{}
+	for rows.Next() {
+		var rejected bool
+		var count int64
+		if err := rows.Scan(&rejected, &count); err != nil {
+			return nil, fmt.Errorf("facet kinds: %w", err)
+		}
+		v := FacetValue{Value: "relayed", Label: "forwarded", Count: count}
+		if rejected {
+			v = FacetValue{Value: "rejected", Label: "refused here", Count: count}
 		}
 		out = append(out, v)
 	}
@@ -723,7 +790,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 	                 conversation_id, client,
 	                 status, streaming, input_tokens, output_tokens,
 	                 cache_read_tokens, cache_write_tokens, duration_ms, error,
-	                 rejected, ip`
+	                 error_code, rejected, ip`
 
 	narrow, args := filter.where()
 	// The cursor is a condition like any other, so it joins the same AND
@@ -763,7 +830,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 		if err := rows.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
 			&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
 			&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
-			&ms, &e.Error, &e.Rejected, &e.IP); err != nil {
+			&ms, &e.Error, &e.ErrorCode, &e.Rejected, &e.IP); err != nil {
 			return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)
 		}
 		e.At, _ = time.Parse(time.RFC3339Nano, at)

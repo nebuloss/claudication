@@ -953,7 +953,24 @@ export function Table({
     <div className={`isolate -mx-2 px-2 ${cap ? 'max-h-[30rem] overflow-auto' : 'overflow-x-auto'}`}>
       <table
         className={`text-sm [&_td]:align-middle ${
-          resizable === undefined ? 'w-full min-w-max' : 'min-w-full'
+          resizable === undefined
+            ? 'w-full min-w-max'
+            : // Column rules, on a resizable table only.
+              //
+              // The heading already draws one at each edge, as the thing you
+              // aim at to drag — but it stopped at the header, so below it
+              // there was nothing saying where one column ended and the next
+              // began, and on a wide table of short values the eye has to
+              // guess. Continuing the line down the body makes the edge a
+              // whole edge, which is both easier to read and easier to reach
+              // for.
+              //
+              // Lighter than the row rules: these run the height of the table
+              // and there are ten of them, so at full strength they read as a
+              // spreadsheet rather than a list. Never on the last column,
+              // where the rule would be the table's own right edge drawn
+              // twice.
+              'min-w-full [&_td]:border-r [&_td]:border-outline-variant/50 [&_td:last-child]:border-r-0'
         }`}
         // Fixed only once something has been dragged: until then the browser
         // sizes the columns to their content, which is the better default and

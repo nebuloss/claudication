@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -25,6 +26,11 @@ func (s *Server) recordUsage(e store.UsageEvent, budget int64) {
 	if !s.cfg.Usage.Enabled() {
 		return
 	}
+	// Classified here rather than at each call site: every event goes through
+	// this function, and one place deciding what a failure is called is what
+	// keeps the column, its menu and its filter saying the same thing.
+	e.ErrorCode = upstream.ErrorCode(e.Status, e.Error)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := s.store.RecordUsage(ctx, e); err != nil {
@@ -131,6 +137,10 @@ type requestJSON struct {
 	// Computed on read rather than stored: it is a reading of the recorded
 	// text, and one that will get better as more of these are identified.
 	ErrorKind string `json:"error_kind,omitempty"`
+	// ErrorCode is the stored classification — the upstream's own type,
+	// content_check, no_answer, or empty for a request that worked. What the
+	// message column shows and what its filter matches.
+	ErrorCode string `json:"error_code,omitempty"`
 	// Rejected marks a request the gateway refused itself. IP is which machine
 	// made it, recorded for both kinds.
 	Rejected bool   `json:"rejected"`
@@ -165,6 +175,7 @@ func toRequestJSON(e store.UsageEvent) requestJSON {
 		DurationMS:   e.Duration.Milliseconds(),
 		Error:        e.Error,
 		ErrorKind:    string(upstream.ClassifyRefusal(e.Error)),
+		ErrorCode:    e.ErrorCode,
 		Rejected:     e.Rejected,
 		IP:           e.IP,
 		Client:       e.Client,
@@ -196,23 +207,7 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	// requests, not an error.
 	after, _ := store.ParseUsageCursor(r.URL.Query().Get("after"))
 
-	// Filters come off the query string so a link can carry them. That is the
-	// point: the chat table links here rather than growing a request list of
-	// its own, and the URL someone lands on is one they can also edit, share
-	// and bookmark.
-	q := r.URL.Query()
-	filter := store.RequestFilter{
-		ConversationIDs: cleanSet(q["chat"]),
-		KeyIDs:          cleanSet(q["key"]),
-		Models:          cleanSet(q["model"]),
-		Clients:         cleanSet(q["client"]),
-		IPs:             cleanSet(q["ip"]),
-		Statuses:        codeSet(q["code"]),
-		// status=failed is a predicate over codes rather than one of them, so
-		// it keeps its own name and composes with a set of codes.
-		FailedOnly: q.Get("status") == "failed",
-		Kind:       q.Get("kind"),
-	}
+	filter := requestFilterFrom(r.URL.Query())
 
 	events, next, err := s.store.RecentUsage(r.Context(), limit, after, filter)
 	if err != nil {
@@ -232,6 +227,32 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 		// offering more rather than discovering it by fetching none.
 		"next_cursor": next.String(),
 	})
+}
+
+// requestFilterFrom reads the filter off a query string.
+//
+// Filters come off the query string so a link can carry them. That is the
+// point: the chat table links to the request log rather than growing a list of
+// its own, and the URL someone lands on is one they can also edit, share and
+// bookmark.
+//
+// One parser, used by the list and by the export, because a download that is
+// narrowed differently from the screen it was taken from is worse than no
+// download — it looks right and is not.
+func requestFilterFrom(q url.Values) store.RequestFilter {
+	return store.RequestFilter{
+		ConversationIDs: cleanSet(q["chat"]),
+		KeyIDs:          cleanSet(q["key"]),
+		Models:          cleanSet(q["model"]),
+		Clients:         cleanSet(q["client"]),
+		IPs:             cleanSet(q["ip"]),
+		Statuses:        codeSet(q["code"]),
+		ErrorCodes:      cleanSet(q["message"]),
+		// status=failed is a predicate over codes rather than one of them, so
+		// it keeps its own name and composes with a set of codes.
+		FailedOnly: q.Get("status") == "failed",
+		Kinds:      cleanSet(q["kind"]),
+	}
 }
 
 // cleanSet reads a repeated query parameter as a filter set.

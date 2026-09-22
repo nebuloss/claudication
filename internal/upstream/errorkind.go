@@ -1,6 +1,9 @@
 package upstream
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // ErrorKind names an upstream refusal that is worth explaining rather than
 // only relaying.
@@ -47,4 +50,43 @@ func ClassifyRefusal(body string) ErrorKind {
 		return KindContentCheck
 	}
 	return ""
+}
+
+// errorType pulls the upstream's own name for a failure out of its envelope.
+//
+// The outer type is always "error", which names nothing; the one worth having
+// is the inner one. Read with a pattern rather than by unmarshalling, because
+// this runs on every recorded request and the body is a string we are not
+// otherwise interested in.
+var errorType = regexp.MustCompile(`"type"\s*:\s*"([a-z_]+)"`)
+
+// ErrorCode classifies one outcome, in one word, for storing beside it.
+//
+// One vocabulary, decided once. The request log shows it, its menu lists it
+// and its filter matches it — and those were three separate readings of the
+// same text before, which is three ways for them to disagree about what a row
+// is. Empty means the request worked.
+//
+// Order is precedence, narrowest first: a content check is also an
+// invalid_request_error, and the specific answer is the useful one.
+func ErrorCode(status int, body string) string {
+	if body == "" {
+		return ""
+	}
+	if ClassifyRefusal(body) == KindContentCheck {
+		return string(KindContentCheck)
+	}
+	// "error" is the envelope, not a kind; anything else is the upstream
+	// naming what went wrong.
+	for _, m := range errorType.FindAllStringSubmatch(body, -1) {
+		if m[1] != "error" {
+			return m[1]
+		}
+	}
+	// Nothing came back at all, so there is no upstream word for it: this is
+	// the gateway recording that it never got a status.
+	if status == 0 {
+		return "no_answer"
+	}
+	return "other"
 }

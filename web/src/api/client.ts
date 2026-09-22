@@ -237,6 +237,12 @@ export interface RequestRow {
   /** Set when the refusal does not mean what its message says. */
   error_kind?: string
   /**
+   * What went wrong, in one word, decided when the request was recorded: the
+   * upstream's own type, content_check, no_answer, or absent for one that
+   * worked. What the Message column shows and what its filter matches.
+   */
+  error_code?: string
+  /**
    * True for a request this gateway refused before it reached the upstream —
    * no key, or one it does not recognise. Those spent nothing and have no key,
    * model or account, so every usage figure steps over them; this log is the
@@ -286,6 +292,10 @@ export interface RequestFacets {
   statuses: FacetValue[]
   /** Labelled with each chat's name where it has one, since an id is not a thing anyone recognises. */
   chats: FacetValue[]
+  /** The stored outcome classes — the Message column's values. */
+  messages: FacetValue[]
+  /** Forwarded to the upstream, or refused here. */
+  kinds: FacetValue[]
 }
 
 /**
