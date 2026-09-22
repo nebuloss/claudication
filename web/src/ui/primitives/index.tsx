@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -648,53 +649,75 @@ function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
 
   useEscapeKey(() => setAt(null), open)
 
+  /**
+   * Put the panel under its heading, wherever that heading is now.
+   *
+   * The panel is in fixed coordinates, so it has to be told when the page
+   * moves. This used to close instead, which was the wrong answer twice: a
+   * scroll inside the panel's own list closed the menus long enough to be
+   * worth scrolling, and once that was fixed, a scroll over a *short* list
+   * still closed it — the page scrolls when the panel cannot, so the event
+   * came from the document and looked like someone scrolling away.
+   *
+   * Following removes the whole question. The only reason left to close is the
+   * heading itself leaving the screen, where a menu belonging to something you
+   * cannot see is just a box floating in the page.
+   */
+  const place = useCallback(() => {
+    const rect = anchor.current?.getBoundingClientRect()
+    if (rect === undefined) return
+    if (rect.bottom < 0 || rect.top > window.innerHeight) {
+      setAt(null)
+      return
+    }
+    // Kept on screen: a menu on the last column would otherwise open past the
+    // right edge, where reading it means scrolling the page sideways.
+    const width = 264
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
+    const top = rect.bottom + 4
+    // Same position, same object: scrolling the panel's own list moves no
+    // heading, and a new object every frame would re-render the whole menu
+    // for nothing.
+    setAt((prev) => (prev !== null && prev.left === left && prev.top === top ? prev : { left, top }))
+  }, [])
+
   useEffect(() => {
     if (!open) return
-    // A scroll of the *page* closes it rather than following: the panel sits
-    // at coordinates taken when it opened, and a menu drifting away from the
-    // heading it belongs to is worse than one that shuts.
-    //
-    // A scroll *inside* the panel does not. The listener is on the capture
-    // phase so it sees scrolling anywhere, which includes the panel's own
-    // list — and that list is scrollable exactly when there are more values
-    // than fit, so the menus worth scrolling were the ones that closed the
-    // moment you tried. Reaching the value you wanted dismissed the thing you
-    // wanted it from.
-    const shut = (e: Event) => {
-      const target = e.target as Node | null
-      if (target !== null && panel.current !== null && panel.current.contains(target)) return
-      setAt(null)
-    }
     const onDown = (e: MouseEvent) => {
       const target = e.target as Node
       if (panel.current !== null && panel.current.contains(target)) return
       if (anchor.current !== null && anchor.current.contains(target)) return
       setAt(null)
     }
-    window.addEventListener('scroll', shut, true)
-    window.addEventListener('resize', shut)
+    // Capture, so it sees scrolling in any container between here and the
+    // document — the table this heading sits in is one of them. Throttled to a
+    // frame, because a scroll handler that measures on every event measures
+    // far more often than the screen is redrawn.
+    let frame = 0
+    const onScroll = () => {
+      if (frame !== 0) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        place()
+      })
+    }
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onScroll)
     document.addEventListener('mousedown', onDown)
     return () => {
-      window.removeEventListener('scroll', shut, true)
-      window.removeEventListener('resize', shut)
+      if (frame !== 0) cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
       document.removeEventListener('mousedown', onDown)
     }
-  }, [open])
+  }, [open, place])
 
   const toggle = () => {
     if (open) {
       setAt(null)
       return
     }
-    const rect = anchor.current?.getBoundingClientRect()
-    if (rect === undefined) return
-    // Kept on screen: a menu on the last column would otherwise open past the
-    // right edge, where reading it means scrolling the page sideways.
-    const width = 264
-    setAt({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
-      top: rect.bottom + 4,
-    })
+    place()
   }
 
   return (
