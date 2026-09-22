@@ -381,6 +381,13 @@ func (s *Server) routes(r0 role) http.Handler {
 		// to spend: everything that is not an API path it knows is a 404, in
 		// the client's own language.
 		if r0.docs && !r0.admin && !s.docs.enabled() {
+			// The root is the one path a person reaches by typing rather than
+			// by calling, so it answers in HTML. Every other path is a client
+			// that asked for an endpoint, and gets the error shape it can read.
+			if r.URL.Path == "/" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+				serveWelcome(w, r)
+				return
+			}
 			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
 			return
 		}

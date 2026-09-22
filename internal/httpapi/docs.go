@@ -73,6 +73,64 @@ func (c *modelCache) get(ctx context.Context, fetch func(context.Context) ([]byt
 	return out
 }
 
+// welcomePage is what a browser gets at the root when the setup page is off.
+//
+// A JSON error is the right answer to a client that asked for an endpoint and
+// the wrong one to a person who typed the address: {"error":{"type":
+// "not_found"}} tells them nothing they can act on and looks like a fault.
+//
+// It deliberately says nothing about this gateway. The switch being off means
+// this address does not describe what is behind it, and a welcome page naming
+// the product, its version or whether it has accounts connected would undo
+// exactly that. So: what the address is for, what you would need, and who to
+// ask — none of which is a fact about this deployment.
+//
+// Self-contained on purpose. It is served when the built UI may not even be
+// embedded, so it links no stylesheet and fetches nothing.
+const welcomePage = `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>API endpoint</title>
+<style>
+  :root { color-scheme: light dark; --bg:#faf9f7; --fg:#1c1b19; --dim:#4a4643; --line:#a8a29b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14100f; --fg:#e8e2de; --dim:#a9a29d; --line:#4a4643; } }
+  body { margin:0; min-height:100vh; display:grid; place-items:center;
+         background:var(--bg); color:var(--fg);
+         font:16px/1.65 ui-sans-serif,system-ui,"Segoe UI",sans-serif; }
+  main { max-width:32rem; padding:2rem 1.5rem; }
+  h1 { margin:0 0 .75rem; font-size:1.25rem; font-weight:600; }
+  p { margin:0 0 .75rem; color:var(--dim); }
+  hr { border:0; border-top:1px solid var(--line); margin:1.5rem 0; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em; }
+</style>
+<main>
+  <h1>This is an API endpoint</h1>
+  <p>There is no website here. The address serves an API, and a request to it
+     needs a key.</p>
+  <hr>
+  <p>If you were given this address to configure a tool, you will need an API
+     key from whoever runs it — the address alone is not enough.</p>
+  <p>Health checks: <code>/health</code>.</p>
+</main>
+`
+
+// serveWelcome answers a browser at the root with something readable.
+func serveWelcome(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// No-store rather than no-cache: which page the root serves is a switch an
+	// operator flips, and a cached copy of this one would outlive the flip.
+	w.Header().Set("Cache-Control", "no-store")
+	// Still a 404. Nothing is published at this address, and saying 200 would
+	// tell a monitor that something is.
+	w.WriteHeader(http.StatusNotFound)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write([]byte(welcomePage))
+}
+
 // docsURL is where the public page can be reached.
 //
 // Its own address when one is configured, and the relay's otherwise — because
