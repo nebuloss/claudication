@@ -681,6 +681,32 @@ function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
     setAt((prev) => (prev !== null && prev.left === left && prev.top === top ? prev : { left, top }))
   }, [])
 
+  // Scrolling over the panel stays in the panel.
+  //
+  // overscroll-contain below does most of this: it stops the scroll chaining
+  // to the page once this list reaches its end. But it only applies while the
+  // list has something to scroll — a short one has no scroll of its own, so
+  // the wheel goes straight through to the document and the page slides away
+  // under a menu you are still reading.
+  //
+  // So a wheel or a drag over a panel that cannot scroll is swallowed.
+  // Non-passive, because preventDefault on a passive listener does nothing and
+  // the browser will say so.
+  useEffect(() => {
+    if (!open) return
+    const el = panel.current
+    if (el === null) return
+    const swallow = (e: Event) => {
+      if (el.scrollHeight <= el.clientHeight) e.preventDefault()
+    }
+    el.addEventListener('wheel', swallow, { passive: false })
+    el.addEventListener('touchmove', swallow, { passive: false })
+    return () => {
+      el.removeEventListener('wheel', swallow)
+      el.removeEventListener('touchmove', swallow)
+    }
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => {
@@ -769,7 +795,7 @@ function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
             role="menu"
             aria-label={col.label}
             style={{ left: at.left, top: at.top, width: 264 }}
-            className="fixed z-50 max-h-[22rem] overflow-auto rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest py-1 text-sm normal-case shadow-lg"
+            className="fixed z-50 max-h-[22rem] overflow-auto overscroll-contain rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest py-1 text-sm normal-case shadow-lg"
           >
             {col.onSort !== undefined && (
               <>
