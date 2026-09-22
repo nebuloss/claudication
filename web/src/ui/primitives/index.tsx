@@ -878,7 +878,9 @@ export function Table({
   }
 
   return (
-    <div className={`-mx-2 px-2 ${cap ? 'max-h-[30rem] overflow-auto' : 'overflow-x-auto'}`}>
+    // isolate for the same reason the code viewer does: a capped table's
+    // sticky heading needs to sit above its own rows, not above the page.
+    <div className={`isolate -mx-2 px-2 ${cap ? 'max-h-[30rem] overflow-auto' : 'overflow-x-auto'}`}>
       <table
         className={`text-sm [&_td]:align-middle ${
           resizable === undefined ? 'w-full min-w-max' : 'min-w-full'

@@ -177,7 +177,11 @@ export function CodeViewer({
       </div>
 
       <div
-        className={`overflow-auto bg-surface-lowest ${scrolls ? 'max-h-[26rem]' : ''}`}
+        // isolate, so the gutter's z-index below is a fact about this box and
+        // not about the page: it only has to beat the code beside it, and
+        // without a stacking context of its own it was competing with the
+        // header instead.
+        className={`isolate overflow-auto bg-surface-lowest ${scrolls ? 'max-h-[26rem]' : ''}`}
         tabIndex={0}
         role="region"
         aria-label={`${label}, ${lines.length} lines`}

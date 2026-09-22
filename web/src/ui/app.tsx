@@ -140,7 +140,12 @@ export default function App() {
 
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 bg-surface/85 backdrop-blur-md">
+      {/* z-30 rather than z-10: this is the app's chrome and everything on a
+          screen scrolls under it. At z-10 it tied with the sticky line-number
+          gutter in a code block and with a capped table's sticky heading, and
+          a tie is won by whichever comes later in the document — which is
+          always the content, so both rode over the tab bar. */}
+      <header className="sticky top-0 z-30 bg-surface/85 backdrop-blur-md">
         <div
           className={`mx-auto flex ${measure} items-center justify-between gap-4 px-4 pt-4 sm:px-6`}
         >
