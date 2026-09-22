@@ -3,7 +3,7 @@ import codexToml from '#configs/clients/codex.toml?raw'
 import codexModels from '#configs/clients/codex-models.json?raw'
 import crushJson from '#configs/clients/crush.json?raw'
 import opencodeJsonc from '#configs/clients/opencode.jsonc?raw'
-import { type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { api, type DocsInfo } from '../../api/client'
 import { useLoader } from '../hooks'
 import { Banner, CopyField, Spinner } from '../primitives'
@@ -440,6 +440,76 @@ function Callout({ children }: { children: ReactNode }) {
 }
 
 /**
+ * Where the line between "read" and "not yet" sits, in pixels from the top.
+ *
+ * A little below the sticky header rather than at the very top of the
+ * viewport: a heading is the thing you are reading from the moment it clears
+ * the header, not from the moment it touches the top of the window. It also
+ * matches the scroll-mt on the sections, so following a link from this list
+ * lands with that section highlighted rather than the one above it.
+ */
+const CURRENT_LINE = 120
+
+/**
+ * Which section is on screen.
+ *
+ * Position rather than IntersectionObserver. The question here is not "is this
+ * visible" — three sections usually are — but "which one am I reading", and
+ * the answer is the last heading above the line. That is one comparison per
+ * section against a number, which is simpler to be right about than a set of
+ * intersection ratios, and it is read inside a frame callback so scrolling
+ * costs one layout read per paint at most.
+ */
+function useCurrentSection(): string {
+  const [current, setCurrent] = useState(SECTIONS[0]?.id ?? '')
+
+  useEffect(() => {
+    const pick = () => {
+      const seen = SECTIONS.map((s) => document.getElementById(s.id)).filter(
+        (el): el is HTMLElement => el !== null,
+      )
+      if (seen.length === 0) return
+
+      let active = seen[0].id
+      for (const el of seen) {
+        if (el.getBoundingClientRect().top > CURRENT_LINE) break
+        active = el.id
+      }
+      // The last section is usually too short to reach the line: the page
+      // stops scrolling before its heading gets there, so without this the
+      // list would never mark the section you are looking at when you reach
+      // the end.
+      const atBottom =
+        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2
+      setCurrent(atBottom ? seen[seen.length - 1].id : active)
+    }
+
+    // Throttled to one read per frame. A scroll handler that measures on every
+    // event measures far more often than the screen is redrawn, and each
+    // measurement forces layout.
+    let frame = 0
+    const onScroll = () => {
+      if (frame !== 0) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        pick()
+      })
+    }
+
+    pick()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      if (frame !== 0) cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [])
+
+  return current
+}
+
+/**
  * On this page.
  *
  * Second in the DOM and first on screen at desktop widths, via the grid order:
@@ -448,6 +518,7 @@ function Callout({ children }: { children: ReactNode }) {
  * readers have to skip on every visit.
  */
 function Contents() {
+  const current = useCurrentSection()
   return (
     <nav
       aria-label="On this page"
@@ -461,7 +532,15 @@ function Contents() {
           <li key={s.id}>
             <a
               href={`#${s.id}`}
-              className="-ml-px block border-l border-transparent py-1.5 pl-4 text-sm text-on-surface-variant hover:border-l-primary hover:text-on-surface"
+              // aria-current as well as the colour: the marker is a fact about
+              // where you are, and a reader who cannot see the border should
+              // not have to infer it from the scroll position.
+              aria-current={s.id === current ? 'true' : undefined}
+              className={`-ml-px block border-l py-1.5 pl-4 text-sm ${
+                s.id === current
+                  ? 'border-l-primary font-medium text-primary'
+                  : 'border-transparent text-on-surface-variant hover:border-l-outline hover:text-on-surface'
+              }`}
             >
               {s.title}
             </a>
