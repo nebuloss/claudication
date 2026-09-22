@@ -1,17 +1,17 @@
-import { useState } from 'react'
 import claudeCodeSh from '#configs/clients/claude-code.sh?raw'
 import codexToml from '#configs/clients/codex.toml?raw'
 import codexModels from '#configs/clients/codex-models.json?raw'
 import crushJson from '#configs/clients/crush.json?raw'
 import opencodeJsonc from '#configs/clients/opencode.jsonc?raw'
+import { type ReactNode } from 'react'
 import { api, type DocsInfo } from '../../api/client'
 import { useLoader } from '../hooks'
-import { Banner, Card, CardTitle, CopyField, Spinner, SubNav } from '../primitives'
+import { Banner, CopyField, Spinner } from '../primitives'
 import { CodeViewer, type Lang } from '../primitives/code'
 
 /**
  * The example address inside configs/clients/*. Swapping it for this gateway's
- * own is the only thing this screen does to those files.
+ * own is the only thing this page does to those files.
  *
  * They are plain, complete, committed files — readable in the repository,
  * linked from the README, and usable as they stand after one edit. Importing
@@ -26,9 +26,11 @@ type Client = {
   label: string
   /** Which API surface it talks to, so a switched-off one can warn. */
   surface: 'anthropic' | 'openai' | 'both'
-  lead: string
+  /** Whether the base URL it wants carries /v1. The one thing they disagree on. */
+  slash: boolean
+  lead: ReactNode
   files: { label: string; filename: string; lang: Lang; body: string }[]
-  notes?: string[]
+  notes?: ReactNode[]
 }
 
 const CLIENTS: Client[] = [
@@ -36,16 +38,30 @@ const CLIENTS: Client[] = [
     id: 'claude-code',
     label: 'Claude Code',
     surface: 'anthropic',
-    lead: 'No /v1 — Claude Code appends the path itself.',
-    files: [{ label: 'claudication.sh', filename: 'claude-code.sh', lang: 'sh', body: claudeCodeSh }],
+    slash: false,
+    lead: (
+      <>
+        Claude Code appends <code className="font-mono">/v1</code> to whatever base URL it is
+        given, so the address here carries none. Source the file, or put its contents in your
+        shell profile.
+      </>
+    ),
+    files: [
+      { label: 'claudication.sh', filename: 'claude-code.sh', lang: 'sh', body: claudeCodeSh },
+    ],
   },
   {
     id: 'codex',
     label: 'Codex CLI',
     surface: 'openai',
-    lead:
-      'With /v1, and the only client that goes through the OpenAI Responses API rather than ' +
-      'the Anthropic one.',
+    slash: true,
+    lead: (
+      <>
+        The only client here that goes through the OpenAI Responses API rather than the Anthropic
+        one — so the gateway translates, and Codex never learns it is talking to Claude. Two files:
+        the config, and a model catalog Codex reads instead of asking.
+      </>
+    ),
     files: [
       { label: '~/.codex/config.toml', filename: 'config.toml', lang: 'toml', body: codexToml },
       {
@@ -56,22 +72,31 @@ const CLIENTS: Client[] = [
       },
     ],
     notes: [
-      'Codex needs bubblewrap installed before it can run any shell command. Without it the ' +
-        'first tool call panics and the model then explains, convincingly, that nothing works.',
-      'The catalog carries a short stand-in for Codex’s own system prompt, because Codex ' +
-        'refuses an entry without one and its real prompt lives in its binary. That is about ' +
-        'nine thousand tokens cheaper per turn, and less good at editing. ' +
-        'scripts/codex-model-catalog.py clones the real one out of your own Codex if you would ' +
-        'rather have that.',
+      <>
+        Codex needs <code className="font-mono">bubblewrap</code> installed before it can run any
+        shell command. Without it the first tool call panics, and the model then explains —
+        convincingly — that nothing works.
+      </>,
+      <>
+        The catalog carries a short stand-in for Codex&rsquo;s own system prompt, because Codex
+        refuses an entry without one and its real prompt lives inside its binary. The stand-in is
+        about nine thousand tokens cheaper per turn, and less good at editing.{' '}
+        <code className="font-mono">scripts/codex-model-catalog.py</code> clones the real one out
+        of your own Codex if you would rather have that.
+      </>,
     ],
   },
   {
     id: 'opencode',
     label: 'opencode',
     surface: 'anthropic',
-    lead:
-      'With /v1. It overrides the built-in Anthropic provider rather than declaring a new one, ' +
-      'so every model the gateway serves is available without listing any of them.',
+    slash: true,
+    lead: (
+      <>
+        This overrides opencode&rsquo;s built-in Anthropic provider rather than declaring a new
+        one, so every model the gateway serves is available without listing any of them.
+      </>
+    ),
     files: [
       {
         label: '~/.config/opencode/opencode.jsonc',
@@ -85,65 +110,121 @@ const CLIENTS: Client[] = [
     id: 'crush',
     label: 'crush',
     surface: 'anthropic',
-    lead:
-      'Without /v1, and every model spelled out: crush never calls /v1/models, so one missing ' +
-      'from this file cannot be selected however well the gateway serves it.',
-    files: [{ label: '~/.config/crush/crush.json', filename: 'crush.json', lang: 'json', body: crushJson }],
+    slash: false,
+    lead: (
+      <>
+        Every model is spelled out here, and that is deliberate: crush never calls{' '}
+        <code className="font-mono">/v1/models</code>, so a model missing from this file cannot be
+        selected however well the gateway serves it.
+      </>
+    ),
+    files: [
+      { label: '~/.config/crush/crush.json', filename: 'crush.json', lang: 'json', body: crushJson },
+    ],
   },
 ]
 
-const SHELL: [string, string][] = [
-  ['claudication keys add -name NAME', 'Mint an API key, for a provisioning script.'],
-  ['claudication passwd', 'Reset the admin password. The recovery path when it is lost.'],
-  ['claudication login-url', 'A single-use link that signs a browser in. Spent on first use.'],
-  [
-    'claudication backup FILE',
-    'A consistent snapshot without stopping the service. Holds the sealing key and every stored ' +
-      'token, so it is exactly as sensitive as the state directory.',
-  ],
+const TROUBLE: { symptom: string; cause: ReactNode }[] = [
+  {
+    symptom: '404 on every request',
+    cause: (
+      <>
+        Almost always the <code className="font-mono">/v1</code> question. Claude Code and crush
+        want the base URL without it; opencode and Codex want it with. No client says so when it
+        is wrong — it just gets nothing.
+      </>
+    ),
+  },
+  {
+    symptom: '404 saying the API is turned off',
+    cause: 'That surface has been switched off by whoever runs the gateway. The message names which one.',
+  },
+  {
+    symptom: '401 Unauthorized',
+    cause: (
+      <>
+        The key is wrong, withdrawn, or in a header this client does not send. Either{' '}
+        <code className="font-mono">x-api-key</code> or an{' '}
+        <code className="font-mono">Authorization: Bearer</code> token works, on either API.
+      </>
+    ),
+  },
+  {
+    symptom: '429 whose message is the single word “Error”',
+    cause: (
+      <>
+        Not a rate limit, despite the status. The subscription backend refuses opus and sonnet to
+        anything that is not Claude Code, and says so misleadingly. The gateway handles this for
+        you unless the operator has turned that off.
+      </>
+    ),
+  },
+  {
+    symptom: '“Third-party apps now draw from your extra usage”',
+    cause: (
+      <>
+        Also not what it says: no amount of credit fixes it. A content check refused the request,
+        and the same key succeeds on the next one with slightly different content. The gateway
+        labels these in its request log.
+      </>
+    ),
+  },
+  {
+    symptom: 'A model works in one client and not another',
+    cause: (
+      <>
+        The gateway does not filter models, so this is the client. crush needs every model listed
+        in its own config, and Codex needs one in its catalog; the others discover them.
+      </>
+    ),
+  },
+  {
+    symptom: 'Codex: “stream closed before response.completed”',
+    cause: (
+      <>
+        The gateway sends a terminal event on every path, including failures — so this points at
+        something between it and Codex, usually a proxy buffering the stream.
+      </>
+    ),
+  },
 ]
 
-const TROUBLE: [string, string][] = [
-  [
-    '404 on every request',
-    'Almost always the /v1 question. Claude Code and crush want the base URL without it; opencode and Codex want it with. Neither says so when it is wrong.',
-  ],
-  [
-    '404 saying the API is turned off',
-    'That surface is switched off under Settings → API surfaces. The message names which one.',
-  ],
-  [
-    '401',
-    'The key is wrong, revoked, or in a header this client does not send. Either x-api-key or a bearer token works, on either API.',
-  ],
-  [
-    '429 whose message is the single word "Error"',
-    'Not a rate limit. The subscription backend refuses opus and sonnet to anything that is not Claude Code, and says so misleadingly. Leave passthrough.claude-code-attribution on and it is handled for you.',
-  ],
-  [
-    '"Third-party apps now draw from your extra usage"',
-    'Also not a billing message. A content check refused the request. The Usage tab labels these; scripts/bisect-refusal.py finds the trigger.',
-  ],
-  [
-    'A model works in one client and not another',
-    'The gateway does not filter models, so this is the client: crush needs every model listed in its own config, and Codex needs one in its catalog. The others discover them.',
-  ],
-  [
-    'Codex: "stream closed before response.completed"',
-    'The gateway sends a terminal event on every path, including failures — so this points at something between it and Codex, usually a proxy buffering the stream.',
-  ],
+const SHELL: { cmd: string; what: ReactNode }[] = [
+  { cmd: 'claudication keys add -name NAME', what: 'Mint a client API key, for a provisioning script.' },
+  { cmd: 'claudication login-url', what: 'A single-use link that signs a browser into the admin UI. Spent on first use.' },
+  { cmd: 'claudication passwd', what: 'Set the admin password. The way back in when it is lost.' },
+  {
+    cmd: 'claudication backup FILE',
+    what: (
+      <>
+        A consistent snapshot without stopping the service. It holds the sealing key and every
+        stored token together, so treat the file as exactly as sensitive as the gateway itself.
+      </>
+    ),
+  },
+]
+
+/** The sections, in order. One list, so the contents cannot drift from the page. */
+const SECTIONS: { id: string; title: string }[] = [
+  { id: 'before-you-start', title: 'Before you start' },
+  ...CLIENTS.map((c) => ({ id: c.id, title: c.label })),
+  { id: 'models', title: 'Models' },
+  { id: 'troubleshooting', title: 'Troubleshooting' },
+  { id: 'operator', title: 'For the operator' },
 ]
 
 /**
- * Setup: everything about pointing something at this gateway, in one place.
+ * The public documentation: how to point a client at this gateway.
  *
- * It used to be two halves of two other screens — a card at the bottom of
- * Overview and another at the bottom of Settings — which meant the one job a
- * new user actually arrives to do was split across two tabs, under the ones
- * that administer a gateway they have not connected to yet.
+ * Written as a document rather than as a screen. It used to be a tab in the
+ * admin UI, where the shape that fits is a stack of cards and one client at a
+ * time behind a picker — which is wrong here for two reasons. A reader
+ * arriving at documentation scans it before reading any of it, and a picker
+ * hides three quarters of the page from that scan; and the section they want
+ * is a thing they will link someone else to, which a picker has no address
+ * for.
  */
 export default function Docs() {
-  const [client, setClient] = useState(CLIENTS[0].id)
   // One request, and a public one. The in-app version of this screen read
   // /admin/overview, /admin/config and /admin/models — an inventory of the
   // deployment, for four facts. This asks for the four.
@@ -157,174 +238,236 @@ export default function Docs() {
     )
   }
   if (error !== '' || data === null) {
-    return <Banner tone="error">Could not read the gateway&rsquo;s address.</Banner>
+    return <Banner tone="error">Could not read this gateway&rsquo;s address.</Banner>
   }
 
-  // What to tell a client to point at.
-  //
-  // The origin this browser used is the right answer while one listener serves
-  // everything: it is reachable by definition, and better than the bind
-  // address, which is often 0.0.0.0 and resolves for nobody.
-  //
-  // It is the wrong answer once admin-listen splits them. Then this page is on
-  // the admin address and the relay is somewhere else — usually a different
-  // hostname on a different proxy — and nothing the gateway can see tells it
-  // that name. So it is configured, and until it is, this says so rather than
-  // handing out files that point at the wrong host.
   // No fallback to this browser's origin: that is the address of this page,
-  // and the page is on its own listener. Pointing a client at it would send
+  // and the page may not be the relay. Pointing a client at it would send
   // every request somewhere that answers 404. Unset means unset, and the
-  // snippets keep the example address with a banner saying so.
+  // files keep the example address with a note saying so.
   const configured = data.public_url ?? ''
-  const unknown = configured === ''
   const base = configured !== '' ? configured : EXAMPLE_BASE
-
   const models = data.models?.data ?? []
-  const modelError = ''
-  const recipe = CLIENTS.find((c) => c.id === client) ?? CLIENTS[0]
   const surfaces = data.surfaces ?? []
-  const off = surfaces.filter(
-    (s) => !s.enabled && (recipe.surface === 'both' || s.id === recipe.surface),
-  )
+  const offFor = (c: Client) =>
+    surfaces.filter((s) => !s.enabled && (c.surface === 'both' || s.id === c.surface))
 
   return (
-    <div className="flex flex-col gap-5">
-      <Card>
-        <CardTitle>What a client needs</CardTitle>
-        <p className="mt-0 mb-4 text-sm text-on-surface">
-          Two things, the same for every client: the address below, and an API key, which the
-          operator of this gateway issues from its admin UI. One key works on both APIs — nothing
-          needs to look like an OpenAI key.
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_13rem] lg:items-start lg:gap-12">
+      <article className="min-w-0 max-w-[46rem]">
+        <h1 className="mt-0 mb-3 text-3xl font-semibold tracking-tight text-on-surface">
+          Connect a client
+        </h1>
+        <p className="mt-0 mb-8 text-base leading-relaxed text-on-surface-variant">
+          This gateway relays Claude to any tool that speaks the Anthropic Messages API or the
+          OpenAI Responses API. Point one at the address below with a key, and it behaves like the
+          real thing — same models, same streaming, same errors.
         </p>
 
-        {!data.ready && (
-          <Banner tone="warn" className="mb-4">
-            No account is connected yet, so the gateway cannot answer a request however a client
-            is configured. Its operator has to connect one before any of this will work.
-          </Banner>
-        )}
+        <Section id="before-you-start" title="Before you start">
+          {configured === '' && (
+            <Banner tone="warn" className="mb-5">
+              <strong>This gateway has not been told its own public address.</strong> The examples
+              below carry a placeholder, so you will have to replace{' '}
+              <code className="font-mono">{EXAMPLE_BASE}</code> with the address you reach it on.
+            </Banner>
+          )}
+          {!data.ready && (
+            <Banner tone="warn" className="mb-5">
+              <strong>No Claude account is connected yet.</strong> Until its operator connects one,
+              this gateway cannot answer a request however a client is configured.
+            </Banner>
+          )}
 
-        {unknown && (
-          <Banner tone="warn" className="mb-4">
-            <strong>This page is not the relay.</strong> It is served on its own listener
-            (<code>docs-listen</code>), so the address in your browser answers 404 to
-            <code>/v1/messages</code>. Nothing the gateway can see tells it the hostname clients
-            reach the relay on — until <code>public-url</code> is set, the files below carry the
-            example address and you will have to edit it.
-          </Banner>
-        )}
+          <P>You need two things, and they are the same for every client.</P>
 
-        <CopyField label="Base URL" value={base} />
-
-        {base.startsWith('http://') && (
-          <p className="mt-4 mb-0 text-xs text-on-surface-variant">
-            Plain HTTP unless something in front terminates TLS, so the key travels in the clear on
-            this network. A tunnel or a reverse proxy is the fix. It is also why every file below
-            has a Download button: a browser will not give a page the clipboard over HTTP.
-          </p>
-        )}
-      </Card>
-
-      <Card>
-        <CardTitle>Models</CardTitle>
-        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-          What your connected accounts can serve, read from the upstream just now. The gateway has
-          no allowlist of its own — it relays whatever model a client asks for — so anything here
-          works on both APIs. The files below list the models that existed when they were written;
-          anything newer shows up here first.
-        </p>
-        {modelError !== '' ? (
-          <Banner tone="warn">
-            Could not reach the upstream model list. The configurations below still work; only this
-            list is missing.
-          </Banner>
-        ) : models.length === 0 ? (
-          <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
-            <Spinner /> Loading…
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {models.map((m) => (
-              <span
-                key={m.id}
-                className="rounded-[var(--radius-md3-s)] border border-outline bg-surface-high px-2.5 py-1.5"
-                title={m.display_name ?? m.id}
-              >
-                <code className="font-mono text-xs text-on-surface">{m.id}</code>
-              </span>
-            ))}
+          <div className="my-5">
+            <CopyField label="Base URL" value={base} />
           </div>
-        )}
-      </Card>
 
-      <Card>
-        <CardTitle>Configure a client</CardTitle>
-        <SubNav
-          label="Client"
-          value={client}
-          onChange={setClient}
-          options={CLIENTS.map((c) => ({ id: c.id, label: c.label }))}
-        />
+          <P>
+            And an <strong className="font-medium text-on-surface">API key</strong>, which whoever
+            runs this gateway issues from its admin UI. One key works on both APIs — nothing needs
+            to look like an OpenAI key, and you do not need a Claude account of your own.
+          </P>
 
-        {off.length > 0 && (
-          <Banner tone="warn" className="mt-4">
-            {recipe.label} needs the {off.map((s) => s.title).join(' and ')}, which is switched off.
-            Turn it back on under Settings, or this configuration will answer 404.
-          </Banner>
-        )}
+          <Callout>
+            <strong className="font-medium text-on-surface">
+              Clients disagree about <code className="font-mono">/v1</code>.
+            </strong>{' '}
+            Claude Code and crush append it themselves and want the address without it; opencode
+            and Codex want it included. Getting this wrong produces a 404 on every request and no
+            explanation. Each example below already has it right.
+          </Callout>
+        </Section>
 
-        <div className="mt-4 flex flex-col gap-4">
-          <p className="m-0 text-sm text-on-surface-variant">{recipe.lead}</p>
-          {recipe.files.map((f) => (
-            <CodeViewer
-              key={f.filename}
-              label={f.label}
-              filename={f.filename}
-              lang={f.lang}
-              value={f.body.split(EXAMPLE_BASE).join(base)}
-            />
-          ))}
-          {(recipe.notes ?? []).map((n) => (
-            <p key={n} className="m-0 text-sm text-on-surface-variant">
-              {n}
+        {CLIENTS.map((c) => (
+          <Section key={c.id} id={c.id} title={c.label}>
+            <p className="mt-0 mb-4 text-sm leading-relaxed text-on-surface-variant">
+              Base URL{' '}
+              <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs text-on-surface">
+                {c.slash ? `${base}/v1` : base}
+              </code>
             </p>
-          ))}
-        </div>
-      </Card>
+            <P>{c.lead}</P>
 
-      <Card>
-        <CardTitle>From the shell</CardTitle>
-        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-          On the machine running the gateway. Shell access to the state directory is already the
-          higher privilege, so none of these asks for the admin password.
-        </p>
-        <dl className="m-0 flex flex-col gap-3">
-          {SHELL.map(([cmd, what]) => (
-            <div
-              key={cmd}
-              className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3"
-            >
-              <dt className="font-mono text-xs text-on-surface">{cmd}</dt>
-              <dd className="m-0 mt-1 text-sm text-on-surface-variant">{what}</dd>
-            </div>
-          ))}
-        </dl>
-      </Card>
+            {offFor(c).length > 0 && (
+              <Banner tone="warn" className="my-4">
+                {c.label} needs the {offFor(c).map((s) => s.title).join(' and ')}, which is
+                currently switched off on this gateway. Until it is turned back on, this
+                configuration will answer 404.
+              </Banner>
+            )}
 
-      <Card>
-        <CardTitle>When it does not work</CardTitle>
-        <dl className="m-0 flex flex-col gap-3">
-          {TROUBLE.map(([symptom, cause]) => (
-            <div
-              key={symptom}
-              className="border-b border-outline-variant pb-3 last:border-0 last:pb-0"
-            >
-              <dt className="text-sm font-medium text-on-surface">{symptom}</dt>
-              <dd className="m-0 mt-1 text-sm text-on-surface-variant">{cause}</dd>
+            <div className="my-5 flex flex-col gap-4">
+              {c.files.map((f) => (
+                <CodeViewer
+                  key={f.filename}
+                  label={f.label}
+                  filename={f.filename}
+                  lang={f.lang}
+                  value={f.body.split(EXAMPLE_BASE).join(base)}
+                />
+              ))}
             </div>
-          ))}
-        </dl>
-      </Card>
+
+            {(c.notes ?? []).map((n, i) => (
+              <P key={i}>{n}</P>
+            ))}
+          </Section>
+        ))}
+
+        <Section id="models" title="Models">
+          <P>
+            Everything this gateway will serve, read from upstream. Clients that ask for the list
+            discover these on their own; crush and Codex need them written into their config, which
+            the examples above do.
+          </P>
+          {models.length === 0 ? (
+            <p className="m-0 text-sm text-on-surface-variant">
+              The model list could not be read just now. The configurations above do not depend on
+              it.
+            </p>
+          ) : (
+            <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
+              {models.map((m) => (
+                <li
+                  key={m.id}
+                  className="rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-container px-2.5 py-1"
+                  title={m.display_name ?? m.id}
+                >
+                  <code className="font-mono text-xs text-on-surface">{m.id}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+
+        <Section id="troubleshooting" title="Troubleshooting">
+          <P>
+            Most of these are the client rather than the gateway, and most of them arrive with a
+            message that points somewhere else.
+          </P>
+          <dl className="m-0">
+            {TROUBLE.map((t) => (
+              <div key={t.symptom} className="border-t border-outline-variant py-4 first:border-0">
+                <dt className="mb-1.5 text-sm font-semibold text-on-surface">{t.symptom}</dt>
+                <dd className="m-0 text-sm leading-relaxed text-on-surface-variant">{t.cause}</dd>
+              </div>
+            ))}
+          </dl>
+        </Section>
+        <Section id="operator" title="For the operator">
+          <P>
+            Nothing on this page needs these — they are here because they are the answers to
+            questions the rest of it raises. They run on the machine hosting the gateway, where
+            shell access to its state directory is already the higher privilege, which is why none
+            of them asks for the admin password.
+          </P>
+          <dl className="m-0">
+            {SHELL.map((s) => (
+              <div key={s.cmd} className="border-t border-outline-variant py-4 first:border-0">
+                <dt className="mb-1.5">
+                  <code className="font-mono text-xs text-on-surface">{s.cmd}</code>
+                </dt>
+                <dd className="m-0 text-sm leading-relaxed text-on-surface-variant">{s.what}</dd>
+              </div>
+            ))}
+          </dl>
+        </Section>
+      </article>
+
+      <Contents />
     </div>
+  )
+}
+
+/** A section with a heading you can link to. */
+function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section id={id} className="mt-10 scroll-mt-24 border-t border-outline-variant pt-8 first:mt-0">
+      <h2 className="group mt-0 mb-4 text-xl font-semibold tracking-tight text-on-surface">
+        <a href={`#${id}`} className="no-underline">
+          {title}
+          {/* The anchor is the point of the heading having an id; shown on
+              hover rather than always, because a column of # marks reads as
+              decoration and this one is a tool. */}
+          <span
+            aria-hidden
+            className="ml-2 text-on-surface-variant opacity-0 transition-opacity group-hover:opacity-60"
+          >
+            #
+          </span>
+        </a>
+      </h2>
+      {children}
+    </section>
+  )
+}
+
+/** Body prose, at the one measure and rhythm the page uses. */
+function P({ children }: { children: ReactNode }) {
+  return <p className="mt-0 mb-4 text-sm leading-relaxed text-on-surface-variant">{children}</p>
+}
+
+/** An aside that is worth stopping at, without the alarm of a Banner. */
+function Callout({ children }: { children: ReactNode }) {
+  return (
+    <p className="my-5 rounded-[var(--radius-md3-m)] border border-outline-variant border-l-4 border-l-primary bg-surface-container px-4 py-3 text-sm leading-relaxed text-on-surface-variant">
+      {children}
+    </p>
+  )
+}
+
+/**
+ * On this page.
+ *
+ * Second in the DOM and first on screen at desktop widths, via the grid order:
+ * the document should come first for anything reading the markup rather than
+ * looking at it, and a contents list that precedes the title is a thing screen
+ * readers have to skip on every visit.
+ */
+function Contents() {
+  return (
+    <nav
+      aria-label="On this page"
+      className="order-first mb-10 lg:sticky lg:top-24 lg:order-none lg:mb-0"
+    >
+      <p className="mt-0 mb-3 text-xs font-semibold tracking-wide text-on-surface-variant uppercase">
+        On this page
+      </p>
+      <ul className="m-0 list-none border-l border-outline-variant p-0">
+        {SECTIONS.map((s) => (
+          <li key={s.id}>
+            <a
+              href={`#${s.id}`}
+              className="-ml-px block border-l border-transparent py-1.5 pl-4 text-sm text-on-surface-variant hover:border-l-primary hover:text-on-surface"
+            >
+              {s.title}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
   )
 }
