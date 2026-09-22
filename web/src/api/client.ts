@@ -255,6 +255,11 @@ export interface RequestRow {
    * minted it.
    */
   client?: string
+  /**
+   * The chat this request belongs to, as its client named it. Empty for a
+   * client that names none, which is one bucket rather than one chat.
+   */
+  conversation_id?: string
 }
 
 /** One line of a column's filter menu. */
@@ -279,6 +284,8 @@ export interface RequestFacets {
   keys: FacetValue[]
   ips: FacetValue[]
   statuses: FacetValue[]
+  /** Labelled with each chat's name where it has one, since an id is not a thing anyone recognises. */
+  chats: FacetValue[]
 }
 
 /**

@@ -140,6 +140,10 @@ type requestJSON struct {
 	// every request on this gateway for a week, from crush. The client is the
 	// answer to what sent it, and a refused request has one too.
 	Client string `json:"client,omitempty"`
+	// Conversation is the id the client sent for this chat, which is what the
+	// chat filter matches. Shown so a row can be narrowed to its own
+	// conversation without going through the chat table to find the id.
+	Conversation string `json:"conversation_id,omitempty"`
 }
 
 // toRequestJSON is the one conversion from a stored event to what the UI
@@ -164,6 +168,7 @@ func toRequestJSON(e store.UsageEvent) requestJSON {
 		Rejected:     e.Rejected,
 		IP:           e.IP,
 		Client:       e.Client,
+		Conversation: e.ConversationID,
 	}
 }
 

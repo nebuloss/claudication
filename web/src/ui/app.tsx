@@ -55,11 +55,16 @@ type Tab = (typeof TABS)[number]
  * of the window instead, capped so a very wide monitor does not stretch a table
  * across a metre of glass.
  *
- * Per screen rather than everywhere, because the narrow measure is doing real
- * work on the others — Settings is mostly sentences, and sentences set to
- * 1800px are unreadable.
+ * One measure for every screen, not two. It used to be per screen — the wide
+ * one for Usage and Requests, a reading measure for the rest — which meant the
+ * page changed width as you moved along the tab strip, and everything on it
+ * jumped sideways. A tab strip is one place; it should not resize under you.
+ *
+ * What the reading measure was protecting is protected where it belongs
+ * instead: Card caps the paragraphs inside it, so a card can span the window
+ * while its sentences stay at a length someone can read.
  */
-const WIDE: readonly Tab[] = ['usage', 'requests']
+const MEASURE = 'max-w-[110rem]'
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
@@ -149,7 +154,7 @@ export default function App() {
   const expired = () => void probe()
   // One value for the header, the nav and the page, so the tab underline stays
   // over its tab when the measure changes.
-  const measure = WIDE.includes(tab) ? 'max-w-[110rem]' : 'max-w-4xl'
+  const measure = MEASURE
   // Empty unless a public docs page is configured, published and switched on,
   // in which case the header links out to it. Allowed to fail silently: a
   // missing link is a missing link, not a reason to fail the shell.

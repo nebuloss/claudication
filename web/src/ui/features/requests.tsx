@@ -42,6 +42,9 @@ import {
 
 const PAGE = 50
 
+/** Columns whose first click should sort A-Z, because that is what sorted means for a word. */
+const TEXT_COLUMNS: SortKey[] = ['model', 'client', 'ip', 'chat']
+
 /**
  * The activity list, paged.
  *
@@ -183,7 +186,7 @@ function RecentRequests({
     setSort((prev) => {
       if (dir !== undefined) return { key, dir }
       if (prev.key === key) return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-      return { key, dir: key === 'model' || key === 'client' || key === 'ip' ? 'asc' : 'desc' }
+      return { key, dir: TEXT_COLUMNS.includes(key) ? 'asc' : 'desc' }
     })
 
   const column = (label: string, key: SortKey): Column => ({
@@ -341,11 +344,16 @@ function RecentRequests({
       ) : (
         <Table
           cap
+          // Widths are remembered per browser: what you want to read here
+          // depends on what you are looking for, and a model name, a chat id
+          // and an error message cannot all have the room they want at once.
+          resizable="requests"
           head={[
             // Not Date and not Time: the cell is a time on today's rows, a
             // date and a time on older ones, and an epoch once copied.
             column('Timestamp', 'at'),
             faceted('Model', 'model', 'model', facets?.models),
+            faceted('Chat', 'chat', 'chat', facets?.chats),
             faceted('Client', 'client', 'client', facets?.clients),
             faceted('IP', 'ip', 'ip', facets?.ips),
             faceted('Status', 'status', 'code', facets?.statuses),
@@ -365,8 +373,14 @@ function RecentRequests({
               {/* Clickable for the same reason the address is: the model is
                   right there in the row you are reading, and hunting for it
                   again in a list of every model the gateway has ever served is
-                  work the row can do for you. */}
-              <td className="px-2 py-2 whitespace-nowrap">
+                  work the row can do for you.
+
+                  Truncated rather than given the width it wants:
+                  claude-haiku-4-5-20251001 is 25 characters that differ from
+                  its neighbour in the last eight, and at full width it pushed
+                  everything after it off the screen. Drag the edge for more. */}
+              <td className="max-w-[11rem] px-2 py-2">
+                <div className="truncate">
                 {r.model === undefined || r.model === '' ? (
                   '—'
                 ) : (
@@ -379,6 +393,26 @@ function RecentRequests({
                     {r.model}
                   </button>
                 )}
+                </div>
+              </td>
+              {/* The id, shortened. Nobody reads a session id, but they do
+                  recognise the first characters of the one they are looking
+                  at — and the click is what this column is for. */}
+              <td className="max-w-[9rem] px-2 py-2 text-on-surface-variant">
+                <div className="truncate font-mono text-xs">
+                  {r.conversation_id === undefined || r.conversation_id === '' ? (
+                    '—'
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onNarrow({ ...filter, chat: [r.conversation_id ?? ''] })}
+                      title={`Only requests in ${r.conversation_id}`}
+                      className="state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary"
+                    >
+                      {r.conversation_id.slice(0, 12)}
+                    </button>
+                  )}
+                </div>
               </td>
               {/* What was running, not who is paying. The key is still what
                   the chip and the links filter on; it just made a poor column,
@@ -656,7 +690,7 @@ function asText(r: RequestRow): string {
   ].join('\n')
 }
 
-type SortKey = 'at' | 'model' | 'client' | 'ip' | 'status' | 'tokens' | 'duration'
+type SortKey = 'at' | 'model' | 'client' | 'ip' | 'chat' | 'status' | 'tokens' | 'duration'
 type Sort = { key: SortKey; dir: 'asc' | 'desc' }
 
 /**
@@ -679,6 +713,8 @@ function sortValue(r: RequestRow, key: SortKey): string | number {
       return r.client ?? ''
     case 'ip':
       return r.ip ?? ''
+    case 'chat':
+      return r.conversation_id ?? ''
     case 'status':
       return r.status === 0 ? 1000 : r.status
     case 'tokens':

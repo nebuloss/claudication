@@ -16,10 +16,20 @@ import { useEscapeKey } from '../hooks'
  * behind it, so on a screen made of stacked cards the fills alone give the eye
  * nothing to catch. The border is what says where one card ends.
  */
+/**
+ * A card, with its prose held to a readable line.
+ *
+ * The max-w on paragraphs is the whole reason every screen can share one page
+ * width. A card spans the window because a table inside it needs to; a
+ * sentence inside it set to the same 1800px is unreadable, and the eye loses
+ * the start of the next line. Capping the text rather than the card is what
+ * lets both be true, and it is one rule here instead of a class on every
+ * paragraph in the app.
+ */
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
     <section
-      className={`rounded-[var(--radius-md3-xl)] border border-outline bg-surface-container p-6 ${className}`}
+      className={`rounded-[var(--radius-md3-xl)] border border-outline bg-surface-container p-6 [&_p]:max-w-[80ch] ${className}`}
     >
       {children}
     </section>

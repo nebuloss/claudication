@@ -573,6 +573,7 @@ type RequestFacets struct {
 	Clients  []FacetValue `json:"clients"`
 	IPs      []FacetValue `json:"ips"`
 	Statuses []FacetValue `json:"statuses"`
+	Chats    []FacetValue `json:"chats"`
 }
 
 // RequestFacets lists what every filterable column holds, with counts.
@@ -612,6 +613,9 @@ func (s *Store) RequestFacets(ctx context.Context, limit int) (RequestFacets, er
 	if out.Statuses, err = s.statusFacet(ctx, limit); err != nil {
 		return RequestFacets{}, err
 	}
+	if out.Chats, err = s.chatFacet(ctx, limit); err != nil {
+		return RequestFacets{}, err
+	}
 	return out, nil
 }
 
@@ -636,6 +640,43 @@ func (s *Store) facet(ctx context.Context, column string, limit int) ([]FacetVal
 		if err := rows.Scan(&v.Value, &v.Count); err != nil {
 			return nil, fmt.Errorf("facet %s: %w", column, err)
 		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// chatFacet counts by conversation, labelled with the name the chat has if it
+// has one.
+//
+// Its own query rather than facet("conversation_id") because an id is not
+// something anyone recognises: a menu of sixteen hex characters is a menu you
+// cannot use. The title comes from the same table the Chats screen reads, and
+// a conversation without one keeps its id as the label.
+//
+// The empty conversation is excluded. Every request whose client named no chat
+// shares it, which on most gateways is the largest bucket and is not a chat.
+func (s *Store) chatFacet(ctx context.Context, limit int) ([]FacetValue, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT e.conversation_id, COALESCE(t.title, ''), COUNT(*)
+		FROM usage_events e
+		LEFT JOIN chat_titles t ON t.conversation_id = e.conversation_id
+		WHERE e.conversation_id <> ''
+		GROUP BY e.conversation_id
+		ORDER BY COUNT(*) DESC, e.conversation_id ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("facet chats: %w", err)
+	}
+	defer rows.Close()
+
+	out := []FacetValue{}
+	for rows.Next() {
+		var v FacetValue
+		var title string
+		if err := rows.Scan(&v.Value, &title, &v.Count); err != nil {
+			return nil, fmt.Errorf("facet chats: %w", err)
+		}
+		v.Label = title
 		out = append(out, v)
 	}
 	return out, rows.Err()
