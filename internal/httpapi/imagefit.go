@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"sync"
+	"sync/atomic"
 )
 
 // imageFitSetting is the settings row holding the switch.
@@ -23,9 +23,11 @@ const imageFitSetting = "passthrough.fit-oversized-images"
 // knows whether the detail it loses mattered.
 type imageFit struct {
 	server *Server
-
-	mu sync.Mutex
-	on bool
+	// Atomic rather than mutex-guarded: the relay reads this on every request
+	// it forwards, so it is one of the few flags here that is genuinely on a
+	// hot path. A mutex would be a shared lock taken by every concurrent
+	// stream to answer a question whose value is one bit.
+	on atomic.Bool
 }
 
 func newImageFit(s *Server) *imageFit { return &imageFit{server: s} }
@@ -37,17 +39,11 @@ func (f *imageFit) load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.on = stored[imageFitSetting] == "true"
+	f.on.Store(stored[imageFitSetting] == "true")
 	return nil
 }
 
-func (f *imageFit) enabled() bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.on
-}
+func (f *imageFit) enabled() bool { return f.on.Load() }
 
 // set changes the switch. The store is written first, so a switch that took
 // effect but did not survive a restart is not a state this can reach.
@@ -59,9 +55,7 @@ func (f *imageFit) set(ctx context.Context, on bool) error {
 	if err := f.server.store.SetSetting(ctx, imageFitSetting, value); err != nil {
 		return err
 	}
-	f.mu.Lock()
-	f.on = on
-	f.mu.Unlock()
+	f.on.Store(on)
 	return nil
 }
 

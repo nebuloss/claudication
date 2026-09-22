@@ -3,7 +3,7 @@ import { api } from '../../api/client'
 import { Banner, Card, CardTitle, Switch } from '../primitives'
 
 /**
- * The switch for the public setup page.
+ * The switch for the public docs page.
  *
  * Off by default, and this is the one switch here whose default is about
  * posture rather than cost. The page is served at the root of the relay, which
@@ -46,7 +46,7 @@ export default function PublicDocs({
 
   return (
     <Card>
-      <CardTitle>Public setup page</CardTitle>
+      <CardTitle>Public docs page</CardTitle>
 
       <p className="mt-0 mb-4 text-sm text-on-surface-variant">
         The instructions for pointing a client at this gateway &mdash; the config files with its
@@ -66,7 +66,7 @@ export default function PublicDocs({
           checked={shown}
           disabled={busy}
           onChange={(v) => void toggle(v)}
-          label="Serve the setup page"
+          label="Serve the docs page"
         />
         <div className="mt-2 sm:ml-16">
           <p className="mt-0 mb-2 text-xs text-on-surface-variant">

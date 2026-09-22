@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"claudication/internal/config"
@@ -73,7 +74,7 @@ func (c *modelCache) get(ctx context.Context, fetch func(context.Context) ([]byt
 	return out
 }
 
-// welcomePage is what a browser gets at the root when the setup page is off.
+// welcomePage is what a browser gets at the root when the docs page is off.
 //
 // A JSON error is the right answer to a client that asked for an endpoint and
 // the wrong one to a person who typed the address: {"error":{"type":
@@ -161,9 +162,10 @@ const docsSetting = "docs.enabled"
 // thing that should start happening because someone upgraded.
 type docsSwitch struct {
 	server *Server
-
-	mu sync.Mutex
-	on bool
+	// Atomic for the same reason imageFit is, though this one is read far less
+	// often: only requests that reach the catch-all root ask it, and relay
+	// traffic never does — /v1/messages is its own route.
+	on atomic.Bool
 }
 
 func newDocsSwitch(s *Server) *docsSwitch { return &docsSwitch{server: s} }
@@ -173,18 +175,12 @@ func (d *docsSwitch) load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.on = stored[docsSetting] == "true"
+	d.on.Store(stored[docsSetting] == "true")
 	return nil
 }
 
 // enabled reports whether to serve it.
-func (d *docsSwitch) enabled() bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.on
-}
+func (d *docsSwitch) enabled() bool { return d.on.Load() }
 
 func (d *docsSwitch) change(ctx context.Context, on bool) error {
 	value := "false"
@@ -194,9 +190,7 @@ func (d *docsSwitch) change(ctx context.Context, on bool) error {
 	if err := d.server.store.SetSetting(ctx, docsSetting, value); err != nil {
 		return err
 	}
-	d.mu.Lock()
-	d.on = on
-	d.mu.Unlock()
+	d.on.Store(on)
 	return nil
 }
 
@@ -218,7 +212,7 @@ func (s *Server) handleSetDocs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"docs_enabled": s.docs.enabled()})
 }
 
-// handleDocsInfo is everything the public setup page needs, and nothing else.
+// handleDocsInfo is everything the public docs page needs, and nothing else.
 //
 // Deliberately not /admin/overview or /admin/config, which is what the in-app
 // Setup screen read. Those carry the listen addresses, the state directory,

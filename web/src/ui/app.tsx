@@ -145,7 +145,7 @@ export default function App() {
   // One value for the header, the nav and the page, so the tab underline stays
   // over its tab when the measure changes.
   const measure = WIDE.includes(tab) ? 'max-w-[110rem]' : 'max-w-4xl'
-  // Empty unless a public setup page is configured, published and switched on,
+  // Empty unless a public docs page is configured, published and switched on,
   // in which case the header links out to it. Allowed to fail silently: a
   // missing link is a missing link, not a reason to fail the shell.
   const docsURL = docs?.docs_enabled === true ? (docs.docs_url ?? '') : ''
@@ -176,7 +176,7 @@ export default function App() {
               // Opens in a tab of its own: it is a different site on a
               // different listener, and the person reading it is usually
               // copying out of it while doing something else.
-              <IconLink label="Client setup guide" href={docsURL}>
+              <IconLink label="Documentation" href={docsURL}>
                 <path d="M6 2h9l5 5v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm8 1.5V8h4.5L14 3.5zM8 12h8v1.5H8V12zm0 4h8v1.5H8V16zm0-8h4v1.5H8V8z" />
               </IconLink>
             )}

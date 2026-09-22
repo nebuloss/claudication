@@ -142,7 +142,7 @@ func (a asset) serve(w http.ResponseWriter, r *http.Request) {
 // bundle is the embedded build, read once.
 //
 // Once per process rather than once per handler: there are two entry documents
-// now — index.html for the admin app and docs.html for the public setup page —
+// now — index.html for the admin app and docs.html for the public docs page —
 // and they are two views of the same files. Compressing the lot twice would
 // buy nothing and hold two copies of it.
 func (s *Server) bundle() map[string]asset {

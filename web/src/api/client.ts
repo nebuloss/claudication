@@ -350,16 +350,16 @@ export interface GatewayConfig {
    */
   fit_images: boolean
   /**
-   * Where the public setup page is published, or empty when there is none.
+   * Where the public docs page is published, or empty when there is none.
    * The gateway cannot see its own outside name, so this is configured.
    */
   docs_url: string
-  /** Whether the public setup page is being served right now. */
+  /** Whether the public docs page is being served right now. */
   docs_enabled: boolean
 }
 
 /**
- * Everything the public setup page is told, and nothing else.
+ * Everything the public docs page is told, and nothing else.
  *
  * Deliberately not the admin overview or the configuration: those carry the
  * listen addresses, the state directory and every limit. This is four facts —

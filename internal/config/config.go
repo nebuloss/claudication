@@ -68,7 +68,7 @@ type Config struct {
 	// localhost or a management interface and it cannot be reached from
 	// outside however the proxy is configured.
 	AdminListen string `yaml:"admin-listen"`
-	// DocsListen puts the public setup page on a third address as well.
+	// DocsListen puts the public docs page on a third address as well.
 	//
 	// Not needed to have the page: with the switch on, the relay serves it at
 	// the root it otherwise 404s, which is the address someone pointing a

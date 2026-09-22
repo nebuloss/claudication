@@ -64,7 +64,7 @@ function TrafficCard({
  *
  * It used to carry the client instructions too, which meant the one job a new
  * user arrives to do was a card at the bottom of a dashboard. Those live on
- * the public setup page now, with the per-client configuration that was
+ * the public docs page now, with the per-client configuration that was
  * missing from them.
  */
 export default function Overview({
@@ -75,7 +75,7 @@ export default function Overview({
   onExpired: () => void
   onGoTo: (tab: 'accounts' | 'keys') => void
   /**
-   * The public setup page, or empty when there is none. Setup used to be a tab
+   * The public docs page, or empty when there is none. Setup used to be a tab
    * and this used to be a link to it; now it is a page of its own, on its own
    * listener, and an operator with no docs listener configured has nowhere for
    * this to point.

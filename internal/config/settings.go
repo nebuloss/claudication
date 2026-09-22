@@ -53,7 +53,7 @@ var definitions = []struct {
 		"Puts the admin API and UI on their own address. Empty shares one listener with the relay, which publishes the admin surface alongside it.",
 		func(c Config) string { return c.AdminListen }},
 	{"docs-listen", "CLAUDICATION_DOCS_LISTEN",
-		"Also serves the public setup page on an address of its own. Empty is fine: with the switch on, the relay serves it at the root it otherwise 404s.",
+		"Also serves the public docs page on an address of its own. Empty is fine: with the switch on, the relay serves it at the root it otherwise 404s.",
 		func(c Config) string { return c.DocsListen }},
 	{"docs-url", "CLAUDICATION_DOCS_URL",
 		"What that page is published as, when docs-listen puts it somewhere of its own. Empty means it is at public-url, where the relay serves it.",

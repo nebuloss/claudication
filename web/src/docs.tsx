@@ -5,7 +5,7 @@ import ThemeToggle from './ui/features/theme-toggle'
 import './ui/styles/index.css'
 
 /**
- * The public setup page: its own entry, its own document, its own listener.
+ * The public docs page: its own entry, its own document, its own listener.
  *
  * Not a route of the admin app. The admin bundle carries every screen that
  * administers this gateway, and the point of this page is that it can be

@@ -241,7 +241,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 type role struct {
 	gateway bool
 	admin   bool
-	// docs serves the public setup page, and only that: one document at /, the
+	// docs serves the public docs page, and only that: one document at /, the
 	// assets it needs, and one read-only endpoint behind it. No session, no
 	// relay, nothing that can change anything.
 	docs bool
@@ -255,14 +255,14 @@ const (
 	rootNothing rootMode = iota
 	// rootAdmin is the admin single-page app, and the sign-in link it spends.
 	rootAdmin
-	// rootSetup is the public setup page.
-	rootSetup
-	// rootWelcome is that same address with the setup page switched off: a
+	// rootDocs is the public docs page.
+	rootDocs
+	// rootWelcome is that same address with the docs page switched off: a
 	// short page saying what the address is, and nothing about this gateway.
 	rootWelcome
 )
 
-// rootMode decides which, per request, because the setup page sits behind a
+// rootMode decides which, per request, because the docs page sits behind a
 // switch an operator can flip while the gateway runs.
 //
 // The order is the precedence. The admin UI owns the root wherever it is
@@ -274,7 +274,7 @@ func (s *Server) rootMode(r0 role) rootMode {
 	case r0.admin:
 		return rootAdmin
 	case r0.docs && s.docs.enabled():
-		return rootSetup
+		return rootDocs
 	case r0.docs:
 		return rootWelcome
 	default:
@@ -422,7 +422,7 @@ func (s *Server) routes(r0 role) http.Handler {
 	// them the root serves depends on a switch an operator can flip while the
 	// gateway is running.
 	adminUI := s.staticHandler("index.html")
-	setupUI := s.staticHandler("docs.html")
+	docsUI := s.staticHandler("docs.html")
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		notFound := func() {
 			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
@@ -447,9 +447,9 @@ func (s *Server) routes(r0 role) http.Handler {
 			}
 			adminUI.ServeHTTP(w, r)
 
-		case rootSetup:
+		case rootDocs:
 			setDocumentHeaders(w)
-			setupUI.ServeHTTP(w, r)
+			docsUI.ServeHTTP(w, r)
 
 		case rootWelcome:
 			// The root is the one path a person reaches by typing rather than
@@ -624,7 +624,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if docsLn != nil {
 		go func() {
 			s.log.Info("docs listening", "addr", docsLn.Addr().String(),
-				"serving", "the public setup page")
+				"serving", "the public docs page")
 			if err := s.docsServer.Serve(docsLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 				return
