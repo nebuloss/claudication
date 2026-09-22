@@ -195,20 +195,44 @@ function RecentRequests({
     sorted: sort.key === key ? sort.dir : undefined,
   })
 
+  // Which facet belongs to which filter field. One place, because the menus
+  // and the chips both need it and they were answering it differently: a chat
+  // read as its name in the menu and as sixteen hex characters in the chip
+  // that the menu had just set.
+  const facetFor = (field: SetField): FacetValue[] => {
+    switch (field) {
+      case 'model':
+        return facets?.models ?? []
+      case 'client':
+        return facets?.clients ?? []
+      case 'ip':
+        return facets?.ips ?? []
+      case 'code':
+        return facets?.statuses ?? []
+      case 'chat':
+        return facets?.chats ?? []
+      default:
+        return []
+    }
+  }
+
+  // What to call a filtered value. The facet's label where there is one — a
+  // chat's name, "no answer" for a status of 0 — and the value itself
+  // otherwise, which is the common case and already readable.
+  const labelOf = (field: SetField, value: string): string => {
+    const hit = facetFor(field).find((v) => v.value === value)
+    return hit?.label !== undefined && hit.label !== '' ? hit.label : value
+  }
+
   // The same heading, plus the values that column actually holds. Clicking the
   // title opens them; clicking a cell still narrows to that one row's value,
   // which is the faster move when what you want is already in front of you.
-  const faceted = (
-    label: string,
-    key: SortKey,
-    field: SetField,
-    values: FacetValue[] | undefined,
-  ): Column => ({
+  const faceted = (label: string, key: SortKey, field: SetField): Column => ({
     ...column(label, key),
     filtered: filter[field].length > 0,
     menu: (
       <FacetList
-        values={values ?? []}
+        values={facetFor(field)}
         chosen={filter[field]}
         loaded={facets !== null}
         onToggle={(v) => onNarrow({ ...filter, [field]: toggled(filter[field], v) })}
@@ -318,7 +342,7 @@ function RecentRequests({
               title={`Stop filtering by this ${fieldWord(field)}`}
               className="state-layer inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-md3-s)] border border-outline px-2.5 text-xs font-medium text-on-surface-variant"
             >
-              {fieldWord(field)}: {chipValue(value)}
+              {fieldWord(field)}: {chipValue(labelOf(field, value))}
               <span aria-hidden className="text-base leading-none">
                 &times;
               </span>
@@ -352,11 +376,11 @@ function RecentRequests({
             // Not Date and not Time: the cell is a time on today's rows, a
             // date and a time on older ones, and an epoch once copied.
             column('Timestamp', 'at'),
-            faceted('Model', 'model', 'model', facets?.models),
-            faceted('Chat', 'chat', 'chat', facets?.chats),
-            faceted('Client', 'client', 'client', facets?.clients),
-            faceted('IP', 'ip', 'ip', facets?.ips),
-            faceted('Status', 'status', 'code', facets?.statuses),
+            faceted('Model', 'model', 'model'),
+            faceted('Chat', 'chat', 'chat'),
+            faceted('Client', 'client', 'client'),
+            faceted('IP', 'ip', 'ip'),
+            faceted('Status', 'status', 'code'),
             column('Tokens', 'tokens'),
             column('Duration', 'duration'),
             'Message',
