@@ -38,6 +38,8 @@ type Server struct {
 	docsServer     *http.Server
 	// docsModels keeps the public page from spending an upstream call per hit.
 	docsModels  modelCache
+	bundleOnce  sync.Once
+	assets      map[string]asset
 	adminAddr   string
 	stopSweeper chan struct{}
 	sealer      *secret.Sealer
@@ -245,6 +247,51 @@ type role struct {
 	docs bool
 }
 
+// rootMode is what a listener's root serves.
+type rootMode int
+
+const (
+	// rootNothing is a relay-only listener, where every path is an API path.
+	rootNothing rootMode = iota
+	// rootAdmin is the admin single-page app, and the sign-in link it spends.
+	rootAdmin
+	// rootSetup is the public setup page.
+	rootSetup
+	// rootWelcome is that same address with the setup page switched off: a
+	// short page saying what the address is, and nothing about this gateway.
+	rootWelcome
+)
+
+// rootMode decides which, per request, because the setup page sits behind a
+// switch an operator can flip while the gateway runs.
+//
+// The order is the precedence. The admin UI owns the root wherever it is
+// served: a listener carrying both roles is a single-listener deployment,
+// where the whole surface is private already and a public page beside it would
+// be a contradiction rather than a feature.
+func (s *Server) rootMode(r0 role) rootMode {
+	switch {
+	case r0.admin:
+		return rootAdmin
+	case r0.docs && s.docs.enabled():
+		return rootSetup
+	case r0.docs:
+		return rootWelcome
+	default:
+		return rootNothing
+	}
+}
+
+// setDocumentHeaders guards the two pages this gateway serves.
+//
+// no-referrer so a ?token= link cannot leak to Anthropic when the consent tab
+// opens; nosniff because we serve JavaScript from the same origin as
+// user-supplied account data.
+func setDocumentHeaders(w http.ResponseWriter) {
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+}
+
 func (s *Server) routes(r0 role) http.Handler {
 	mux := http.NewServeMux()
 
@@ -371,44 +418,54 @@ func (s *Server) routes(r0 role) http.Handler {
 	// more specific than the other, which is precisely what ServeMux panics on.
 	// A method-less "/" is the most general pattern there is, so every API
 	// prefix above is a strict subset of it and nothing conflicts.
-	entry := "index.html"
-	if r0.docs && !r0.admin {
-		entry = "docs.html"
-	}
-	ui := s.staticHandler(entry)
+	// One handler per document, built once and chosen per request: which of
+	// them the root serves depends on a switch an operator can flip while the
+	// gateway is running.
+	adminUI := s.staticHandler("index.html")
+	setupUI := s.staticHandler("docs.html")
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// A listener that serves only the relay has no UI and no sign-in link
-		// to spend: everything that is not an API path it knows is a 404, in
-		// the client's own language.
-		if r0.docs && !r0.admin && !s.docs.enabled() {
+		notFound := func() {
+			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+		}
+		// Everything below serves documents, so nothing below answers a write.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			notFound()
+			return
+		}
+
+		switch s.rootMode(r0) {
+		case rootAdmin:
+			setDocumentHeaders(w)
+			// Only a page load spends the link. Every request under this
+			// handler carries the query string it was reached with, so a
+			// prefetched favicon, a stylesheet, or a service worker fetching
+			// `/?token=…` would each burn a single-use sign-in link and leave
+			// the operator looking at "already used" on the request they
+			// actually made.
+			if isNavigation(r) && s.tokenLogin(w, r, "/") {
+				return
+			}
+			adminUI.ServeHTTP(w, r)
+
+		case rootSetup:
+			setDocumentHeaders(w)
+			setupUI.ServeHTTP(w, r)
+
+		case rootWelcome:
 			// The root is the one path a person reaches by typing rather than
-			// by calling, so it answers in HTML. Every other path is a client
-			// that asked for an endpoint, and gets the error shape it can read.
-			if r.URL.Path == "/" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			// by calling, so it answers in HTML. Everything else is a client
+			// that asked for an endpoint and gets the shape it can parse.
+			if r.URL.Path == "/" {
 				serveWelcome(w, r)
 				return
 			}
-			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
-			return
+			notFound()
+
+		default:
+			// A listener serving only the relay: every path it did not claim
+			// above is an API path it does not have.
+			notFound()
 		}
-		if !(r0.admin || r0.docs) || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
-			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
-			return
-		}
-		// no-referrer so a ?token= link cannot leak to Anthropic when the
-		// consent tab opens; nosniff because we serve JS from the same origin
-		// as user-supplied account data.
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		// Only a page load spends the link. Every request under this handler
-		// carries the query string it was reached with, so a prefetched
-		// favicon, a stylesheet, or a service worker fetching `/?token=…`
-		// would each burn a single-use sign-in link and leave the operator
-		// looking at "already used" on the request they actually made.
-		if r0.admin && isNavigation(r) && s.tokenLogin(w, r, "/") {
-			return
-		}
-		ui.ServeHTTP(w, r)
 	}))
 
 	var h http.Handler = mux

@@ -139,22 +139,22 @@ func (a asset) serve(w http.ResponseWriter, r *http.Request) {
 // A binary with no UI compiled in still starts and still proxies: the gateway's
 // job is inference, and the admin screens are a convenience on top. Saying so
 // on a page beats a bare 503 that looks like the whole thing is broken.
-// staticHandler serves the embedded build, with entry as the document a
-// path-like miss falls back to.
+// bundle is the embedded build, read once.
 //
-// Parameterised because there are two entries now: index.html is the admin
-// single-page app, and docs.html is the public setup page on its own listener.
-// They share the build, the chunks and this handler; what differs is which
-// document the root resolves to.
-func (s *Server) staticHandler(entry string) http.Handler {
+// Once per process rather than once per handler: there are two entry documents
+// now — index.html for the admin app and docs.html for the public setup page —
+// and they are two views of the same files. Compressing the lot twice would
+// buy nothing and hold two copies of it.
+func (s *Server) bundle() map[string]asset {
+	s.bundleOnce.Do(func() { s.assets = s.readBundle() })
+	return s.assets
+}
+
+func (s *Server) readBundle() map[string]asset {
 	root, err := fs.Sub(webdist, "webdist")
 	if err != nil {
 		s.log.Error("embedded UI unreadable", "err", err)
-		return http.HandlerFunc(notBuilt)
-	}
-	if _, err := fs.ReadFile(root, entry); err != nil {
-		s.log.Warn("no embedded UI for this listener; serving the API only", "entry", entry)
-		return http.HandlerFunc(notBuilt)
+		return nil
 	}
 
 	// The whole UI is a few hundred kilobytes and never changes for the life of
@@ -181,11 +181,23 @@ func (s *Server) staticHandler(entry string) http.Handler {
 	})
 	if err != nil {
 		s.log.Error("embedded UI unreadable", "err", err)
+		return nil
+	}
+	s.log.Debug("UI prepared", "files", len(assets), "bytes", raw, "gzipped", packed)
+	return assets
+}
+
+// staticHandler serves that build, with entry as the document the root and any
+// path-like miss resolve to.
+//
+// One handler per entry, over the one shared set of files.
+func (s *Server) staticHandler(entry string) http.Handler {
+	assets := s.bundle()
+	index, ok := assets[entry]
+	if !ok {
+		s.log.Warn("no embedded UI for this listener; serving the API only", "entry", entry)
 		return http.HandlerFunc(notBuilt)
 	}
-	s.log.Debug("admin UI prepared", "files", len(assets), "bytes", raw, "gzipped", packed)
-
-	index := assets[entry]
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clean := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
