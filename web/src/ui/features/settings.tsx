@@ -4,8 +4,7 @@ import ImageFit from './image-fit'
 import PublicDocs from './public-docs'
 import Security from './security'
 import Surfaces from './surfaces'
-import { api, type GatewayConfig, type Session } from '../../api/client'
-import { useLoader } from '../hooks'
+import { type GatewayConfig, type Session } from '../../api/client'
 import { Card, Empty, Spinner } from '../primitives'
 
 /**
@@ -30,11 +29,25 @@ import { Card, Empty, Spinner } from '../primitives'
 export default function Settings({
   session,
   onSessionChanged,
+  config,
+  onConfigChanged,
 }: {
   session: Session
   onSessionChanged: () => void
+  /**
+   * Loaded by the shell rather than here.
+   *
+   * The same argument this screen already made for loading the switches and
+   * the settings rows together, one level up: the header carries a link that
+   * one of these switches turns on, and with two copies of the configuration
+   * the card knew it had changed and the header did not — so the link only
+   * appeared after a refresh.
+   */
+  config: { data: GatewayConfig | null; error: string; loading: boolean }
+  onConfigChanged: () => void
 }) {
-  const { data, error, loading, reload } = useLoader<GatewayConfig>(() => api.config())
+  const { data, error, loading } = config
+  const reload = onConfigChanged
 
   return (
     <div className="flex flex-col gap-5">

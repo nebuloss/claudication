@@ -81,11 +81,15 @@ const TAB_LABELS: Record<Tab, string> = {
 export default function App() {
   const [state, setState] = useState<State>({ phase: 'probing' })
   const [tab, setTab] = usePathTab<Tab>(TABS, 'overview')
-  // The one configuration value the shell itself needs: where the public setup
-  // page is, for the header link. Declared with the other hooks so the order
-  // never changes across the early returns below, and allowed to fail — signed
-  // out this 401s, and a missing link is the right outcome then anyway.
-  const { data: docs } = useLoader<GatewayConfig>(() => api.config())
+  // The configuration, loaded once for the whole signed-in app: the header
+  // reads the docs link out of it and Settings renders the rest of it. One
+  // copy, because a switch on that screen decides whether the header shows a
+  // link, and with two the card knew it had changed and the header did not.
+  //
+  // Declared with the other hooks so the order never changes across the early
+  // returns below, and allowed to fail — signed out this 401s, and no link is
+  // the right outcome then anyway.
+  const config = useLoader<GatewayConfig>(() => api.config())
   // A freshly minted API key lives here, not in the Keys panel: panels unmount
   // on a tab change, and the tabs are hash routes, so Back unmounts one too.
   // The plaintext exists nowhere else — the store keeps only its hash — so
@@ -149,7 +153,7 @@ export default function App() {
   // Empty unless a public docs page is configured, published and switched on,
   // in which case the header links out to it. Allowed to fail silently: a
   // missing link is a missing link, not a reason to fail the shell.
-  const docsURL = docs?.docs_enabled === true ? (docs.docs_url ?? '') : ''
+  const docsURL = config.data?.docs_enabled === true ? (config.data.docs_url ?? '') : ''
 
   return (
     <div className="min-h-dvh">
@@ -218,7 +222,12 @@ export default function App() {
         {tab === 'usage' && <UsagePanel onExpired={expired} />}
         {tab === 'requests' && <RequestsPanel onExpired={expired} />}
         {tab === 'settings' && (
-          <Settings session={state.session} onSessionChanged={() => void probe()} />
+          <Settings
+            session={state.session}
+            onSessionChanged={() => void probe()}
+            config={config}
+            onConfigChanged={() => void config.reload()}
+          />
         )}
       </main>
 
