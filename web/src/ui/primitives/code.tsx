@@ -144,15 +144,30 @@ export function CodeViewer({
   const [copied, setCopied] = useState(false)
   const [failed, setFailed] = useState(false)
 
-  // Highlighted once per file rather than once per render. The catalog is a
-  // thousand lines, and without this every Copy click — which sets state —
-  // would re-tokenise all of them.
+  const [expanded, setExpanded] = useState(false)
+
+  // Splitting is cheap; tokenising is not. Kept apart so the count, the gutter
+  // width and the label can all be had without highlighting anything.
+  const raw = useMemo(() => value.replace(/\n$/, '').split('\n'), [value])
+  const long = raw.length > MAX_LINES
+
+  // Only the lines on screen are highlighted, and only they become elements.
+  //
+  // The page shows four clients at once now, one of which is Codex's model
+  // catalog at a thousand lines — and every one of those was being tokenised
+  // and turned into two DOM nodes at mount, for text behind a scroll box
+  // nobody had opened. A file longer than the box shows the first screenful
+  // until it is asked for the rest, which costs nothing anyone can see and
+  // takes about fifteen hundred elements off the first paint.
+  //
+  // Copy and Download are unaffected either way: both work from the string,
+  // not from what has been drawn.
   const lines = useMemo(
-    () => value.replace(/\n$/, '').split('\n').map((line) => highlight(line, lang)),
-    [value, lang],
+    () => (expanded || !long ? raw : raw.slice(0, MAX_LINES)).map((l) => highlight(l, lang)),
+    [raw, expanded, long, lang],
   )
-  const scrolls = lines.length > MAX_LINES
-  const gutter = String(lines.length).length
+  const scrolls = expanded && long
+  const gutter = String(raw.length).length
 
   const copy = async () => {
     if (await copyText(value)) {
@@ -168,7 +183,7 @@ export function CodeViewer({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-outline-variant bg-surface-high px-3 py-2">
         <span className="font-mono text-xs text-on-surface">{label}</span>
         <span className="text-[11px] text-on-surface-variant">
-          {LANG_LABEL[lang]} · {lines.length} lines
+          {LANG_LABEL[lang]} · {raw.length} lines
         </span>
         <span className="ml-auto flex gap-2">
           <TonalButton onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</TonalButton>
@@ -184,7 +199,7 @@ export function CodeViewer({
         className={`isolate overflow-auto bg-surface-lowest ${scrolls ? 'max-h-[26rem]' : ''}`}
         tabIndex={0}
         role="region"
-        aria-label={`${label}, ${lines.length} lines`}
+        aria-label={`${label}, ${raw.length} lines`}
       >
         {/* A grid rather than two scrolling columns: the gutter has to stay
             put horizontally and move vertically with the code, and one grid
@@ -204,6 +219,16 @@ export function CodeViewer({
           ))}
         </div>
       </div>
+
+      {long && !expanded && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="state-layer block w-full border-t border-outline-variant px-3 py-2 text-xs font-medium text-primary"
+        >
+          Show all {raw.length} lines
+        </button>
+      )}
 
       {failed && (
         <ErrorModal

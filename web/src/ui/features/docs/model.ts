@@ -104,8 +104,5 @@ export class ClientRecipe {
 /** A symptom and what actually causes it. */
 export type Symptom = { symptom: string; cause: ReactNode }
 
-/** A command run on the machine hosting the gateway. */
-export type Command = { cmd: string; what: ReactNode }
-
 /** One addressable part of the page, for the heading and the contents list. */
 export type Section = { id: string; title: string }

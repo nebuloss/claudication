@@ -3,7 +3,7 @@ import codexToml from '#configs/clients/codex.toml?raw'
 import codexModels from '#configs/clients/codex-models.json?raw'
 import crushJson from '#configs/clients/crush.json?raw'
 import opencodeJsonc from '#configs/clients/opencode.jsonc?raw'
-import { ClientRecipe, type Command, type Section, type Symptom } from './model'
+import { ClientRecipe, type Section, type Symptom } from './model'
 
 /**
  * What the docs page says, with no idea how any of it is drawn.
@@ -178,28 +178,6 @@ export const TROUBLESHOOTING: Symptom[] = [
   },
 ]
 
-/** Run on the machine hosting the gateway, by whoever runs it. */
-export const OPERATOR_COMMANDS: Command[] = [
-  {
-    cmd: 'claudication keys add -name NAME',
-    what: 'Mint a client API key, for a provisioning script.',
-  },
-  {
-    cmd: 'claudication login-url',
-    what: 'A single-use link that signs a browser into the admin UI. Spent on first use.',
-  },
-  { cmd: 'claudication passwd', what: 'Set the admin password. The way back in when it is lost.' },
-  {
-    cmd: 'claudication backup FILE',
-    what: (
-      <>
-        A consistent snapshot without stopping the service. It holds the sealing key and every
-        stored token together, so treat the file as exactly as sensitive as the gateway itself.
-      </>
-    ),
-  },
-]
-
 /**
  * The page's sections, in order.
  *
@@ -213,5 +191,4 @@ export const SECTIONS: Section[] = [
   ...CLIENTS.map((c) => ({ id: c.id, title: c.label })),
   { id: 'models', title: 'Models' },
   { id: 'troubleshooting', title: 'Troubleshooting' },
-  { id: 'operator', title: 'For the operator' },
 ]

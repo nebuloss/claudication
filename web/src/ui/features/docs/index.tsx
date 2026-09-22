@@ -3,7 +3,7 @@ import { api, type DocsInfo } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { Banner, CopyField, Spinner } from '../../primitives'
 import { CodeViewer } from '../../primitives/code'
-import { CLIENTS, OPERATOR_COMMANDS, SECTIONS, TROUBLESHOOTING } from './content'
+import { CLIENTS, SECTIONS, TROUBLESHOOTING } from './content'
 import { EXAMPLE_BASE, type ClientRecipe } from './model'
 import { useCurrentSection } from './use-current-section'
 
@@ -140,21 +140,6 @@ export default function Docs() {
           />
         </Section>
 
-        <Section id="operator" title="For the operator">
-          <P>
-            Nothing on this page needs these — they are here because they are the answers to
-            questions the rest of it raises. They run on the machine hosting the gateway, where
-            shell access to its state directory is already the higher privilege, which is why none
-            of them asks for the admin password.
-          </P>
-          <DefinitionList
-            items={OPERATOR_COMMANDS.map((c) => ({
-              key: c.cmd,
-              term: <code className="font-mono text-xs text-on-surface">{c.cmd}</code>,
-              detail: c.what,
-            }))}
-          />
-        </Section>
       </article>
 
       <Contents />
