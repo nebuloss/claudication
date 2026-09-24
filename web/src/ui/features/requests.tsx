@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   ApiError,
   api,
@@ -12,17 +12,18 @@ import {
   Modal,
   Chip,
   Empty,
+  Freshness,
   KeyValue,
   MenuRow,
   Spinner,
   Table,
   type Column,
   TonalButton,
-  TextButton,
   Verbatim,
   compact,
   copyText,
 } from '../primitives'
+import { useLive } from '../hooks'
 
 /**
  * Every request that reached the gateway, newest first.
@@ -40,6 +41,9 @@ import {
  */
 
 const PAGE = 50
+
+/** The activity list's whole subject is what just happened, so it polls often. */
+const ACTIVITY_REFRESH_MS = 10_000
 
 /**
  * The activity list, paged.
@@ -160,6 +164,10 @@ function RecentRequests({
   const [shown, setShown] = useState<RequestRow | null>(null)
   const [sort, setSort] = useState<Sort>({ key: 'at', dir: 'desc' })
   const [facets, setFacets] = useState<RequestFacets | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [updatedAt, setUpdatedAt] = useState(0)
+  const [live] = useLive()
+  const busy = useRef(false)
 
   // What the column menus can offer, counted over the whole log rather than
   // the page on screen — a menu built from fifty rows can only offer what you
@@ -276,6 +284,8 @@ function RecentRequests({
 
   const load = useCallback(
     async (after: string) => {
+      if (busy.current) return
+      busy.current = true
       const first = after === ''
       first ? setLoading(true) : setLoadingMore(true)
       setError('')
@@ -285,6 +295,7 @@ function RecentRequests({
         // a stale tail below freshly loaded rows.
         setRows((prev) => (first ? page.rows : [...prev, ...page.rows]))
         setCursor(page.nextCursor)
+        setUpdatedAt(Date.now())
       } catch (err) {
         if (err instanceof ApiError && err.isUnauthenticated) {
           onExpired()
@@ -292,12 +303,63 @@ function RecentRequests({
         }
         setError(messageOf(err))
       } finally {
+        busy.current = false
         first ? setLoading(false) : setLoadingMore(false)
       }
     },
     // filter is part of the query, so a change to it makes a different list.
     [onExpired, filter],
   )
+
+  /**
+   * A poll must not undo paging. Re-reading the first page and replacing the
+   * list would throw away every "Load more" the operator has pressed, so this
+   * takes only the rows that are newer than the top one and puts them above.
+   *
+   * Unless a whole page of them is new, which means the gateway has served
+   * more than PAGE requests since the last tick and there is a hole between
+   * what arrived and what is held. Starting over is the honest answer to that:
+   * a list with a silent gap in the middle is worse than a short one.
+   *
+   * Sorting is applied below over whatever this leaves in `rows`, so a list
+   * sorted by duration still gains new rows in the right place.
+   */
+  const poll = useCallback(async () => {
+    if (busy.current || document.visibilityState !== 'visible') return
+    busy.current = true
+    setRefreshing(true)
+    try {
+      const page = await api.recentRequests(PAGE, '', filter)
+      setRows((prev) => {
+        if (prev.length === 0) return page.rows
+        const newest = prev.reduce((m, r) => Math.max(m, new Date(r.at).getTime()), 0)
+        const fresh = page.rows.filter((r) => new Date(r.at).getTime() > newest)
+        if (fresh.length === 0) return prev
+        return fresh.length >= PAGE ? page.rows : [...fresh, ...prev]
+      })
+      setUpdatedAt(Date.now())
+      // The menus are counted over the whole log, so new rows can add a value
+      // that was not offered a minute ago.
+      loadFacets()
+    } catch {
+      // Keep what is on screen; the next tick tries again. Only a refresh the
+      // operator asked for is worth reporting as a failure.
+    } finally {
+      busy.current = false
+      setRefreshing(false)
+    }
+  }, [filter, loadFacets])
+
+  useEffect(() => {
+    if (!live) return
+    const timer = window.setInterval(() => void poll(), ACTIVITY_REFRESH_MS)
+    const onVisible = () => void poll()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [live, poll])
 
   useEffect(() => {
     // From the first page: the cursor belongs to the previous filter, and
@@ -371,7 +433,12 @@ function RecentRequests({
         >
           Download CSV
         </a>
-        <TextButton onClick={() => void load('')}>Refresh</TextButton>
+        <Freshness
+          updatedAt={updatedAt}
+          refreshing={refreshing}
+          live={live}
+          onRefresh={() => void load('')}
+        />
       </div>
 
       {/* What is narrowed, all of it, in one place. A filtered list that looks

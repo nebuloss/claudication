@@ -4,11 +4,47 @@ DIST    := dist
 WEBDIST := internal/httpapi/webdist
 PKG     := claudication/internal/version
 
+# Pin the compiler to the exact version go.mod asks for.
+#
+# The `go` directive is only a floor: a machine with a newer Go installed uses
+# that one, and two compiler versions produce two different binaries from
+# identical source. Naming it here makes GOTOOLCHAIN fetch and use precisely
+# that release, so the build does not depend on what happens to be installed.
+# A `toolchain` line in go.mod cannot do this job — `go mod tidy` deletes it
+# as redundant whenever it matches the `go` directive, which is exactly when
+# it is wanted.
+GOVERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
+export GOTOOLCHAIN := go$(GOVERSION)
+
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
-DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# The build date comes from the commit, not from the clock.
+#
+# This is the one thing that made every build differ from every other: stamping
+# `date -u` means two builds of the same source a second apart produce different
+# binaries, and then nobody can check that a published artifact was built from
+# the source it claims. Taking the commit time instead makes the stamp a
+# property of the input, which is what it was always supposed to mean.
+#
+# SOURCE_DATE_EPOCH is the cross-ecosystem convention for exactly this, so a
+# caller that already sets it (a distro packager, a tarball build with no .git)
+# wins over the git lookup.
+SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
+DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                || date -u -r "$(SOURCE_DATE_EPOCH)" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                || echo unknown)
+
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
-GOFLAGS := -trimpath
+
+# -trimpath strips the build machine's directory layout out of the binary.
+#
+# -buildvcs=false drops Go's own VCS stamp, which sounds like the opposite of
+# what reproducibility wants but is not: the stamp is only present when a .git
+# directory is, so a build from a released source tarball would otherwise never
+# match a build from a checkout of the same commit. The commit is already in
+# the binary, put there deliberately by -ldflags above.
+GOFLAGS := -trimpath -buildvcs=false
 
 # The platforms a release ships. modernc.org/sqlite carries a generated
 # translation per GOOS/GOARCH, so this list is bounded by what it supports
@@ -19,7 +55,7 @@ PLATFORMS ?= linux/amd64 linux/arm64 linux/arm linux/riscv64 \
              windows/amd64 windows/arm64 \
              freebsd/amd64
 
-.PHONY: help all build backend web web-deps dev dev-api run dist \
+.PHONY: help all build backend web web-deps dev dev-api run dist repro \
         fmt fmt-check vet tidy test test-go test-web typecheck web-build \
         check clean
 
@@ -48,7 +84,7 @@ dist: web
 	    go build $(GOFLAGS) -ldflags '$(LDFLAGS)' \
 	    -o $(DIST)/release/$(BINARY)-$$os-$$arch$$ext $(CMD); \
 	done
-	@cd $(DIST)/release && sha256sum * > SHA256SUMS
+	@cd $(DIST)/release && sha256sum $(BINARY)-* > SHA256SUMS
 	@echo; ls -1 $(DIST)/release
 
 ## web-deps: install the UI's dependencies from the lockfile
@@ -121,6 +157,35 @@ check: fmt-check vet test typecheck test-web web-build
 # a typecheck. Building the UI is the only thing that proves it compiles.
 web-build:
 	cd web && npm run build
+
+## repro: build twice in different conditions and prove the bytes match
+#
+# The claim "this binary was built from that commit" is only checkable if
+# anyone else building that commit gets the same bytes. This is the test of it,
+# and it is worth running before publishing anything, because the ways to break
+# it are all invisible: a timestamp in a stamp, an absolute path leaking
+# through, a dependency resolved differently on the day.
+#
+# The second pass gets an empty build cache and a different working directory
+# so that a path or a cached artifact leaking into the output shows up here
+# rather than in somebody else's mismatched checksum.
+repro: web
+	@rm -rf $(DIST)/repro && mkdir -p $(DIST)/repro
+	@echo "pass 1"
+	@CGO_ENABLED=0 SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
+	  go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(DIST)/repro/first $(CMD)
+	@echo "pass 2 (cold cache, copied tree)"
+	@rm -rf $(DIST)/repro/tree && mkdir -p $(DIST)/repro/tree
+	@tar -c --exclude='./$(DIST)' --exclude='./web/node_modules' --exclude='./.git' . \
+	  | tar -x -C $(DIST)/repro/tree
+	@cd $(DIST)/repro/tree && CGO_ENABLED=0 GOCACHE=$(CURDIR)/$(DIST)/repro/cache \
+	  go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(CURDIR)/$(DIST)/repro/second $(CMD)
+	@if cmp -s $(DIST)/repro/first $(DIST)/repro/second; then \
+	  echo; echo "reproducible — $$(sha256sum $(DIST)/repro/first | cut -d' ' -f1)"; \
+	else \
+	  echo; echo "NOT reproducible: the two builds differ"; \
+	  ls -l $(DIST)/repro/first $(DIST)/repro/second; exit 1; \
+	fi
 
 clean:
 	rm -rf $(DIST) web/dist $(WEBDIST)/assets $(WEBDIST)/index.html $(WEBDIST)/docs.html web/node_modules

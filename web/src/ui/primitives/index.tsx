@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { useEscapeKey } from '../hooks'
+import { useEscapeKey, useNow } from '../hooks'
 
 /* Material 3 primitives, shared by every screen. */
 
@@ -209,6 +209,71 @@ export function TextButton({
     >
       {children}
     </button>
+  )
+}
+
+/**
+ * The header control for a panel that keeps itself up to date: how old the
+ * figures are, and a way to ask for them now.
+ *
+ * Saying when the numbers were last read is the part that matters. A panel
+ * that refreshes silently and one that has quietly stopped refreshing look
+ * identical, and the difference between them is the whole question an operator
+ * is asking when they glance at a dashboard.
+ */
+export function Freshness({
+  updatedAt,
+  refreshing,
+  live,
+  onRefresh,
+  label = 'Refresh',
+}: {
+  /** Epoch milliseconds of the last successful load; 0 before the first. */
+  updatedAt: number
+  refreshing: boolean
+  live: boolean
+  onRefresh: () => void
+  label?: string
+}) {
+  const now = useNow()
+
+  let state: string
+  if (refreshing) state = 'updating…'
+  else if (updatedAt === 0) state = ''
+  else {
+    const seconds = Math.max(0, Math.round((now - updatedAt) / 1000))
+    state =
+      seconds < 5
+        ? 'just now'
+        : seconds < 60
+          ? `${seconds}s ago`
+          : seconds < 3600
+            ? `${Math.floor(seconds / 60)}m ago`
+            : `${Math.floor(seconds / 3600)}h ago`
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      {state !== '' && (
+        <span
+          className="flex items-center gap-1.5 text-xs whitespace-nowrap text-on-surface-variant"
+          aria-live="polite"
+        >
+          {live && (
+            <span
+              className={`size-1.5 shrink-0 rounded-full ${
+                refreshing ? 'bg-primary' : 'bg-on-surface-variant/50'
+              }`}
+              aria-hidden
+            />
+          )}
+          {state}
+        </span>
+      )}
+      <TextButton onClick={onRefresh} disabled={refreshing}>
+        {label}
+      </TextButton>
+    </div>
   )
 }
 

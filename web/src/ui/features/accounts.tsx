@@ -1,9 +1,25 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AccountCard from './account-card'
 import AddAccount from './add-account'
 import { api, messageOf, type Account } from '../../api/client'
 import { useLoader } from '../hooks'
-import { Banner, Card, CardTitle, Empty, Spinner, TonalButton, compact } from '../primitives'
+import {
+  Banner,
+  Card,
+  CardTitle,
+  Empty,
+  Freshness,
+  Spinner,
+  TonalButton,
+  compact,
+} from '../primitives'
+
+/**
+ * Until the server has said how often it re-reads the subscription figures,
+ * ask at the rate it used before it started saying. Polling faster than the
+ * server polls upstream only re-renders the same numbers.
+ */
+const FALLBACK_REFRESH_MS = 20_000
 
 /**
  * The Claude accounts the pool draws on, in priority order.
@@ -15,14 +31,33 @@ import { Banner, Card, CardTitle, Empty, Spinner, TonalButton, compact } from '.
  * the one above is out of room.
  */
 export default function Accounts({ onExpired }: { onExpired: () => void }) {
-  const { data, error, loading, reload, setError } = useLoader(
-    () => api.listAccounts(),
-    onExpired,
-  )
   const [adding, setAdding] = useState(false)
   const [ordering, setOrdering] = useState(false)
   const [dragging, setDragging] = useState<number | null>(null)
   const [over, setOver] = useState<number | null>(null)
+
+  // Nothing may reload under a hand mid-gesture: a list that reorders itself
+  // while it is being dragged drops the card somewhere nobody chose. Adding an
+  // account is a form, and a poll that re-rendered around it would be just as
+  // unwelcome.
+  const settled = !adding && !ordering && dragging === null
+
+  // The server tells us how often it re-reads the subscription usage. Held
+  // separately from `data` because it is an input to the loader that produces
+  // `data`, and it changes far less often than the figures do.
+  const [pollMs, setPollMs] = useState(FALLBACK_REFRESH_MS)
+
+  const { data, error, loading, reload, setError, refreshing, updatedAt, live } = useLoader(
+    () => api.listAccounts(),
+    onExpired,
+    [],
+    settled ? pollMs : 0,
+  )
+
+  useEffect(() => {
+    const advertised = data?.usagePollS ?? 0
+    if (advertised > 0) setPollMs(advertised * 1000)
+  }, [data?.usagePollS])
 
   const accounts = data?.accounts ?? []
   const windowDays = data?.windowDays ?? 7
@@ -69,11 +104,20 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
       <Card>
         <CardTitle
           aside={
-            accounts.length > 0 ? (
-              <span className="text-sm text-on-surface-variant">
-                {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over {windowDays}d
-              </span>
-            ) : null
+            <div className="flex items-center gap-3">
+              {accounts.length > 0 && (
+                <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
+                  {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over{' '}
+                  {windowDays}d
+                </span>
+              )}
+              <Freshness
+                updatedAt={updatedAt}
+                refreshing={refreshing}
+                live={live}
+                onRefresh={() => void reload()}
+              />
+            </div>
           }
         >
           Claude accounts

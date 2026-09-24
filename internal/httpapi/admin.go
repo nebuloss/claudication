@@ -256,6 +256,10 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "authentication_error", "session has expired")
 			return
 		}
+		// Someone is looking, so the usage poller should work at its fast
+		// rate. Recorded here rather than in each handler so every panel
+		// counts, including ones that do not exist yet.
+		s.noteAdminActivity()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -364,6 +368,10 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"accounts":    out,
 		"window_days": int(s.cfg.Usage.Window().Hours() / 24),
+		// What the server will do next, so the UI can re-ask at the rate the
+		// figures actually change instead of guessing at one. Asking faster
+		// than this only ever returns the same numbers again.
+		"usage_poll_s": int(usagePollWatched.Seconds()),
 	})
 }
 

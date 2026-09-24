@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"claudication/internal/api"
@@ -49,6 +50,11 @@ type Server struct {
 	sessions    *sessions
 	httpClient  *http.Client
 	startedAt   time.Time
+	// adminSeen is when the admin UI last asked for anything, as Unix nanos.
+	// The usage poller reads it to decide how hard to work; see
+	// accountusage.go. Atomic because it is written from every admin request
+	// and read from the poller's own goroutine.
+	adminSeen atomic.Int64
 	// protocols are the client-facing dialects this gateway serves, in the
 	// order the admin UI lists them. Anthropic is one of them rather than the
 	// default case — see internal/api.

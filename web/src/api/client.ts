@@ -61,6 +61,31 @@ export interface Account {
   cooling_until?: string
 }
 
+export interface AccountList {
+  accounts: Account[]
+  windowDays: number
+  /**
+   * How often the gateway re-reads each subscription's usage, in seconds. The
+   * accounts panel polls at this rate: asking faster returns the same figures,
+   * and asking slower shows stale ones for no reason.
+   */
+  usagePollS: number
+}
+
+interface AccountListWire {
+  accounts: Account[] | null
+  window_days: number
+  usage_poll_s?: number
+}
+
+function toAccountList(res: AccountListWire): AccountList {
+  return {
+    accounts: res.accounts ?? [],
+    windowDays: res.window_days,
+    usagePollS: res.usage_poll_s ?? 0,
+  }
+}
+
 export interface ProbeResult {
   ok: boolean
   model?: string
@@ -524,22 +549,15 @@ export const api = {
   deleteAdminAccount: (password: string) =>
     request<unknown>('POST', '/admin/account/delete', { password }),
 
-  listAccounts: async (): Promise<{ accounts: Account[]; windowDays: number }> => {
-    const res = await request<{ accounts: Account[] | null; window_days: number }>(
-      'GET',
-      '/admin/accounts',
-    )
-    return { accounts: res.accounts ?? [], windowDays: res.window_days }
+  listAccounts: async (): Promise<AccountList> => {
+    const res = await request<AccountListWire>('GET', '/admin/accounts')
+    return toAccountList(res)
   },
 
   /** Sets the whole priority order; the first account with room serves. */
-  reorderAccounts: async (ids: string[]): Promise<{ accounts: Account[]; windowDays: number }> => {
-    const res = await request<{ accounts: Account[] | null; window_days: number }>(
-      'POST',
-      '/admin/accounts/order',
-      { ids },
-    )
-    return { accounts: res.accounts ?? [], windowDays: res.window_days }
+  reorderAccounts: async (ids: string[]): Promise<AccountList> => {
+    const res = await request<AccountListWire>('POST', '/admin/accounts/order', { ids })
+    return toAccountList(res)
   },
 
   startOAuth: (provider: string) =>

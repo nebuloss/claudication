@@ -9,6 +9,10 @@
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "//engines": "The UI is compiled into the binary, so its output is part of a reproducible build. The lockfile pins the compilers; this pins the runtime they execute on. Node 20 is the floor Vite 6 supports and what the build machine runs.",
+  "engines": {
+    "node": ">=20.19"
+  },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
     "@types/node": "^20.14.2",

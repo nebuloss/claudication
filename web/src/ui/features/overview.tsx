@@ -7,12 +7,25 @@ import {
   ErrorState,
   Card,
   CardTitle,
+  Freshness,
   Spinner,
   Stat,
-  TextButton,
   compact,
   duration,
 } from '../primitives'
+
+/**
+ * How often the status figures re-read themselves.
+ *
+ * This is the screen left open on a second monitor, so it is the one that has
+ * to be current: "is the proxy ready" is worth nothing if the answer on screen
+ * is from whenever the tab was opened. Ten seconds is under the interval at
+ * which the request counters visibly move on a working gateway.
+ */
+const REFRESH_MS = 10_000
+
+/** The traffic chart aggregates whole days, so it barely moves minute to minute. */
+const TRAFFIC_REFRESH_MS = 60_000
 
 
 /** How many days of history the chart can show. */
@@ -82,12 +95,22 @@ export default function Overview({
    */
   docsURL: string
 }) {
-  const { data, error, loading, reload } = useLoader<OverviewData>(() => api.overview(), onExpired)
+  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<OverviewData>(
+    () => api.overview(),
+    onExpired,
+    [],
+    REFRESH_MS,
+  )
   // The traffic series, on its own loader so changing the window does not
   // re-fetch the status above it, and so a usage table that is off or empty
   // cannot take the whole screen down with it.
   const [days, setDays] = useState(14)
-  const { data: usage } = useLoader<Usage>(() => api.usage(days), undefined, [days])
+  const { data: usage } = useLoader<Usage>(
+    () => api.usage(days),
+    undefined,
+    [days],
+    TRAFFIC_REFRESH_MS,
+  )
 
   if (loading) {
     return (
@@ -161,7 +184,16 @@ export default function Overview({
       )}
 
       <Card>
-        <CardTitle aside={<TextButton onClick={() => void reload()}>Refresh</TextButton>}>
+        <CardTitle
+          aside={
+            <Freshness
+              updatedAt={updatedAt}
+              refreshing={refreshing}
+              live={live}
+              onRefresh={() => void reload()}
+            />
+          }
+        >
           Status
         </CardTitle>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

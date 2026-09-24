@@ -9,15 +9,22 @@ import {
   Card,
   CardTitle,
   Empty,
+  Freshness,
   Spinner,
   Segmented,
   Stat,
   SubNav,
-  TextButton,
   compact,
 } from '../primitives'
 
 const WINDOWS = [1, 7, 30] as const
+
+/**
+ * The report aggregates a window measured in days, so it barely moves between
+ * one minute and the next; this is slow enough not to re-render a page of
+ * charts for nothing.
+ */
+const REPORT_REFRESH_MS = 30_000
 
 // The hash values, and the order the sub-nav lists them. These are a URL
 // surface now — /usage#chats is a link someone can send — so renaming one
@@ -46,7 +53,12 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
   const [days, setDays] = useState<number>(7)
   // In the hash, so /usage#chats opens straight onto that panel.
   const [chosen, setChosen] = useHashPanel<View>(VIEWS, 'chats')
-  const { data, error, loading, reload } = useLoader<Usage>(() => api.usage(days), onExpired, [days])
+  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<Usage>(
+    () => api.usage(days),
+    onExpired,
+    [days],
+    REPORT_REFRESH_MS,
+  )
 
   if (loading && data === null) {
     return (
@@ -107,7 +119,12 @@ export default function UsagePanel({ onExpired }: { onExpired: () => void }) {
                   content: `${d}d`,
                 }))}
               />
-              <TextButton onClick={() => void reload()}>Refresh</TextButton>
+              <Freshness
+                updatedAt={updatedAt}
+                refreshing={refreshing}
+                live={live}
+                onRefresh={() => void reload()}
+              />
             </div>
           }
         >

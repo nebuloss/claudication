@@ -108,6 +108,9 @@ function RequestLink({
   )
 }
 
+/** Slow enough not to repaint a table of bars constantly, fast enough to follow along. */
+const CHATS_REFRESH_MS = 20_000
+
 function tokens(c: Chat): number {
   return c.input_tokens + c.output_tokens + c.cache_tokens
 }
@@ -118,6 +121,9 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
     () => api.chats(days),
     onExpired,
     [days],
+    // A chat gains requests as it is being held, and this panel is the one an
+    // operator watches while using the gateway from another window.
+    CHATS_REFRESH_MS,
   )
 
   const report = data?.report

@@ -9,6 +9,7 @@ import {
   Empty,
   Field,
   Modal,
+  Freshness,
   Segmented,
   FilledButton,
   OutlinedButton,
@@ -21,6 +22,13 @@ import {
   ago,
   compact,
 } from '../primitives'
+
+/**
+ * Keys change when someone mints one, but "last used" and the spent budget
+ * move with traffic, and the budget is the figure an operator watches when
+ * they are deciding whether a limit is set too low.
+ */
+const REFRESH_MS = 20_000
 
 /**
  * Why the gateway's own key has no working controls.
@@ -57,10 +65,18 @@ export default function Keys({
    */
   onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
-  const { data, error, loading, reload } = useLoader(() => api.listKeys(), onExpired)
   const [busy, setBusy] = useState('')
   const [editing, setEditing] = useState('')
   const [actionError, setActionError] = useState('')
+
+  // Not while a key is being edited: the dialog is filled from the loaded row,
+  // so a poll landing mid-edit would reset the fields under the cursor.
+  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
+    () => api.listKeys(),
+    onExpired,
+    [],
+    editing === '' && busy === '' ? REFRESH_MS : 0,
+  )
 
   // Resolved from the loaded list rather than held separately, so a reload
   // cannot leave the dialog editing a key that no longer exists.
@@ -91,11 +107,19 @@ export default function Keys({
       <Card>
         <CardTitle
           aside={
-            data !== null && data.keys.length > 0 ? (
-              <span className="text-sm text-on-surface-variant">
-                traffic over {data.windowDays}d
-              </span>
-            ) : null
+            <div className="flex items-center gap-3">
+              {data !== null && data.keys.length > 0 && (
+                <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
+                  traffic over {data.windowDays}d
+                </span>
+              )}
+              <Freshness
+                updatedAt={updatedAt}
+                refreshing={refreshing}
+                live={live}
+                onRefresh={() => void reload()}
+              />
+            </div>
           }
         >
           Keys

@@ -105,6 +105,53 @@ export function useHashPanel<T extends string>(panels: readonly T[], fallback: T
   return [panel, select] as const
 }
 
+const LIVE_KEY = 'claudication.live'
+const LIVE_EVENT = 'claudication:live'
+
+function readLive(): boolean {
+  try {
+    // On by default: a dashboard that silently shows an hour-old number is
+    // worse than one that costs a request every few seconds.
+    return window.localStorage.getItem(LIVE_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Whether panels keep themselves up to date, as one setting shared by all of
+ * them and remembered across reloads.
+ *
+ * The custom event is what makes it one setting rather than several: `storage`
+ * only fires in *other* tabs, so without it the header toggle would update its
+ * own label and leave every panel in this tab polling regardless.
+ */
+export function useLive(): [boolean, (on: boolean) => void] {
+  const [live, setLiveState] = useState(readLive)
+
+  useEffect(() => {
+    const sync = () => setLiveState(readLive())
+    window.addEventListener(LIVE_EVENT, sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener(LIVE_EVENT, sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
+
+  const setLive = useCallback((on: boolean) => {
+    try {
+      window.localStorage.setItem(LIVE_KEY, on ? 'on' : 'off')
+    } catch {
+      // Private browsing, or a storage quota. The setting still applies to
+      // this tab; it just will not be remembered.
+    }
+    window.dispatchEvent(new Event(LIVE_EVENT))
+  }, [])
+
+  return [live, setLive]
+}
+
 /**
  * Load something, with the three states every panel needs.
  *
@@ -116,30 +163,53 @@ export function useHashPanel<T extends string>(panels: readonly T[], fallback: T
  * `loading` is only ever true for the first fetch. A manual refresh leaves the
  * previous data on screen rather than replacing a populated panel with a
  * spinner for a few hundred milliseconds.
+ *
+ * Pass `refreshMs` and the panel keeps itself current. Three things keep that
+ * from being a nuisance:
+ *
+ *   - A hidden tab does not poll. Browsers throttle background timers anyway,
+ *     and a laptop that wakes after a night asleep would otherwise fire a
+ *     backlog of them at once; becoming visible re-fetches instead.
+ *   - Only one request is ever in flight. A poll that outlives its interval —
+ *     the usage report over a slow link — must not queue a second behind it.
+ *   - A background failure does not replace the panel with an error. It keeps
+ *     the last good figures on screen and lets the next tick recover, because
+ *     one dropped poll is not worth losing what you were reading.
  */
 export function useLoader<T>(
   load: () => Promise<T>,
   onUnauthenticated?: () => void,
   deps: unknown[] = [],
+  refreshMs = 0,
 ) {
   const loadRef = useRef(load)
   loadRef.current = load
   const authRef = useRef(onUnauthenticated)
   authRef.current = onUnauthenticated
+  const inFlight = useRef(false)
 
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [updatedAt, setUpdatedAt] = useState(0)
 
-  const reload = useCallback(async () => {
+  const [live] = useLive()
+
+  const run = useCallback(async (background: boolean) => {
+    if (inFlight.current) return
+    inFlight.current = true
     // Cleared first, so a retry does not render the last failure while it is
     // in flight. Anything that reloads is saying "try again", and showing the
     // previous error until the new answer lands reads as the retry having
-    // failed instantly.
-    setError('')
+    // failed instantly. A background poll leaves it alone: it is not the user
+    // asking, and clearing would flicker an error off and back on.
+    if (background) setRefreshing(true)
+    else setError('')
     try {
       setData(await loadRef.current())
       setError('')
+      setUpdatedAt(Date.now())
     } catch (err) {
       // A 401 means the session lapsed while the tab was open. Only the shell
       // can show a sign-in screen, so it decides what happens next.
@@ -147,16 +217,56 @@ export function useLoader<T>(
         authRef.current()
         return
       }
-      setError(messageOf(err))
+      if (!background) setError(messageOf(err))
     } finally {
+      inFlight.current = false
       setLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
+  const reload = useCallback(() => run(false), [run])
+
   useEffect(() => {
-    void reload()
+    void run(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 
-  return { data, error, loading, reload, setError }
+  useEffect(() => {
+    if (refreshMs <= 0 || !live) return
+
+    const tick = () => {
+      if (document.visibilityState === 'visible') void run(true)
+    }
+    const timer = window.setInterval(tick, refreshMs)
+    // Coming back to the tab should show current figures, not wait out an
+    // interval that has been stalled for however long it was hidden.
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', tick)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshMs, live, run, ...deps])
+
+  return { data, error, loading, reload, setError, refreshing, updatedAt, live }
+}
+
+/**
+ * A clock that ticks only as often as something needs re-rendering.
+ *
+ * "Updated 12s ago" is a lie the moment it is painted unless something
+ * re-renders it, but it is not worth a render a second either. One a second
+ * for the first minute is what the labels need; past that they are counting
+ * minutes and nobody is watching that closely.
+ */
+export function useNow(everyMs = 1000): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') setNow(Date.now())
+    }, everyMs)
+    return () => window.clearInterval(timer)
+  }, [everyMs])
+  return now
 }

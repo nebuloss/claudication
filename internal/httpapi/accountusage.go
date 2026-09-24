@@ -9,10 +9,48 @@ import (
 	"claudication/internal/upstream"
 )
 
-// usagePollInterval is how often every account's subscription usage is
-// refreshed. The 5-hour window moves slowly and the endpoint is a status call,
-// so this is about staying honest rather than about being live.
-const usagePollInterval = 5 * time.Minute
+// How often every account's subscription usage is refreshed.
+//
+// Two rates, because the two situations want opposite things. With nobody
+// watching, the figures only need to be honest by the time someone looks, and
+// the polite thing is to leave the upstream alone. With the accounts screen
+// open, the figures ARE the screen: an operator who clicks Refresh and watches
+// the percentage move is asking a question the slow rate cannot answer, and
+// before this the only live figure in the UI was the one they fetched by hand.
+const (
+	usagePollIdle    = 5 * time.Minute
+	usagePollWatched = 20 * time.Second
+
+	// How long after an admin request the UI counts as still open. Longer
+	// than the fast interval by enough that a browser tab refreshing at that
+	// rate keeps itself in the watched state without a gap.
+	adminWatchWindow = 2 * time.Minute
+
+	// The poller wakes this often and decides whether it is due. Sleeping in
+	// short steps is what lets the rate change take effect immediately when
+	// someone opens the UI, rather than after the current long sleep ends.
+	usagePollTick = 5 * time.Second
+)
+
+// noteAdminActivity records that the admin UI asked for something. Called from
+// the admin middleware, so it covers every panel without each one opting in.
+func (s *Server) noteAdminActivity() {
+	s.adminSeen.Store(time.Now().UnixNano())
+}
+
+// adminWatching reports whether the admin UI has been heard from recently.
+func (s *Server) adminWatching() bool {
+	last := s.adminSeen.Load()
+	return last != 0 && time.Since(time.Unix(0, last)) < adminWatchWindow
+}
+
+// usagePollInterval is the rate the poller should currently run at.
+func (s *Server) usagePollInterval() time.Duration {
+	if s.adminWatching() {
+		return usagePollWatched
+	}
+	return usagePollIdle
+}
 
 // refreshAccountUsage asks the upstream what one account has spent and stores
 // it. Returns the figures so a handler can answer with them directly.
@@ -102,7 +140,9 @@ func (s *Server) runUsagePoller(ctx context.Context) {
 	}
 
 	poll()
-	ticker := time.NewTicker(usagePollInterval)
+	last := time.Now()
+
+	ticker := time.NewTicker(usagePollTick)
 	defer ticker.Stop()
 	for {
 		select {
@@ -111,7 +151,13 @@ func (s *Server) runUsagePoller(ctx context.Context) {
 		case <-s.stopSweeper:
 			return
 		case <-ticker.C:
+			if time.Since(last) < s.usagePollInterval() {
+				continue
+			}
 			poll()
+			// Measured from the end of the round, so a slow upstream stretches
+			// the gap instead of queueing polls back to back.
+			last = time.Now()
 		}
 	}
 }
