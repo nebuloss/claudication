@@ -1,4 +1,10 @@
-@import "tailwindcss";
+/* Scan web/src and nothing else. Left to detect its own sources, Tailwind
+   walks whatever is on disk around the build and honours .gitignore to decide
+   — so a stray file, or node_modules reached through a symlink (which a
+   `node_modules/` ignore pattern does not match), changed the stylesheet and
+   with it the binary. Every class the UI uses is written under src/. */
+@import "tailwindcss" source(none);
+@source "../..";
 
 /* Material Design 3 tokens, seeded from a clay #C96442 — the family the
    upstream this gateway fronts is dressed in, so the tool reads as belonging
