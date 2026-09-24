@@ -13,6 +13,14 @@
 # Pin a version, or bind somewhere else:
 #   curl -fsSL .../install.sh | VERSION=v0.2.0 LISTEN=127.0.0.1:8317 sh
 #
+# Install a binary you built yourself instead of a release (scripts/deploy.sh
+# does this for you):
+#   BINARY_FILE=/tmp/claudication sh install.sh
+#
+# An update never leaves the gateway down: the new binary has to run before
+# anything is touched, the state is backed up first, and if the new version
+# does not come up answering on every port, the previous one is put back.
+#
 # Systems: Alpine Linux (OpenRC), Debian/Ubuntu (systemd)
 #
 # Layout: settings, output helpers, a platform layer holding every
@@ -59,6 +67,14 @@ BOOT_TIMEOUT="${BOOT_TIMEOUT:-30}"    # seconds to wait for the first response
 # the shutdown grace it is draining under, or the wait is pointless.
 STOP_TIMEOUT="${STOP_TIMEOUT:-150}"
 SET_PASSWORD="${SET_PASSWORD:-1}"     # 0 to leave the gateway unclaimed
+# A binary already on this machine, installed instead of downloading a release.
+# For a build that has no release: a branch under test, a local fix.
+BINARY_FILE="${BINARY_FILE:-}"
+# Its expected digest, when the file came from somewhere you do not control.
+BINARY_SHA256="${BINARY_SHA256:-}"
+# Pre-upgrade snapshots of the state, newest kept, in $STATE_DIR/backups.
+# 0 skips the snapshot — only for a version too old to have `backup`.
+BACKUPS_KEPT="${BACKUPS_KEPT:-5}"
 QUIET="${QUIET:-0}"                   # 1 to drop the progress dots
 
 BINARY="$BIN_DIR/claudication"
@@ -467,22 +483,64 @@ EOF
   systemctl enable "$SERVICE_NAME" >/dev/null 2>&1
 }
 
-# Wait for the running gateway to release its listeners.
+# A top-level scalar from the config file, or empty. Good enough for the flat
+# `key: "value"` lines this script writes and the example documents; it is used
+# only to find the ports, never to change anything.
+config_value() {
+  [ -f "$CONFIG_FILE" ] || return 0
+  sed -n "s/^$1:[[:space:]]*\"\{0,1\}\([^\"#[:space:]]*\).*/\1/p" "$CONFIG_FILE" | head -1
+}
+
+# Every port the gateway binds: the relay, and the admin and docs listeners
+# when the config splits them out. Waiting on the relay alone is how the
+# 2026-09-24 upgrade went wrong — the relay port was free while the admin one
+# was still held by the draining process.
+gateway_ports() {
+  for key in listen admin-listen docs-listen; do
+    addr="$(config_value "$key")"
+    [ "$key" = listen ] && [ -z "$addr" ] && addr="$LISTEN"
+    [ -n "$addr" ] && printf '%s\n' "${addr##*:}"
+  done
+  return 0
+}
+
+relay_port() {
+  addr="$(config_value listen)"
+  addr="${addr:-$LISTEN}"
+  printf '%s' "${addr##*:}"
+}
+
+# Whether anything is listening on a TCP port, read from the kernel rather than
+# by connecting: a draining process answers nothing and still holds the port.
+port_listening() {
+  hex="$(printf '%04X' "$1")"
+  cat /proc/net/tcp /proc/net/tcp6 2>/dev/null |
+    awk -v p="$hex" 'NR > 1 { n = split($2, a, ":"); if (a[n] == p && $4 == "0A") f = 1 } END { exit !f }'
+}
+
+any_port_held() {
+  for port in $(gateway_ports); do
+    port_listening "$port" && return 0
+  done
+  return 1
+}
+
+# Wait for the old process to let go of every listener.
 #
-# It shuts down gracefully, which means it holds them while requests in flight
-# finish — and a streaming request here legitimately runs for minutes. Until it
-# lets go, nothing else can bind those ports.
+# It shuts down gracefully, which means it finishes what is in flight — and a
+# streaming request legitimately runs for minutes. Until every port is free the
+# new process cannot bind, and on Alpine supervise-daemon respawns it into that
+# failure until respawn_max and then gives up for good.
 #
 # Bounded, so a wedged process delays an upgrade rather than blocking it for
-# ever. Reaching the bound is worth saying out loud: what follows will probably
-# fail to bind, and the reason will be in the log rather than here.
+# ever. Reaching the bound is worth saying out loud.
 wait_released() {
   i=0
-  while responding; do
+  while any_port_held; do
     i=$((i + 1))
     if [ "$i" -gt "$STOP_TIMEOUT" ]; then
       endline
-      warn "the old process is still holding its port after ${STOP_TIMEOUT}s"
+      warn "a port is still held after ${STOP_TIMEOUT}s: $(gateway_ports | tr '\n' ' ')"
       return 1
     fi
     [ $((i % 2)) -eq 0 ] && tick
@@ -492,18 +550,14 @@ wait_released() {
   return 0
 }
 
-service_start() {
-  info "Starting $SERVICE_NAME"
-  # Stop, wait for the port, then start — rather than one restart.
-  #
-  # A restart starts the new process the moment the supervisor considers the
-  # old one stopped, which is not the moment it has finished draining. The new
-  # one then fails with "bind: address already in use", and on Alpine that is
-  # worse than being late: supervise-daemon respawns it into the same failure
-  # every few seconds and gives up for good once respawn_max is reached. An
-  # upgrade run while a long stream was in flight left the gateway stopped.
+stop_and_release() {
+  info "Stopping $SERVICE_NAME (in-flight requests finish first)"
   service_stop
   wait_released || true
+}
+
+service_start() {
+  info "Starting $SERVICE_NAME"
   case "$OS" in
     alpine) rc-service "$SERVICE_NAME" start >/dev/null 2>&1 ;;
     debian) systemctl start "$SERVICE_NAME" ;;
@@ -580,38 +634,117 @@ verify_download() {
   info "Checksum verified"
 }
 
-# The version already installed, or empty. Only used to say what changed.
-installed_version() {
-  [ -x "$BINARY" ] || return 0
-  "$BINARY" version 2>/dev/null | awk '{print $1; exit}'
+# The version a binary reports, or empty. Also the pre-flight check: a binary
+# that cannot print its version will not serve either — wrong architecture, a
+# truncated copy, a file that is not the gateway at all.
+binary_version() {
+  [ -x "$1" ] || return 0
+  "$1" version 2>/dev/null | awk '{print $1; exit}'
 }
 
-install_binary() {
-  before="$(installed_version)"
+installed_version() { binary_version "$BINARY"; }
 
-  tag="$(resolve_release_tag)"
-  [ -n "$tag" ] || die "could not resolve the latest release of $GH_REPO"
+# Put the new binary in a temporary file and prove it runs, touching nothing
+# that is serving. Sets NEW_BIN, NEW_VERSION and BEFORE.
+fetch_binary() {
+  BEFORE="$(installed_version)"
+  NEW_DIR="$(mktemp -d)"
+  NEW_BIN="$NEW_DIR/claudication"
 
-  if [ -n "$before" ]; then
-    info "Updating $before -> $tag"
+  if [ -n "$BINARY_FILE" ]; then
+    [ -f "$BINARY_FILE" ] || die "BINARY_FILE=$BINARY_FILE does not exist"
+    cp "$BINARY_FILE" "$NEW_BIN"
+    if [ -n "$BINARY_SHA256" ]; then
+      got="$(sha256sum "$NEW_BIN" | awk '{print $1}')"
+      [ "$got" = "$BINARY_SHA256" ] || die "$BINARY_FILE does not match BINARY_SHA256 — refusing to install it"
+      info "Checksum verified"
+    fi
+    label="$BINARY_FILE"
   else
-    info "Installing $tag"
+    tag="$(resolve_release_tag)"
+    [ -n "$tag" ] || die "could not resolve the latest release of $GH_REPO"
+    step "$(uname -m) -> $ASSET"
+    url="${GH_DL}/${GH_REPO}/releases/download/${tag}/${ASSET}"
+    curl -fsSL "$url" -o "$NEW_BIN" || { rm -rf "$NEW_DIR"; die "download failed: $url"; }
+    verify_download "$NEW_BIN" "$ASSET" "$tag"
+    label="$tag"
   fi
-  step "$(uname -m) -> $ASSET"
 
-  tmp="$(mktemp -d)"
-  url="${GH_DL}/${GH_REPO}/releases/download/${tag}/${ASSET}"
-  curl -fsSL "$url" -o "$tmp/claudication" || { rm -rf "$tmp"; die "download failed: $url"; }
-  verify_download "$tmp/claudication" "$ASSET" "$tag"
+  chmod 755 "$NEW_BIN"
+  NEW_VERSION="$(binary_version "$NEW_BIN")"
+  if [ -z "$NEW_VERSION" ]; then
+    rm -rf "$NEW_DIR"
+    die "the new binary ($label) does not run on this machine — nothing was changed"
+  fi
 
-  # Stop first: replacing the file under a running service leaves it executing
-  # a binary that is no longer the one on disk.
-  service_stop
+  if [ -n "$BEFORE" ]; then
+    info "Updating $BEFORE -> $NEW_VERSION"
+  else
+    info "Installing $NEW_VERSION"
+  fi
+}
 
+# Snapshot the state before a new version can migrate it.
+#
+# Taken by the binary that is still installed, with the service still serving:
+# `backup` is a consistent VACUUM INTO, safe under load. A migration that goes
+# wrong is otherwise unrecoverable, because the old binary may not open a
+# database the new one has already changed.
+backup_state() {
+  [ -n "$BEFORE" ] || return 0
+  [ -f "$STATE_DIR/claudication.db" ] || return 0
+  if [ "$BACKUPS_KEPT" = 0 ]; then
+    warn "BACKUPS_KEPT=0: no snapshot before updating"
+    return 0
+  fi
+
+  dir="$STATE_DIR/backups"
+  mkdir -p "$dir"
+  chown "$SERVICE_USER" "$dir"
+  chmod 700 "$dir"
+  BACKUP_FILE="$dir/pre-$NEW_VERSION-$(date -u +%Y%m%d-%H%M%S).tar.gz"
+  if ! run_as_service "CLAUDICATION_STATE_DIR='$STATE_DIR' '$BINARY' backup -out '$BACKUP_FILE'" >/dev/null 2>&1; then
+    rm -rf "$NEW_DIR"
+    die "could not snapshot $STATE_DIR before updating — nothing was changed (BACKUPS_KEPT=0 skips this)"
+  fi
+  info "State backed up: $BACKUP_FILE"
+
+  # Newest first; everything past the limit goes. The names are ours and carry
+  # no whitespace, so ls is safe here.
+  ls -1t "$dir"/pre-*.tar.gz 2>/dev/null | tail -n +$((BACKUPS_KEPT + 1)) | while read -r old; do
+    rm -f "$old"
+  done
+}
+
+# Put the checked binary in place, keeping the one it replaces beside it.
+# Only called with the service stopped: replacing the file under a running
+# service leaves it executing a binary that is no longer the one on disk.
+swap_binary() {
   mkdir -p "$BIN_DIR"
-  chmod +x "$tmp/claudication"
-  mv "$tmp/claudication" "$BINARY"
-  rm -rf "$tmp"
+  if [ -x "$BINARY" ]; then cp -p "$BINARY" "$BINARY.prev"; fi
+  mv "$NEW_BIN" "$BINARY"
+  rm -rf "$NEW_DIR"
+}
+
+# The update did not come up: put the previous binary back and start that.
+rollback() {
+  [ -n "$BEFORE" ] && [ -x "$BINARY.prev" ] || return 1
+  warn "rolling back to $BEFORE"
+  stop_and_release
+  mv "$BINARY.prev" "$BINARY"
+  NEW_VERSION="$BEFORE"
+  service_start
+  if wait_ready; then
+    warn "$BEFORE is serving again; the failed version's log lines are above"
+    return 0
+  fi
+  fail "$BEFORE did not come back either"
+  if [ -n "${BACKUP_FILE:-}" ]; then
+    step "the new version may have migrated the database; the state before it is in"
+    step "  $BACKUP_FILE"
+    step "restore with the service stopped: claudication restore -force -in $BACKUP_FILE"
+  fi
+  return 1
 }
 
 ensure_user() {
@@ -650,14 +783,28 @@ claim_gateway() {
   fi
 }
 
-responding() {
-  curl -fsS -m 2 "http://127.0.0.1:${LISTEN##*:}/health" >/dev/null 2>&1
+# What /health says the serving process is, or empty.
+serving_version() {
+  curl -fsS -m 2 "http://127.0.0.1:$(relay_port)/health" 2>/dev/null |
+    sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+# Ready means the NEW version answers on the relay and every configured port is
+# bound. Answering alone is not enough: during an upgrade the old process can
+# still be draining, and a health check it answers proves nothing about the
+# binary just installed.
+ready() {
+  [ "$(serving_version)" = "$NEW_VERSION" ] || return 1
+  for port in $(gateway_ports); do
+    port_listening "$port" || return 1
+  done
+  return 0
 }
 
 wait_ready() {
   i=0
   while [ "$i" -lt "$BOOT_TIMEOUT" ]; do
-    if responding; then
+    if ready; then
       endline
       return 0
     fi
@@ -674,7 +821,8 @@ wait_ready() {
   done
 
   endline
-  fail "no response on ${LISTEN} after ${BOOT_TIMEOUT}s"
+  got="$(serving_version)"
+  fail "$NEW_VERSION not serving on every port after ${BOOT_TIMEOUT}s${got:+ (health reports $got)}"
   dump_logs
   return 1
 }
@@ -704,21 +852,33 @@ print_summary() {
 
 main() {
   require_root
-  detect_arch
+  [ -n "$BINARY_FILE" ] || detect_arch
   ensure_tools
 
-  install_binary
+  # Nothing that is serving is touched until the new binary has run here and
+  # the state has been snapshotted.
+  fetch_binary
   ensure_user
   ensure_dirs
-  claim_gateway
+  backup_state
 
+  # The unit first, so the stop below already runs under its patience.
   service_install
+  stop_and_release
+  swap_binary
+  claim_gateway
   service_start
 
-  if wait_ready; then ready=1; else ready=0; fi
-  print_summary
+  ready=0
+  if wait_ready; then
+    ready=1
+    print_summary
+  else
+    rollback || true
+  fi
 
-  # A non-zero exit matters when this is piped into a provisioning tool.
+  # A non-zero exit matters when this is piped into a provisioning tool, and a
+  # rolled-back update is a failed one.
   [ "$ready" = "1" ]
 }
 
