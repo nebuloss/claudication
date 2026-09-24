@@ -17,20 +17,27 @@ import (
 // open, the figures ARE the screen: an operator who clicks Refresh and watches
 // the percentage move is asking a question the slow rate cannot answer, and
 // before this the only live figure in the UI was the one they fetched by hand.
+//
+// Both rates are usage.poll-idle and usage.poll-watched in config: the fast one
+// is traffic on the operator's own subscriptions, and where the usage endpoint
+// starts refusing has not been measured.
 const (
-	usagePollIdle    = 5 * time.Minute
-	usagePollWatched = 20 * time.Second
-
-	// How long after an admin request the UI counts as still open. Longer
-	// than the fast interval by enough that a browser tab refreshing at that
-	// rate keeps itself in the watched state without a gap.
-	adminWatchWindow = 2 * time.Minute
+	// How long after an admin request the UI counts as still open, at the
+	// least. adminWatchWindow stretches it to a few fast intervals, so a
+	// browser tab refreshing at that rate keeps itself in the watched state
+	// without a gap however slow the operator configured it.
+	minAdminWatchWindow = 2 * time.Minute
 
 	// The poller wakes this often and decides whether it is due. Sleeping in
 	// short steps is what lets the rate change take effect immediately when
 	// someone opens the UI, rather than after the current long sleep ends.
+	// No finer than config.MinUsagePoll allows either rate to be.
 	usagePollTick = 5 * time.Second
 )
+
+func (s *Server) adminWatchWindow() time.Duration {
+	return max(minAdminWatchWindow, 3*s.cfg.Usage.PollWatched.D())
+}
 
 // noteAdminActivity records that the admin UI asked for something. Called from
 // the admin middleware, so it covers every panel without each one opting in.
@@ -41,15 +48,15 @@ func (s *Server) noteAdminActivity() {
 // adminWatching reports whether the admin UI has been heard from recently.
 func (s *Server) adminWatching() bool {
 	last := s.adminSeen.Load()
-	return last != 0 && time.Since(time.Unix(0, last)) < adminWatchWindow
+	return last != 0 && time.Since(time.Unix(0, last)) < s.adminWatchWindow()
 }
 
 // usagePollInterval is the rate the poller should currently run at.
 func (s *Server) usagePollInterval() time.Duration {
 	if s.adminWatching() {
-		return usagePollWatched
+		return s.cfg.Usage.PollWatched.D()
 	}
-	return usagePollIdle
+	return s.cfg.Usage.PollIdle.D()
 }
 
 // refreshAccountUsage asks the upstream what one account has spent and stores

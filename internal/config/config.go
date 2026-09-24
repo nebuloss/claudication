@@ -154,7 +154,21 @@ type UsageConfig struct {
 	// ReportDays is the window the admin UI summarises by default. It cannot
 	// usefully exceed retention, and Window clamps it.
 	ReportDays int `yaml:"report-days"`
+	// PollIdle is how often every account's subscription usage is re-read
+	// upstream while nobody has the admin UI open. The figures only need to
+	// be honest by the time someone looks, so this is slow.
+	PollIdle Duration `yaml:"poll-idle"`
+	// PollWatched is the same while the admin UI is open, when the figures
+	// are the screen. It is one GET /api/oauth/usage per account per tick,
+	// sent on the operator's own subscriptions, and nobody has measured where
+	// that endpoint starts refusing — so it is a setting rather than a
+	// constant, and has a floor.
+	PollWatched Duration `yaml:"poll-watched"`
 }
+
+// MinUsagePoll is the fastest either poll may run. Below it the upstream is
+// being asked faster than its own figures move.
+const MinUsagePoll = 10 * time.Second
 
 // Enabled reports whether per-request usage is recorded at all.
 func (u UsageConfig) Enabled() bool { return u.RetentionDays > 0 }
@@ -205,7 +219,12 @@ func Defaults() Config {
 		// calls, and pointing that at the most expensive model by default
 		// spends a subscription's weekly allowance on shell commands.
 		OpenAI:   OpenAIConfig{Model: "claude-sonnet-5", MaxTokens: 32000},
-		Usage:    UsageConfig{RetentionDays: 30, ReportDays: 7},
+		Usage: UsageConfig{
+			RetentionDays: 30,
+			ReportDays:    7,
+			PollIdle:      Duration(5 * time.Minute),
+			PollWatched:   Duration(20 * time.Second),
+		},
 		Shutdown: ShutdownConfig{Grace: Duration(120 * time.Second)},
 	}
 }
@@ -354,6 +373,12 @@ func (c Config) validate() error {
 	}
 	if c.OpenAI.MaxTokens <= 0 {
 		return errors.New("openai.max-tokens must be positive")
+	}
+	if c.Usage.PollIdle.D() < MinUsagePoll || c.Usage.PollWatched.D() < MinUsagePoll {
+		return fmt.Errorf("usage.poll-idle and usage.poll-watched must be at least %s", MinUsagePoll)
+	}
+	if c.Usage.PollWatched.D() > c.Usage.PollIdle.D() {
+		return errors.New("usage.poll-watched must not be slower than usage.poll-idle")
 	}
 	if c.Shutdown.Grace.D() <= 0 {
 		return errors.New("shutdown.grace must be positive")

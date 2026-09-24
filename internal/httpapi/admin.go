@@ -371,7 +371,7 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 		// What the server will do next, so the UI can re-ask at the rate the
 		// figures actually change instead of guessing at one. Asking faster
 		// than this only ever returns the same numbers again.
-		"usage_poll_s": int(usagePollWatched.Seconds()),
+		"usage_poll_s": int(s.cfg.Usage.PollWatched.D().Seconds()),
 	})
 }
 

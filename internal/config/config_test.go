@@ -77,6 +77,42 @@ func TestLoadParsesDurationsAndOverrides(t *testing.T) {
 	}
 }
 
+// The fast usage poll is traffic on the operator's own subscriptions, so the
+// floor is not negotiable and a watched rate slower than the idle one is a
+// typo rather than a choice.
+func TestUsagePollBounds(t *testing.T) {
+	for body, ok := range map[string]bool{
+		"":                                                    true,
+		"usage:\n  poll-watched: \"15s\"\n  poll-idle: \"10m\"\n": true,
+		"usage:\n  poll-watched: \"2s\"\n":                    false,
+		"usage:\n  poll-idle: \"5s\"\n":                       false,
+		"usage:\n  poll-watched: \"10m\"\n":                   false,
+	} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Load(path)
+		if (err == nil) != ok {
+			t.Errorf("%q: Load error = %v, want ok=%v", body, err, ok)
+		}
+	}
+}
+
+// The annotated example is what operators copy, so it has to load, and every
+// key it sets has to land where it says. It once carried retention-days at
+// column zero, outside usage:, and the copy failed to parse.
+func TestExampleConfigLoads(t *testing.T) {
+	t.Setenv("CLAUDICATION_STATE_DIR", t.TempDir())
+	cfg, err := Load(filepath.Join("..", "..", "configs", "config.example.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Usage.RetentionDays != 30 || cfg.Usage.PollWatched.D() != 20*time.Second {
+		t.Errorf("usage section not read: %+v", cfg.Usage)
+	}
+}
+
 func TestLoadMissingFileIsAnError(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "absent.yaml")); err == nil {
 		t.Fatal("expected an error for a missing config file")

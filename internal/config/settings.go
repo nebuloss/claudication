@@ -100,6 +100,12 @@ var definitions = []struct {
 	{"usage.report-days", "",
 		"Default reporting window, clamped to retention.",
 		func(c Config) string { return strconv.Itoa(c.Usage.ReportDays) }},
+	{"usage.poll-idle", "",
+		"How often each account's subscription usage is re-read upstream while nobody has this UI open.",
+		func(c Config) string { return c.Usage.PollIdle.D().String() }},
+	{"usage.poll-watched", "",
+		"The same while this UI is open. One upstream call per account per tick, on your own subscriptions; at least 10s.",
+		func(c Config) string { return c.Usage.PollWatched.D().String() }},
 
 	{"shutdown.grace", "",
 		"How long in-flight requests may finish after a signal. Streams are long-lived, so this is generous.",
