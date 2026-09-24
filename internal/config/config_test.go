@@ -82,11 +82,11 @@ func TestLoadParsesDurationsAndOverrides(t *testing.T) {
 // typo rather than a choice.
 func TestUsagePollBounds(t *testing.T) {
 	for body, ok := range map[string]bool{
-		"":                                                    true,
+		"": true,
 		"usage:\n  poll-watched: \"15s\"\n  poll-idle: \"10m\"\n": true,
-		"usage:\n  poll-watched: \"2s\"\n":                    false,
-		"usage:\n  poll-idle: \"5s\"\n":                       false,
-		"usage:\n  poll-watched: \"10m\"\n":                   false,
+		"usage:\n  poll-watched: \"2s\"\n":                        false,
+		"usage:\n  poll-idle: \"5s\"\n":                           false,
+		"usage:\n  poll-watched: \"10m\"\n":                       false,
 	} {
 		path := filepath.Join(t.TempDir(), "config.yaml")
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
