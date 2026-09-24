@@ -30,7 +30,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: web/.nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -61,11 +61,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: web/.nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - run: make web-deps
+
+      # Two builds under different conditions must be byte-identical, or the
+      # checksums a release publishes cannot be checked by rebuilding it.
+      - run: make repro
 
       # Every release platform, from one runner: the binary is pure Go, so
       # cross-compiling costs nothing and a broken target is caught here rather

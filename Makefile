@@ -174,12 +174,22 @@ repro: web
 	@echo "pass 1"
 	@CGO_ENABLED=0 SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
 	  go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(DIST)/repro/first $(CMD)
-	@echo "pass 2 (cold cache, copied tree)"
+	@echo "pass 2 (cold cache, copied tree, UI rebuilt)"
 	@rm -rf $(DIST)/repro/tree && mkdir -p $(DIST)/repro/tree
-	@tar -c --exclude='./$(DIST)' --exclude='./web/node_modules' --exclude='./.git' . \
+	@tar -c --exclude='./$(DIST)' --exclude='./web/node_modules' --exclude='./.git' \
+	  --exclude='./web/dist' --exclude='./$(WEBDIST)' . \
 	  | tar -x -C $(DIST)/repro/tree
+	@# The UI is compiled into the binary, so it has to be rebuilt here too:
+	@# reusing pass 1's output would only prove that Go is deterministic. The
+	@# dependencies are the same lockfile's, linked rather than reinstalled.
+	@ln -s $(CURDIR)/web/node_modules $(DIST)/repro/tree/web/node_modules
+	@$(MAKE) --no-print-directory -C $(DIST)/repro/tree web >/dev/null
 	@cd $(DIST)/repro/tree && CGO_ENABLED=0 GOCACHE=$(CURDIR)/$(DIST)/repro/cache \
 	  go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(CURDIR)/$(DIST)/repro/second $(CMD)
+	@if ! diff -r $(WEBDIST) $(DIST)/repro/tree/$(WEBDIST) >/dev/null; then \
+	  echo; echo "NOT reproducible: the two UI builds differ"; \
+	  diff -rq $(WEBDIST) $(DIST)/repro/tree/$(WEBDIST); exit 1; \
+	fi
 	@if cmp -s $(DIST)/repro/first $(DIST)/repro/second; then \
 	  echo; echo "reproducible — $$(sha256sum $(DIST)/repro/first | cut -d' ' -f1)"; \
 	else \
