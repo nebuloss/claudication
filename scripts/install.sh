@@ -829,7 +829,11 @@ wait_ready() {
 
 print_summary() {
   ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  port="${LISTEN##*:}"
+  # The admin UI is on admin-listen when the config splits it out; pointing at
+  # the relay port there hands the operator a 404.
+  admin="$(config_value admin-listen)"
+  port="$(relay_port)"
+  [ -n "$admin" ] && port="${admin##*:}"
 
   printf '\n'
   info "claudication $(installed_version) is running"
