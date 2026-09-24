@@ -653,17 +653,35 @@ func (s *Server) Run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()
 
-	err = s.httpServer.Shutdown(shutdownCtx)
+	// All of them at once. Shutdown closes a server's listeners only when it is
+	// called, so in sequence the admin port stayed bound for as long as the
+	// relay took to drain — up to the whole grace period behind one long
+	// stream. A restart in that window brought the new process up on the relay
+	// port and then failed on the admin one until the supervisor gave up,
+	// leaving nothing running once the old process finished (2026-09-24).
+	servers := []*http.Server{s.httpServer}
 	if s.adminServer != nil {
-		// Same deadline for all of them, and the relay's error wins: a page
-		// cut short is not worth reporting over a severed stream.
-		if aerr := s.adminServer.Shutdown(shutdownCtx); err == nil {
-			err = aerr
-		}
+		servers = append(servers, s.adminServer)
 	}
 	if s.docsServer != nil {
-		if derr := s.docsServer.Shutdown(shutdownCtx); err == nil {
-			err = derr
+		servers = append(servers, s.docsServer)
+	}
+	errs := make([]error, len(servers))
+	var wg sync.WaitGroup
+	for i, srv := range servers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = srv.Shutdown(shutdownCtx)
+		}()
+	}
+	wg.Wait()
+	// Same deadline for all of them, and the relay's error wins: a page cut
+	// short is not worth reporting over a severed stream.
+	for _, e := range errs {
+		if e != nil {
+			err = e
+			break
 		}
 	}
 	close(s.stopSweeper)
