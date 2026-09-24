@@ -327,6 +327,11 @@ respawn_delay=5
 respawn_max=10
 respawn_period=1800
 
+# Wait out the drain before calling it stopped, as TimeoutStopSec does for
+# systemd: longer than the two-minute grace, so a restart does not start the
+# new process while the old one still holds the ports and a stream is open.
+retry="TERM/150/KILL/5"
+
 # Only the state directory, which the CLI subcommands need before any config
 # is read. Everything else lives in the config file, because an environment
 # variable silently overrides it and half a configuration is worse than either.
