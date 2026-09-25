@@ -8,7 +8,7 @@ import RequestsPanel from './features/requests'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import UsagePanel from './features/usage'
-import { usePathTab, useLive, useLoader } from './hooks'
+import { usePathTab, useLive, useLoader, useUpdateAvailable } from './hooks'
 // OverviewData, because Overview is already the panel above.
 import {
   ApiError,
@@ -107,6 +107,10 @@ export default function App() {
   // The plaintext exists nowhere else — the store keeps only its hash — so
   // losing it to a stray click means the key is gone for good.
   const [minted, setMinted] = useState<{ key: ApiKey; plaintext: string } | null>(null)
+  // A deploy since this tab loaded. Offered, never done for the operator: a
+  // reload throws away whatever is on screen, and one of the things that can be
+  // on screen is a key that is shown once.
+  const updated = useUpdateAvailable()
 
   const probe = useCallback(async () => {
     try {
@@ -229,6 +233,17 @@ export default function App() {
       </header>
 
       <main className={`mx-auto ${measure} px-4 pt-6 pb-16 sm:px-6`}>
+        {updated && (
+          <Banner className="mb-5">
+            <span className="flex flex-wrap items-center justify-between gap-2">
+              <span>
+                claudication has been updated since this page was opened. Reload to use the new
+                version.
+              </span>
+              <TextButton onClick={() => window.location.reload()}>Reload</TextButton>
+            </span>
+          </Banner>
+        )}
         {tab === 'overview' && <Overview onExpired={expired} onGoTo={setTab} docsURL={docsURL} />}
         {tab === 'accounts' && <Accounts onExpired={expired} />}
         {tab === 'keys' && <Keys onExpired={expired} onMinted={setMinted} />}

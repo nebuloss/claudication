@@ -270,3 +270,61 @@ export function useNow(everyMs = 1000): number {
   }, [everyMs])
   return now
 }
+
+/** The entry script a copy of index.html loads, or '' when there is none. */
+function entryScript(html: string): string {
+  return /<script[^>]*type="module"[^>]*src="([^"]+)"/.exec(html)?.[1] ?? ''
+}
+
+/**
+ * Whether the gateway now serves a newer UI than the one this tab is running.
+ *
+ * The admin UI is one page: live refresh re-fetches data, never the code, so a
+ * tab opened before a deploy keeps running the old bundle and simply does not
+ * have whatever the deploy added. That cost a hard reload and an "I don't see
+ * it" on 2026-09-25.
+ *
+ * Compares the entry script this page was loaded with against the one
+ * index.html names now. Asset names carry a content hash, so this changes
+ * exactly when the UI does, and not on a gateway-only release. It fetches the
+ * static page rather than an admin endpoint, so it does not count as someone
+ * watching the usage figures; index.html is served no-cache with an ETag, so an
+ * unchanged answer is a 304.
+ *
+ * Checked once a minute while the tab is visible and Live is on, and whenever
+ * the tab becomes visible again, which is when someone is about to look.
+ */
+export function useUpdateAvailable(everyMs = 60_000): boolean {
+  const [stale, setStale] = useState(false)
+  const [live] = useLive()
+
+  useEffect(() => {
+    const running =
+      document
+        .querySelector<HTMLScriptElement>('script[type="module"][src]')
+        ?.getAttribute('src') ?? ''
+    if (running === '' || stale) return
+
+    const check = async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const res = await fetch('/', { cache: 'no-cache', credentials: 'same-origin' })
+        if (!res.ok) return
+        const served = entryScript(await res.text())
+        if (served !== '' && served !== running) setStale(true)
+      } catch {
+        // Offline, or the gateway mid-restart. The next check will tell.
+      }
+    }
+
+    const timer = live ? window.setInterval(() => void check(), everyMs) : 0
+    const onVisible = () => void check()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      if (timer !== 0) window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [everyMs, live, stale])
+
+  return stale
+}
