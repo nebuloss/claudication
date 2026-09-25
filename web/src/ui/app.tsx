@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
 import Keys from './features/keys'
+import { KeyConfigs } from './features/key-configs'
 import Overview from './features/overview'
 import Settings from './features/settings'
 import RequestsPanel from './features/requests'
@@ -229,7 +230,7 @@ export default function App() {
 
       <main className={`mx-auto ${measure} px-4 pt-6 pb-16 sm:px-6`}>
         {tab === 'overview' && <Overview onExpired={expired} onGoTo={setTab} docsURL={docsURL} />}
-                {tab === 'accounts' && <Accounts onExpired={expired} />}
+        {tab === 'accounts' && <Accounts onExpired={expired} />}
         {tab === 'keys' && <Keys onExpired={expired} onMinted={setMinted} />}
         {tab === 'usage' && <UsagePanel onExpired={expired} />}
         {tab === 'requests' && <RequestsPanel onExpired={expired} />}
@@ -247,9 +248,10 @@ export default function App() {
         <Modal title={minted.key.name} size="lg" onClose={() => setMinted(null)}>
           <Banner tone="warn" className="mb-4">
             This is the only time the key is shown. Nothing can retrieve it afterwards — only the
-            hash is stored. Copy it now.
+            hash is stored. Copy it, or download a client&rsquo;s config with it inside, now.
           </Banner>
           <CopyField label="API key" value={minted.plaintext} />
+          <KeyConfigs plaintext={minted.plaintext} config={config.data} />
           <div className="mt-6 flex justify-end">
             <FilledButton type="button" onClick={() => setMinted(null)}>
               Done

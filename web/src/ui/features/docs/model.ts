@@ -12,6 +12,13 @@ import { type Lang } from '../../primitives/code'
  */
 export const EXAMPLE_BASE = 'https://claudication.example.com'
 
+/**
+ * The example key inside the same files, replaced the same way when a real one
+ * is known — which is only ever in the dialog that shows a key the moment it
+ * is minted. The public page never has one and leaves this as it is.
+ */
+export const EXAMPLE_KEY = 'clc_...'
+
 /** Which client-facing API a client speaks. */
 export type SurfaceID = 'anthropic' | 'openai' | 'both'
 
@@ -79,12 +86,16 @@ export class ClientRecipe {
     return this.data.versioned ? `${gateway}/v1` : gateway
   }
 
-  /** Its files, with the example address replaced by this gateway's own. */
-  files(gateway: string): ConfigFile[] {
-    return this.data.files.map((f) => ({
-      ...f,
-      body: f.body.split(EXAMPLE_BASE).join(gateway),
-    }))
+  /**
+   * Its files, with the example address replaced by this gateway's own, and
+   * the example key by a real one when there is one to give.
+   */
+  files(gateway: string, key = ''): ConfigFile[] {
+    return this.data.files.map((f) => {
+      let body = f.body.split(EXAMPLE_BASE).join(gateway)
+      if (key !== '') body = body.split(EXAMPLE_KEY).join(key)
+      return { ...f, body }
+    })
   }
 
   /**
