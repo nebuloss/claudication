@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"claudication/internal/config"
@@ -144,10 +143,8 @@ func docsURL(c config.Config) string {
 	return c.PublicURL
 }
 
-// docsSetting is the settings row holding the switch.
-const docsSetting = "docs.enabled"
-
-// docsSwitch decides whether the public page is served.
+// docsSetting is the settings row holding the switch that decides whether the
+// public page is served.
 //
 // Runtime state rather than configuration, for the reason the API switches
 // are: taking the page down is what an operator does when something is wrong,
@@ -160,39 +157,7 @@ const docsSetting = "docs.enabled"
 // turning it on changes that listener from silent-unless-you-have-a-key to
 // self-describing. It grants no access and carries no secret, but it is not a
 // thing that should start happening because someone upgraded.
-type docsSwitch struct {
-	server *Server
-	// Atomic for the same reason imageFit is, though this one is read far less
-	// often: only requests that reach the catch-all root ask it, and relay
-	// traffic never does — /v1/messages is its own route.
-	on atomic.Bool
-}
-
-func newDocsSwitch(s *Server) *docsSwitch { return &docsSwitch{server: s} }
-
-func (d *docsSwitch) load(ctx context.Context) error {
-	stored, err := d.server.store.Settings(ctx)
-	if err != nil {
-		return err
-	}
-	d.on.Store(stored[docsSetting] == "true")
-	return nil
-}
-
-// enabled reports whether to serve it.
-func (d *docsSwitch) enabled() bool { return d.on.Load() }
-
-func (d *docsSwitch) change(ctx context.Context, on bool) error {
-	value := "false"
-	if on {
-		value = "true"
-	}
-	if err := d.server.store.SetSetting(ctx, docsSetting, value); err != nil {
-		return err
-	}
-	d.on.Store(on)
-	return nil
-}
+const docsSetting = "docs.enabled"
 
 // handleSetDocs flips it.
 func (s *Server) handleSetDocs(w http.ResponseWriter, r *http.Request) {
@@ -203,13 +168,13 @@ func (s *Server) handleSetDocs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", `expected {"enabled": true|false}`)
 		return
 	}
-	if err := s.docs.change(r.Context(), *body.Enabled); err != nil {
+	if err := s.docs.Set(r.Context(), *body.Enabled); err != nil {
 		s.log.Error("could not store the docs switch", "err", err)
 		writeError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
 		return
 	}
 	s.log.Warn("public docs page switched", "enabled", *body.Enabled)
-	writeJSON(w, http.StatusOK, map[string]any{"docs_enabled": s.docs.enabled()})
+	writeJSON(w, http.StatusOK, map[string]any{"docs_enabled": s.docs.On()})
 }
 
 // handleDocsInfo is everything the public docs page needs, and nothing else.
@@ -221,7 +186,7 @@ func (s *Server) handleSetDocs(w http.ResponseWriter, r *http.Request) {
 // APIs are being served, whether any account is connected, and which models
 // exist. Nothing here is a secret, and nothing here can be changed.
 func (s *Server) handleDocsInfo(w http.ResponseWriter, r *http.Request) {
-	if !s.docs.enabled() {
+	if !s.docs.On() {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
 		return
 	}

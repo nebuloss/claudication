@@ -26,6 +26,7 @@ import (
 	"claudication/internal/relay/passes"
 	"claudication/internal/secret"
 	"claudication/internal/service/limits"
+	"claudication/internal/service/settings"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
@@ -70,8 +71,8 @@ type Server struct {
 	// titles names conversations by asking a model, which is the only traffic
 	// this gateway originates rather than relays. Off until switched on.
 	titles *titler
-	images *imageFit
-	docs   *docsSwitch
+	images *settings.Switch
+	docs   *settings.Switch
 
 	mu   sync.Mutex
 	addr string
@@ -155,15 +156,15 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 
 	// And again: off is the pass-through rule, so a switch we cannot read
 	// leaves the caller's bytes alone.
-	s.images = newImageFit(s)
-	if err := s.images.load(loadCtx); err != nil {
+	s.images = settings.NewSwitch(st, imageFitSetting, false)
+	if err := settings.Load(loadCtx, st, s.images); err != nil {
 		log.Warn("could not read the image-fit switch; leaving it off", "err", err)
 	}
 
 	// Opposite default again: configuring docs-listen is the decision to serve
 	// the page, so a switch we cannot read leaves it serving.
-	s.docs = newDocsSwitch(s)
-	if err := s.docs.load(loadCtx); err != nil {
+	s.docs = settings.NewSwitch(st, docsSetting, false)
+	if err := settings.Load(loadCtx, st, s.docs); err != nil {
 		log.Warn("could not read the docs switch; serving the page anyway", "err", err)
 	}
 
@@ -177,7 +178,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		Log:  log,
 		Passes: passes.Default(passes.Options{
 			Attribution: cfg.Passthrough.ClaudeCodeAttribution,
-			FitImages:   s.images.enabled,
+			FitImages:   s.images.On,
 			Images:      passes.NewImageCache(passes.DefaultImageCacheBytes),
 			Log:         log,
 		}),
@@ -295,7 +296,7 @@ func (s *Server) rootMode(r0 role) rootMode {
 	switch {
 	case r0.admin:
 		return rootAdmin
-	case r0.docs && s.docs.enabled():
+	case r0.docs && s.docs.On():
 		return rootDocs
 	case r0.docs:
 		return rootWelcome

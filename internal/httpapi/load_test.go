@@ -146,14 +146,14 @@ func TestLoad(t *testing.T) {
 	}
 	if n, _ := strconv.Atoi(os.Getenv("CLAUDICATION_LOAD_IMAGES")); n > 0 {
 		loadShapeV = imageShape(t, n)
-		if err := srv.images.set(context.Background(), true); err != nil {
+		if err := srv.images.Set(context.Background(), true); err != nil {
 			t.Fatal(err)
 		}
 		if os.Getenv("CLAUDICATION_LOAD_IMAGECACHE") == "off" {
 			// The same pipeline with no image cache, so every request decodes.
 			srv.relay.Passes = passes.Default(passes.Options{
 				Attribution: srv.cfg.Passthrough.ClaudeCodeAttribution,
-				FitImages:   srv.images.enabled,
+				FitImages:   srv.images.On,
 			})
 		}
 	}
