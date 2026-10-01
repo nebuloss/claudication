@@ -39,14 +39,22 @@ const (
 	loadFirstToken = 300 * time.Millisecond // stub: delay before the first delta
 	loadDeltas     = 20                     // stub: deltas per answer
 	loadDeltaGap   = 50 * time.Millisecond  // stub: gap between deltas
-	loadBodyBytes  = 300 << 10              // request body size
 	loadHistory    = 80_000                 // usage rows seeded before the run
 	loadStep       = 8 * time.Second        // how long each concurrency level runs
 )
 
+// loadBodyBytes is the request body size; see TestLoad.
+var loadBodyBytes int
+
 func TestLoad(t *testing.T) {
 	if os.Getenv("CLAUDICATION_LOAD") == "" {
 		t.Skip("set CLAUDICATION_LOAD=1 to run the load test")
+	}
+	// 300 KB by default; production's crush turns carry up to ~950k cached
+	// tokens, which is megabytes, so CLAUDICATION_LOAD_BODY_KB sets it.
+	loadBodyBytes = 300 << 10
+	if v, err := strconv.Atoi(os.Getenv("CLAUDICATION_LOAD_BODY_KB")); err == nil && v > 0 {
+		loadBodyBytes = v << 10
 	}
 	levels := []int{10, 50, 100, 250, 500}
 	if v := os.Getenv("CLAUDICATION_LOAD_LEVELS"); v != "" {
@@ -122,6 +130,15 @@ func TestLoad(t *testing.T) {
 			agents, r.requests, r.errorsText(),
 			ms(r.added(.5)), ms(r.added(.9)), ms(r.added(.99)), ms(r.added(1)),
 			ms(r.adminP99()), r.heapMB, r.goroutines)
+		if agents == levels[0] {
+			var parts []string
+			for path, ds := range r.adminBy {
+				sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
+				parts = append(parts, fmt.Sprintf("%s=%s", path, ms(ds[len(ds)/2])))
+			}
+			sort.Strings(parts)
+			t.Logf("       admin median by page: %s", strings.Join(parts, "  "))
+		}
 	}
 	t.Logf("stub upstream peak in flight: %d", upPeak.Load())
 
@@ -136,6 +153,7 @@ type levelResult struct {
 	errors     map[string]int
 	addedTTFT  []time.Duration // client-seen first token minus the stub's own delay
 	admin      []time.Duration
+	adminBy    map[string][]time.Duration
 	heapMB     uint64
 	goroutines int
 }
@@ -168,7 +186,7 @@ func (r *levelResult) errorsText() string {
 
 func runLevel(client *http.Client, base, key string, body []byte, agents int, cookie *http.Cookie) levelResult {
 	var mu sync.Mutex
-	res := levelResult{errors: map[string]int{}}
+	res := levelResult{errors: map[string]int{}, adminBy: map[string][]time.Duration{}}
 	deadline := time.Now().Add(loadStep)
 	var wg sync.WaitGroup
 
@@ -214,8 +232,10 @@ func runLevel(client *http.Client, base, key string, body []byte, agents int, co
 						_, _ = bytes.NewBuffer(nil).ReadFrom(resp.Body)
 						resp.Body.Close()
 					}
+					took := time.Since(start)
 					mu.Lock()
-					res.admin = append(res.admin, time.Since(start))
+					res.admin = append(res.admin, took)
+					res.adminBy[path] = append(res.adminBy[path], took)
 					mu.Unlock()
 				}
 			}()
