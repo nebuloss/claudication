@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"claudication/internal/upstream"
+	"claudication/internal/request"
 )
 
 func gzipped(t *testing.T, s string) []byte {
@@ -47,7 +47,7 @@ func TestDecodeBodyOpensGzipSoTheBodyCanBeRead(t *testing.T) {
 		t.Errorf("body = %s, want %s", got, want)
 	}
 	// Proof it is now usable by the passes that were silently no-oping.
-	if p := upstream.Peek(got); p.Model != "claude-opus-5" {
+	if p := request.Peek(got); p.Model != "claude-opus-5" {
 		t.Errorf("prologue model = %q, want it readable", p.Model)
 	}
 	// The header described bytes that no longer exist.

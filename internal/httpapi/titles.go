@@ -14,6 +14,7 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/store"
 	"claudication/internal/upstream"
+	"claudication/internal/request"
 )
 
 // Naming a chat.
@@ -515,7 +516,7 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	sink := &captureWriter{body: &answer, header: http.Header{}}
 
 	started := time.Now()
-	res := relay.Do(sink, req, "anthropic", "/v1/messages?beta=true", body, upstream.Peek(body))
+	res := relay.Do(sink, req, "anthropic", "/v1/messages?beta=true", body, request.Peek(body))
 	if res.Err != nil || res.Status != http.StatusOK {
 		return
 	}

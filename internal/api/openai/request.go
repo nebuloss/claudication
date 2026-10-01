@@ -98,7 +98,7 @@ type responsesTool struct {
 // ResponsesToAnthropic converts one Codex request into one Anthropic request.
 //
 // What it does not do is add Claude Code's attribution block, normalise the
-// system text or rewrite refused tool names. Those happen in internal/upstream
+// system text or rewrite refused tool names. Those are internal/relay/passes,
 // on the way out, and they apply to this request exactly as to a relayed one —
 // a synthesised request is still a request the subscription backend judges.
 func ResponsesToAnthropic(body []byte, opts Options) (Request, error) {

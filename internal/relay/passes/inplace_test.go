@@ -1,8 +1,7 @@
-package upstream
+package passes
 
 import (
 	"encoding/json"
-	"io"
 	"strings"
 	"testing"
 )
@@ -83,18 +82,5 @@ func TestRefusedNameGateIgnoresDoubleUnderscore(t *testing.T) {
 		if got := mayHoldRefusedName([]byte(body)); got != want {
 			t.Errorf("%s: gate = %v, want %v", body, got, want)
 		}
-	}
-}
-
-// The request body lets go of its bytes once read, so the request — which
-// lives as long as the response — does not keep them.
-func TestSentBodyReleasesItsBytes(t *testing.T) {
-	s := &sentBody{b: []byte("hello world")}
-	got, err := io.ReadAll(s)
-	if err != nil || string(got) != "hello world" {
-		t.Fatalf("read %q, %v", got, err)
-	}
-	if s.b != nil {
-		t.Error("bytes still referenced after EOF")
 	}
 }

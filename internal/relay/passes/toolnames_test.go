@@ -1,4 +1,4 @@
-package upstream
+package passes
 
 import (
 	"encoding/json"
@@ -153,12 +153,12 @@ func TestRewriteRefusedToolNamesLeavesAnUnparseableBody(t *testing.T) {
 
 // restoreAll drives the restorer the way relay does, in chunks.
 func restoreAll(rev map[string]string, chunks ...string) string {
-	n := &nameRestorer{rev: rev}
+	n := &NameRestorer{rev: rev}
 	var out strings.Builder
 	for _, c := range chunks {
-		out.Write(n.translate([]byte(c)))
+		out.Write(n.Translate([]byte(c)))
 	}
-	out.Write(n.tail())
+	out.Write(n.Tail())
 	return out.String()
 }
 
@@ -196,15 +196,15 @@ func TestNameRestorerEmitsEachLineAsItCompletes(t *testing.T) {
 	// A ping must not be held back waiting for the next event: Claude Code
 	// aborts a stream that goes quiet, and during a long generation the pings
 	// are the only traffic.
-	n := &nameRestorer{rev: map[string]string{"mcp__x": "mcp_x"}}
+	n := &NameRestorer{rev: map[string]string{"mcp__x": "mcp_x"}}
 
-	out := n.translate([]byte("event: ping\ndata: {}\n\n"))
+	out := n.Translate([]byte("event: ping\ndata: {}\n\n"))
 	if string(out) != "event: ping\ndata: {}\n\n" {
 		t.Errorf("ping was not passed straight through: %q", out)
 	}
 
 	// A partial line is held, because half a name must never be written.
-	if out := n.translate([]byte(`data: {"name":"mcp_`)); len(out) != 0 {
+	if out := n.Translate([]byte(`data: {"name":"mcp_`)); len(out) != 0 {
 		t.Errorf("emitted a partial line: %q", out)
 	}
 }
@@ -230,11 +230,11 @@ func TestNameRestorerRestoresANonStreamingBody(t *testing.T) {
 }
 
 func TestNameRestorerGivesUpRatherThanHoardMemory(t *testing.T) {
-	n := &nameRestorer{rev: map[string]string{"mcp__x": "mcp_x"}}
+	n := &NameRestorer{rev: map[string]string{"mcp__x": "mcp_x"}}
 	var emitted int
 	// One line, no newline, past the cap.
 	for emitted <= maxNameBuffer {
-		out := n.translate(make([]byte, 1<<20))
+		out := n.Translate(make([]byte, 1<<20))
 		emitted += len(out)
 		if emitted > 0 {
 			break
@@ -244,7 +244,7 @@ func TestNameRestorerGivesUpRatherThanHoardMemory(t *testing.T) {
 		t.Fatal("held an oversized line instead of giving up on it")
 	}
 	// Once it gives up it stays out of the way for the rest of the body.
-	if got := n.translate([]byte(`"name":"mcp__x"`)); string(got) != `"name":"mcp__x"` {
+	if got := n.Translate([]byte(`"name":"mcp__x"`)); string(got) != `"name":"mcp__x"` {
 		t.Errorf("kept rewriting after giving up: %q", got)
 	}
 }

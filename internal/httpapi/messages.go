@@ -4,10 +4,12 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"claudication/internal/api"
 	"claudication/internal/pool"
+	"claudication/internal/request"
 	"claudication/internal/store"
 	"claudication/internal/upstream"
 )
@@ -89,11 +91,11 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// translating protocol are not the ones that arrived. A dialect that
 		// sends the caller's bytes as they are has already read it; a second
 		// Peek was one more full parse of every request for nothing.
-		var prologue upstream.Prologue
-		if pe, ok := ex.(interface{ Prologue() upstream.Prologue }); ok {
+		var prologue request.Prologue
+		if pe, ok := ex.(interface{ Prologue() request.Prologue }); ok {
 			prologue = pe.Prologue()
 		} else {
-			prologue = upstream.Peek(outbound)
+			prologue = request.Peek(outbound)
 		}
 
 		// A client naming its own conversation is answered with the name it
@@ -192,6 +194,11 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		}
 		if res.Stalls > 0 {
 			attrs = append(attrs, "stalls", res.Stalls)
+		}
+		// Which passes changed the body, so a request that was rewritten says
+		// so without debug logging. See internal/relay/passes.
+		if len(res.Rewrites) > 0 {
+			attrs = append(attrs, "rewrites", strings.Join(res.Rewrites, ","))
 		}
 		if res.Usage.InputTokens > 0 || res.Usage.OutputTokens > 0 {
 			attrs = append(attrs,

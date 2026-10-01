@@ -1,4 +1,4 @@
-package upstream
+package passes
 
 import (
 	"bytes"
@@ -287,14 +287,14 @@ func (r *renamer) array(raw json.RawMessage, fn func(json.RawMessage) (json.RawM
 // line, so this is the guard for neither of those being true.
 const maxNameBuffer = 8 << 20
 
-// nameRestorer puts the client's own tool names back into the response.
+// NameRestorer puts the client's own tool names back into the response.
 //
 // It works a line at a time because a name must never be rewritten in halves,
 // and SSE is line-delimited: every event is emitted as soon as its last byte
 // arrives, so pings and deltas still reach the client the moment the upstream
 // sends them. A non-streaming body has no newline in it and is therefore held
 // until the end, which is when the client could read it anyway.
-type nameRestorer struct {
+type NameRestorer struct {
 	rev map[string]string
 	buf []byte
 	// raw stops rewriting for the rest of the body once a single line has
@@ -302,8 +302,17 @@ type nameRestorer struct {
 	raw bool
 }
 
-// translate returns the bytes to write to the client for one upstream chunk.
-func (n *nameRestorer) translate(chunk []byte) []byte {
+// NewNameRestorer returns a restorer for the names a tool-names pass rewrote,
+// keyed by what was sent upstream. Nil when nothing was rewritten.
+func NewNameRestorer(rev map[string]string) *NameRestorer {
+	if len(rev) == 0 {
+		return nil
+	}
+	return &NameRestorer{rev: rev}
+}
+
+// Translate returns the bytes to write to the client for one upstream chunk.
+func (n *NameRestorer) Translate(chunk []byte) []byte {
 	if n.raw {
 		return chunk
 	}
@@ -324,8 +333,8 @@ func (n *nameRestorer) translate(chunk []byte) []byte {
 	return n.restore(ready)
 }
 
-// tail returns whatever is still held once the body ends.
-func (n *nameRestorer) tail() []byte {
+// Tail returns whatever is still held once the body ends.
+func (n *NameRestorer) Tail() []byte {
 	if n.raw || len(n.buf) == 0 {
 		return nil
 	}
@@ -334,7 +343,7 @@ func (n *nameRestorer) tail() []byte {
 	return out
 }
 
-func (n *nameRestorer) restore(b []byte) []byte {
+func (n *NameRestorer) restore(b []byte) []byte {
 	// Gated on the field, not on any particular name. Keying this on the MCP
 	// prefix meant every other rewritten name was sent out and never put back:
 	// the client asked for `todowrite`, got `todowrite_` in the tool_use, and

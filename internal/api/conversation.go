@@ -28,7 +28,7 @@ import (
 // Claude Code sends it twice, and the header is preferred because reading it
 // costs nothing. The body is kept as a fallback for a client old enough to
 // predate the header; it is a single pass that names one field, for the reason
-// upstream.Peek gives.
+// request.Peek gives.
 //
 // Note what is deliberately NOT used: a bare metadata.user_id that is not this
 // JSON object. That names a *user*, stable across every chat they ever have,
@@ -81,7 +81,7 @@ func CleanIdentifier(v string) string {
 
 // metadataEnvelope is the one field of a request body this package reads.
 //
-// Named rather than taken whole, exactly as upstream.Prologue is: `messages`
+// Named rather than taken whole, exactly as request.Prologue is: `messages`
 // is the bulk of a request and decoding into map[string]json.RawMessage would
 // copy the transcript to read a session id.
 type metadataEnvelope struct {

@@ -11,6 +11,7 @@ import (
 
 	"claudication/internal/pool"
 	"claudication/internal/store"
+	"claudication/internal/request"
 )
 
 // A client asking for gzip must not be able to blind the gateway.
@@ -44,7 +45,7 @@ func TestAClientAskingForGzipStillGetsAccountedFor(t *testing.T) {
 	req.Header.Set("Accept-Encoding", "gzip")
 	rec := httptest.NewRecorder()
 
-	res := r.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), Prologue{})
+	res := r.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), request.Prologue{})
 
 	if sawAcceptEncoding != "identity" {
 		t.Errorf("upstream saw Accept-Encoding %q, want identity: the relay has to read the body it relays",
@@ -80,7 +81,7 @@ func TestAFailedStreamIsNotCreditedWhenTheClientAsksForGzip(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
 	req.Header.Set("Accept-Encoding", "gzip")
-	res := r.Do(httptest.NewRecorder(), req, "anthropic", "/v1/messages", []byte("{}"), Prologue{})
+	res := r.Do(httptest.NewRecorder(), req, "anthropic", "/v1/messages", []byte("{}"), request.Prologue{})
 
 	if res.StreamError == "" {
 		t.Error("the mid-stream error was not seen")
@@ -114,7 +115,7 @@ func TestAnUnexpectedlyCompressedBodyIsRelayedButNotCredited(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
 	rec := httptest.NewRecorder()
-	res := r.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), Prologue{})
+	res := r.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), request.Prologue{})
 
 	if !res.Opaque {
 		t.Error("a body the relay cannot read must be marked opaque")

@@ -1,35 +1,10 @@
-package upstream
+package passes
 
-import "encoding/json"
+import (
+	"encoding/json"
 
-// Prologue is everything the gateway reads out of a request body before
-// relaying it: enough to log what was asked for, choose a timeout, and decide
-// whether the attribution block needs adding.
-//
-// It is read in a single pass, and it names its fields rather than taking the
-// whole object, because the field that matters for cost is the one it leaves
-// out. `messages` is the bulk of a request — Claude Code resends the whole
-// transcript every turn — and decoding into map[string]json.RawMessage copies
-// each top-level value, so touching the envelope at all used to duplicate the
-// transcript twice per request to read a model name.
-type Prologue struct {
-	Model  string          `json:"model"`
-	Stream bool            `json:"stream"`
-	System json.RawMessage `json:"system"`
-
-	// parsed records that the whole body is valid JSON, which is what lets
-	// the attribution be spliced in rather than the body rebuilt: the splice
-	// finds structure without checking it.
-	parsed bool
-}
-
-// Peek reads the prologue. An unparseable body yields a zero Prologue and is
-// left for the upstream to reject.
-func Peek(body []byte) Prologue {
-	var p Prologue
-	p.parsed = json.Unmarshal(body, &p) == nil
-	return p
-}
+	"claudication/internal/request"
+)
 
 // Claude Code's attribution block, and the gate it turns out to be.
 //
@@ -90,7 +65,7 @@ var acceptedAttribution = map[string]bool{
 // p is the prologue already read from body by Peek, so the common case — a
 // body that is already attributed, which is all of Claude Code's traffic —
 // costs no parsing at all here.
-func EnsureAttribution(body []byte, p Prologue) []byte {
+func EnsureAttribution(body []byte, p request.Prologue) []byte {
 	blocks, ok := systemBlocks(p.System)
 	if !ok {
 		return body
@@ -102,7 +77,7 @@ func EnsureAttribution(body []byte, p Prologue) []byte {
 	// Rare for Claude Code, and every request for anything else. Spliced into
 	// the bytes where the shape allows — see splice.go — so the body is
 	// copied once rather than decoded, rebuilt and re-encoded.
-	if p.parsed {
+	if p.Valid {
 		if out, ok := spliceAttribution(body); ok {
 			return out
 		}

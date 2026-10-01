@@ -1,9 +1,11 @@
-package upstream
+package passes
 
 import (
 	"bytes"
 	"encoding/json"
 	"strings"
+
+	"claudication/internal/request"
 )
 
 // Phrasing out of Claude Code's own environment block.
@@ -76,7 +78,7 @@ func normaliseSystem(body []byte, valid bool) []byte {
 	if !valid {
 		return body // the slow path would refuse it too
 	}
-	_, start, end, found, ok := topLevelEntry(body, "system")
+	_, start, end, found, ok := request.TopLevelEntry(body, "system")
 	if !ok {
 		return normaliseSystemEnvelope(body)
 	}
@@ -88,12 +90,12 @@ func normaliseSystem(body []byte, valid bool) []byte {
 		return body
 	}
 	if drop {
-		if out, ok := removeTopLevel(body, "system"); ok {
+		if out, ok := request.RemoveTopLevel(body, "system"); ok {
 			return out
 		}
 		return normaliseSystemEnvelope(body)
 	}
-	return join(body[:start], value, body[end:])
+	return request.Join(body[:start], value, body[end:])
 }
 
 // normaliseSystemValue rewrites a system value: the reworded line in a bare
@@ -238,14 +240,14 @@ func dropEmptyMessageText(body []byte, valid bool) []byte {
 	if !valid {
 		return body
 	}
-	_, start, end, found, ok := topLevelEntry(body, "messages")
+	_, start, end, found, ok := request.TopLevelEntry(body, "messages")
 	if !ok {
 		return dropEmptyMessageTextEnvelope(body)
 	}
 	if !found {
 		return body
 	}
-	spans, ok := arrayElements(body, start, end)
+	spans, ok := request.ArrayElements(body, start, end)
 	if !ok {
 		return body // not an array; the upstream's to reject
 	}

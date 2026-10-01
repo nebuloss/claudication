@@ -21,6 +21,7 @@ import (
 	"claudication/internal/memlimit"
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
+	"claudication/internal/relay/passes"
 	"claudication/internal/secret"
 	"claudication/internal/store"
 	"claudication/internal/upstream"
@@ -166,12 +167,15 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 
 	s.pool = pool.New(st, sealer, s.httpClient, log)
 	s.relay = &upstream.Relay{
-		Pool:         s.pool,
-		Log:          log,
-		Attribution:  cfg.Passthrough.ClaudeCodeAttribution,
+		Pool: s.pool,
+		Log:  log,
+		Passes: passes.Default(passes.Options{
+			Attribution: cfg.Passthrough.ClaudeCodeAttribution,
+			FitImages:   s.images.enabled,
+			Images:      passes.NewImageCache(passes.DefaultImageCacheBytes),
+			Log:         log,
+		}),
 		StallTimeout: cfg.Passthrough.StallTimeout.D(),
-		FitImages:    s.images.enabled,
-		Images:       upstream.NewImageCache(upstream.DefaultImageCacheBytes),
 		// Relayed inference gets its own client with NO client-level timeout:
 		// a streaming response legitimately runs for many minutes, and a
 		// Timeout here would sever it mid-flight. The per-request context

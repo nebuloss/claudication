@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"claudication/internal/pool"
+	"claudication/internal/relay/passes"
+	"claudication/internal/request"
 )
 
 // AnthropicBaseURL is where the relay forwards to.
@@ -43,22 +45,14 @@ var hopByHop = map[string]bool{
 // keeps it working with capabilities that do not exist yet.
 type Relay struct {
 	Pool AccountPool
-	// Attribution prepends Claude Code's system block when the caller did not.
-	// Off means non-Claude-Code clients reach haiku and nothing above it.
-	Attribution bool
-	// FitImages reports whether to cap oversized images in a many-image
-	// request. A predicate rather than a bool because it is a runtime switch
-	// an operator flips while the gateway runs; nil is off, which is what
-	// every test and every caller that has not wired it get.
-	FitImages func() bool
-	// Images remembers what each oversized image was rewritten to, so a
-	// conversation that resends its history does the work once.
+	// Passes rewrite the body before it goes upstream — the stated
+	// exceptions to relaying it untouched. passes.Default is the gateway's
+	// set; nil runs none, which is strict pass-through and what a test that
+	// builds a Relay from the fields it needs gets.
 	//
-	// A plain pointer and not built on demand: the titler copies a Relay to
-	// pin it to one account, and a sync primitive in here would make that copy
-	// a vet error. Nil is allowed and simply means no caching, so a Relay
-	// assembled by a test still works.
-	Images *ImageCache
+	// A slice and not built on demand: the titler copies a Relay to pin it to
+	// one account, and the copy shares the pipeline as it is.
+	Passes passes.Pipeline
 	// StallTimeout is how long a streaming answer may go without content
 	// before the attempt is abandoned and the request sent again — see
 	// stall.go. Zero turns that off and relays every byte the moment it
@@ -128,6 +122,9 @@ type Result struct {
 	// Stalls counts attempts abandoned because the stream never produced
 	// content (or errored before it did) and were sent again. See stall.go.
 	Stalls int
+	// Rewrites names the passes that changed the body on its way upstream,
+	// in the order they ran. Empty for a body that went up as it arrived.
+	Rewrites []string
 	// FirstContent is how long the caller waited, from the start of Do, for
 	// the first event carrying content — the time to first token, stalled
 	// attempts included. Zero when no content arrived or the response was not
@@ -201,64 +198,21 @@ func truncate(s string) string {
 // Retries can only happen before anything is written to the client; once the
 // first byte is relayed the response is committed, which is the price of not
 // buffering.
-func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamPath string, body []byte, p Prologue) Result {
+func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamPath string, body []byte, p request.Prologue) Result {
 	base := r.BaseURL
 	if base == "" {
 		base = AnthropicBaseURL
 	}
 
-	// First, because it is the only pass that repairs a body the upstream
-	// would refuse outright, and because re-encoding for any of the others
-	// would silently do the same substitution without saying so.
-	if fixed, n := FixLoneSurrogates(body); n > 0 {
-		body = fixed
-		// The prologue was read from the bytes we just replaced, and it holds
-		// the system array by reference. EnsureAttribution rebuilds the
-		// envelope from it, which would put the broken escape straight back —
-		// invisibly, because only the system path goes through those blocks.
-		p = Peek(body)
-		r.logger().Warn("repaired unpaired surrogate escapes in the request body; "+
-			"something upstream of this gateway is cutting text mid-character",
-			"replaced", n)
-	}
-
-	// Once, before the first attempt: a retry has to send the same bytes, and
-	// a body that already leads with an accepted block comes back untouched.
-	if r.Attribution {
-		body = EnsureAttribution(body, p)
-	}
-
-	// After attribution, because that reads the prologue peeked from the
-	// original bytes and this one rewrites them.
-	//
-	// Both splice into the bytes rather than rebuilding them, relying on the
-	// prologue's word that the body parses rather than scanning it again.
-	if mayNeedSystemNormalising(body) {
-		body = normaliseSystem(body, p.parsed)
-	}
-	if bytes.Contains(body, []byte(`"text":""`)) {
-		body = dropEmptyMessageText(body, p.parsed)
-	}
-
-	// Likewise once: tool names the upstream would refuse outright are sent in
-	// the shape it accepts, and names is what puts them back on the way out.
-	// Nil for every request that carries no such name, which is the common
-	// case and costs one scan of the body.
-	body, names := RewriteRefusedToolNames(body)
-
-	// Last, and only when switched on. It touches messages alone, so nothing
-	// above it reads what this rewrites — and it is the one pass that changes
-	// what the model is shown rather than the shape of the envelope, which is
-	// why it is the one an operator has to ask for.
-	if r.FitImages != nil && r.FitImages() {
-		if fitted, n := ShrinkImages(body, r.Images); n > 0 {
-			body = fitted
-			r.logger().Info("capped oversized images for a many-image request",
-				"images", n, "max_edge", MaxEdge)
-		}
-	}
+	// The rewrites, once, before the first attempt: a retry has to send the
+	// same bytes. Each is a named pass — see internal/relay/passes for what
+	// they are, why each exists, and the order they must run in.
+	st := passes.State{Prologue: p}
+	body, rewrites := r.Passes.Run(body, &st, r.logger())
+	names := st.Names
 
 	var res Result
+	res.Rewrites = rewrites
 	started := time.Now()
 	tried := map[string]bool{}
 	// Accounts whose token we have already refreshed for this request. One
@@ -567,9 +521,9 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 
 	// Not for a body we could not read: rewriting compressed bytes would
 	// corrupt them, and Opaque already says the contents are unknown.
-	var restorer *nameRestorer
+	var restorer *passes.NameRestorer
 	if len(names) > 0 && !res.Opaque {
-		restorer = &nameRestorer{rev: names}
+		restorer = passes.NewNameRestorer(names)
 	}
 
 	write := func(b []byte) bool {
@@ -590,7 +544,7 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 		if n > 0 {
 			out := buf[:n]
 			if restorer != nil {
-				out = restorer.translate(buf[:n])
+				out = restorer.Translate(buf[:n])
 			}
 			if !write(out) {
 				return
@@ -602,7 +556,7 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 		}
 		if readErr != nil {
 			if restorer != nil {
-				write(restorer.tail())
+				write(restorer.Tail())
 			}
 			if !errors.Is(readErr, io.EOF) {
 				res.Err = readErr

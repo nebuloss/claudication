@@ -1,6 +1,10 @@
 package upstream
 
-import "testing"
+import (
+	"testing"
+
+	"claudication/internal/request"
+)
 
 func TestClassifyRefusalNamesTheContentCheck(t *testing.T) {
 	// The body as it actually arrives, verbatim from a recorded request.

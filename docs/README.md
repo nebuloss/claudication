@@ -33,7 +33,7 @@ real system prompt out of your own binary, which that file cannot carry.
 | [client-apis.md](client-apis.md) | The APIs clients speak to the gateway — Anthropic Messages and OpenAI Responses — how the two are switched on and off, and how to add a third. |
 
 The same record as `refused-requests.md`, condensed, is in the code:
-`go doc ./internal/upstream`. That is the copy a maintainer meets first, so if
+`go doc ./internal/relay/passes`. That is the copy a maintainer meets first, so if
 you correct something here, correct it there too.
 
 ## How claims are marked

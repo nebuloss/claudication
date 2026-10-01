@@ -13,7 +13,7 @@ import (
 	"net/http"
 
 	"claudication/internal/api"
-	"claudication/internal/upstream"
+	"claudication/internal/request"
 )
 
 // ID names this surface in the settings table, the admin UI and the log.
@@ -39,7 +39,7 @@ func (API) Routes() []string {
 // the gateway needs; decoding the envelope into raw values used to copy the
 // transcript twice per request just to learn a model name.
 func (API) Decode(body []byte) (api.Exchange, error) {
-	return exchange{body: body, prologue: upstream.Peek(body)}, nil
+	return exchange{body: body, prologue: request.Peek(body)}, nil
 }
 
 // WriteError writes Anthropic's own error envelope, which is what a Claude
@@ -76,7 +76,7 @@ func (API) ConversationID(h http.Header, body []byte) string {
 
 type exchange struct {
 	body     []byte
-	prologue upstream.Prologue
+	prologue request.Prologue
 }
 
 func (e exchange) Request() []byte { return e.body }
@@ -85,7 +85,7 @@ func (e exchange) Streaming() bool { return e.prologue.Stream }
 
 // Prologue is what Decode already read. The body going upstream is the one it
 // read it from, so the relay need not parse it a second time.
-func (e exchange) Prologue() upstream.Prologue { return e.prologue }
+func (e exchange) Prologue() request.Prologue { return e.prologue }
 
 // Headers does nothing, which is the point: the caller already speaks what the
 // upstream speaks, so every header it sent is meaningful there and the relay's

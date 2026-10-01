@@ -7,10 +7,11 @@
 // rest of the package is the mapping: request.go out, stream.go and
 // complete.go back.
 //
-// # Why the mapping lives here and not in internal/upstream
+// # Why the mapping lives here and not in the relay
 //
-// That package relays: the caller's bytes go upstream unchanged, and its five
-// exceptions are each a few bytes rewritten under protest. This one does the
+// The relay sends the caller's bytes upstream unchanged, and its six
+// exceptions (internal/relay/passes) are each a few bytes rewritten under
+// protest. This one does the
 // opposite — it reads a request apart and builds a different one. Keeping them
 // in separate packages keeps that rule honest, because "the bytes go through
 // unchanged" and "the bytes are rebuilt in another protocol" cannot both be
@@ -65,7 +66,7 @@
 //     multi_agent_v1. Anthropic has no such thing, so these are flattened on
 //     the way out and their namespace restored on the way back; see below.
 //     Flattened names also have to stay clear of the ones the upstream
-//     refuses (see upstream.RewriteRefusedToolNames).
+//     refuses (see passes.RewriteRefusedToolNames).
 //   - "web_search" — a server-side tool with no schema at all:
 //     {"type":"web_search","external_web_access":true}. Either mapped to
 //     Anthropic's own server tool or dropped; it cannot become a function.
@@ -116,7 +117,7 @@
 // flattened, but the call has to come back with its namespace restored or
 // Codex cannot route it to the right sub-tool.
 //
-// That is the same shape as upstream.RewriteRefusedToolNames — rewrite on the
+// That is the same shape as passes.RewriteRefusedToolNames — rewrite on the
 // way out, keep a map, restore on the way in — and it should be built the same
 // way, including its collision guard.
 //
@@ -159,7 +160,7 @@
 //   - The request we send is synthesised here, so it is ours to get right:
 //     it needs Claude Code's attribution block first in the system array or
 //     the subscription backend serves haiku and nothing above it. That pass
-//     runs in internal/upstream and applies to this request exactly as to a
+//     runs in internal/relay/passes and applies to this request exactly as to a
 //     relayed one — a synthesised request is still a request the backend
 //     judges — so nothing here has to do it, and nothing here may skip it.
 //   - `developer` is a role Anthropic does not have.

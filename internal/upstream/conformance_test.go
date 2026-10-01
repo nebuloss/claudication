@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"claudication/internal/request"
+	"claudication/internal/relay/passes"
 )
 
 // Conformance with Anthropic's gateway compatibility contract.
@@ -53,7 +56,7 @@ func relayThrough(t *testing.T, clientReq *http.Request, body []byte, upstream h
 		BaseURL: srv.URL,
 	}
 	f.rec = httptest.NewRecorder()
-	f.res = r.Do(f.rec, clientReq, "anthropic", "/v1/messages", body, Peek(body))
+	f.res = r.Do(f.rec, clientReq, "anthropic", "/v1/messages", body, request.Peek(body))
 	return f
 }
 
@@ -120,7 +123,7 @@ func TestContractForwardsUnknownAnthropicHeadersAndBodyFields(t *testing.T) {
 // body already leads with an accepted block, so nothing is rewritten.
 func TestContractPreservesCacheControlAndBlockFormSystem(t *testing.T) {
 	body := `{"model":"claude-opus-5",` +
-		`"system":[{"type":"text","text":"` + ClaudeCodeAttribution + `"},` +
+		`"system":[{"type":"text","text":"` + passes.ClaudeCodeAttribution + `"},` +
 		`{"type":"text","text":"project rules","cache_control":{"type":"ephemeral"}}],` +
 		`"messages":[{"role":"user","content":[{"type":"text","text":"hi",` +
 		`"cache_control":{"type":"ephemeral"}}]}]}`
@@ -160,13 +163,13 @@ func relayThroughAttributed(t *testing.T, clientReq *http.Request, body []byte, 
 
 	r := &Relay{
 		Pool:        &recordingPool{},
-		Attribution: true,
+		Passes:      passes.Default(passes.Options{Attribution: true}),
 		Client:      srv.Client(),
 		Log:         slog.New(slog.DiscardHandler),
 		BaseURL:     srv.URL,
 	}
 	f.rec = httptest.NewRecorder()
-	f.res = r.Do(f.rec, clientReq, "anthropic", "/v1/messages", body, Peek(body))
+	f.res = r.Do(f.rec, clientReq, "anthropic", "/v1/messages", body, request.Peek(body))
 	return f
 }
 
@@ -180,7 +183,7 @@ func relayThroughAttributed(t *testing.T, clientReq *http.Request, body []byte, 
 // is Claude Code.
 func TestContractLeavesAnAttributedBodyByteForByte(t *testing.T) {
 	for _, attribution := range []string{
-		ClaudeCodeAttribution,
+		passes.ClaudeCodeAttribution,
 		"You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.",
 		"You are a Claude agent, built on Anthropic's Claude Agent SDK.",
 	} {
@@ -223,7 +226,7 @@ func TestContractAddsAttributionAsItsOwnEntry(t *testing.T) {
 	if len(sent.System) != 2 {
 		t.Fatalf("system has %d entries, want 2 (attribution, then the caller's)", len(sent.System))
 	}
-	if sent.System[0].Text != ClaudeCodeAttribution {
+	if sent.System[0].Text != passes.ClaudeCodeAttribution {
 		t.Errorf("first entry = %q, want the attribution alone", sent.System[0].Text)
 	}
 	if sent.System[1].Text != "project rules" {
@@ -289,7 +292,7 @@ func TestContractDoesNotBufferTheResponse(t *testing.T) {
 		BaseURL: upstreamSrv.URL,
 	}
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		r.Do(w, req, "anthropic", "/v1/messages", []byte("{}"), Prologue{})
+		r.Do(w, req, "anthropic", "/v1/messages", []byte("{}"), request.Prologue{})
 	}))
 	defer gateway.Close()
 

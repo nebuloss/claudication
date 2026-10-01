@@ -263,7 +263,7 @@ same reason: without it those requests cannot succeed at all.
 behind each of these and the signals this gateway deliberately does not
 synthesise; [`docs/`](docs/) also covers what the official client sends and how
 any of it can be checked again. The short version is in the code, as
-`go doc ./internal/upstream`.
+`go doc ./internal/relay/passes`.
 
 If a request starts failing for no visible reason, do not reason about it —
 none of the three known triggers was found that way. Point
