@@ -4,7 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -115,12 +121,39 @@ func TestLoad(t *testing.T) {
 	defer func() { cancel(); <-done }()
 
 	cookie := claim(t, base)
-	body := loadBody()
+
+	// What kind of traffic: Anthropic Messages by default, Codex's Responses
+	// with CLAUDICATION_LOAD_API=openai, or a many-image request with
+	// CLAUDICATION_LOAD_IMAGES=N (image fitting on; cache off with
+	// CLAUDICATION_LOAD_IMAGECACHE=off, so every request decodes).
+	loadShapeV = anthropicShape(loadBody())
+	if os.Getenv("CLAUDICATION_LOAD_API") == "openai" {
+		loadShapeV = openaiShape(t)
+	}
+	if n, _ := strconv.Atoi(os.Getenv("CLAUDICATION_LOAD_IMAGES")); n > 0 {
+		loadShapeV = imageShape(t, n)
+		if err := srv.images.set(context.Background(), true); err != nil {
+			t.Fatal(err)
+		}
+		if os.Getenv("CLAUDICATION_LOAD_IMAGECACHE") == "off" {
+			srv.relay.Images = nil
+		}
+	}
+	body := loadShapeV.body
 
 	client := &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 2000, MaxConnsPerHost: 0}}
 
-	t.Logf("history %d rows, body %d KB, stub first token %s + %d deltas x %s",
-		loadHistory, len(body)>>10, loadFirstToken, loadDeltas, loadDeltaGap)
+	t.Logf("%s, history %d rows, body %d KB, stub first token %s + %d deltas x %s",
+		loadShapeV.name, loadHistory, len(body)>>10, loadFirstToken, loadDeltas, loadDeltaGap)
+
+	if d, err := time.ParseDuration(os.Getenv("CLAUDICATION_LOAD_SOAK")); err == nil && d > 0 {
+		agents := 20
+		if len(levels) > 0 && os.Getenv("CLAUDICATION_LOAD_LEVELS") != "" {
+			agents = levels[0]
+		}
+		runSoak(t, client, base, key, body, agents, d, cookie)
+		return
+	}
 	t.Logf("%6s %8s %7s %9s %9s %9s %9s %10s %9s %8s %8s %8s",
 		"agents", "requests", "errors", "added p50", "added p90", "added p99", "added max",
 		"admin p99", "heap MB", "gorout.", "RSS peak", "RSS idle")
@@ -303,10 +336,150 @@ func runLevel(client *http.Client, base, key string, body []byte, agents int, co
 // so this does not dominate the run.
 const loadIdle = 9 * time.Second
 
+// loadShape is one kind of traffic: where it goes, and how its stream says
+// "first token" and "done".
+type loadShape struct {
+	name        string
+	path        string
+	body        []byte
+	first, stop string
+}
+
+var loadShapeV loadShape
+
+func anthropicShape(body []byte) loadShape {
+	return loadShape{"anthropic messages", "/v1/messages", body,
+		"event: content_block_delta", "event: message_stop"}
+}
+
+// openaiShape is Codex's own captured request, its history grown to the body
+// size — every Codex turn resends instructions, tools and the whole input.
+func openaiShape(t *testing.T) loadShape {
+	t.Helper()
+	raw, err := os.ReadFile("../api/openai/testdata/codex-responses-request.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var req map[string]any
+	if err := json.Unmarshal(raw, &req); err != nil {
+		t.Fatal(err)
+	}
+	input, _ := req["input"].([]any)
+	turn := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 400)
+	for size := len(raw); size < loadBodyBytes; size += 2 * len(turn) {
+		input = append(input,
+			map[string]any{"type": "message", "role": "user",
+				"content": []any{map[string]any{"type": "input_text", "text": turn}}},
+			map[string]any{"type": "message", "role": "assistant",
+				"content": []any{map[string]any{"type": "output_text", "text": turn}}})
+	}
+	req["input"] = input
+	body, _ := json.Marshal(req)
+	return loadShape{"openai responses (codex)", "/v1/responses", body,
+		"event: response.output_text.delta", "event: response.completed"}
+}
+
+// imageShape is a request carrying n photographs over the many-image edge
+// limit, which the image fitting pass decodes, scales and re-encodes.
+func imageShape(t *testing.T, n int) loadShape {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 2400, 1600))
+	rnd := rand.New(rand.NewSource(1))
+	for y := 0; y < 1600; y++ {
+		for x := 0; x < 2400; x++ {
+			img.Set(x, y, color.RGBA{uint8(x / 10), uint8(y / 7), uint8(rnd.Intn(40)), 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 80}); err != nil {
+		t.Fatal(err)
+	}
+	data := base64.StdEncoding.EncodeToString(buf.Bytes())
+	var content []string
+	for i := 0; i < n; i++ {
+		content = append(content, `{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"`+data+`"}}`)
+	}
+	content = append(content, `{"type":"text","text":"what changed between these?"}`)
+	body := `{"model":"claude-opus-5","stream":true,"max_tokens":1024,` +
+		`"messages":[{"role":"user","content":[` + strings.Join(content, ",") + `]}]}`
+	return loadShape{fmt.Sprintf("%d images of 2400x1600 (%d KB each)", n, buf.Len()>>10), "/v1/messages",
+		[]byte(body), "event: content_block_delta", "event: message_stop"}
+}
+
+// runSoak holds a steady load for d with the admin UI polling at its real
+// rate, and samples what is still alive after each collection. A leak is a
+// line that keeps rising; a healthy gateway is flat once warm.
+func runSoak(t *testing.T, client *http.Client, base, key string, body []byte, agents int, d time.Duration, cookie *http.Cookie) {
+	t.Helper()
+	t.Logf("soak: %d agents for %s", agents, d)
+	deadline := time.Now().Add(d)
+	var requests, failures atomic.Int64
+	var wg sync.WaitGroup
+	for i := 0; i < agents; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for time.Now().Before(deadline) {
+				if _, errKind := oneRequest(client, base, key, body); errKind != "" {
+					failures.Add(1)
+				}
+				requests.Add(1)
+			}
+		}()
+	}
+	stop := make(chan struct{})
+	for _, path := range []string{"/admin/overview", "/admin/usage", "/admin/requests", "/admin/chats", "/admin/accounts"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tick := time.NewTicker(15 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-tick.C:
+				}
+				req, _ := http.NewRequest(http.MethodGet, base+path, nil)
+				req.AddCookie(cookie)
+				if resp, err := client.Do(req); err == nil {
+					_, _ = bytes.NewBuffer(nil).ReadFrom(resp.Body)
+					resp.Body.Close()
+				}
+			}
+		}()
+	}
+
+	sample := func(label string) (live uint64, g int) {
+		runtime.GC()
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		t.Logf("  %-8s requests=%-7d failures=%-4d live heap=%4d MB  goroutines=%5d  RSS=%4d MB",
+			label, requests.Load(), failures.Load(), m.HeapAlloc>>20, runtime.NumGoroutine(), rssMB())
+		return m.HeapAlloc, runtime.NumGoroutine()
+	}
+	var firstLive uint64
+	var firstG int
+	for i := 0; time.Now().Before(deadline); i++ {
+		time.Sleep(30 * time.Second)
+		live, g := sample(fmt.Sprintf("t+%ds", (i+1)*30))
+		if i == 1 { // the first minute is warm-up
+			firstLive, firstG = live, g
+		}
+	}
+	close(stop)
+	wg.Wait()
+	time.Sleep(loadIdle)
+	live, g := sample("idle")
+	t.Logf("soak: live heap %d MB at 1 min -> %d MB idle, goroutines %d -> %d",
+		firstLive>>20, live>>20, firstG, g)
+}
+
 // oneRequest runs one streamed request to the end and returns when its first
 // token arrived, or what went wrong.
 func oneRequest(client *http.Client, base, key string, body []byte) (time.Duration, string) {
-	req, _ := http.NewRequest(http.MethodPost, base+"/v1/messages", bytes.NewReader(body))
+	shape := loadShapeV
+	req, _ := http.NewRequest(http.MethodPost, base+shape.path, bytes.NewReader(body))
 	req.Header.Set("X-Api-Key", key)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
@@ -326,10 +499,10 @@ func oneRequest(client *http.Client, base, key string, body []byte) (time.Durati
 	stopped := false
 	for sc.Scan() {
 		line := sc.Text()
-		if ttft == 0 && line == "event: content_block_delta" {
+		if ttft == 0 && line == shape.first {
 			ttft = time.Since(start)
 		}
-		if line == "event: message_stop" {
+		if line == shape.stop {
 			stopped = true
 		}
 	}
