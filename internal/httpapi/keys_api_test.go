@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"claudication/internal/httpapi/admin"
 )
 
 func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
@@ -25,8 +27,8 @@ func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
 		t.Fatalf("create: status = %d, want 200", made.StatusCode)
 	}
 	var created struct {
-		Key       keyJSON `json:"key"`
-		Plaintext string  `json:"plaintext"`
+		Key       admin.KeyJSON `json:"key"`
+		Plaintext string        `json:"plaintext"`
 	}
 	if err := json.NewDecoder(made.Body).Decode(&created); err != nil {
 		t.Fatal(err)
@@ -62,7 +64,7 @@ func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
 	// List.
 	list := getWithCookie(t, base, "/admin/keys", cookie)
 	var listed struct {
-		Keys []keyJSON `json:"keys"`
+		Keys []admin.KeyJSON `json:"keys"`
 	}
 	if err := json.NewDecoder(list.Body).Decode(&listed); err != nil {
 		t.Fatal(err)

@@ -123,7 +123,8 @@ rather than Responses, would be another route on the existing OpenAI surface
 rather than a new one — which is why `Routes()` returns a list. A genuinely
 different shape gets its own package under `internal/api/`.
 
-Either way the work is four pieces: the request mapping, the three answer
-conversions, the error envelope, and one registration in
+Either way the work is five pieces: the request mapping, the three answer
+conversions, the error envelope, one registration in
 `internal/httpapi/server.go`, which is the composition root and the only place
-that knows which dialects exist.
+that knows which dialects exist, and its route in `internal/httpapi/gateway`,
+which serves every client-facing API the same way.

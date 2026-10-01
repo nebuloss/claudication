@@ -1,4 +1,4 @@
-package httpapi
+package httpx
 
 import (
 	"net"
@@ -11,9 +11,9 @@ import (
 
 func mustTrust(t *testing.T, entries ...string) []*net.IPNet {
 	t.Helper()
-	nets, err := parseTrustedProxies(entries)
+	nets, err := ParseTrustedProxies(entries)
 	if err != nil {
-		t.Fatalf("parseTrustedProxies(%v): %v", entries, err)
+		t.Fatalf("ParseTrustedProxies(%v): %v", entries, err)
 	}
 	return nets
 }
@@ -104,7 +104,7 @@ func TestClientIP(t *testing.T) {
 			if tc.xff != "" {
 				r.Header.Set("X-Forwarded-For", tc.xff)
 			}
-			if got := clientIP(r, mustTrust(t, tc.trusted...)); got != tc.want {
+			if got := ResolveClientIP(r, mustTrust(t, tc.trusted...)); got != tc.want {
 				t.Errorf("clientIP = %q, want %q", got, tc.want)
 			}
 		})
@@ -112,10 +112,10 @@ func TestClientIP(t *testing.T) {
 }
 
 func TestParseTrustedProxies(t *testing.T) {
-	if _, err := parseTrustedProxies([]string{"10.0.50.1", "10.0.0.0/8", "2001:db8::/32", "  "}); err != nil {
+	if _, err := ParseTrustedProxies([]string{"10.0.50.1", "10.0.0.0/8", "2001:db8::/32", "  "}); err != nil {
 		t.Errorf("valid entries rejected: %v", err)
 	}
-	if _, err := parseTrustedProxies([]string{"not-an-address"}); err == nil {
+	if _, err := ParseTrustedProxies([]string{"not-an-address"}); err == nil {
 		t.Error("an unparseable entry was accepted; a typo here silently disables the trust list")
 	}
 }
@@ -134,7 +134,7 @@ func TestTheAnonymousBudgetIsPerClientBehindAProxy(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.RemoteAddr = proxy
 			r.Header.Set("X-Forwarded-For", c)
-			seen[clientIP(r, nil)] = true
+			seen[ResolveClientIP(r, nil)] = true
 		}
 		if len(seen) != 1 {
 			t.Errorf("resolved %d distinct addresses, want 1", len(seen))
@@ -148,7 +148,7 @@ func TestTheAnonymousBudgetIsPerClientBehindAProxy(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.RemoteAddr = proxy
 			r.Header.Set("X-Forwarded-For", c)
-			seen[clientIP(r, trusted)] = true
+			seen[ResolveClientIP(r, trusted)] = true
 		}
 		if len(seen) != len(clients) {
 			t.Errorf("resolved %d distinct addresses, want %d", len(seen), len(clients))
@@ -215,8 +215,8 @@ func TestOverTLS(t *testing.T) {
 			if tc.proto != "" {
 				r.Header.Set("X-Forwarded-Proto", tc.proto)
 			}
-			if got := overTLS(r, mustTrust(t, tc.trusted...)); got != tc.want {
-				t.Errorf("overTLS = %v, want %v", got, tc.want)
+			if got := OverTLS(r, mustTrust(t, tc.trusted...)); got != tc.want {
+				t.Errorf("OverTLS = %v, want %v", got, tc.want)
 			}
 		})
 	}

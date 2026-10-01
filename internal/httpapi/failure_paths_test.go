@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/httpapi/httpx"
 	"claudication/internal/secret"
 	"claudication/internal/store"
 )
@@ -108,7 +109,7 @@ func TestPasswordEndpointsRefuseAndThrottle(t *testing.T) {
 func TestPanicsAreContained(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	chain := func(h http.HandlerFunc) http.Handler {
-		return srv.withRequestContext(srv.withAccessLog(srv.withRecovery(h)))
+		return httpx.WithRequestContext(httpx.WithAccessLog(httpx.WithRecovery(h, srv.log), srv.log), srv.trustedProxies)
 	}
 
 	w := httptest.NewRecorder()

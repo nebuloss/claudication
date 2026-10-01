@@ -1,4 +1,4 @@
-package httpapi
+package admin
 
 import (
 	"errors"
@@ -6,17 +6,14 @@ import (
 	"strings"
 	"time"
 
+	"claudication/internal/httpapi/httpx"
 	"claudication/internal/service/limits"
 	"claudication/internal/store"
 )
 
-// Client API keys, from the admin API.
-//
-// These were CLI-only until now, which made the UI useless for the thing the
-// gateway is for: you cannot point Claude Code at a proxy without a key to
-// give it.
-
-type keyJSON struct {
+// KeyJSON is one API key as the admin API reports it. The secret itself is
+// never in it; only its display form.
+type KeyJSON struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	Display    string `json:"display"`
@@ -45,8 +42,8 @@ type keyJSON struct {
 	Managed bool `json:"managed"`
 }
 
-func (s *Server) toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
-	out := keyJSON{
+func (s *Admin) toKeyJSON(k store.APIKey, use store.UsageBucket) KeyJSON {
+	out := KeyJSON{
 		ID:          k.ID,
 		Name:        k.Name,
 		Display:     k.Display(),
@@ -64,11 +61,11 @@ func (s *Server) toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
 	return out
 }
 
-func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleListKeys(w http.ResponseWriter, r *http.Request) {
 	keys, err := s.store.ListKeys(r.Context())
 	if err != nil {
 		s.log.Error("list api keys", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not list keys")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not list keys")
 		return
 	}
 
@@ -90,7 +87,7 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	out := make([]keyJSON, 0, len(keys))
+	out := make([]KeyJSON, 0, len(keys))
 	for _, k := range keys {
 		j := s.toKeyJSON(k, usage[k.ID])
 		if b, ok := spend[k.ID]; ok {
@@ -98,7 +95,7 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, j)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"keys":        out,
 		"window_days": int(s.cfg.Usage.Window().Hours() / 24),
 		// So the UI can name the two defaults rather than showing a bare 0,
@@ -121,27 +118,27 @@ type keyLimitsBody struct {
 // itself. Returns false when it has answered.
 func decodeKeyLimits(w http.ResponseWriter, r *http.Request) (string, store.KeyLimits, bool) {
 	var body keyLimitsBody
-	if !decodeJSON(w, r, &body) {
+	if !httpx.DecodeJSON(w, r, &body) {
 		return "", store.KeyLimits{}, false
 	}
 	name := strings.TrimSpace(body.Name)
 	switch {
 	case name == "":
-		writeError(w, http.StatusBadRequest, "invalid_request", "a name is required")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "a name is required")
 		return "", store.KeyLimits{}, false
 	case body.RPMLimit < 0:
-		writeError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
 			"rpm_limit cannot be negative (0 means the global default)")
 		return "", store.KeyLimits{}, false
 	case body.TokenBudget < 0:
-		writeError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
 			"token_budget cannot be negative (0 means unlimited)")
 		return "", store.KeyLimits{}, false
 	case body.RatePeriodS < 0 || body.RatePeriodS > 7*24*3600:
 		// A week is already far past anything a rate limit usefully means, and
 		// an unbounded period is a bucket that refills so slowly it is really a
 		// lifetime quota wearing a rate limit's name.
-		writeError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
 			"rate_period_s must be between 0 and one week")
 		return "", store.KeyLimits{}, false
 	}
@@ -154,7 +151,7 @@ func decodeKeyLimits(w http.ResponseWriter, r *http.Request) (string, store.KeyL
 
 // handleCreateKey mints a key and returns the plaintext — once, here, and
 // never again. The store keeps only sha256(key) and a lookup prefix.
-func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	name, limits, ok := decodeKeyLimits(w, r)
 	if !ok {
 		return
@@ -163,13 +160,13 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	key, plaintext, err := s.store.CreateKey(r.Context(), name, limits)
 	if err != nil {
 		s.log.Error("create api key", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not create the key")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not create the key")
 		return
 	}
 
 	s.log.Info("api key created", "id", key.ID, "name", key.Name,
-		"ip", clientIPFrom(r.Context()))
-	writeJSON(w, http.StatusOK, map[string]any{
+		"ip", httpx.ClientIP(r.Context()))
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"key":       s.toKeyJSON(key, store.UsageBucket{}),
 		"plaintext": plaintext,
 	})
@@ -177,7 +174,7 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdateKey changes a key's name, rate limit or token budget. The secret
 // is not touched, so nothing that already holds the key has to be told anything.
-func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	name, limits, ok := decodeKeyLimits(w, r)
 	if !ok {
 		return
@@ -186,11 +183,11 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch err := s.store.UpdateKey(r.Context(), id, name, limits); {
 	case errors.Is(err, store.ErrKeyNotFound):
-		writeError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
 		return
 	case err != nil:
 		s.log.Error("update api key", "err", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not update the key")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not update the key")
 		return
 	}
 	// Drop the cached spend so a raised or lowered budget takes effect on the
@@ -199,34 +196,34 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	s.budgets.Forget(id)
 	s.log.Info("api key updated", "id", id, "name", name,
 		"rpm_limit", limits.RPMLimit, "rate_period", limits.Period().String(),
-		"token_budget", limits.TokenBudget, "ip", clientIPFrom(r.Context()))
+		"token_budget", limits.TokenBudget, "ip", httpx.ClientIP(r.Context()))
 
 	keys, err := s.store.ListKeys(r.Context())
 	if err == nil {
 		for _, k := range keys {
 			if k.ID == id {
-				writeJSON(w, http.StatusOK, map[string]any{"key": s.toKeyJSON(k, store.UsageBucket{})})
+				httpx.WriteJSON(w, http.StatusOK, map[string]any{"key": s.toKeyJSON(k, store.UsageBucket{})})
 				return
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
 // handleDeleteKey withdraws a key. There is no revoke beside it: revocation
 // could not be undone either, so it was this under another name.
-func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch err := s.store.DeleteKey(r.Context(), id); {
 	case errors.Is(err, store.ErrKeyNotFound):
-		writeError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
 		return
 	case err != nil:
 		s.log.Error("delete api key", "err", err, "id", id)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not delete the key")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not delete the key")
 		return
 	}
 	s.budgets.Forget(id)
-	s.log.Info("api key deleted", "id", id, "ip", clientIPFrom(r.Context()))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	s.log.Info("api key deleted", "id", id, "ip", httpx.ClientIP(r.Context()))
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

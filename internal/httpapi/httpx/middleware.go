@@ -1,42 +1,14 @@
-package httpapi
+package httpx
 
 import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
+	"net"
 	"net/http"
 	"time"
-
-	"claudication/internal/store"
 )
-
-type ctxKey int
-
-const (
-	ctxKeyRequestID ctxKey = iota
-	ctxKeyAPIKey
-	ctxKeyClientIP
-)
-
-func requestIDFrom(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxKeyRequestID).(string); ok {
-		return v
-	}
-	return ""
-}
-
-// APIKeyFrom returns the credential that authenticated the request.
-func APIKeyFrom(ctx context.Context) (store.APIKey, bool) {
-	v, ok := ctx.Value(ctxKeyAPIKey).(store.APIKey)
-	return v, ok
-}
-
-func clientIPFrom(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxKeyClientIP).(string); ok {
-		return v
-	}
-	return "unknown"
-}
 
 // statusRecorder captures the status code without buffering the body, so
 // streaming responses stay unbuffered. Buffering here would stall Claude Code,
@@ -67,42 +39,47 @@ func (w *statusRecorder) Write(b []byte) (int, error) {
 // what keeps Flush working through the wrapper. Without this, SSE would buffer.
 func (w *statusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-func (s *Server) withRequestContext(next http.Handler) http.Handler {
+// WithRequestContext gives every request an id and resolves who made it,
+// believing X-Forwarded-For only from a trusted proxy.
+func WithRequestContext(next http.Handler, trusted []*net.IPNet) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		idBytes := make([]byte, 8)
 		_, _ = rand.Read(idBytes)
 		id := hex.EncodeToString(idBytes)
 
 		ctx := context.WithValue(r.Context(), ctxKeyRequestID, id)
-		ctx = context.WithValue(ctx, ctxKeyClientIP, clientIP(r, s.trustedProxies))
+		ctx = context.WithValue(ctx, ctxKeyClientIP, ResolveClientIP(r, trusted))
 
 		w.Header().Set("X-Request-Id", id)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-func (s *Server) withRecovery(next http.Handler) http.Handler {
+// WithRecovery turns a panic into a 500, or into nothing once a stream has
+// started, so one bad request cannot take the process down.
+func WithRecovery(next http.Handler, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				s.log.Error("panic serving request",
+				log.Error("panic serving request",
 					"panic", rec,
 					"method", r.Method,
 					"path", r.URL.Path,
-					"request_id", requestIDFrom(r.Context()))
+					"request_id", RequestID(r.Context()))
 				// Headers may already be sent on a streaming response; only
 				// write a status if nothing has gone out yet.
 				if sr, ok := w.(*statusRecorder); ok && sr.wrote {
 					return
 				}
-				writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+				WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}
 		}()
 		next.ServeHTTP(w, r)
 	})
 }
 
-func (s *Server) withAccessLog(next http.Handler) http.Handler {
+// WithAccessLog writes one line per request.
+func WithAccessLog(next http.Handler, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
@@ -113,8 +90,8 @@ func (s *Server) withAccessLog(next http.Handler) http.Handler {
 			"path", r.URL.Path,
 			"status", rec.status,
 			"duration_ms", time.Since(start).Milliseconds(),
-			"ip", clientIPFrom(r.Context()),
-			"request_id", requestIDFrom(r.Context()),
+			"ip", ClientIP(r.Context()),
+			"request_id", RequestID(r.Context()),
 		}
 		// The gateway contract documents these as attribution headers for
 		// gateways to consume, so cost can be attributed per session and per
@@ -125,17 +102,18 @@ func (s *Server) withAccessLog(next http.Handler) http.Handler {
 		if v := r.Header.Get("X-Claude-Code-Agent-Id"); v != "" {
 			attrs = append(attrs, "cc_agent", v)
 		}
-		if key, ok := APIKeyFrom(r.Context()); ok {
+		if key, ok := APIKey(r.Context()); ok {
 			attrs = append(attrs, "api_key", key.Display(), "api_key_name", key.Name)
 		}
-		s.log.Info("request", attrs...)
+		log.Info("request", attrs...)
 	})
 }
 
-func (s *Server) withBodyLimit(next http.Handler) http.Handler {
+// WithBodyLimit caps how much of a request body is read.
+func WithBodyLimit(next http.Handler, limit int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
-			r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Limits.MaxBodyBytes)
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
 		next.ServeHTTP(w, r)
 	})

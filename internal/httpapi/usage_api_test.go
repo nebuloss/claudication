@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/httpapi/admin"
 	"claudication/internal/store"
 )
 
@@ -40,9 +41,9 @@ func seedHistory3(t *testing.T, st *store.Store) {
 }
 
 type requestsPage struct {
-	Enabled  bool          `json:"enabled"`
-	Requests []requestJSON `json:"requests"`
-	Next     string        `json:"next_cursor"`
+	Enabled  bool                `json:"enabled"`
+	Requests []admin.RequestJSON `json:"requests"`
+	Next     string              `json:"next_cursor"`
 }
 
 // The request log is where a refusal gets diagnosed, so it pages without gaps,
@@ -226,8 +227,8 @@ func TestChats(t *testing.T) {
 		t.Fatalf("chat: %d %s", status, body)
 	}
 	one := decode[struct {
-		ID       string        `json:"id"`
-		Requests []requestJSON `json:"requests"`
+		ID       string              `json:"id"`
+		Requests []admin.RequestJSON `json:"requests"`
 	}](t, body)
 	if one.ID != "chat-1" || len(one.Requests) != 2 || one.Requests[0].Conversation != "chat-1" {
 		t.Errorf("chat = %+v", one)
@@ -277,7 +278,7 @@ func TestExportMatchesTheFilter(t *testing.T) {
 func TestExportCrossesPages(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	now := time.Now()
-	const n = exportPage + 37
+	const n = admin.ExportPage + 37
 	for i := 0; i < n; i++ {
 		if err := st.RecordUsage(context.Background(), store.UsageEvent{
 			At: now.Add(-time.Duration(i) * time.Second), Path: "/v1/messages", Status: 200,
@@ -336,28 +337,5 @@ func TestUsageScreensWhenRecordingIsOff(t *testing.T) {
 	}
 	if _, ok := got["last_24h"]; ok {
 		t.Error("overview reports traffic figures while recording is off")
-	}
-}
-
-// Filter parsing: repeated values dedupe, an empty value is a real filter for
-// "nothing in this column", and an unreadable status code is dropped rather
-// than failing the page.
-func TestFilterParsing(t *testing.T) {
-	if cleanSet(nil) != nil {
-		t.Error("absent parameter narrowed")
-	}
-	if got := cleanSet([]string{"a", "a", ""}); len(got) != 2 || got[1] != "" {
-		t.Errorf("cleanSet = %q", got)
-	}
-	if got := codeSet([]string{"x", "y"}); got != nil {
-		t.Errorf("codeSet of nonsense = %v, want no narrowing", got)
-	}
-	if got := codeSet([]string{"500", "500", "429"}); len(got) != 2 {
-		t.Errorf("codeSet = %v", got)
-	}
-	for in, want := range map[string]string{"failed": "failed", "ok": "ok", "OK": "", "": ""} {
-		if got := outcomeOf(in); got != want {
-			t.Errorf("outcomeOf(%q) = %q", in, got)
-		}
 	}
 }

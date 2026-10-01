@@ -1,4 +1,4 @@
-package httpapi
+package httpx
 
 import (
 	"net/http"
@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// sameSiteOnly refuses a state-changing request that the browser has told us
+// SameSiteOnly refuses a state-changing request that the browser has told us
 // came from somewhere else.
 //
 // The session cookie is SameSite=Strict, which already keeps a cross-site page
@@ -22,10 +22,10 @@ import (
 // neither Sec-Fetch-Site nor Origin is not a browser, and curl setting up a
 // gateway from a script has to keep working. This closes the browser-driven
 // attack without pretending to be a general authorisation check.
-func sameSiteOnly(next http.Handler) http.Handler {
+func SameSiteOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if reason := offSite(r); reason != "" {
-			writeError(w, http.StatusForbidden, "permission_error",
+			WriteError(w, http.StatusForbidden, "permission_error",
 				"this request came from another site ("+reason+")")
 			return
 		}
@@ -33,12 +33,12 @@ func sameSiteOnly(next http.Handler) http.Handler {
 	})
 }
 
-// isNavigation reports whether this looks like the browser loading a page
+// IsNavigation reports whether this looks like the browser loading a page
 // rather than fetching a subresource of one.
 //
 // A request with no fetch metadata is treated as a navigation: that is curl,
 // and `GET /admin/session?token=…` is a documented way to sign in.
-func isNavigation(r *http.Request) bool {
+func IsNavigation(r *http.Request) bool {
 	switch r.Header.Get("Sec-Fetch-Dest") {
 	case "", "document":
 		return true

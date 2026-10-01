@@ -1,4 +1,4 @@
-package httpapi
+package httpx
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// readSized reads r whole, into a buffer sized from hint when hint is
+// ReadSized reads r whole, into a buffer sized from hint when hint is
 // believable.
 //
 // io.ReadAll does not know how much is coming, so it doubles its way up and
@@ -23,7 +23,7 @@ import (
 //
 // A hint is only a hint: a wrong one costs a regrow, not a wrong answer, and one
 // over the limit is ignored rather than trusted with an allocation.
-func readSized(r io.Reader, hint, limit int64) ([]byte, error) {
+func ReadSized(r io.Reader, hint, limit int64) ([]byte, error) {
 	if hint <= 0 || (limit > 0 && hint > limit) {
 		return io.ReadAll(r)
 	}
@@ -38,7 +38,7 @@ func readSized(r io.Reader, hint, limit int64) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-// maxUpfront bounds what readSized allocates on a size hint alone.
+// maxUpfront bounds what ReadSized allocates on a size hint alone.
 const maxUpfront = 8 << 20
 
 // gzipSize is the uncompressed length a gzip stream records in its last four
@@ -51,7 +51,7 @@ func gzipSize(gz []byte) int64 {
 	return int64(t[0]) | int64(t[1])<<8 | int64(t[2])<<16 | int64(t[3])<<24
 }
 
-// decodeBody returns the request body as the JSON the caller meant, opening a
+// DecodeBody returns the request body as the JSON the caller meant, opening a
 // content coding if one was applied.
 //
 // The relay's rule is that the caller's bytes go upstream unchanged, and this
@@ -64,7 +64,7 @@ func gzipSize(gz []byte) int64 {
 // The header is removed on success, because after this it describes bytes that
 // no longer exist: build() forwards the client's headers, and a
 // Content-Encoding that disagrees with the body is worse than none.
-func decodeBody(r *http.Request, body []byte, limit int64) ([]byte, error) {
+func DecodeBody(r *http.Request, body []byte, limit int64) ([]byte, error) {
 	encoding := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding")))
 	if encoding == "" || encoding == "identity" {
 		return body, nil
@@ -88,7 +88,7 @@ func decodeBody(r *http.Request, body []byte, limit int64) ([]byte, error) {
 	if limit <= 0 {
 		limit = 32 << 20
 	}
-	out, err := readSized(io.LimitReader(zr, limit+1), gzipSize(body), limit)
+	out, err := ReadSized(io.LimitReader(zr, limit+1), gzipSize(body), limit)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the gzipped body: %w", err)
 	}

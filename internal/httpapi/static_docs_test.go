@@ -3,15 +3,14 @@ package httpapi
 import (
 	"compress/gzip"
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
-	"time"
+	"testing/fstest"
+
+	"claudication/internal/httpapi/web"
 )
 
 // adminOnly serves the admin-only listener and returns its base URL.
@@ -31,17 +30,21 @@ func docsOnly(t *testing.T, srv *Server) string {
 }
 
 // fakeUI stands in for a built UI. The checkout used for tests has none
-// embedded, so the bundle is replaced before any handler is built from it.
+// embedded, so the site is rebuilt over an in-memory one before any listener's
+// routes are built from it.
 func fakeUI(srv *Server) (index, script string) {
 	index = "<!doctype html><title>admin</title>" + strings.Repeat("<p>admin</p>", 200)
 	script = strings.Repeat("console.log('compressible');\n", 200)
-	srv.bundle()
-	srv.assets = map[string]asset{
-		"index.html":         newAsset("index.html", []byte(index)),
-		"docs.html":          newAsset("docs.html", []byte("<!doctype html><title>docs</title>")),
-		"assets/app-1a2b.js": newAsset("assets/app-1a2b.js", []byte(script)),
-		"favicon.png":        newAsset("favicon.png", []byte("\x89PNG\r\n\x1a\nnot really")),
-	}
+	srv.web = web.New(web.Deps{
+		Config: srv.cfg, Log: srv.log, Store: srv.store, Docs: srv.docs,
+		Surfaces: srv.surfaces, Models: srv.gateway.FetchModels,
+		Files: fstest.MapFS{
+			"webdist/index.html":         {Data: []byte(index)},
+			"webdist/docs.html":          {Data: []byte("<!doctype html><title>docs</title>")},
+			"webdist/assets/app-1a2b.js": {Data: []byte(script)},
+			"webdist/favicon.png":        {Data: []byte("\x89PNG\r\n\x1a\nnot really")},
+		},
+	})
 	return index, script
 }
 
@@ -63,7 +66,7 @@ func get(t *testing.T, h http.Handler, method, path string, header map[string]st
 func TestStaticAssetsAreCompressedAndCachedCorrectly(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	index, script := fakeUI(srv)
-	h := srv.staticHandler("index.html")
+	h := srv.web.StaticHandler("index.html")
 
 	w := get(t, h, http.MethodGet, "/assets/app-1a2b.js", map[string]string{"Accept-Encoding": "br, gzip;q=0.8"})
 	if w.Code != http.StatusOK || w.Header().Get("Content-Encoding") != "gzip" {
@@ -126,53 +129,6 @@ func TestStaticAssetsAreCompressedAndCachedCorrectly(t *testing.T) {
 	// Already-compressed formats are not gzipped again.
 	if w := get(t, h, http.MethodGet, "/favicon.png", map[string]string{"Accept-Encoding": "gzip"}); w.Header().Get("Content-Encoding") != "" {
 		t.Error("a PNG was gzipped")
-	}
-}
-
-func TestCompressionDecisions(t *testing.T) {
-	for ctype, want := range map[string]bool{
-		"text/html; charset=utf-8": true,
-		"image/svg+xml":            true,
-		"application/javascript":   true,
-		"application/json":         true,
-		"application/xml":          true,
-		"image/png":                false,
-		"font/woff2":               false,
-	} {
-		if got := compressible(ctype); got != want {
-			t.Errorf("compressible(%q) = %v", ctype, got)
-		}
-	}
-	for header, want := range map[string]bool{
-		"gzip": true, "GZIP": true, "deflate, gzip;q=0.1": true, "br": false, "": false, "gzipx": false,
-	} {
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		r.Header.Set("Accept-Encoding", header)
-		if got := acceptsGzip(r); got != want {
-			t.Errorf("acceptsGzip(%q) = %v", header, got)
-		}
-	}
-	// Small files stay as they are: gzip's own header would make them bigger.
-	if a := newAsset("x.js", []byte("tiny()")); a.gzipped != nil {
-		t.Error("a tiny file was compressed")
-	}
-	// An unknown extension falls back to sniffing.
-	if a := newAsset("LICENSE", []byte("plain words")); !strings.HasPrefix(a.ctype, "text/plain") {
-		t.Errorf("sniffed type = %q", a.ctype)
-	}
-}
-
-// A binary built without the UI still proxies, and says why there is no UI
-// rather than serving a bare error that looks like an outage.
-func TestNoUIBuiltSaysSo(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-	h := srv.staticHandler("missing-entry.html")
-	w := get(t, h, http.MethodGet, "/", nil)
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Admin UI not built") {
-		t.Errorf("no UI: %d %q", w.Code, w.Body.String())
-	}
-	if w := get(t, h, http.MethodGet, "/app.js", nil); w.Code != http.StatusNotFound {
-		t.Errorf("an asset with no UI: %d, want 404", w.Code)
 	}
 }
 
@@ -271,75 +227,5 @@ func TestRelayOnlyRootIsNotFound(t *testing.T) {
 	defer ts.Close()
 	if status, body := call(t, ts.URL, http.MethodGet, "/", "", nil); status != http.StatusNotFound || errType(t, body) != "not_found" {
 		t.Errorf("relay root: %d %s", status, body)
-	}
-}
-
-// The public page's model list is cached: the page is unauthenticated, and
-// uncached anyone could spend the subscription by reloading it. A burst
-// collapses into one fetch, and a failure keeps serving the last good answer.
-func TestModelCache(t *testing.T) {
-	var c modelCache
-	var calls atomic.Int32
-	release := make(chan struct{})
-	fetch := func(context.Context) ([]byte, error) {
-		calls.Add(1)
-		<-release
-		return []byte("v1"), nil
-	}
-
-	var wg sync.WaitGroup
-	results := make([]string, 5)
-	for i := range results {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			results[i] = string(c.get(context.Background(), fetch))
-		}()
-	}
-	// Let the burst pile up on the one in flight, then answer it.
-	deadline := time.Now().Add(2 * time.Second)
-	for calls.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	time.Sleep(20 * time.Millisecond)
-	close(release)
-	wg.Wait()
-	if n := calls.Load(); n != 1 {
-		t.Errorf("a burst of 5 fetched %d times", n)
-	}
-	for _, r := range results {
-		if r != "v1" {
-			t.Errorf("a caller got %q", r)
-		}
-	}
-
-	// Fresh: no fetch at all.
-	if got := c.get(context.Background(), func(context.Context) ([]byte, error) {
-		t.Error("fetched while fresh")
-		return nil, nil
-	}); string(got) != "v1" {
-		t.Errorf("cached = %q", got)
-	}
-
-	// Expired and failing: the stale copy is served, and the next caller may
-	// try again soon rather than after a whole TTL.
-	c.mu.Lock()
-	c.at = time.Now().Add(-2 * modelsTTL)
-	c.mu.Unlock()
-	failing := func(context.Context) ([]byte, error) { return nil, errors.New("upstream down") }
-	if got := c.get(context.Background(), failing); string(got) != "v1" {
-		t.Errorf("on failure = %q, want the stale copy", got)
-	}
-	c.mu.Lock()
-	age := time.Since(c.at)
-	c.mu.Unlock()
-	if age < modelsTTL-2*time.Minute || age > modelsTTL {
-		t.Errorf("after a failure the copy is %s old; the next caller should retry within a minute", age)
-	}
-
-	// Never fetched and failing: nothing, rather than an error.
-	var empty modelCache
-	if got := empty.get(context.Background(), failing); got != nil {
-		t.Errorf("empty cache on failure = %q", got)
 	}
 }

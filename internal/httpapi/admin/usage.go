@@ -1,4 +1,4 @@
-package httpapi
+package admin
 
 import (
 	"net/http"
@@ -7,15 +7,16 @@ import (
 	"time"
 
 	"claudication/internal/api"
+	"claudication/internal/httpapi/httpx"
 	"claudication/internal/memlimit"
 	"claudication/internal/provider/anthropic"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
 
-func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Usage.Enabled() {
-		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
 
@@ -32,10 +33,10 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	report, err := s.store.Usage(r.Context(), time.Now().Add(-window))
 	if err != nil {
 		s.log.Error("usage report", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not read usage")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read usage")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"enabled":        true,
 		"days":           int(window.Hours() / 24),
 		"retention_days": s.cfg.Usage.RetentionDays,
@@ -43,7 +44,8 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type requestJSON struct {
+// RequestJSON is one row of the request log as the admin API reports it.
+type RequestJSON struct {
 	At           string `json:"at"`
 	KeyName      string `json:"key_name,omitempty"`
 	AccountEmail string `json:"account_email,omitempty"`
@@ -86,8 +88,8 @@ type requestJSON struct {
 // reads. Shared, because a chat's requests and the recent-requests list are
 // the same rows rendered by the same table — and a second copy of this is how
 // one of them quietly starts reporting a different duration unit.
-func toRequestJSON(e store.UsageEvent) requestJSON {
-	return requestJSON{
+func toRequestJSON(e store.UsageEvent) RequestJSON {
+	return RequestJSON{
 		At:           e.At.UTC().Format(time.RFC3339),
 		KeyName:      e.KeyName,
 		AccountEmail: e.AccountEmail,
@@ -110,9 +112,9 @@ func toRequestJSON(e store.UsageEvent) requestJSON {
 	}
 }
 
-func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Usage.Enabled() {
-		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "requests": []requestJSON{}})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"enabled": false, "requests": []RequestJSON{}})
 		return
 	}
 
@@ -139,15 +141,15 @@ func (s *Server) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	events, next, err := s.store.RecentUsage(r.Context(), limit, after, filter)
 	if err != nil {
 		s.log.Error("recent requests", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not read recent requests")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read recent requests")
 		return
 	}
 
-	out := make([]requestJSON, 0, len(events))
+	out := make([]RequestJSON, 0, len(events))
 	for _, e := range events {
 		out = append(out, toRequestJSON(e))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,
 		"requests": out,
 		// Empty when there is nothing after this page, so the UI can stop
@@ -247,23 +249,23 @@ func codeSet(values []string) []int {
 // Its own request rather than a field on the request list: the list is paged
 // and these are not, and recomputing five GROUP BYs for every page of fifty
 // rows would pay for the whole history on each scroll.
-func (s *Server) handleRequestFacets(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleRequestFacets(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Usage.Enabled() {
-		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
 	facets, err := s.store.RequestFacets(r.Context(), 50)
 	if err != nil {
 		s.log.Error("request facets", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not read the filter values")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the filter values")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "facets": facets})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"enabled": true, "facets": facets})
 }
 
 // handleOverview answers "is this working, and what do I point at it" in one
 // request, so the first screen does not need four.
-func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleOverview(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"version": version.Version,
 		"commit":  version.Commit,
@@ -287,7 +289,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	accounts, err := s.store.ListAccounts(r.Context())
 	if err != nil {
 		s.log.Error("overview accounts", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
 		return
 	}
 	var expiring int
@@ -304,7 +306,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	status, err := s.pool.Status(r.Context(), "anthropic")
 	if err != nil {
 		s.log.Error("overview pool status", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
 		return
 	}
 	out["accounts"] = map[string]any{
@@ -319,7 +321,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	keys, err := s.store.ListKeys(r.Context())
 	if err != nil {
 		s.log.Error("overview keys", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not read keys")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read keys")
 		return
 	}
 	// Every key that exists is usable: withdrawing one deletes it, so there is
@@ -338,5 +340,5 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	// Whether the gateway can serve a request right now is not the same
 	// question as whether it has accounts: they may all be cooling down.
 	out["ready"] = status.Serving != ""
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }

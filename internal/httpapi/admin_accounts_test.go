@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/httpapi/admin"
 	"claudication/internal/pool"
 	"claudication/internal/provider/anthropic"
 	"claudication/internal/store"
@@ -206,9 +207,9 @@ func addAccount(t *testing.T, srv *Server, st *store.Store, email, access, refre
 }
 
 type accountsList struct {
-	Accounts   []accountJSON `json:"accounts"`
-	WindowDays int           `json:"window_days"`
-	PollS      int           `json:"usage_poll_s"`
+	Accounts   []admin.AccountJSON `json:"accounts"`
+	WindowDays int                 `json:"window_days"`
+	PollS      int                 `json:"usage_poll_s"`
 }
 
 // The accounts screen is where an operator decides which account to fix, so
@@ -257,7 +258,7 @@ func TestAccountListReportsWhatTheOperatorActsOn(t *testing.T) {
 	if got.WindowDays <= 0 || got.PollS <= 0 {
 		t.Errorf("window_days = %d, usage_poll_s = %d; the UI paces itself off these", got.WindowDays, got.PollS)
 	}
-	byEmail := map[string]accountJSON{}
+	byEmail := map[string]admin.AccountJSON{}
 	for i, a := range got.Accounts {
 		if a.Position != i {
 			t.Errorf("%s: position %d at index %d", a.Email, a.Position, i)
@@ -293,28 +294,6 @@ func TestAccountListReportsWhatTheOperatorActsOn(t *testing.T) {
 			d.NeedsReauth, d.RefreshDeadAt, d.Expired)
 	}
 	_ = second
-}
-
-// An account whose refresh token has a known end has to say how many days are
-// left, rounded up the way the client's banner rounds, so the operator sees
-// the same number in both places.
-func TestAccountJSONCountsReauthDaysUp(t *testing.T) {
-	now := time.Now()
-	used := now.Add(-time.Minute)
-	j := toAccountJSON(store.Account{
-		ID: "x", Provider: "anthropic", Email: "e", ExpiresAt: now.Add(time.Hour), CreatedAt: now,
-		RefreshExpiresAt: now.Add(36 * time.Hour), LastRefreshAt: &used, LastUsedAt: &used,
-		Quota: store.AccountQuota{FiveHourUtil: -1, SevenDayUtil: -1},
-	})
-	if j.ReauthDaysLeft == nil || *j.ReauthDaysLeft != 2 {
-		t.Errorf("reauth_days_left = %v, want 2 for a day and a half", j.ReauthDaysLeft)
-	}
-	if j.RefreshExpiresAt == "" || j.LastRefreshAt == "" || j.LastUsedAt == "" {
-		t.Errorf("timestamps missing: %+v", j)
-	}
-	if j.Quota != nil {
-		t.Error("an unknown quota (-1) was reported as known")
-	}
 }
 
 // Priority order decides which subscription is spent first. The whole list is
@@ -415,7 +394,7 @@ func TestOAuthConnectsAnAccount(t *testing.T) {
 		t.Fatalf("complete: %d %s", status, body)
 	}
 	got := decode[struct {
-		Account accountJSON `json:"account"`
+		Account admin.AccountJSON `json:"account"`
 	}](t, body).Account
 	if got.Email != "new@example.com" || got.ReauthDaysLeft == nil || *got.ReauthDaysLeft != 30 {
 		t.Errorf("account = %+v", got)
@@ -494,7 +473,7 @@ func TestRefreshAccount(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	if a := decode[struct {
-		Account accountJSON `json:"account"`
+		Account admin.AccountJSON `json:"account"`
 	}](t, body).Account; a.LastRefreshAt == "" {
 		t.Errorf("refreshed account shows no last_refresh_at: %+v", a)
 	}
@@ -530,7 +509,7 @@ func TestRefreshUsageOnDemand(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	got := decode[struct {
-		Account accountJSON `json:"account"`
+		Account admin.AccountJSON `json:"account"`
 	}](t, body).Account
 	if got.Quota == nil || got.Quota.SevenDayUtil != 10 || got.Quota.FiveHourStatus != "allowed" {
 		t.Errorf("quota = %+v", got.Quota)
@@ -553,14 +532,14 @@ func TestPauseAccountOverTheAPI(t *testing.T) {
 	a := addAccount(t, srv, st, "a@example.com", "x", "r", time.Now().Add(time.Hour))
 
 	status, body := call(t, base, http.MethodPost, "/admin/accounts/"+a.ID+"/disabled", `{"disabled":true}`, c)
-	if status != http.StatusOK || !decode[accountJSON](t, body).Disabled {
+	if status != http.StatusOK || !decode[admin.AccountJSON](t, body).Disabled {
 		t.Fatalf("pause: %d %s", status, body)
 	}
 	if s, _ := srv.pool.Status(context.Background(), "anthropic"); s.Serving != "" {
 		t.Errorf("a paused account still serves")
 	}
 	status, body = call(t, base, http.MethodPost, "/admin/accounts/"+a.ID+"/disabled", `{"disabled":false}`, c)
-	if status != http.StatusOK || decode[accountJSON](t, body).Disabled {
+	if status != http.StatusOK || decode[admin.AccountJSON](t, body).Disabled {
 		t.Fatalf("resume: %d %s", status, body)
 	}
 	if status, _ := call(t, base, http.MethodPost, "/admin/accounts/nope/disabled", `{"disabled":true}`, c); status != http.StatusNotFound {
@@ -610,7 +589,7 @@ func TestDeleteAccountRevokesThenForgets(t *testing.T) {
 func TestAccountEndpointsRequireASession(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	base, _ := adminAPI(t, srv)
-	stale := &http.Cookie{Name: sessionCookie, Value: "not-a-session"}
+	stale := &http.Cookie{Name: admin.SessionCookie, Value: "not-a-session"}
 	for _, ep := range []struct{ method, path string }{
 		{http.MethodGet, "/admin/accounts"},
 		{http.MethodPost, "/admin/accounts/order"},

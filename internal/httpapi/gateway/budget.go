@@ -1,4 +1,4 @@
-package httpapi
+package gateway
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"claudication/internal/httpapi/httpx"
 	"claudication/internal/service/limits"
 	"claudication/internal/store"
 )
@@ -17,7 +18,7 @@ import (
 // A key can overshoot its budget by one request, necessarily: what a request
 // will cost is only known once it has been served. The budget is a ceiling on
 // what has already been spent, not a reservation against what is about to be.
-func (s *Server) withinBudget(w http.ResponseWriter, r *http.Request, key store.APIKey) bool {
+func (s *Gateway) withinBudget(w http.ResponseWriter, r *http.Request, key store.APIKey) bool {
 	if key.TokenBudget <= 0 || !s.cfg.Usage.Enabled() {
 		// No budget, or no usage history to measure one against — enforcing a
 		// budget with retention off would refuse everything the moment the
@@ -32,7 +33,7 @@ func (s *Server) withinBudget(w http.ResponseWriter, r *http.Request, key store.
 		// storage fault into a total outage is the worse failure, and the
 		// budget exists to bound spending rather than to guard anything.
 		s.log.Error("could not read the token budget; allowing the request",
-			"err", err, "api_key", key.Display(), "request_id", requestIDFrom(r.Context()))
+			"err", err, "api_key", key.Display(), "request_id", httpx.RequestID(r.Context()))
 		return true
 	}
 	if spent < key.TokenBudget {
@@ -49,11 +50,11 @@ func (s *Server) withinBudget(w http.ResponseWriter, r *http.Request, key store.
 	s.log.Warn("api key is over its token budget",
 		"api_key", key.Display(), "api_key_name", key.Name,
 		"spent", spent, "budget", key.TokenBudget,
-		"request_id", requestIDFrom(r.Context()))
+		"request_id", httpx.RequestID(r.Context()))
 
 	// rate_limit_error because that is the type a client knows how to read, and
 	// this is the same shape of problem: too much, too soon, try later.
-	writeError(w, http.StatusTooManyRequests, "rate_limit_error",
+	httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit_error",
 		fmt.Sprintf("this API key has spent %d of its %d token budget for the last %s",
 			spent, key.TokenBudget, limits.BudgetWindow))
 	return false

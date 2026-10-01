@@ -1,4 +1,4 @@
-package httpapi
+package web
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"claudication/internal/config"
+	"claudication/internal/httpapi/httpx"
 )
 
 // modelsTTL is how long the public page's model list may be stale.
@@ -115,8 +115,8 @@ const welcomePage = `<!doctype html>
 </main>
 `
 
-// serveWelcome answers a browser at the root with something readable.
-func serveWelcome(w http.ResponseWriter, r *http.Request) {
+// ServeWelcome answers a browser at the root with something readable.
+func ServeWelcome(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// No-store rather than no-cache: which page the root serves is a switch an
@@ -131,53 +131,7 @@ func serveWelcome(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(welcomePage))
 }
 
-// docsURL is where the public page can be reached.
-//
-// Its own address when one is configured, and the relay's otherwise — because
-// that is where the relay serves it. Empty when neither is known, which means
-// no link rather than a broken one.
-func docsURL(c config.Config) string {
-	if c.DocsListen != "" {
-		return c.DocsURL
-	}
-	return c.PublicURL
-}
-
-// docsSetting is the settings row holding the switch that decides whether the
-// public page is served.
-//
-// Runtime state rather than configuration, for the reason the API switches
-// are: taking the page down is what an operator does when something is wrong,
-// and the answer to that cannot be "edit a file and restart". The listener
-// stays where it is and answers 404.
-//
-// Off by default, and this is the one place in the gateway where that default
-// is about posture rather than cost. The page is served at the root of the
-// relay, which today answers 404 to everything that is not an API call — so
-// turning it on changes that listener from silent-unless-you-have-a-key to
-// self-describing. It grants no access and carries no secret, but it is not a
-// thing that should start happening because someone upgraded.
-const docsSetting = "docs.enabled"
-
-// handleSetDocs flips it.
-func (s *Server) handleSetDocs(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Enabled *bool `json:"enabled"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil || body.Enabled == nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", `expected {"enabled": true|false}`)
-		return
-	}
-	if err := s.docs.Set(r.Context(), *body.Enabled); err != nil {
-		s.log.Error("could not store the docs switch", "err", err)
-		writeError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
-		return
-	}
-	s.log.Warn("public docs page switched", "enabled", *body.Enabled)
-	writeJSON(w, http.StatusOK, map[string]any{"docs_enabled": s.docs.On()})
-}
-
-// handleDocsInfo is everything the public docs page needs, and nothing else.
+// HandleDocsInfo is everything the public docs page needs, and nothing else.
 //
 // Deliberately not /admin/overview or /admin/config, which is what the in-app
 // Setup screen read. Those carry the listen addresses, the state directory,
@@ -185,9 +139,9 @@ func (s *Server) handleSetDocs(w http.ResponseWriter, r *http.Request) {
 // answers four questions instead: what address to point a client at, which
 // APIs are being served, whether any account is connected, and which models
 // exist. Nothing here is a secret, and nothing here can be changed.
-func (s *Server) handleDocsInfo(w http.ResponseWriter, r *http.Request) {
+func (s *Site) HandleDocsInfo(w http.ResponseWriter, r *http.Request) {
 	if !s.docs.On() {
-		writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
 		return
 	}
 	// The relay's address, not this page's: the snippets have to point at
@@ -209,7 +163,7 @@ func (s *Server) handleDocsInfo(w http.ResponseWriter, r *http.Request) {
 
 	out := map[string]any{
 		"public_url": public,
-		"surfaces":   s.surfaces.state(),
+		"surfaces":   s.surfaces.State(),
 		"ready":      ready,
 	}
 
@@ -227,5 +181,5 @@ func (s *Server) handleDocsInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Cache-Control", "no-cache")
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }

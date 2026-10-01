@@ -1,4 +1,4 @@
-package httpapi
+package gateway
 
 import (
 	"errors"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"claudication/internal/api"
+	"claudication/internal/httpapi/httpx"
 	"claudication/internal/pool"
 	"claudication/internal/relay"
 	"claudication/internal/request"
@@ -28,12 +29,12 @@ import (
 // one of those would break something the gateway contract requires, and most
 // of them are the defects found in auth2api. The body is read only because a
 // retry on another account has to replay it.
-func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.HandlerFunc {
+func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Counted, so memory is only handed back once nothing is in flight.
 		defer s.trimmer.Begin()()
 
-		body, err := readSized(r.Body, r.ContentLength, s.cfg.Limits.MaxBodyBytes)
+		body, err := httpx.ReadSized(r.Body, r.ContentLength, s.cfg.Limits.MaxBodyBytes)
 		if err != nil {
 			p.WriteError(w, http.StatusBadRequest, "invalid_request", "could not read the request body")
 			return
@@ -48,7 +49,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// attribution gate, which reads exactly like rate limiting and is not.
 		// Measured on the same account in the same minute, an 11 KB body was
 		// served at 200 as identity and refused at 429 gzipped.
-		if body, err = decodeBody(r, body, s.cfg.Limits.MaxBodyBytes); err != nil {
+		if body, err = httpx.DecodeBody(r, body, s.cfg.Limits.MaxBodyBytes); err != nil {
 			p.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
@@ -79,9 +80,9 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// out of several is burning a subscription that is the only question
 		// worth asking. Read here with the rest of what the caller tells us
 		// about itself.
-		ip := clientIPFrom(r.Context())
+		ip := httpx.ClientIP(r.Context())
 
-		ctx, cancel := contextWithTimeout(r, relay.Timeout(streaming))
+		ctx, cancel := httpx.TimeoutContext(r, relay.Timeout(streaming))
 		defer cancel()
 		// Cloned rather than re-contexted, because the protocol is about to
 		// edit the headers and they must not be the caller's own map.
@@ -130,7 +131,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// when the upstream simply stopped.
 		sink.Close(closingCause(res))
 
-		key, _ := APIKeyFrom(r.Context())
+		key, _ := httpx.APIKey(r.Context())
 
 		if res.Err != nil && res.Status == 0 {
 			// Nothing reached the client, but something was attempted and it
@@ -188,7 +189,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			"attempts", res.Attempts,
 			"bytes", res.BytesOut,
 			"duration_ms", elapsed.Milliseconds(),
-			"request_id", requestIDFrom(r.Context()),
+			"request_id", httpx.RequestID(r.Context()),
 		}
 		if res.FirstContent > 0 {
 			attrs = append(attrs, "first_token_ms", res.FirstContent.Milliseconds())
@@ -240,7 +241,7 @@ func firstNonEmpty(vs ...string) string {
 // relayFailure answers when no bytes reached the client. The shape is the
 // caller's own error envelope, because an error a client cannot parse is an
 // error it cannot act on.
-func (s *Server) relayFailure(w http.ResponseWriter, r *http.Request, p api.Protocol, err error) {
+func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Protocol, err error) {
 	switch {
 	case errors.Is(err, pool.ErrNoAccounts):
 		p.WriteError(w, http.StatusServiceUnavailable, "no_accounts",
@@ -255,7 +256,7 @@ func (s *Server) relayFailure(w http.ResponseWriter, r *http.Request, p api.Prot
 		// The caller hung up; there is nobody left to answer.
 		return
 	default:
-		s.log.Error("relay failed", "err", err, "request_id", requestIDFrom(r.Context()))
+		s.log.Error("relay failed", "err", err, "request_id", httpx.RequestID(r.Context()))
 		p.WriteError(w, http.StatusBadGateway, "api_error", "upstream request failed: "+err.Error())
 	}
 }

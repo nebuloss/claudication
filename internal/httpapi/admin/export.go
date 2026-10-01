@@ -1,4 +1,4 @@
-package httpapi
+package admin
 
 import (
 	"encoding/csv"
@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"claudication/internal/httpapi/httpx"
 	"claudication/internal/store"
 )
 
@@ -19,9 +20,9 @@ import (
 // entire history because somebody left a tab open.
 const exportLimit = 100_000
 
-// exportPage is how many rows are read per round trip. Large enough that a
+// ExportPage is how many rows are read per round trip. Large enough that a
 // hundred thousand rows is two hundred queries rather than two thousand.
-const exportPage = 500
+const ExportPage = 500
 
 // handleExportRequests streams the request log as CSV, narrowed the same way
 // the screen is.
@@ -31,9 +32,9 @@ const exportPage = 500
 // only version of this that does not need explaining. And it is the whole
 // filtered set rather than the rows that happen to be loaded — the table holds
 // fifty at a time and the filter spans everything kept.
-func (s *Server) handleExportRequests(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleExportRequests(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Usage.Enabled() {
-		writeError(w, http.StatusNotFound, "not_found", "request history is not being recorded")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "request history is not being recorded")
 		return
 	}
 
@@ -59,7 +60,7 @@ func (s *Server) handleExportRequests(w http.ResponseWriter, r *http.Request) {
 
 	var cursor store.UsageCursor
 	for written := 0; written < exportLimit; {
-		events, next, err := s.store.RecentUsage(r.Context(), exportPage, cursor, filter)
+		events, next, err := s.store.RecentUsage(r.Context(), ExportPage, cursor, filter)
 		if err != nil {
 			// The header and some rows are already sent, so there is no status
 			// left to change: stop, flush what there is, and say why in the

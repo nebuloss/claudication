@@ -429,6 +429,18 @@ func (c Config) validate() error {
 // DBPath is the SQLite file inside the state directory.
 func (c Config) DBPath() string { return filepath.Join(c.StateDir, "claudication.db") }
 
+// DocsPageURL is where the public docs page can be reached.
+//
+// Its own address when one is configured, and the relay's otherwise — because
+// that is where the relay serves it. Empty when neither is known, which means
+// no link rather than a broken one.
+func (c Config) DocsPageURL() string {
+	if c.DocsListen != "" {
+		return c.DocsURL
+	}
+	return c.PublicURL
+}
+
 // EnsureStateDir creates the state directory and proves it is writable.
 //
 // This is the startup check auth2api lacks: its Docker compose mounts a volume

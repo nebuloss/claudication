@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"claudication/internal/httpapi/admin"
 )
 
 // postJSON sends v to path, optionally carrying cookies, and returns the
@@ -35,7 +37,7 @@ func postJSON(t *testing.T, base, method, path string, v any, cookies ...*http.C
 func sessionCookieOf(t *testing.T, resp *http.Response) *http.Cookie {
 	t.Helper()
 	for _, c := range resp.Cookies() {
-		if c.Name == sessionCookie && c.Value != "" {
+		if c.Name == admin.SessionCookie && c.Value != "" {
 			return c
 		}
 	}
@@ -131,7 +133,7 @@ func TestSetupRejectsAShortPassword(t *testing.T) {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
 	for _, c := range resp.Cookies() {
-		if c.Name == sessionCookie && c.Value != "" {
+		if c.Name == admin.SessionCookie && c.Value != "" {
 			t.Error("a rejected setup must not hand out a session")
 		}
 	}

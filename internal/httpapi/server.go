@@ -1,12 +1,24 @@
-// Package httpapi serves claudication's HTTP surface.
+// Package httpapi is where the gateway's HTTP surface is put together.
+//
+// It is the composition root and nothing else: it builds the services, hands
+// each handler set what it needs, and decides which listener serves which.
+// The handlers themselves live one level down, one package per surface:
+//
+//	httpx    the plumbing all of them share: errors, context, middleware
+//	gateway  the client-facing APIs, behind an API key
+//	admin    the admin API, behind a session
+//	web      the embedded UI, the public docs page, the welcome page
+//
+// None of them imports another. What one needs from another — the model list,
+// the sign-in link at the root — is handed across here, as a function.
 package httpapi
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -17,6 +29,10 @@ import (
 	anthropicapi "claudication/internal/api/anthropic"
 	"claudication/internal/api/openai"
 	"claudication/internal/config"
+	"claudication/internal/httpapi/admin"
+	"claudication/internal/httpapi/gateway"
+	"claudication/internal/httpapi/httpx"
+	"claudication/internal/httpapi/web"
 	"claudication/internal/memlimit"
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
@@ -27,14 +43,55 @@ import (
 	accountsvc "claudication/internal/service/accounts"
 	"claudication/internal/service/limits"
 	"claudication/internal/service/settings"
+	"claudication/internal/service/surfaces"
 	"claudication/internal/service/titles"
 	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
 
+// webdist holds the built admin UI. `make web` populates it; the .gitkeep
+// placeholder keeps this directive valid in a source-only checkout, so the Go
+// build never depends on Node having run.
+//
+// Embedded here rather than in package web because go:embed reaches only
+// below the file that names it, and the build writes to this directory.
+//
+//go:embed all:webdist
+var webdist embed.FS
+
+// docsSetting is the settings row holding the switch that decides whether the
+// public page is served.
+//
+// Runtime state rather than configuration, for the reason the API switches
+// are: taking the page down is what an operator does when something is wrong,
+// and the answer to that cannot be "edit a file and restart". The listener
+// stays where it is and answers 404.
+//
+// Off by default, and this is the one place in the gateway where that default
+// is about posture rather than cost. The page is served at the root of the
+// relay, which today answers 404 to everything that is not an API call — so
+// turning it on changes that listener from silent-unless-you-have-a-key to
+// self-describing. It grants no access and carries no secret, but it is not a
+// thing that should start happening because someone upgraded.
+const docsSetting = "docs.enabled"
+
+// imageFitSetting is the settings row holding the switch for capping
+// oversized images in a many-image request.
+//
+// Runtime state rather than configuration, for the reason the API switches and
+// the chat-title switches are: this one decides whether the relay may change
+// what the model is shown, and the answer to "stop doing that" cannot be "edit
+// a file and restart".
+//
+// Off by default, unlike every other pass the relay makes. The other five
+// exceptions repair an envelope the upstream would refuse over its shape; this
+// one re-encodes the caller's own image, and the caller is the only one who
+// knows whether the detail it loses mattered.
+const imageFitSetting = "passthrough.fit-oversized-images"
+
 type Server struct {
-	cfg            config.Config
+	cfg            *config.Config
 	log            *slog.Logger
 	store          *store.Store
 	keyLimiter     *limits.Limiter
@@ -45,19 +102,12 @@ type Server struct {
 	httpServer     *http.Server
 	adminServer    *http.Server
 	docsServer     *http.Server
-	// docsModels keeps the public page from spending an upstream call per hit.
-	docsModels  modelCache
-	bundleOnce  sync.Once
-	assets      map[string]asset
-	adminAddr   string
-	stopSweeper chan struct{}
-	sealer      *secret.Sealer
-	pool        *pool.Pool
-	relay       *relay.Relay
-	pending     *oauth.Pending
-	sessions    *sessions
-	httpClient  *http.Client
-	startedAt   time.Time
+	adminAddr      string
+	stopSweeper    chan struct{}
+	sealer         *secret.Sealer
+	pool           *pool.Pool
+	relay          *relay.Relay
+	httpClient     *http.Client
 	// poller keeps each account's subscription usage current, faster while
 	// the admin UI is open. See internal/service/accounts.
 	poller *accountsvc.Poller
@@ -68,12 +118,17 @@ type Server struct {
 	// order the admin UI lists them. Anthropic is one of them rather than the
 	// default case — see internal/api.
 	protocols api.Registry
-	surfaces  *surfaces
+	surfaces  *surfaces.Surfaces
 	// titles names conversations by asking a model, which is the only traffic
 	// this gateway originates rather than relays. Off until switched on.
 	titles *titles.Titler
 	images *settings.Switch
 	docs   *settings.Switch
+
+	// The handler sets, one per surface. See the package comment.
+	gateway *gateway.Gateway
+	admin   *admin.Admin
+	web     *web.Site
 
 	mu   sync.Mutex
 	addr string
@@ -105,13 +160,13 @@ func servingWhat(combined bool) string {
 }
 
 func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Sealer) (*Server, error) {
-	trusted, err := parseTrustedProxies(cfg.TrustedProxies)
+	trusted, err := httpx.ParseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {
 		return nil, fmt.Errorf("trusted-proxies: %w", err)
 	}
 
 	s := &Server{
-		cfg:            cfg,
+		cfg:            &cfg,
 		log:            log,
 		store:          st,
 		keyLimiter:     limits.NewLimiter(),
@@ -120,10 +175,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		trustedProxies: trusted,
 		stopSweeper:    make(chan struct{}),
 		sealer:         sealer,
-		pending:        oauth.NewPending(15 * time.Minute),
 		trimmer:        memlimit.NewTrimmer(log),
-		sessions:       newSessions(),
-		startedAt:      time.Now(),
 		// Upstream calls made by the gateway itself: token exchange, refresh,
 		// credential probes. Short timeout, because these are all small.
 		httpClient: &http.Client{Timeout: 60 * time.Second},
@@ -135,14 +187,14 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		anthropicapi.New(),
 		openai.New(cfg.OpenAI.Model, cfg.OpenAI.MaxTokens),
 	}
-	s.surfaces = newSurfaces(s.protocols, st)
+	s.surfaces = surfaces.New(s.protocols, st)
 	// Read once here rather than per request. A failure is worth saying out
 	// loud but not worth refusing to start over: the fallback is every surface
 	// serving, which is the state the gateway was in before the switches
 	// existed.
 	loadCtx, cancelLoad := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelLoad()
-	if err := s.surfaces.load(loadCtx); err != nil {
+	if err := s.surfaces.Load(loadCtx); err != nil {
 		log.Warn("could not read the API surface switches; serving every surface", "err", err)
 	}
 
@@ -230,6 +282,29 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	if err := s.titles.Load(loadCtx); err != nil {
 		log.Warn("could not read the chat-title switch; leaving it off", "err", err)
 	}
+
+	// The handler sets. Each is handed what it uses and nothing else; what one
+	// needs from another — the model list — crosses here as a function.
+	s.gateway = gateway.New(gateway.Deps{
+		Config: s.cfg, Log: log, Store: st,
+		KeyLimiter: s.keyLimiter, AnonLimiter: s.anonLimiter, Budgets: s.budgets,
+		Recorder: s.recorder, Pool: s.pool, Relay: s.relay, Titles: s.titles,
+		Trimmer: s.trimmer, Surfaces: s.surfaces, Protocols: s.protocols,
+		HTTPClient: s.httpClient,
+	})
+	s.admin = admin.New(admin.Deps{
+		Config: s.cfg, Log: log, Store: st, Sealer: sealer, Pool: s.pool,
+		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
+		Titles: s.titles, Images: s.images, Docs: s.docs, Surfaces: s.surfaces,
+		Protocols: s.protocols, HTTPClient: s.httpClient,
+		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
+		TrustedProxies: trusted, StartedAt: time.Now(),
+		Models: s.gateway.FetchModels,
+	})
+	s.web = web.New(web.Deps{
+		Config: s.cfg, Log: log, Store: st, Docs: s.docs, Surfaces: s.surfaces,
+		Models: s.gateway.FetchModels, Files: webdist,
+	})
 
 	// With admin-listen set, this one drops the admin API and the UI; they
 	// move to adminServer below. Unset, it keeps serving both.
@@ -354,95 +429,15 @@ func (s *Server) routes(r0 role) http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// The client-facing APIs. Each is an api.Protocol and each is gated on its
-	// own switch, so one can be turned off without touching the other and both
-	// can be turned off at once.
-	//
-	// The upstream path is the same for both, because there is only one thing
-	// on the other end: /v1/messages is what a subscription account answers,
-	// whatever shape the caller asked in.
 	if r0.gateway {
-		messages, _ := s.protocols.Find(anthropicapi.ID)
-		responses, _ := s.protocols.Find(openai.ID)
-
-		// Model discovery belongs to the Anthropic surface alone. /v1/models
-		// is a path both APIs define with different answers, and Codex never
-		// asks — it is configured with a model name — so there is nothing to
-		// gain by guessing which dialect a caller meant.
-		mux.Handle("GET /v1/models",
-			s.surface(messages, s.requireAPIKey(http.HandlerFunc(s.handleModels))))
-		mux.Handle("POST /v1/messages",
-			s.surface(messages, s.requireAPIKey(
-				s.inference(messages, "/v1/messages", "/v1/messages?beta=true"))))
-
-		// Serving count_tokens matters, and the client says so in its own
-		// code: when a gateway answers 501 here, it falls back to measuring
-		// the context by issuing a real max_tokens:1 inference request and
-		// reading the usage off it. That is a billed request spent on
-		// arithmetic, once per measurement. Removing this route because
-		// "nothing seems to call it" would turn that on silently.
-		mux.Handle("POST /v1/messages/count_tokens",
-			s.surface(messages, s.requireAPIKey(
-				s.inference(messages, "/v1/messages/count_tokens",
-					"/v1/messages/count_tokens?beta=true"))))
-
-		mux.Handle("POST /v1/responses",
-			s.surface(responses, s.requireAPIKey(
-				s.inference(responses, "/v1/responses", "/v1/messages?beta=true"))))
+		s.gateway.Routes(mux)
 	}
-
 	if r0.admin {
-		// Admin API. Setup and sign-in are outside requireAdmin: a gateway with no
-		// password yet has nothing to authenticate against.
-		//
-		// These two change state without a cookie to protect them, so they carry
-		// their own cross-site check — see sameSiteOnly. Everything under
-		// requireAdmin is already covered by the session cookie being
-		// SameSite=Strict.
-		mux.HandleFunc("GET /admin/setup", s.handleSetupStatus)
-		mux.Handle("POST /admin/setup", sameSiteOnly(http.HandlerFunc(s.handleSetup)))
-		mux.Handle("POST /admin/session", sameSiteOnly(http.HandlerFunc(s.handleAdminLogin)))
-		mux.HandleFunc("DELETE /admin/session", s.handleAdminLogout)
-		mux.HandleFunc("GET /admin/session", s.handleTokenSession)
-
-		admin := func(h http.HandlerFunc) http.Handler { return s.requireAdmin(h) }
-		mux.Handle("GET /admin/me", admin(s.handleAdminMe))
-		mux.Handle("POST /admin/password", admin(s.handleChangePassword))
-		mux.Handle("POST /admin/account/delete", admin(s.handleDeleteAdminAccount))
-		mux.Handle("GET /admin/accounts", admin(s.handleListAccounts))
-		mux.Handle("POST /admin/accounts/order", admin(s.handleReorderAccounts))
-		mux.Handle("POST /admin/accounts/oauth/start", admin(s.handleOAuthStart))
-		mux.Handle("POST /admin/accounts/oauth/complete", admin(s.handleOAuthComplete))
-		mux.Handle("POST /admin/accounts/{id}/test", admin(s.handleTestAccount))
-		mux.Handle("POST /admin/accounts/{id}/refresh", admin(s.handleRefreshAccount))
-		mux.Handle("POST /admin/accounts/{id}/usage", admin(s.handleRefreshUsage))
-		mux.Handle("POST /admin/accounts/{id}/disabled", admin(s.handleSetAccountDisabled))
-		mux.Handle("DELETE /admin/accounts/{id}", admin(s.handleDeleteAccount))
-
-		// Client API keys — the credential a Claude Code points at the gateway.
-		mux.Handle("GET /admin/keys", admin(s.handleListKeys))
-		mux.Handle("POST /admin/keys", admin(s.handleCreateKey))
-		mux.Handle("PATCH /admin/keys/{id}", admin(s.handleUpdateKey))
-		mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
-
-		mux.Handle("GET /admin/config", admin(s.handleConfig))
-		mux.Handle("GET /admin/models", admin(s.handleAdminModels))
-		mux.Handle("POST /admin/surfaces/{id}", admin(s.handleSetSurface))
-		mux.Handle("GET /admin/overview", admin(s.handleOverview))
-		mux.Handle("GET /admin/usage", admin(s.handleUsage))
-		mux.Handle("GET /admin/chats", admin(s.handleChats))
-		mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
-		mux.Handle("POST /admin/chat-titles", admin(s.handleSetChatTitles))
-		mux.Handle("POST /admin/fit-images", admin(s.handleSetImageFit))
-		mux.Handle("POST /admin/docs", admin(s.handleSetDocs))
-		mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
-		mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
-		mux.Handle("GET /admin/requests/export", admin(s.handleExportRequests))
-
+		s.admin.Routes(mux)
 	}
 
 	if r0.docs {
-		mux.HandleFunc("GET /api/docs", s.handleDocsInfo)
+		mux.HandleFunc("GET /api/docs", s.web.HandleDocsInfo)
 	}
 
 	// Anything under an API prefix that did not match above is a client error,
@@ -451,7 +446,7 @@ func (s *Server) routes(r0 role) http.Handler {
 	// a web page, which parses as neither JSON nor an explanation.
 	for _, prefix := range []string{"/v1/", "/admin/", "/api/"} {
 		mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
-			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
 		})
 	}
 
@@ -469,11 +464,11 @@ func (s *Server) routes(r0 role) http.Handler {
 	// One handler per document, built once and chosen per request: which of
 	// them the root serves depends on a switch an operator can flip while the
 	// gateway is running.
-	adminUI := s.staticHandler("index.html")
-	docsUI := s.staticHandler("docs.html")
+	adminUI := s.web.StaticHandler("index.html")
+	docsUI := s.web.StaticHandler("docs.html")
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		notFound := func() {
-			writeError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
 		}
 		// Everything below serves documents, so nothing below answers a write.
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -490,7 +485,7 @@ func (s *Server) routes(r0 role) http.Handler {
 			// `/?token=…` would each burn a single-use sign-in link and leave
 			// the operator looking at "already used" on the request they
 			// actually made.
-			if isNavigation(r) && s.tokenLogin(w, r, "/") {
+			if httpx.IsNavigation(r) && s.admin.TokenLogin(w, r, "/") {
 				return
 			}
 			adminUI.ServeHTTP(w, r)
@@ -504,7 +499,7 @@ func (s *Server) routes(r0 role) http.Handler {
 			// by calling, so it answers in HTML. Everything else is a client
 			// that asked for an endpoint and gets the shape it can parse.
 			if r.URL.Path == "/" {
-				serveWelcome(w, r)
+				web.ServeWelcome(w, r)
 				return
 			}
 			notFound()
@@ -517,10 +512,10 @@ func (s *Server) routes(r0 role) http.Handler {
 	}))
 
 	var h http.Handler = mux
-	h = s.withBodyLimit(h)
-	h = s.withRecovery(h)
-	h = s.withAccessLog(h)
-	h = s.withRequestContext(h)
+	h = httpx.WithBodyLimit(h, s.cfg.Limits.MaxBodyBytes)
+	h = httpx.WithRecovery(h, s.log)
+	h = httpx.WithAccessLog(h, s.log)
+	h = httpx.WithRequestContext(h, s.trustedProxies)
 	return h
 }
 
@@ -530,67 +525,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"status":  "ok",
 		"version": version.Version,
 	})
-}
-
-// handleModels answers the discovery request by relaying Anthropic's own model
-// list, so it stays correct as models come and go.
-//
-// The contract pins the shape hard: Claude Code sends GET /v1/models?limit=1000
-// with a 3-second timeout, treats any redirect as failure, and keeps only ids
-// containing "claude" or "anthropic".
-//
-// A failure must be answered as a failure. The client falls back to its cached
-// list only when the request fails; a 200 carrying an empty data array is a
-// successful answer that says "this gateway serves no models", so it overwrites
-// the good cache with nothing and the model picker goes empty. Being unable to
-// reach the upstream is a 502, and the client recovers on its own.
-func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	// Comfortably inside the client's 3-second budget.
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-
-	body, err := s.fetchModels(ctx, r.URL.RawQuery)
-	if err != nil {
-		s.log.Warn("model discovery failed; answering 502 so the client keeps its cached list",
-			"err", err, "request_id", requestIDFrom(r.Context()))
-		writeError(w, http.StatusBadGateway, "api_error", "could not reach the upstream model list")
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(body)
-}
-
-func (s *Server) fetchModels(ctx context.Context, rawQuery string) ([]byte, error) {
-	lease, err := s.pool.Acquire(ctx, "anthropic", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	base := s.relay.BaseURL
-	if base == "" {
-		base = anthropic.BaseURL
-	}
-	url := base + "/v1/models"
-	if rawQuery != "" {
-		url += "?" + rawQuery
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+lease.AccessToken)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream models returned %d", resp.StatusCode)
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
 // Run serves until ctx is cancelled, then drains within the configured grace

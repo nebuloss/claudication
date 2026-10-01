@@ -1,12 +1,12 @@
-package httpapi
+package admin
 
 import (
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"claudication/internal/httpapi/httpx"
 	"claudication/internal/store"
 )
 
@@ -14,50 +14,50 @@ import (
 // operator's own gateway, not a multi-tenant service, so there is nobody to
 // distinguish a username from.
 //
-// Sign-in is deliberately outside requireAdmin, and so is setup — a gateway
+// Sign-in is deliberately outside RequireAdmin, and so is setup — a gateway
 // with no password yet has nothing to authenticate against, and the first
 // person to reach it claims it. That is the same trade every self-hosted tool
 // with a setup screen makes, and the reason CreateAdmin refuses to overwrite:
 // the window closes the moment a password exists.
 
-func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 	exists, err := s.store.AdminExists(r.Context())
 	if err != nil {
 		s.log.Error("check admin account", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not read the account")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the account")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"needs_setup":      !exists,
 		"min_password_len": store.MinPasswordLength,
 	})
 }
 
-func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleSetup(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Password string `json:"password"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
 
-	ip := clientIPFrom(r.Context())
+	ip := httpx.ClientIP(r.Context())
 	if !s.anonLimiter.AllowPerMinute("setup:"+ip, s.cfg.Limits.AnonPerMinute) {
-		writeError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
+		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
 		return
 	}
 
 	switch err := s.store.CreateAdmin(r.Context(), body.Password); {
 	case errors.Is(err, store.ErrAdminExists):
-		writeError(w, http.StatusConflict, "already_setup",
+		httpx.WriteError(w, http.StatusConflict, "already_setup",
 			"an account already exists; sign in instead")
 		return
 	case errors.Is(err, store.ErrPasswordTooShort):
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	case err != nil:
 		s.log.Error("create admin account", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not create the account")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not create the account")
 		return
 	}
 
@@ -68,30 +68,30 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 // handleChangePassword requires the current password even though the caller
 // already holds a session: a browser someone walked away from should not be
 // able to lock its owner out.
-func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Current string `json:"current_password"`
 		New     string `json:"new_password"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
 
-	ip := clientIPFrom(r.Context())
+	ip := httpx.ClientIP(r.Context())
 	if !s.anonLimiter.AllowPerMinute("passwd:"+ip, s.cfg.Limits.AnonPerMinute) {
-		writeError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
+		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
 		return
 	}
 
 	switch err := s.store.ChangeAdminPassword(r.Context(), body.Current, body.New); {
 	case errors.Is(err, store.ErrNoAdmin):
-		writeError(w, http.StatusNotFound, "not_found", "no account to change")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no account to change")
 		return
 	case errors.Is(err, store.ErrPasswordTooShort):
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	case err != nil:
-		writeError(w, http.StatusUnauthorized, "authentication_error", err.Error())
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", err.Error())
 		return
 	}
 
@@ -103,11 +103,11 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDeleteAdminAccount returns the gateway to its first-run state.
-func (s *Server) handleDeleteAdminAccount(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleDeleteAdminAccount(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Password string `json:"password"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
 
@@ -115,87 +115,87 @@ func (s *Server) handleDeleteAdminAccount(w http.ResponseWriter, r *http.Request
 	// password again rather than trusting the session alone.
 	ok, err := s.store.VerifyAdmin(r.Context(), body.Password)
 	if err != nil || !ok {
-		writeError(w, http.StatusUnauthorized, "authentication_error", "password is incorrect")
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", "password is incorrect")
 		return
 	}
 	if err := s.store.DeleteAdmin(r.Context()); err != nil {
 		s.log.Error("delete admin account", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not delete the account")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not delete the account")
 		return
 	}
 
 	s.sessions.destroyAll()
 	clearSessionCookie(w)
 	s.log.Warn("admin account deleted; gateway is back in first-run state",
-		"ip", clientIPFrom(r.Context()))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+		"ip", httpx.ClientIP(r.Context()))
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // handleAdminLogin exchanges the password for a session.
-func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Password string `json:"password"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
 	if strings.TrimSpace(body.Password) == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "password is required")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "password is required")
 		return
 	}
 
-	ip := clientIPFrom(r.Context())
+	ip := httpx.ClientIP(r.Context())
 	if !s.anonLimiter.AllowPerMinute("admin-login:"+ip, s.cfg.Limits.AnonPerMinute) {
-		writeError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
+		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
 		return
 	}
 
 	ok, err := s.store.VerifyAdmin(r.Context(), body.Password)
 	if errors.Is(err, store.ErrNoAdmin) {
-		writeError(w, http.StatusConflict, "needs_setup",
+		httpx.WriteError(w, http.StatusConflict, "needs_setup",
 			"no account has been set up yet")
 		return
 	}
 	if err != nil {
 		s.log.Error("verify admin password", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not sign in")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not sign in")
 		return
 	}
 	if !ok {
 		// Same message and the same work either way: no oracle for whether the
 		// password merely had the wrong characters.
-		writeError(w, http.StatusUnauthorized, "authentication_error", "incorrect password")
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", "incorrect password")
 		return
 	}
 	s.startSession(w, r, "password")
 }
 
-func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(sessionCookie); err == nil {
+func (s *Admin) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie(SessionCookie); err == nil {
 		s.sessions.destroy(c.Value)
 	}
 	clearSessionCookie(w)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "signed out"})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "signed out"})
 }
 
-func (s *Server) handleAdminMe(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleAdminMe(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"authenticated": true}
 	if updated, err := s.store.AdminUpdatedAt(r.Context()); err == nil {
 		out["password_updated_at"] = updated.UTC().Format(time.RFC3339)
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 // issueSession mints a session and sets the cookie, leaving the caller to
 // decide what the response body is — the password endpoints answer with JSON,
 // a sign-in link answers with a redirect.
-func (s *Server) issueSession(w http.ResponseWriter, r *http.Request) (time.Time, error) {
+func (s *Admin) issueSession(w http.ResponseWriter, r *http.Request) (time.Time, error) {
 	token, expires, err := s.sessions.create()
 	if err != nil {
 		return time.Time{}, err
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookie,
+		Name:     SessionCookie,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
@@ -209,44 +209,20 @@ func (s *Server) issueSession(w http.ResponseWriter, r *http.Request) (time.Time
 		// still marked as safe to send in clear. Hard-coding it true would be
 		// worse — on a LAN or through an SSH tunnel the cookie would never be
 		// sent at all and sign-in would fail with nothing to show for it.
-		Secure: overTLS(r, s.trustedProxies),
+		Secure: httpx.OverTLS(r, s.trustedProxies),
 	})
 	return expires, nil
 }
 
-// overTLS reports whether the browser's connection was encrypted.
-//
-// r.TLS covers terminating TLS ourselves, which nothing does today.
-// X-Forwarded-Proto covers the real case, and is read only from a trusted
-// proxy — otherwise any client could set it and pin a Secure cookie onto a
-// plain-HTTP session, locking itself out.
-func overTLS(r *http.Request, trusted []*net.IPNet) bool {
-	if r.TLS != nil {
-		return true
-	}
-	if len(trusted) == 0 {
-		return false
-	}
-	peer := peerIP(r)
-	if peer == nil || !ipInAny(peer, trusted) {
-		return false
-	}
-	proto := r.Header.Get("X-Forwarded-Proto")
-	if i := strings.IndexByte(proto, ','); i >= 0 {
-		proto = proto[:i] // the client-facing hop is the left-most
-	}
-	return strings.EqualFold(strings.TrimSpace(proto), "https")
-}
-
 // startSession issues the cookie and answers with when it lapses.
-func (s *Server) startSession(w http.ResponseWriter, r *http.Request, how string) {
+func (s *Admin) startSession(w http.ResponseWriter, r *http.Request, how string) {
 	expires, err := s.issueSession(w, r)
 	if err != nil {
 		s.log.Error("create admin session", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not start a session")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not start a session")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"authenticated": true,
 		"via":           how,
 		"expires_at":    expires.UTC().Format(time.RFC3339),
@@ -255,6 +231,6 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, how string
 
 func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1,
+		Name: SessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1,
 	})
 }

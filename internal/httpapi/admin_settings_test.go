@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"claudication/internal/config"
+	"claudication/internal/httpapi/admin"
+	"claudication/internal/service/surfaces"
 	"claudication/internal/service/titles"
 	"claudication/internal/store"
 )
@@ -43,12 +45,12 @@ func TestConfigReportsSettingsAndSwitches(t *testing.T) {
 func TestDocsURLFollowsTheDocsListener(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.PublicURL = "https://relay.example"
-	if got := docsURL(cfg); got != "https://relay.example" {
+	if got := cfg.DocsPageURL(); got != "https://relay.example" {
 		t.Errorf("shared: %q", got)
 	}
 	cfg.DocsListen = "127.0.0.1:0"
 	cfg.DocsURL = "https://docs.example"
-	if got := docsURL(cfg); got != "https://docs.example" {
+	if got := cfg.DocsPageURL(); got != "https://docs.example" {
 		t.Errorf("own listener: %q", got)
 	}
 }
@@ -86,7 +88,7 @@ func TestSetSurfaceOverTheAPI(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	got := decode[struct {
-		Surfaces []surfaceState `json:"surfaces"`
+		Surfaces []surfaces.Surface `json:"surfaces"`
 	}](t, body)
 	seen := false
 	for _, s := range got.Surfaces {
@@ -100,7 +102,7 @@ func TestSetSurfaceOverTheAPI(t *testing.T) {
 	if !seen {
 		t.Errorf("surfaces = %+v", got.Surfaces)
 	}
-	if v, ok, _ := st.Setting(context.Background(), surfaceKey("openai")); !ok || v != "false" {
+	if v, ok, _ := st.Setting(context.Background(), surfaces.Key("openai")); !ok || v != "false" {
 		t.Errorf("stored = %q, %v", v, ok)
 	}
 	// And the relay honours it at once.
@@ -198,7 +200,7 @@ func TestUpdateKeyOverTheAPI(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	got := decode[struct {
-		Key keyJSON `json:"key"`
+		Key admin.KeyJSON `json:"key"`
 	}](t, body).Key
 	if got.Name != "after" || got.RPMLimit != 7 || got.RatePeriodS != 3600 || got.TokenBudget != 500 {
 		t.Errorf("answer = %+v", got)

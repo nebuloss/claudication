@@ -1,26 +1,67 @@
-package httpapi
+// Package web serves the gateway's documents: the admin UI built into the
+// binary, the public docs page, and the welcome page that answers at the
+// root when that page is off.
+package web
 
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
+	"log/slog"
 	"mime"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 
-	"embed"
+	"claudication/internal/config"
+	"claudication/internal/service/settings"
+	"claudication/internal/service/surfaces"
+	"claudication/internal/store"
 )
 
-// webdist holds the built admin UI. `make web` populates it; the .gitkeep
-// placeholder keeps this directive valid in a source-only checkout, so the Go
-// build never depends on Node having run.
-//
-//go:embed all:webdist
-var webdist embed.FS
+// Site serves the documents: the embedded admin UI, the public docs page and
+// what that page reads, and the welcome page that stands in for it.
+type Site struct {
+	cfg         *config.Config
+	log         *slog.Logger
+	store       *store.Store
+	docs        *settings.Switch
+	surfaces    *surfaces.Surfaces
+	fetchModels func(ctx context.Context, rawQuery string) ([]byte, error)
+	// files holds the built UI under webdist/.
+	files fs.FS
+
+	bundleOnce sync.Once
+	assets     map[string]asset
+	// docsModels keeps the public page from spending an upstream call per hit.
+	docsModels modelCache
+}
+
+// Deps is what a Site is built from. Every field is required.
+type Deps struct {
+	Config   *config.Config
+	Log      *slog.Logger
+	Store    *store.Store
+	Docs     *settings.Switch
+	Surfaces *surfaces.Surfaces
+	// Models is the upstream model list, as the client-facing API reads it.
+	Models func(ctx context.Context, rawQuery string) ([]byte, error)
+	// Files is the embedded build, with the UI under webdist/.
+	Files fs.FS
+}
+
+// New builds a Site. The UI is read and compressed on first use.
+func New(d Deps) *Site {
+	return &Site{
+		cfg: d.Config, log: d.Log, store: d.Store, docs: d.Docs,
+		surfaces: d.Surfaces, fetchModels: d.Models, files: d.Files,
+	}
+}
 
 const notBuiltPage = `<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -134,24 +175,19 @@ func (a asset) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// staticHandler serves the embedded UI.
-//
-// A binary with no UI compiled in still starts and still proxies: the gateway's
-// job is inference, and the admin screens are a convenience on top. Saying so
-// on a page beats a bare 503 that looks like the whole thing is broken.
 // bundle is the embedded build, read once.
 //
 // Once per process rather than once per handler: there are two entry documents
 // now — index.html for the admin app and docs.html for the public docs page —
 // and they are two views of the same files. Compressing the lot twice would
 // buy nothing and hold two copies of it.
-func (s *Server) bundle() map[string]asset {
+func (s *Site) bundle() map[string]asset {
 	s.bundleOnce.Do(func() { s.assets = s.readBundle() })
 	return s.assets
 }
 
-func (s *Server) readBundle() map[string]asset {
-	root, err := fs.Sub(webdist, "webdist")
+func (s *Site) readBundle() map[string]asset {
+	root, err := fs.Sub(s.files, "webdist")
 	if err != nil {
 		s.log.Error("embedded UI unreadable", "err", err)
 		return nil
@@ -187,11 +223,14 @@ func (s *Server) readBundle() map[string]asset {
 	return assets
 }
 
-// staticHandler serves that build, with entry as the document the root and any
-// path-like miss resolve to.
+// StaticHandler serves the embedded build, with entry as the document the root
+// and any path-like miss resolve to. One handler per entry, over the one shared
+// set of files.
 //
-// One handler per entry, over the one shared set of files.
-func (s *Server) staticHandler(entry string) http.Handler {
+// A binary with no UI compiled in still starts and still proxies: the gateway's
+// job is inference, and the admin screens are a convenience on top. Saying so
+// on a page beats a bare 503 that looks like the whole thing is broken.
+func (s *Site) StaticHandler(entry string) http.Handler {
 	assets := s.bundle()
 	index, ok := assets[entry]
 	if !ok {

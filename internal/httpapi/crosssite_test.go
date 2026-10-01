@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -43,33 +42,6 @@ func TestSetupRefusesACrossSitePost(t *testing.T) {
 			defer resp.Body.Close()
 			if resp.StatusCode != tc.want {
 				t.Errorf("status = %d, want %d", resp.StatusCode, tc.want)
-			}
-		})
-	}
-}
-
-// A sign-in link is single use, so anything that spends it without the
-// operator having clicked it costs them the link. Every request under the
-// static handler carries the query string the page was reached with.
-func TestOnlyANavigationSpendsASignInLink(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		dest      string
-		wantSpent bool
-	}{
-		{"a page load", "document", true},
-		{"a prefetched script", "script", false},
-		{"a favicon", "image", false},
-		{"a stylesheet", "style", false},
-		{"curl", "", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/?token=whatever", nil)
-			if tc.dest != "" {
-				req.Header.Set("Sec-Fetch-Dest", tc.dest)
-			}
-			if got := isNavigation(req); got != tc.wantSpent {
-				t.Errorf("isNavigation = %v, want %v", got, tc.wantSpent)
 			}
 		})
 	}

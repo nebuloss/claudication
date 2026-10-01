@@ -11,6 +11,7 @@ import (
 
 	anthropicapi "claudication/internal/api/anthropic"
 	"claudication/internal/api/openai"
+	"claudication/internal/service/surfaces"
 	"claudication/internal/store"
 )
 
@@ -224,7 +225,7 @@ func TestASwitchedOffSurfaceAnswersInItsOwnDialect(t *testing.T) {
 	}))
 
 	for _, id := range []string{anthropicapi.ID, openai.ID} {
-		if err := srv.surfaces.set(context.Background(), id, false); err != nil {
+		if err := srv.surfaces.Set(context.Background(), id, false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -286,7 +287,7 @@ func TestSurfacesSwitchIndependently(t *testing.T) {
 		_, _ = io.WriteString(w, anthropicStream)
 	}))
 
-	if err := srv.surfaces.set(context.Background(), openai.ID, false); err != nil {
+	if err := srv.surfaces.Set(context.Background(), openai.ID, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -309,18 +310,18 @@ func TestSurfacesSwitchIndependently(t *testing.T) {
 // back on the next time the service is bounced.
 func TestASwitchSurvivesAReload(t *testing.T) {
 	srv, st, _ := newTestServer(t)
-	if err := srv.surfaces.set(context.Background(), openai.ID, false); err != nil {
+	if err := srv.surfaces.Set(context.Background(), openai.ID, false); err != nil {
 		t.Fatal(err)
 	}
 
-	reloaded := newSurfaces(srv.protocols, st)
-	if err := reloaded.load(context.Background()); err != nil {
+	reloaded := surfaces.New(srv.protocols, st)
+	if err := reloaded.Load(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.enabled(openai.ID) {
+	if reloaded.Enabled(openai.ID) {
 		t.Error("the OpenAI surface came back on after a reload")
 	}
-	if !reloaded.enabled(anthropicapi.ID) {
+	if !reloaded.Enabled(anthropicapi.ID) {
 		t.Error("a surface nobody touched should still be on")
 	}
 }
@@ -331,7 +332,7 @@ func TestASwitchSurvivesAReload(t *testing.T) {
 func TestSurfaceStateReportsWhereTheValueCameFrom(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
-	for _, s := range srv.surfaces.state() {
+	for _, s := range srv.surfaces.State() {
 		if s.Origin != "default" {
 			t.Errorf("%s: origin = %q before anyone set it", s.ID, s.Origin)
 		}
@@ -343,10 +344,10 @@ func TestSurfaceStateReportsWhereTheValueCameFrom(t *testing.T) {
 		}
 	}
 
-	if err := srv.surfaces.set(context.Background(), openai.ID, false); err != nil {
+	if err := srv.surfaces.Set(context.Background(), openai.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range srv.surfaces.state() {
+	for _, s := range srv.surfaces.State() {
 		if s.ID == openai.ID && s.Origin != "database" {
 			t.Errorf("origin = %q after being set here, want database", s.Origin)
 		}

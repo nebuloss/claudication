@@ -1,4 +1,4 @@
-package httpapi
+package httpx
 
 import (
 	"net"
@@ -13,7 +13,7 @@ import (
 // "trust proxy", so behind any ingress every client collapses into one
 // rate-limit bucket; requiring an explicit trust list avoids both that and
 // the opposite failure, where a client spoofs the header to dodge limits.
-func clientIP(r *http.Request, trusted []*net.IPNet) string {
+func ResolveClientIP(r *http.Request, trusted []*net.IPNet) string {
 	peer := peerIP(r)
 	if len(trusted) == 0 || peer == nil || !ipInAny(peer, trusted) {
 		if peer == nil {
@@ -57,8 +57,8 @@ func ipInAny(ip net.IP, nets []*net.IPNet) bool {
 	return false
 }
 
-// parseTrustedProxies accepts CIDRs and bare IPs.
-func parseTrustedProxies(entries []string) ([]*net.IPNet, error) {
+// ParseTrustedProxies accepts CIDRs and bare IPs.
+func ParseTrustedProxies(entries []string) ([]*net.IPNet, error) {
 	var out []*net.IPNet
 	for _, e := range entries {
 		e = strings.TrimSpace(e)
@@ -80,4 +80,28 @@ func parseTrustedProxies(entries []string) ([]*net.IPNet, error) {
 		out = append(out, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
 	}
 	return out, nil
+}
+
+// OverTLS reports whether the browser's connection was encrypted.
+//
+// r.TLS covers terminating TLS ourselves, which nothing does today.
+// X-Forwarded-Proto covers the real case, and is read only from a trusted
+// proxy — otherwise any client could set it and pin a Secure cookie onto a
+// plain-HTTP session, locking itself out.
+func OverTLS(r *http.Request, trusted []*net.IPNet) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if len(trusted) == 0 {
+		return false
+	}
+	peer := peerIP(r)
+	if peer == nil || !ipInAny(peer, trusted) {
+		return false
+	}
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if i := strings.IndexByte(proto, ','); i >= 0 {
+		proto = proto[:i] // the client-facing hop is the left-most
+	}
+	return strings.EqualFold(strings.TrimSpace(proto), "https")
 }

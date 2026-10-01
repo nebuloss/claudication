@@ -1,4 +1,6 @@
-package httpapi
+// Package admin is the admin API: everything the operator's UI calls, behind
+// a session that only the admin password or a single-use sign-in link opens.
+package admin
 
 import (
 	"context"
@@ -6,18 +8,139 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"claudication/internal/api"
+	"claudication/internal/config"
+	"claudication/internal/httpapi/httpx"
 	"claudication/internal/oauth"
+	"claudication/internal/pool"
 	"claudication/internal/provider/anthropic"
+	"claudication/internal/secret"
+	accountsvc "claudication/internal/service/accounts"
+	"claudication/internal/service/limits"
+	"claudication/internal/service/settings"
+	"claudication/internal/service/surfaces"
+	"claudication/internal/service/titles"
 	"claudication/internal/store"
 )
 
+// Admin serves the admin API: sign-in and the session it opens, the accounts
+// and keys, the usage screens, and the switches an operator flips at runtime.
+type Admin struct {
+	cfg            *config.Config
+	log            *slog.Logger
+	store          *store.Store
+	sealer         *secret.Sealer
+	pool           *pool.Pool
+	pending        *oauth.Pending
+	poller         *accountsvc.Poller
+	titles         *titles.Titler
+	images         *settings.Switch
+	docs           *settings.Switch
+	surfaces       *surfaces.Surfaces
+	protocols      api.Registry
+	httpClient     *http.Client
+	anonLimiter    *limits.Limiter
+	budgets        *limits.Budgets
+	trustedProxies []*net.IPNet
+	startedAt      time.Time
+	sessions       *sessions
+	fetchModels    func(ctx context.Context, rawQuery string) ([]byte, error)
+}
+
+// Deps is what an Admin is built from. Every field is required.
+type Deps struct {
+	Config         *config.Config
+	Log            *slog.Logger
+	Store          *store.Store
+	Sealer         *secret.Sealer
+	Pool           *pool.Pool
+	Pending        *oauth.Pending
+	Poller         *accountsvc.Poller
+	Titles         *titles.Titler
+	Images         *settings.Switch
+	Docs           *settings.Switch
+	Surfaces       *surfaces.Surfaces
+	Protocols      api.Registry
+	HTTPClient     *http.Client
+	AnonLimiter    *limits.Limiter
+	Budgets        *limits.Budgets
+	TrustedProxies []*net.IPNet
+	StartedAt      time.Time
+	// Models is the upstream model list, as the client-facing API reads it.
+	Models func(ctx context.Context, rawQuery string) ([]byte, error)
+}
+
+// New builds an Admin with no session open.
+func New(d Deps) *Admin {
+	return &Admin{
+		cfg: d.Config, log: d.Log, store: d.Store, sealer: d.Sealer, pool: d.Pool,
+		pending: d.Pending, poller: d.Poller, titles: d.Titles, images: d.Images,
+		docs: d.Docs, surfaces: d.Surfaces, protocols: d.Protocols,
+		httpClient: d.HTTPClient, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
+		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
+		sessions: newSessions(), fetchModels: d.Models,
+	}
+}
+
+// Routes registers the admin API on mux.
+func (s *Admin) Routes(mux *http.ServeMux) {
+	// Admin API. Setup and sign-in are outside RequireAdmin: a gateway with no
+	// password yet has nothing to authenticate against.
+	//
+	// These two change state without a cookie to protect them, so they carry
+	// their own cross-site check — see httpx.SameSiteOnly. Everything under
+	// RequireAdmin is already covered by the session cookie being
+	// SameSite=Strict.
+	mux.HandleFunc("GET /admin/setup", s.handleSetupStatus)
+	mux.Handle("POST /admin/setup", httpx.SameSiteOnly(http.HandlerFunc(s.handleSetup)))
+	mux.Handle("POST /admin/session", httpx.SameSiteOnly(http.HandlerFunc(s.handleAdminLogin)))
+	mux.HandleFunc("DELETE /admin/session", s.handleAdminLogout)
+	mux.HandleFunc("GET /admin/session", s.handleTokenSession)
+
+	admin := func(h http.HandlerFunc) http.Handler { return s.RequireAdmin(h) }
+	mux.Handle("GET /admin/me", admin(s.handleAdminMe))
+	mux.Handle("POST /admin/password", admin(s.handleChangePassword))
+	mux.Handle("POST /admin/account/delete", admin(s.handleDeleteAdminAccount))
+	mux.Handle("GET /admin/accounts", admin(s.handleListAccounts))
+	mux.Handle("POST /admin/accounts/order", admin(s.handleReorderAccounts))
+	mux.Handle("POST /admin/accounts/oauth/start", admin(s.handleOAuthStart))
+	mux.Handle("POST /admin/accounts/oauth/complete", admin(s.handleOAuthComplete))
+	mux.Handle("POST /admin/accounts/{id}/test", admin(s.handleTestAccount))
+	mux.Handle("POST /admin/accounts/{id}/refresh", admin(s.handleRefreshAccount))
+	mux.Handle("POST /admin/accounts/{id}/usage", admin(s.handleRefreshUsage))
+	mux.Handle("POST /admin/accounts/{id}/disabled", admin(s.handleSetAccountDisabled))
+	mux.Handle("DELETE /admin/accounts/{id}", admin(s.handleDeleteAccount))
+
+	// Client API keys — the credential a Claude Code points at the gateway.
+	mux.Handle("GET /admin/keys", admin(s.handleListKeys))
+	mux.Handle("POST /admin/keys", admin(s.handleCreateKey))
+	mux.Handle("PATCH /admin/keys/{id}", admin(s.handleUpdateKey))
+	mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
+
+	mux.Handle("GET /admin/config", admin(s.handleConfig))
+	mux.Handle("GET /admin/models", admin(s.handleAdminModels))
+	mux.Handle("POST /admin/surfaces/{id}", admin(s.handleSetSurface))
+	mux.Handle("GET /admin/overview", admin(s.handleOverview))
+	mux.Handle("GET /admin/usage", admin(s.handleUsage))
+	mux.Handle("GET /admin/chats", admin(s.handleChats))
+	mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
+	mux.Handle("POST /admin/chat-titles", admin(s.handleSetChatTitles))
+	mux.Handle("POST /admin/fit-images", admin(s.handleSetImageFit))
+	mux.Handle("POST /admin/docs", admin(s.handleSetDocs))
+	mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
+	mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
+	mux.Handle("GET /admin/requests/export", admin(s.handleExportRequests))
+}
+
 const (
-	sessionCookie = "claudication_admin"
+	SessionCookie = "claudication_admin"
 	sessionTTL    = 12 * time.Hour
 )
 
@@ -84,7 +207,8 @@ func (s *sessions) evictLocked() {
 
 // ── request/response shapes ──────────────────────────────────────────────
 
-type accountJSON struct {
+// AccountJSON is one connected account as the admin API reports it.
+type AccountJSON struct {
 	ID            string `json:"id"`
 	Provider      string `json:"provider"`
 	Email         string `json:"email"`
@@ -147,8 +271,8 @@ type usageLimitJSON struct {
 	IsActive bool    `json:"is_active"`
 }
 
-func toAccountJSON(a store.Account) accountJSON {
-	out := accountJSON{
+func toAccountJSON(a store.Account) AccountJSON {
+	out := AccountJSON{
 		ID:        a.ID,
 		Provider:  a.Provider,
 		Email:     a.Email,
@@ -224,36 +348,20 @@ func toAccountJSON(a store.Account) accountJSON {
 	return out
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(dst); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "could not read the request body: "+err.Error())
-		return false
-	}
-	return true
-}
-
-// ── middleware ───────────────────────────────────────────────────────────
-
-// requireAdmin admits a live session cookie and nothing else.
+// RequireAdmin admits a live session cookie and nothing else.
 //
 // It used to accept an admin-scoped API key too. That second path existed
 // before there was an account, and keeping it would mean two ways to become
 // admin — one of which a password change could not revoke.
-func (s *Server) requireAdmin(next http.Handler) http.Handler {
+func (s *Admin) RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie(sessionCookie)
+		c, err := r.Cookie(SessionCookie)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, "authentication_error", "sign in first")
+			httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", "sign in first")
 			return
 		}
 		if _, ok := s.sessions.lookup(c.Value); !ok {
-			writeError(w, http.StatusUnauthorized, "authentication_error", "session has expired")
+			httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", "session has expired")
 			return
 		}
 		// Someone is looking, so the usage poller should work at its fast
@@ -264,7 +372,7 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 	})
 }
 
-// tokenLogin handles a `?token=<link>` sign-in link.
+// TokenLogin handles a `?token=<link>` sign-in link.
 //
 // The token is a short single-use handle, not an encoded credential: it is
 // minted by `claudication login-url`, expires, and is spent the first time it
@@ -280,28 +388,28 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 // the consent tab opens.
 //
 // Returns true when it has written a response.
-func (s *Server) tokenLogin(w http.ResponseWriter, r *http.Request, redirectTo string) bool {
+func (s *Admin) TokenLogin(w http.ResponseWriter, r *http.Request, redirectTo string) bool {
 	raw := strings.TrimSpace(r.URL.Query().Get("token"))
 	if raw == "" {
 		return false
 	}
 
-	ip := clientIPFrom(r.Context())
+	ip := httpx.ClientIP(r.Context())
 	if !s.anonLimiter.AllowPerMinute("token-login:"+ip, s.cfg.Limits.AnonPerMinute) {
-		writeError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
+		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
 		return true
 	}
 
 	if err := s.store.SpendLoginLink(r.Context(), raw); err != nil {
 		s.log.Warn("sign-in link rejected", "ip", ip)
-		writeError(w, http.StatusUnauthorized, "authentication_error",
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication_error",
 			"that sign-in link is unknown, expired, or already used")
 		return true
 	}
 
 	if _, err := s.issueSession(w, r); err != nil {
 		s.log.Error("create admin session", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not start a session")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not start a session")
 		return true
 	}
 	s.log.Info("sign-in link spent", "ip", ip)
@@ -313,21 +421,21 @@ func (s *Server) tokenLogin(w http.ResponseWriter, r *http.Request, redirectTo s
 }
 
 // handleTokenSession is the curl-friendly entry point: GET /admin/session?token=…
-func (s *Server) handleTokenSession(w http.ResponseWriter, r *http.Request) {
-	if s.tokenLogin(w, r, "/") {
+func (s *Admin) handleTokenSession(w http.ResponseWriter, r *http.Request) {
+	if s.TokenLogin(w, r, "/") {
 		return
 	}
-	writeError(w, http.StatusBadRequest, "invalid_request",
+	httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
 		"pass ?token=<sign-in link>, or POST your password to this path")
 }
 
 // ── accounts ─────────────────────────────────────────────────────────────
 
-func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	accounts, err := s.store.ListAccounts(r.Context())
 	if err != nil {
 		s.log.Error("list accounts", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not list accounts")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not list accounts")
 		return
 	}
 
@@ -347,11 +455,11 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	status, err := s.pool.Status(r.Context(), "anthropic")
 	if err != nil {
 		s.log.Error("account pool status", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
 		return
 	}
 
-	out := make([]accountJSON, 0, len(accounts))
+	out := make([]AccountJSON, 0, len(accounts))
 	for i, a := range accounts {
 		j := toAccountJSON(a)
 		j.Position = i
@@ -365,7 +473,7 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, j)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"accounts":    out,
 		"window_days": int(s.cfg.Usage.Window().Hours() / 24),
 		// What the server will do next, so the UI can re-ask at the rate the
@@ -378,56 +486,56 @@ func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 // handleReorderAccounts takes the whole priority list rather than a swap: two
 // operators reordering at once would otherwise interleave into an order
 // neither asked for, and the UI already knows the list it wants.
-func (s *Server) handleReorderAccounts(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleReorderAccounts(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		IDs []string `json:"ids"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
 	if len(body.IDs) == 0 {
-		writeError(w, http.StatusBadRequest, "invalid_request", "ids must not be empty")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "ids must not be empty")
 		return
 	}
 	if err := s.store.SetAccountOrder(r.Context(), body.IDs); err != nil {
 		s.log.Error("reorder accounts", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not save the order")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not save the order")
 		return
 	}
-	s.log.Info("account priority changed", "ip", clientIPFrom(r.Context()))
+	s.log.Info("account priority changed", "ip", httpx.ClientIP(r.Context()))
 	s.handleListAccounts(w, r)
 }
 
 // handleRefreshUsage re-polls one account on demand, so an operator watching
 // the screen does not have to wait out the interval.
-func (s *Server) handleRefreshUsage(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleRefreshUsage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.poller.Refresh(r.Context(), id); err != nil {
 		s.log.Warn("usage refresh failed", "account", id, "err", err)
-		writeError(w, http.StatusBadGateway, "upstream_error",
+		httpx.WriteError(w, http.StatusBadGateway, "upstream_error",
 			"could not read the subscription usage: "+err.Error())
 		return
 	}
 	account, err := s.store.Account(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(account)})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(account)})
 }
 
-func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Provider string `json:"provider"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
 	if body.Provider == "" {
 		body.Provider = "anthropic"
 	}
 	if body.Provider != "anthropic" {
-		writeError(w, http.StatusBadRequest, "unsupported_provider",
+		httpx.WriteError(w, http.StatusBadRequest, "unsupported_provider",
 			"only the anthropic provider is implemented so far")
 		return
 	}
@@ -436,17 +544,17 @@ func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 
 	pkce, err := oauth.NewPKCE()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
 	state, err := oauth.NewState()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
 	expires := s.pending.Start(body.Provider, state, pkce, redirectURI)
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"provider":     body.Provider,
 		"state":        state,
 		"auth_url":     anthropic.AuthURL(state, pkce, redirectURI),
@@ -456,13 +564,13 @@ func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Provider    string `json:"provider"`
 		State       string `json:"state"`
 		RedirectURL string `json:"redirect_url"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
 	if body.Provider == "" {
@@ -471,20 +579,20 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 
 	code, returnedState, err := oauth.ParseCallback(body.RedirectURL)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_callback", err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_callback", err.Error())
 		return
 	}
 	// Trust the state we issued; only reject when the callback carries a
 	// different one, since some responses omit it entirely.
 	if returnedState != "" && returnedState != body.State {
-		writeError(w, http.StatusBadRequest, "state_mismatch",
+		httpx.WriteError(w, http.StatusBadRequest, "state_mismatch",
 			"that response belongs to a different login attempt")
 		return
 	}
 
 	attempt, err := s.pending.Peek(body.Provider, body.State)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "unknown_state", err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "unknown_state", err.Error())
 		return
 	}
 
@@ -496,7 +604,7 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		// The attempt stays live, so a corrected paste can be retried without
 		// walking through the consent screen again.
 		s.log.Warn("token exchange failed", "err", err)
-		writeError(w, http.StatusBadGateway, "exchange_failed", err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "exchange_failed", err.Error())
 		return
 	}
 	// Redeemed: the verifier is spent from here on.
@@ -516,7 +624,7 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 	}, store.Tokens{AccessToken: res.AccessToken, RefreshToken: res.RefreshToken})
 	if err != nil {
 		s.log.Error("store account", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not store the account")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not store the account")
 		return
 	}
 
@@ -531,24 +639,24 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		acct = fresh
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(acct)})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(acct)})
 }
 
-func (s *Server) handleTestAccount(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	acct, err := s.store.Account(r.Context(), id)
 	if errors.Is(err, store.ErrAccountNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
 
 	tokens, err := s.store.AccountTokens(r.Context(), s.sealer, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
 
@@ -578,7 +686,7 @@ func (s *Server) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.store.MarkAccountError(r.Context(), id, result.Error)
 	}
-	writeJSON(w, http.StatusOK, result)
+	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 // handleRefreshAccount forces a token refresh now.
@@ -586,24 +694,24 @@ func (s *Server) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 // Through the pool, which serialises refreshes per account: rotating refresh
 // tokens mean two at once leave the loser holding a spent one, and a button
 // the operator presses while traffic is flowing is exactly how that happens.
-func (s *Server) handleRefreshAccount(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleRefreshAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, err := s.store.Account(r.Context(), id); errors.Is(err, store.ErrAccountNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
 		return
 	}
 
 	if err := s.pool.Refresh(r.Context(), id); err != nil {
-		writeError(w, http.StatusBadGateway, "refresh_failed", err.Error())
+		httpx.WriteError(w, http.StatusBadGateway, "refresh_failed", err.Error())
 		return
 	}
 
 	acct, err := s.store.Account(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(acct)})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(acct)})
 }
 
 // handleDeleteAccount hands the credential back before forgetting it.
@@ -618,35 +726,35 @@ func (s *Server) handleRefreshAccount(w http.ResponseWriter, r *http.Request) {
 // Pausing keeps the credentials: the alternative was deleting the account,
 // which revokes its refresh token upstream and means going through the browser
 // consent flow again to undo. "Not this one this week" should not cost that.
-func (s *Server) handleSetAccountDisabled(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleSetAccountDisabled(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Disabled bool `json:"disabled"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
 	id := r.PathValue("id")
 	switch err := s.store.SetAccountDisabled(r.Context(), id, body.Disabled); {
 	case errors.Is(err, store.ErrAccountNotFound):
-		writeError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
 		return
 	case err != nil:
 		s.log.Error("set account disabled", "err", err, "account", id)
-		writeError(w, http.StatusInternalServerError, "internal_error", "could not update the account")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not update the account")
 		return
 	}
 	s.log.Info("account availability changed", "account", id, "disabled", body.Disabled,
-		"ip", clientIPFrom(r.Context()))
+		"ip", httpx.ClientIP(r.Context()))
 
 	acct, err := s.store.Account(r.Context(), id)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]bool{"disabled": body.Disabled})
+		httpx.WriteJSON(w, http.StatusOK, map[string]bool{"disabled": body.Disabled})
 		return
 	}
-	writeJSON(w, http.StatusOK, toAccountJSON(acct))
+	httpx.WriteJSON(w, http.StatusOK, toAccountJSON(acct))
 }
 
-func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	// Best-effort, and deliberately not fatal. The operator asked for this
@@ -663,14 +771,14 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.DeleteAccount(r.Context(), id); errors.Is(err, store.ErrAccountNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
-	s.log.Info("account removed", "account", id, "ip", clientIPFrom(r.Context()))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	s.log.Info("account removed", "account", id, "ip", httpx.ClientIP(r.Context()))
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // handleConfig reports every configuration value and where it came from.
@@ -681,15 +789,15 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 // wrote in it. What this screen can do instead is answer the question that
 // actually costs time: not "what is this set to" but "why is it that, and
 // which of the three places do I change".
-func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+func (s *Admin) handleConfig(w http.ResponseWriter, _ *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"path":     s.cfg.Path,
 		"settings": s.cfg.Settings(),
 		// Reported alongside the file-and-environment settings rather than on
 		// a screen of their own: they are configuration an operator reasons
 		// about together with the rest, and separating them is how a switch
 		// gets flipped and then lost.
-		"surfaces": s.surfaces.state(),
+		"surfaces": s.surfaces.State(),
 		// Beside the surfaces for the same reason, and because it is the one
 		// switch that decides whether the gateway spends the operator's
 		// subscription on its own behalf. That belongs where they are already
@@ -701,7 +809,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		// in which case the header links out to it.
 		// Where the page is: its own address when it has one, otherwise the
 		// relay's, which is where the relay serves it.
-		"docs_url":     docsURL(s.cfg),
+		"docs_url":     s.cfg.DocsPageURL(),
 		"docs_enabled": s.docs.On(),
 	})
 }
@@ -712,14 +820,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 // session instead of an API key, because the Setup screen needs it and the
 // browser has a cookie rather than a key. Reusing fetchModels keeps one answer
 // to "which models exist" rather than a second, drifting copy of it in the UI.
-func (s *Server) handleAdminModels(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	body, err := s.fetchModels(ctx, "limit=1000")
 	if err != nil {
 		s.log.Warn("could not read the upstream model list", "err", err)
-		writeError(w, http.StatusBadGateway, "api_error",
+		httpx.WriteError(w, http.StatusBadGateway, "api_error",
 			"could not reach the upstream model list")
 		return
 	}
@@ -733,11 +841,11 @@ func (s *Server) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 // drain — and it is allowed to leave every surface off. That state stops the
 // gateway serving anything to anyone, which is the point of having the switch
 // at all, so it is not second-guessed here.
-func (s *Server) handleSetSurface(w http.ResponseWriter, r *http.Request) {
+func (s *Admin) handleSetSurface(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	p, ok := s.protocols.Find(id)
 	if !ok {
-		writeError(w, http.StatusNotFound, "not_found", "no such API surface")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such API surface")
 		return
 	}
 
@@ -745,19 +853,19 @@ func (s *Server) handleSetSurface(w http.ResponseWriter, r *http.Request) {
 		Enabled *bool `json:"enabled"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "expected {\"enabled\": true|false}")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "expected {\"enabled\": true|false}")
 		return
 	}
 	if body.Enabled == nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "enabled is required")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "enabled is required")
 		return
 	}
 
-	if err := s.surfaces.set(r.Context(), id, *body.Enabled); err != nil {
+	if err := s.surfaces.Set(r.Context(), id, *body.Enabled); err != nil {
 		s.log.Error("could not store the API surface switch", "surface", id, "err", err)
-		writeError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
+		httpx.WriteError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
 		return
 	}
 	s.log.Warn("API surface switched", "surface", id, "title", p.Title(), "enabled", *body.Enabled)
-	writeJSON(w, http.StatusOK, map[string]any{"surfaces": s.surfaces.state()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"surfaces": s.surfaces.State()})
 }

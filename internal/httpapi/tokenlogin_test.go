@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/httpapi/admin"
 	"claudication/internal/store"
 )
 
@@ -72,7 +73,7 @@ func TestLinkSignsInAndStripsToken(t *testing.T) {
 
 	var session *http.Cookie
 	for _, c := range resp.Cookies() {
-		if c.Name == sessionCookie {
+		if c.Name == admin.SessionCookie {
 			session = c
 		}
 	}
@@ -186,7 +187,7 @@ func TestLinkDiesWithTheAccount(t *testing.T) {
 		t.Fatalf("status = %d, want 401 once the account is gone", resp.StatusCode)
 	}
 	for _, c := range resp.Cookies() {
-		if c.Name == sessionCookie && c.Value != "" {
+		if c.Name == admin.SessionCookie && c.Value != "" {
 			t.Error("a rejected link must not set a session cookie")
 		}
 	}

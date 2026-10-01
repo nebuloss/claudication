@@ -1,14 +1,13 @@
-package httpapi
+package gateway
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"claudication/internal/api"
+	"claudication/internal/httpapi/httpx"
 	"claudication/internal/store"
 )
 
@@ -26,21 +25,6 @@ func extractCredential(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("X-Api-Key"))
 }
 
-type errorBody struct {
-	Error errorDetail `json:"error"`
-}
-
-type errorDetail struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-}
-
-func writeError(w http.ResponseWriter, status int, kind, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(errorBody{Error: errorDetail{Message: msg, Type: kind}})
-}
-
 // requireAPIKey authenticates, applies the per-key rate limit, and attaches
 // the credential to the request context.
 // recordRejected files a request that never reached the upstream.
@@ -55,7 +39,7 @@ func writeError(w http.ResponseWriter, status int, kind, msg string) {
 // and writing a row there would hand back the cost it exists to avoid. A flood
 // shows up as rejections up to the per-IP cap and then as nothing, which is
 // what the cap means; the access log still records every one.
-func (s *Server) recordRejected(r *http.Request, ip string, status int, reason string) {
+func (s *Gateway) recordRejected(r *http.Request, ip string, status int, reason string) {
 	s.recorder.Record(store.UsageEvent{
 		At:       time.Now(),
 		Path:     r.URL.Path,
@@ -67,9 +51,9 @@ func (s *Server) recordRejected(r *http.Request, ip string, status int, reason s
 	}, 0)
 }
 
-func (s *Server) requireAPIKey(next http.Handler) http.Handler {
+func (s *Gateway) requireAPIKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIPFrom(r.Context())
+		ip := httpx.ClientIP(r.Context())
 
 		// The anonymous budget is checked here but only *spent* below, on
 		// requests that turn out to be anonymous. Spending it unconditionally
@@ -84,7 +68,7 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 		// the peek refuses it before the lookup.
 		anon := func() bool { return s.anonLimiter.AllowPerMinute(ip, s.cfg.Limits.AnonPerMinute) }
 		if !s.anonLimiter.Peek(ip, s.cfg.Limits.AnonPerMinute) {
-			writeError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
+			httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
 			return
 		}
 
@@ -92,7 +76,7 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 		if cred == "" {
 			anon()
 			s.recordRejected(r, ip, http.StatusUnauthorized, "missing API key")
-			writeError(w, http.StatusUnauthorized, "authentication_error", "missing API key")
+			httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", "missing API key")
 			return
 		}
 
@@ -100,12 +84,12 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 		if errors.Is(err, store.ErrKeyNotFound) {
 			anon()
 			s.recordRejected(r, ip, http.StatusUnauthorized, "invalid API key")
-			writeError(w, http.StatusUnauthorized, "authentication_error", "invalid API key")
+			httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", "invalid API key")
 			return
 		}
 		if err != nil {
-			s.log.Error("authenticate", "err", err, "request_id", requestIDFrom(r.Context()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			s.log.Error("authenticate", "err", err, "request_id", httpx.RequestID(r.Context()))
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
 		}
 		// A key's own allowance and the period it is measured over, falling back
@@ -123,7 +107,7 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 				Client: api.ClientName(r.UserAgent()), IP: ip, Rejected: true,
 				Error: "rate limited by this gateway, not by the upstream",
 			}, 0)
-			writeError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
+			httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
 			return
 		}
 		if !s.withinBudget(w, r, key) {
@@ -131,7 +115,7 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 		}
 
 		s.store.TouchKey(r.Context(), key.ID)
-		ctx := context.WithValue(r.Context(), ctxKeyAPIKey, key)
+		ctx := httpx.WithAPIKey(r.Context(), key)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
