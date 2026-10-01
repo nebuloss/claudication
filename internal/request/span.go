@@ -41,59 +41,77 @@ func TopLevelValue(body []byte, key string) (start, end int, found, ok bool) {
 // TopLevelEntry is TopLevelValue that also reports where the entry's key
 // begins, which is what removing the entry needs.
 func TopLevelEntry(body []byte, key string) (keyStart, start, end int, found, ok bool) {
-	i := SkipSpace(body, 0)
-	if i >= len(body) || body[i] != '{' {
-		return 0, 0, 0, false, false
-	}
-	i = SkipSpace(body, i+1)
-	if i < len(body) && body[i] == '}' {
-		return 0, 0, 0, false, true
-	}
-	for i < len(body) {
-		if body[i] != '"' {
-			return 0, 0, 0, false, false
-		}
-		kStart := i
-		kEnd, escaped := stringEnd(body, i)
-		if kEnd < 0 {
-			return 0, 0, 0, false, false
-		}
-		name := body[i+1 : kEnd-1]
-		i = SkipSpace(body, kEnd)
-		if i >= len(body) || body[i] != ':' {
-			return 0, 0, 0, false, false
-		}
-		vStart := SkipSpace(body, i+1)
-		vEnd := valueEnd(body, vStart)
-		if vEnd < 0 {
-			return 0, 0, 0, false, false
-		}
+	ok = eachTopLevel(body, func(kStart int, name []byte, escaped bool, vStart, vEnd int) bool {
 		if string(name) == key {
 			if escaped || found {
 				// Escaped, or said twice — and encoding/json keeps the last
 				// of two, so splicing the first would disagree with every
 				// other reader of this body. Not ours to resolve.
-				return 0, 0, 0, false, false
+				return false
 			}
 			keyStart, start, end, found = kStart, vStart, vEnd, true
 		} else if escaped && len(name) >= len(key) {
 			// Might be the key, spelled with an escape. Not worth decoding.
-			return 0, 0, 0, false, false
+			return false
+		}
+		return true
+	})
+	if !ok {
+		return 0, 0, 0, false, false
+	}
+	return keyStart, start, end, found, true
+}
+
+// eachTopLevel walks the entries of the top-level object in order, handing fn
+// each one's key as written (between the quotes, escapes undecoded), whether
+// the key held an escape, and the byte range of its value. fn returns false to
+// abandon the walk. The result is whether the walk followed the whole object
+// and fn never stopped it.
+func eachTopLevel(body []byte, fn func(keyStart int, name []byte, escaped bool, start, end int) bool) bool {
+	i := SkipSpace(body, 0)
+	if i >= len(body) || body[i] != '{' {
+		return false
+	}
+	i = SkipSpace(body, i+1)
+	if i < len(body) && body[i] == '}' {
+		return true
+	}
+	for i < len(body) {
+		if body[i] != '"' {
+			return false
+		}
+		kStart := i
+		kEnd, escaped := stringEnd(body, i)
+		if kEnd < 0 {
+			return false
+		}
+		name := body[i+1 : kEnd-1]
+		i = SkipSpace(body, kEnd)
+		if i >= len(body) || body[i] != ':' {
+			return false
+		}
+		vStart := SkipSpace(body, i+1)
+		vEnd := valueEnd(body, vStart)
+		if vEnd < 0 {
+			return false
+		}
+		if !fn(kStart, name, escaped, vStart, vEnd) {
+			return false
 		}
 		i = SkipSpace(body, vEnd)
 		if i >= len(body) {
-			return 0, 0, 0, false, false
+			return false
 		}
 		switch body[i] {
 		case ',':
 			i = SkipSpace(body, i+1)
 		case '}':
-			return keyStart, start, end, found, true
+			return true
 		default:
-			return 0, 0, 0, false, false
+			return false
 		}
 	}
-	return 0, 0, 0, false, false
+	return false
 }
 
 // ReplaceTopLevel returns body with key's value replaced, copying everything

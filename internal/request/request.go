@@ -39,8 +39,43 @@ type Prologue struct {
 
 // Peek reads the prologue. An unparseable body yields a zero Prologue and is
 // left for the upstream to reject.
+//
+// Keys are matched exactly, as the span functions and the upstream match
+// them. encoding/json folds case, so decoding into the struct read "Model" or
+// "SYSTEM" as the fields the upstream ignores them as: a body whose only
+// system prompt was spelled "SYSTEM" looked to the passes as though it had
+// one, and they went looking for a span that is not there. A key spelled
+// with escapes is decoded first, so "mod\u0065l" still counts; of a key said
+// twice the last wins, as with encoding/json.
 func Peek(body []byte) Prologue {
+	// Validity of the whole body first: the walk below finds structure
+	// without checking it, and Valid is what licenses a splice.
+	if !json.Valid(body) {
+		return Prologue{}
+	}
 	var p Prologue
-	p.Valid = json.Unmarshal(body, &p) == nil
+	walked := eachTopLevel(body, func(keyStart int, name []byte, escaped bool, start, end int) bool {
+		key := string(name)
+		if escaped {
+			// The quoted key as written; the body is valid, so it decodes.
+			if json.Unmarshal(body[keyStart:keyStart+len(name)+2], &key) != nil {
+				return false
+			}
+		}
+		value := body[start:end]
+		switch key {
+		case "model":
+			return json.Unmarshal(value, &p.Model) == nil
+		case "stream":
+			return json.Unmarshal(value, &p.Stream) == nil
+		case "system":
+			p.System = append(json.RawMessage(nil), value...)
+		}
+		return true
+	})
+	if !walked {
+		return Prologue{}
+	}
+	p.Valid = true
 	return p
 }

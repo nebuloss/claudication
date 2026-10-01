@@ -43,3 +43,24 @@ func TestPeekRejectsWhatDoesNotParse(t *testing.T) {
 		t.Errorf("Peek({}) = %+v, want valid and empty", p)
 	}
 }
+
+// Keys match exactly, as they do for the span functions and the upstream.
+// encoding/json folds case, and a prologue that read "SYSTEM" as system sent
+// the passes looking for a span that is not there.
+func TestPeekMatchesKeysExactly(t *testing.T) {
+	p := Peek([]byte(`{"Model":"wrong","SYSTEM":"s","Stream":true,"model":"m"}`))
+	if !p.Valid || p.Model != "m" || p.Stream || p.System != nil {
+		t.Errorf("Peek = %+v, want only the exactly spelled model", p)
+	}
+
+	// An escape still spells the key, and the last of two wins.
+	escaped := `"mod` + "\\" + `u0065l"`
+	p = Peek([]byte(`{` + escaped + `:"a","stream":true,"model":"b"}`))
+	if !p.Valid || p.Model != "b" || !p.Stream {
+		t.Errorf("Peek = %+v, want the escaped key read and the last model kept", p)
+	}
+	p = Peek([]byte(`{` + escaped + `:"a"}`))
+	if p.Model != "a" {
+		t.Errorf("Model = %q, want the escaped key decoded", p.Model)
+	}
+}
