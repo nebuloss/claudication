@@ -30,16 +30,16 @@ func rebuild(t *testing.T, body string) any {
 
 func TestSpliceMeansWhatTheRebuildMeant(t *testing.T) {
 	for name, body := range map[string]string{
-		"no system":     `{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`,
-		"empty object":  `{}`,
-		"string":        `{"model":"m","system":"You are helpful.","messages":[]}`,
+		"no system":      `{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`,
+		"empty object":   `{}`,
+		"string":         `{"model":"m","system":"You are helpful.","messages":[]}`,
 		"escaped string": `{"system":"line one\nhe said \"]}\" and left","messages":[]}`,
-		"array":         `{"system":[{"type":"text","text":"a"},{"type":"text","text":"b","cache_control":{"type":"ephemeral"}}]}`,
-		"empty array":   `{"system":[],"model":"m"}`,
-		"null":          `{"system":null,"model":"m"}`,
-		"pretty":        "{\n  \"model\": \"m\",\n  \"system\" : [ {\"type\":\"text\",\"text\":\"x\"} ],\n  \"stream\": true\n}",
-		"system last":   `{"messages":[{"role":"user","content":"the word \"system\": [ appears here }"}],"system":"s"}`,
-		"nested system": `{"messages":[{"role":"user","content":[{"type":"text","text":"x","system":[1]}]}],"model":"m"}`,
+		"array":          `{"system":[{"type":"text","text":"a"},{"type":"text","text":"b","cache_control":{"type":"ephemeral"}}]}`,
+		"empty array":    `{"system":[],"model":"m"}`,
+		"null":           `{"system":null,"model":"m"}`,
+		"pretty":         "{\n  \"model\": \"m\",\n  \"system\" : [ {\"type\":\"text\",\"text\":\"x\"} ],\n  \"stream\": true\n}",
+		"system last":    `{"messages":[{"role":"user","content":"the word \"system\": [ appears here }"}],"system":"s"}`,
+		"nested system":  `{"messages":[{"role":"user","content":[{"type":"text","text":"x","system":[1]}]}],"model":"m"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, ok := spliceAttribution([]byte(body))
