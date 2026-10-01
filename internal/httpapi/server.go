@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"claudication/internal/api"
-	"claudication/internal/memlimit"
 	"claudication/internal/api/anthropic"
 	"claudication/internal/api/openai"
 	"claudication/internal/config"
+	"claudication/internal/memlimit"
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
 	"claudication/internal/secret"
