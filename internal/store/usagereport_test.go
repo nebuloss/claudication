@@ -21,8 +21,25 @@ func TestSchemaAfterAllMigrations(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema version = %d, want 19", version)
+	}
+
+	// Time to first token goes in and comes back out, on both reads.
+	at := time.Now().UTC()
+	if err := st.RecordUsage(context.Background(), UsageEvent{
+		At: at, Model: "m", Path: "/v1/messages", Status: 200, Streaming: true,
+		ConversationID: "chat", Duration: 9 * time.Second, FirstToken: 1234 * time.Millisecond,
+	}); err != nil {
+		t.Fatalf("RecordUsage: %v", err)
+	}
+	recent, _, err := st.RecentUsage(context.Background(), 10, UsageCursor{}, RequestFilter{})
+	if err != nil || len(recent) != 1 || recent[0].FirstToken != 1234*time.Millisecond {
+		t.Errorf("RecentUsage first token = %+v, %v; want 1.234s", recent, err)
+	}
+	events, err := st.ChatEvents(context.Background(), "chat", 10)
+	if err != nil || len(events) != 1 || events[0].FirstToken != 1234*time.Millisecond {
+		t.Errorf("ChatEvents first token = %+v, %v; want 1.234s", events, err)
 	}
 
 	var n int
