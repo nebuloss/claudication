@@ -18,7 +18,6 @@ import (
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/memlimit"
 	"claudication/internal/pool"
-	"claudication/internal/provider/anthropic"
 	"claudication/internal/relay"
 	"claudication/internal/service/limits"
 	"claudication/internal/service/surfaces"
@@ -146,6 +145,9 @@ func (s *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 // FetchModels is the upstream model list, read with whichever account would
 // serve: one answer to which models exist, for /v1/models, the admin UI and
 // the public docs page alike.
+//
+// Addressed and authorised by the relay's wire, as a relayed request is, so
+// the provider's address and headers stay in the provider's package.
 func (s *Gateway) FetchModels(ctx context.Context, rawQuery string) ([]byte, error) {
 	lease, err := s.pool.Acquire(ctx, "anthropic", nil)
 	if err != nil {
@@ -154,7 +156,7 @@ func (s *Gateway) FetchModels(ctx context.Context, rawQuery string) ([]byte, err
 
 	base := s.relay.BaseURL
 	if base == "" {
-		base = anthropic.BaseURL
+		base = s.relay.Wire.BaseURL()
 	}
 	url := base + "/v1/models"
 	if rawQuery != "" {
@@ -164,9 +166,7 @@ func (s *Gateway) FetchModels(ctx context.Context, rawQuery string) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+lease.AccessToken)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+	s.relay.Wire.Authorize(req, lease.AccessToken)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {

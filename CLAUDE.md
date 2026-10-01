@@ -8,6 +8,19 @@ It serves two client-facing APIs — Anthropic Messages and OpenAI Responses,
 which is what Codex CLI speaks — and speaks only Anthropic upstream. Both can
 be switched on and off at runtime from Settings.
 
+## Where code goes
+
+`go doc ./internal/arch` is the map: every package on a layer, importing only
+from layers below, and the few rules layering alone does not say. Its test
+fails the build when an import crosses a layer or a new package is not on the
+map, so place a new package there when you add it.
+
+The HTTP surface is `internal/httpapi`, which only puts things together, with
+one package per surface below it: `httpx` (shared plumbing), `gateway` (the
+client-facing APIs), `admin` (the admin API) and `web` (the embedded UI and
+the docs page). They do not import one another; the root hands across what
+one needs from another.
+
 ## Read these before changing the relay
 
 1. `go doc ./internal/relay/passes` — the rule the relay follows, its six

@@ -9,10 +9,12 @@
 //	accounts  keeps each account's subscription usage current
 //	limits    request rates per key and per address, token budgets per key
 //	settings  the runtime switches an operator flips from the admin UI
+//	surfaces  which client-facing APIs are served, one such switch each
 //	titles    names chats, read off the wire or asked for
 //	usage     records what each request cost, and prunes the history
 //
 // None of them speaks HTTP. Refusing a request, writing an error a client can
 // read, deciding what an admin endpoint returns: that is internal/httpapi,
-// which builds these, wires them together and calls them.
+// which builds these and wires them together, and the surfaces below it that
+// call them.
 package service
