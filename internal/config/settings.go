@@ -3,6 +3,8 @@ package config
 import (
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Origin says where a setting's effective value came from.
@@ -140,19 +142,45 @@ func (c Config) Settings() []Setting {
 	return out
 }
 
-// recordOrigins works out where each value came from by comparing the three
-// stages: what the defaults said, what the file changed, and what the
-// environment then took over.
-func recordOrigins(cfg *Config, defaults, afterFile Config, fromEnv map[string]bool) {
+// recordOrigins works out where each value came from: the environment wins
+// over the file, and the file over the defaults.
+//
+// The file counts when it names the key, not when its value differs from the
+// default. An operator who writes the default down has still configured it,
+// and reporting that line as "default" sent them looking for why their file
+// was not being read.
+func recordOrigins(cfg *Config, fromFile, fromEnv map[string]bool) {
 	cfg.origins = make(map[string]Origin, len(definitions))
 	for _, d := range definitions {
 		switch {
 		case fromEnv[d.key]:
 			cfg.origins[d.key] = FromEnv
-		case d.get(afterFile) != d.get(defaults):
+		case fromFile[d.key]:
 			cfg.origins[d.key] = FromFile
 		default:
 			cfg.origins[d.key] = FromDefault
 		}
 	}
+}
+
+// fileKeys lists the keys a config document sets, as the dotted paths the
+// definitions use. The document has already parsed into a Config, so an
+// error here cannot happen in practice and yields no keys.
+func fileKeys(data []byte) map[string]bool {
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	keys := map[string]bool{}
+	var walk func(prefix string, m map[string]any)
+	walk = func(prefix string, m map[string]any) {
+		for k, v := range m {
+			keys[prefix+k] = true
+			if sub, ok := v.(map[string]any); ok {
+				walk(prefix+k+".", sub)
+			}
+		}
+	}
+	walk("", doc)
+	return keys
 }

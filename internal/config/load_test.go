@@ -414,3 +414,47 @@ func TestStateDirExpandsHome(t *testing.T) {
 		}
 	}
 }
+
+// A key written in the file is the file's, even when it repeats the default:
+// the operator configured it, and "default" would say their line was ignored.
+func TestFileValueEqualToTheDefaultIsTheFiles(t *testing.T) {
+	cfg, err := loadBody(t, "log:\n  format: json\nshutdown:\n  grace: 2m\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Origin{}
+	for _, s := range cfg.Settings() {
+		got[s.Key] = s.Origin
+	}
+	if got["log.format"] != FromFile || got["shutdown.grace"] != FromFile {
+		t.Errorf("log.format from %q, shutdown.grace from %q; want both from the file",
+			got["log.format"], got["shutdown.grace"])
+	}
+	if got["log.level"] != FromDefault {
+		t.Errorf("log.level from %q, want default: the file does not name it", got["log.level"])
+	}
+}
+
+// A trusted-proxies variable of nothing but separators names no proxy, so it
+// must not wipe the file's list nor claim to have set it.
+func TestTrustedProxiesEnvOfOnlySeparatorsIsIgnored(t *testing.T) {
+	cleanEnv(t)
+	t.Setenv("CLAUDICATION_STATE_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("trusted-proxies: [10.0.0.1]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDICATION_TRUSTED_PROXIES", " , ,")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.TrustedProxies, []string{"10.0.0.1"}) {
+		t.Errorf("TrustedProxies = %v, want the file's", cfg.TrustedProxies)
+	}
+	for _, s := range cfg.Settings() {
+		if s.Key == "trusted-proxies" && s.Origin != FromFile {
+			t.Errorf("trusted-proxies from %q, want file", s.Origin)
+		}
+	}
+}

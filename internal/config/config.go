@@ -254,8 +254,8 @@ func Defaults() Config {
 // Load reads path (may be empty), applies environment overrides, resolves the
 // state directory and validates the result. It never writes to disk.
 func Load(path string) (Config, error) {
-	defaults := Defaults()
-	cfg := defaults
+	cfg := Defaults()
+	var fromFile map[string]bool
 
 	if path != "" {
 		data, err := os.ReadFile(path)
@@ -270,9 +270,9 @@ func Load(path string) (Config, error) {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 		}
+		fromFile = fileKeys(data)
 	}
 
-	afterFile := cfg
 	fromEnv := applyEnv(&cfg)
 	cfg.Path = path
 
@@ -294,7 +294,7 @@ func Load(path string) (Config, error) {
 	}
 	// Last, so state-dir's resolved absolute path is what gets compared and a
 	// directory that only the default supplied does not read as configured.
-	recordOrigins(&cfg, defaults, afterFile, fromEnv)
+	recordOrigins(&cfg, fromFile, fromEnv)
 	return cfg, nil
 }
 
@@ -367,8 +367,13 @@ func applyEnv(cfg *Config) map[string]bool {
 				out = append(out, p)
 			}
 		}
-		cfg.TrustedProxies = out
-		took["trusted-proxies"] = true
+		// Nothing but separators names no proxy. Taking it would wipe the
+		// file's list and report the environment as the reason, the same
+		// way an unparseable number above is ignored rather than read as 0.
+		if len(out) > 0 {
+			cfg.TrustedProxies = out
+			took["trusted-proxies"] = true
+		}
 	}
 	return took
 }
