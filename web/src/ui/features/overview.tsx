@@ -1,5 +1,10 @@
 import { useState } from 'react'
-import { api, type Usage, type Overview as OverviewData } from '../../api/client'
+import {
+  api,
+  type MemorySnapshot,
+  type Usage,
+  type Overview as OverviewData,
+} from '../../api/client'
 import { Traffic } from './traffic'
 import { useLoader } from '../hooks'
 import {
@@ -27,6 +32,73 @@ const REFRESH_MS = 10_000
 /** The traffic chart aggregates whole days, so it barely moves minute to minute. */
 const TRAFFIC_REFRESH_MS = 60_000
 
+
+/**
+ * The gateway's own memory, against its ceiling.
+ *
+ * On a small container memory is the first thing to run out, and when it does
+ * the kernel kills the process with every stream open — so the figure worth
+ * watching is resident memory against the limit, not the Go heap alone. The
+ * heap and the idle memory not yet returned are there to say why the
+ * resident figure is what it is: idle memory goes back to the system after a
+ * burst, so a high reading that falls a minute later is the trimmer working.
+ */
+function MemoryCard({ memory }: { memory: MemorySnapshot }) {
+  const limit = memory.limit_bytes
+  const pct = limit > 0 ? Math.min(100, Math.round((memory.rss_bytes / limit) * 100)) : undefined
+  const tight = pct !== undefined && pct >= 90
+  const colour = tight ? 'bg-error' : pct !== undefined && pct >= 75 ? 'bg-warning' : 'bg-primary'
+
+  return (
+    <Card>
+      <CardTitle>Memory</CardTitle>
+      {memory.rss_bytes > 0 && (
+        <div className="mb-3">
+          <div className="mb-1 flex items-baseline justify-between gap-3 text-xs">
+            <span className="text-on-surface-variant">Process (resident)</span>
+            <span className={`tabular-nums ${tight ? 'font-medium text-error' : 'text-on-surface'}`}>
+              {mib(memory.rss_bytes)}
+              {limit > 0 ? ` of ${mib(limit)}` : ''}
+              {pct !== undefined && (
+                <span className="ml-2 font-normal text-on-surface-variant">{pct}%</span>
+              )}
+            </span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-surface-high">
+            <div
+              className={`h-full rounded-full ${colour}`}
+              style={{ width: `${Math.max(pct ?? 0, 1)}%` }}
+            />
+          </div>
+          {limit === 0 && (
+            <p className="mt-1 mb-0 text-[11px] text-on-surface-variant">
+              No limit known. Set <code>memory-limit</code> on a container that cannot see its
+              own, so the runtime collects before the kernel kills it.
+            </p>
+          )}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat
+          label="Heap in use"
+          value={mib(memory.heap_in_use_bytes)}
+          hint={
+            memory.heap_limit_bytes > 0 ? `target ${mib(memory.heap_limit_bytes)}` : 'no target'
+          }
+        />
+        <Stat label="Idle" value={mib(memory.heap_idle_bytes)} hint="not yet returned" />
+        <Stat label="Goroutines" value={memory.goroutines} hint="streams and workers" />
+        <Stat label="Collections" value={compact(memory.gc_cycles)} hint="since start" />
+      </div>
+    </Card>
+  )
+}
+
+/** Bytes as MiB, the unit memory limits are set in. */
+function mib(bytes: number): string {
+  const v = bytes / (1 << 20)
+  return v >= 100 ? `${Math.round(v)} MiB` : `${v.toFixed(1)} MiB`
+}
 
 /** How many days of history the chart can show. */
 const WINDOWS = [7, 14, 30] as const
@@ -229,6 +301,8 @@ export default function Overview({
           </div>
         )}
       </Card>
+
+      {data.memory !== undefined && <MemoryCard memory={data.memory} />}
 
       {unknown && (
         <Banner tone="warn">

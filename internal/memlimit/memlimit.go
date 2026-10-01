@@ -63,7 +63,65 @@ func Apply(configured int64, log *slog.Logger) {
 	}
 	heap := int64(float64(limit) * share)
 	debug.SetMemoryLimit(heap)
+	processLimit.Store(limit)
 	log.Info("memory limit", "source", source, "process", HumanBytes(limit), "heap", HumanBytes(heap))
+}
+
+// processLimit is the whole-process ceiling Apply settled on, for Read to
+// report; 0 when none was configured or detected.
+var processLimit atomic.Int64
+
+// Snapshot is the process's memory as the admin UI shows it.
+type Snapshot struct {
+	// RSS is resident memory: what a container's limit actually counts,
+	// heap or not. 0 where it cannot be read (anything but Linux).
+	RSS int64 `json:"rss_bytes"`
+	// Limit is the process ceiling from memory-limit or the cgroup; 0 when
+	// none is known. HeapLimit is the runtime's own target, 0 when unset.
+	Limit     int64 `json:"limit_bytes"`
+	HeapLimit int64 `json:"heap_limit_bytes"`
+	// HeapInUse is live and recently freed heap; HeapIdle is held from the
+	// system but unused — what the trimmer hands back.
+	HeapInUse  uint64 `json:"heap_in_use_bytes"`
+	HeapIdle   uint64 `json:"heap_idle_bytes"`
+	Goroutines int    `json:"goroutines"`
+	GCCycles   uint32 `json:"gc_cycles"`
+}
+
+// Read takes a snapshot. It stops the world for the memory statistics, which
+// costs microseconds and is called when someone looks, not per request.
+func Read() Snapshot {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	s := Snapshot{
+		RSS:        rss(),
+		Limit:      processLimit.Load(),
+		HeapInUse:  m.HeapInuse,
+		HeapIdle:   m.HeapIdle - m.HeapReleased,
+		Goroutines: runtime.NumGoroutine(),
+		GCCycles:   m.NumGC,
+	}
+	if h := debug.SetMemoryLimit(-1); h != math.MaxInt64 {
+		s.HeapLimit = h
+	}
+	return s
+}
+
+// rss reads resident memory from /proc/self/statm, in pages.
+func rss() int64 {
+	b, err := os.ReadFile("/proc/self/statm")
+	if err != nil {
+		return 0
+	}
+	f := strings.Fields(string(b))
+	if len(f) < 2 {
+		return 0
+	}
+	pages, err := strconv.ParseInt(f[1], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return pages * int64(os.Getpagesize())
 }
 
 // cgroupLimit reads this process's cgroup v2 memory.max, walking up to the

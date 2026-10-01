@@ -443,6 +443,23 @@ export interface Overview {
   }
   keys: { total: number }
   last_24h?: UsageTotals
+  /** The gateway process's own memory, read when the overview was asked for. */
+  memory?: MemorySnapshot
+}
+
+/** internal/memlimit's Snapshot. Byte counts; 0 means unknown or unset. */
+export interface MemorySnapshot {
+  /** Resident memory: what a container's limit counts. 0 off Linux. */
+  rss_bytes: number
+  /** The process ceiling from memory-limit or the cgroup. */
+  limit_bytes: number
+  /** The Go runtime's own target, a share of the ceiling. */
+  heap_limit_bytes: number
+  heap_in_use_bytes: number
+  /** Held from the system but unused; the trimmer gives it back. */
+  heap_idle_bytes: number
+  goroutines: number
+  gc_cycles: number
 }
 
 export interface SetupStatus {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"claudication/internal/api"
+	"claudication/internal/memlimit"
 	"claudication/internal/provider/anthropic"
 	"claudication/internal/store"
 	"claudication/internal/version"
@@ -277,6 +278,10 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"uptime_s":    int64(time.Since(s.startedAt).Seconds()),
 
 		"usage_enabled": s.cfg.Usage.Enabled(),
+
+		// How close the process is to its ceiling, which on a small container
+		// is the first thing to run out — see internal/memlimit.
+		"memory": memlimit.Read(),
 	}
 
 	accounts, err := s.store.ListAccounts(r.Context())
