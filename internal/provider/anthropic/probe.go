@@ -1,4 +1,4 @@
-package upstream
+package anthropic
 
 import (
 	"bytes"
@@ -49,7 +49,7 @@ type anthropicMessage struct {
 	} `json:"usage"`
 }
 
-// ProbeAnthropic sends the smallest useful request through an OAuth credential
+// Probe sends the smallest useful request through an OAuth credential
 // to prove it actually works end to end.
 //
 // The system prompt carries Claude Code's identity line because a subscription
@@ -57,7 +57,7 @@ type anthropicMessage struct {
 // it. This is the gateway speaking as itself, not forging a client's
 // attribution: no billing header or conversation fingerprint is synthesised,
 // which is exactly the line the proxy paths must not cross either.
-func ProbeAnthropic(ctx context.Context, client *http.Client, accessToken, model string) ProbeResult {
+func Probe(ctx context.Context, client *http.Client, accessToken, model string) ProbeResult {
 	if model == "" {
 		model = "claude-haiku-4-5"
 	}

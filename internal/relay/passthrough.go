@@ -1,4 +1,4 @@
-package upstream
+package relay
 
 import (
 	"bytes"
@@ -11,18 +11,10 @@ import (
 	"time"
 
 	"claudication/internal/pool"
+	"claudication/internal/provider"
 	"claudication/internal/relay/passes"
 	"claudication/internal/request"
 )
-
-// AnthropicBaseURL is where the relay forwards to.
-const AnthropicBaseURL = "https://api.anthropic.com"
-
-// oauthBeta must reach the upstream on every subscription-authenticated
-// request. The gateway contract is explicit that stripping it fails those
-// requests with a 401, so it is merged into whatever the client sent rather
-// than replacing it.
-const oauthBeta = "oauth-2025-04-20"
 
 // hopByHop headers belong to a single connection and must not be forwarded.
 var hopByHop = map[string]bool{
@@ -36,7 +28,7 @@ var hopByHop = map[string]bool{
 	"upgrade":             true,
 }
 
-// Relay forwards a request to Anthropic on behalf of a pooled account.
+// Relay forwards a request to the provider on behalf of a pooled account.
 //
 // Its whole job is to be uninteresting: the request body
 // goes out byte for byte, every header the client sent is preserved, the
@@ -45,6 +37,9 @@ var hopByHop = map[string]bool{
 // keeps it working with capabilities that do not exist yet.
 type Relay struct {
 	Pool AccountPool
+	// Wire is the provider that answers: where requests go, how they are
+	// authenticated, how answers are read. See internal/provider.
+	Wire provider.Wire
 	// Passes rewrite the body before it goes upstream — the stated
 	// exceptions to relaying it untouched. passes.Default is the gateway's
 	// set; nil runs none, which is strict pass-through and what a test that
@@ -73,18 +68,11 @@ func (r *Relay) logger() *slog.Logger {
 	return r.Log
 }
 
-// bodyTee reads a copy of the relayed bytes to recover the usage figures.
-// Implementations must never gate the write and never alter it.
-type bodyTee interface {
-	feed(chunk []byte)
-	done()
-}
+// nopMeter reads nothing, for a body we cannot interpret.
+type nopMeter struct{}
 
-// nopTee reads nothing, for a body we cannot interpret.
-type nopTee struct{}
-
-func (nopTee) feed([]byte) {}
-func (nopTee) done()       {}
+func (nopMeter) Feed([]byte) {}
+func (nopMeter) Done()       {}
 
 // AccountPool is what the relay needs from the pool.
 //
@@ -105,7 +93,7 @@ type Result struct {
 	AccountEmail string
 	Attempts     int
 	BytesOut     int64
-	Usage        Usage
+	Usage        provider.Usage
 	// StreamError is set when the upstream reported an error mid-stream, after
 	// a 200. Without this a failed stream is indistinguishable from a
 	// successful one and gets recorded as a success.
@@ -134,13 +122,6 @@ type Result struct {
 
 	// firstContentAt is when the scanner saw that event.
 	firstContentAt time.Time
-}
-
-type Usage struct {
-	InputTokens         int
-	OutputTokens        int
-	CacheReadTokens     int
-	CacheCreationTokens int
 }
 
 // maxAttempts bounds how many accounts one request is tried on. It is not a
@@ -201,7 +182,7 @@ func truncate(s string) string {
 func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamPath string, body []byte, p request.Prologue) Result {
 	base := r.BaseURL
 	if base == "" {
-		base = AnthropicBaseURL
+		base = r.Wire.BaseURL()
 	}
 
 	// The rewrites, once, before the first attempt: a retry has to send the
@@ -324,7 +305,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 		// request again if it never does. Only while another attempt is
 		// possible, once per request, and never on the retry itself.
 		if r.StallTimeout > 0 && res.Stalls == 0 && attempt < maxAttempts && holdable(resp) {
-			held, outcome := holdUntilContent(resp.Body, r.StallTimeout)
+			held, outcome := holdUntilContent(resp.Body, r.StallTimeout, r.Wire.Quiet)
 			if outcome != holdProgressed {
 				cancelAttempt()
 				res.Stalls++
@@ -390,8 +371,6 @@ func (r *Relay) build(req *http.Request, url string, body []byte, token string) 
 		out.Header[name] = append([]string(nil), values...)
 	}
 
-	out.Header.Set("Authorization", "Bearer "+token)
-
 	// Ask for an uncompressed body, whatever the client asked us for.
 	//
 	// This is the one header the relay overrides rather than forwards, and it
@@ -402,7 +381,7 @@ func (r *Relay) build(req *http.Request, url string, body []byte, token string) 
 	// records zero tokens, and, worse, the SSE scanner cannot see an
 	// `event: error` in the stream, so a failed stream is reported as a
 	// success and the account that failed it is credited. That is precisely
-	// the bug ssescan.go exists to prevent, walking back in through a
+	// the bug the provider's meter exists to prevent, walking back in through a
 	// different door.
 	//
 	// Content coding is a per-hop negotiation, so answering a client that
@@ -412,20 +391,9 @@ func (r *Relay) build(req *http.Request, url string, body []byte, token string) 
 	// the other way, which is unaffected.
 	out.Header.Set("Accept-Encoding", "identity")
 
-	// Merge rather than replace: the client's beta values are its own
-	// capabilities and the contract forbids allowlisting them.
-	betas := out.Header.Get("anthropic-beta")
-	if !hasBeta(betas, oauthBeta) {
-		if betas == "" {
-			betas = oauthBeta
-		} else {
-			betas = oauthBeta + "," + betas
-		}
-		out.Header.Set("anthropic-beta", betas)
-	}
-	if out.Header.Get("anthropic-version") == "" {
-		out.Header.Set("anthropic-version", "2023-06-01")
-	}
+	// The account's credential, and whatever else the provider requires of
+	// an authenticated call.
+	r.Wire.Authorize(out, token)
 	return out, nil
 }
 
@@ -451,15 +419,6 @@ func (s *sentBody) Read(p []byte) (int, error) {
 func (s *sentBody) Close() error {
 	s.b = nil
 	return nil
-}
-
-func hasBeta(header, want string) bool {
-	for _, part := range strings.Split(header, ",") {
-		if strings.EqualFold(strings.TrimSpace(part), want) {
-			return true
-		}
-	}
-	return false
 }
 
 // relay copies the upstream response to the client verbatim.
@@ -498,7 +457,7 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 	// Which reader can recover the usage depends on the shape of the response,
 	// not on what the caller asked for: a request with "stream": true that
 	// fails before the stream starts comes back as plain JSON.
-	var tee bodyTee
+	var tee provider.Meter
 	switch enc := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding"))); {
 	case enc != "" && enc != "identity":
 		// build asks for identity, and a server may not apply a coding the
@@ -509,15 +468,15 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 		r.logger().Warn("upstream compressed a response that asked for identity; usage and stream errors are unreadable",
 			"content_encoding", enc)
 		res.Opaque = true
-		tee = nopTee{}
-	case strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream"):
-		scanner := newSSEScanner(&res.Usage, &res.StreamError)
-		scanner.firstContent = &res.firstContentAt
-		tee = scanner
+		tee = nopMeter{}
 	default:
-		tee = newJSONUsage(&res.Usage)
+		tee = r.Wire.Meter(resp.Header.Get("Content-Type"), provider.Reading{
+			Usage:        &res.Usage,
+			StreamError:  &res.StreamError,
+			FirstContent: &res.firstContentAt,
+		})
 	}
-	defer tee.done()
+	defer tee.Done()
 
 	// Not for a body we could not read: rewriting compressed bytes would
 	// corrupt them, and Opaque already says the contents are unknown.
@@ -552,7 +511,7 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 			// The tee runs after the client write and never gates it, so
 			// stats can never stall or alter the stream. It reads what the
 			// upstream sent, not what we forwarded.
-			tee.feed(buf[:n])
+			tee.Feed(buf[:n])
 		}
 		if readErr != nil {
 			if restorer != nil {

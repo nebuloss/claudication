@@ -1,4 +1,4 @@
-// Package upstream relays a request to Anthropic on behalf of a pooled
+// Package relay relays a request to the provider on behalf of a pooled
 // subscription account: choosing the account, retrying on another when the
 // failure is the account's, streaming the answer back byte for byte, and
 // reading usage and mid-stream errors out of it on the way past.
@@ -25,4 +25,4 @@
 // docs/upstream-request-pipeline.md is what the official client does between a
 // prompt and its POST. docs/reversing.md is how any of it can be checked
 // again. They exist so nobody reverses the client a second time.
-package upstream
+package relay

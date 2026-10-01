@@ -136,7 +136,7 @@ type PassthroughConfig struct {
 	ClaudeCodeAttribution bool `yaml:"claude-code-attribution"`
 	// StallTimeout is how long a streaming answer may produce nothing before
 	// the attempt is abandoned and the request sent again, invisibly to the
-	// client. 0 turns it off. See internal/upstream/stall.go for what was
+	// client. 0 turns it off. See internal/relay/stall.go for what was
 	// measured: accepted streams that sent message_start and then nothing for
 	// five minutes, while the requests beside them ran normally.
 	StallTimeout Duration `yaml:"stall-timeout"`

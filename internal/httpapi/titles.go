@@ -12,9 +12,9 @@ import (
 
 	"claudication/internal/api"
 	"claudication/internal/pool"
+	"claudication/internal/relay"
 	"claudication/internal/request"
 	"claudication/internal/store"
-	"claudication/internal/upstream"
 )
 
 // Naming a chat.
@@ -146,7 +146,7 @@ func systemText(raw json.RawMessage) string {
 // titleFromRelayedAnswer reads the assistant's text out of whatever the
 // upstream sent, streamed or not.
 //
-// Its own small reader rather than the scanner in internal/upstream: that one
+// Its own small reader rather than the provider's scanner (internal/provider/anthropic): that one
 // is on the hot path for every relayed byte and is written to allocate nothing,
 // and teaching it to accumulate text would spend that everywhere to serve a
 // handful of tiny requests.
@@ -505,18 +505,18 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	// prompt cache is per-account, so any other account is a guaranteed miss
 	// and a title is not worth paying full price for: if this account is
 	// cooling, the pool refuses and the chat simply stays unnamed.
-	relay := *t.server.relay
+	pinned := *t.server.relay
 	accounts, err := t.server.store.ListAccounts(ctx)
 	if err != nil {
 		return
 	}
-	relay.Pool = pinnedPool{AccountPool: relay.Pool, only: ev.accountID, all: accounts}
+	pinned.Pool = pinnedPool{AccountPool: pinned.Pool, only: ev.accountID, all: accounts}
 
 	var answer bytes.Buffer
 	sink := &captureWriter{body: &answer, header: http.Header{}}
 
 	started := time.Now()
-	res := relay.Do(sink, req, "anthropic", "/v1/messages?beta=true", body, request.Peek(body))
+	res := pinned.Do(sink, req, "anthropic", "/v1/messages?beta=true", body, request.Peek(body))
 	if res.Err != nil || res.Status != http.StatusOK {
 		return
 	}
@@ -655,7 +655,7 @@ func cleanTitle(text string) string {
 // happen here. Falling back to another account would produce a title at full
 // price, so the refusal is the right answer.
 type pinnedPool struct {
-	upstream.AccountPool
+	relay.AccountPool
 	only string
 	all  []store.Account
 }

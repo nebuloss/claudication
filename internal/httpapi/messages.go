@@ -9,9 +9,9 @@ import (
 
 	"claudication/internal/api"
 	"claudication/internal/pool"
+	"claudication/internal/relay"
 	"claudication/internal/request"
 	"claudication/internal/store"
-	"claudication/internal/upstream"
 )
 
 // inference is the one path every client-facing dialect takes.
@@ -80,7 +80,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// about itself.
 		ip := clientIPFrom(r.Context())
 
-		ctx, cancel := contextWithTimeout(r, upstream.Timeout(streaming))
+		ctx, cancel := contextWithTimeout(r, relay.Timeout(streaming))
 		defer cancel()
 		// Cloned rather than re-contexted, because the protocol is about to
 		// edit the headers and they must not be the caller's own map.
@@ -217,7 +217,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 
 // closingCause is what to tell the protocol ended the exchange: the gateway's
 // own failure to get an answer, or the upstream's failure part-way through one.
-func closingCause(res upstream.Result) error {
+func closingCause(res relay.Result) error {
 	if res.Err != nil {
 		return res.Err
 	}

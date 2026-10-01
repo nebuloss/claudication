@@ -1,4 +1,4 @@
-package upstream
+package relay
 
 import (
 	"bufio"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/provider/anthropic"
 	"claudication/internal/relay/passes"
 	"claudication/internal/request"
 )
@@ -49,7 +50,7 @@ func relayThrough(t *testing.T, clientReq *http.Request, body []byte, upstream h
 	}))
 	t.Cleanup(srv.Close)
 
-	r := &Relay{
+	r := &Relay{Wire: anthropic.Provider{},
 		Pool:    &recordingPool{},
 		Client:  srv.Client(),
 		Log:     slog.New(slog.DiscardHandler),
@@ -161,7 +162,7 @@ func relayThroughAttributed(t *testing.T, clientReq *http.Request, body []byte, 
 	}))
 	t.Cleanup(srv.Close)
 
-	r := &Relay{
+	r := &Relay{Wire: anthropic.Provider{},
 		Pool:    &recordingPool{},
 		Passes:  passes.Default(passes.Options{Attribution: true}),
 		Client:  srv.Client(),
@@ -285,7 +286,7 @@ func TestContractDoesNotBufferTheResponse(t *testing.T) {
 	defer upstreamSrv.Close()
 	defer close(release)
 
-	r := &Relay{
+	r := &Relay{Wire: anthropic.Provider{},
 		Pool:    &recordingPool{},
 		Client:  upstreamSrv.Client(),
 		Log:     slog.New(slog.DiscardHandler),

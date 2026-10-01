@@ -1,9 +1,11 @@
-package upstream
+package anthropic
 
 import (
 	"bytes"
 	"encoding/json"
 	"time"
+
+	"claudication/internal/provider"
 )
 
 // sseEvent names the events this scanner reacts to. An enum rather than the
@@ -59,7 +61,7 @@ type sseScanner struct {
 	buf     []byte
 	start   int
 	event   sseEvent
-	usage   *Usage
+	usage   *provider.Usage
 	errOut  *string
 	stopped bool
 	// firstContent, when set, receives the moment the first event carrying
@@ -68,12 +70,12 @@ type sseScanner struct {
 	firstContent *time.Time
 }
 
-func newSSEScanner(usage *Usage, errOut *string) *sseScanner {
+func newSSEScanner(usage *provider.Usage, errOut *string) *sseScanner {
 	return &sseScanner{usage: usage, errOut: errOut}
 }
 
 // feed consumes a chunk that has already been written to the client.
-func (s *sseScanner) feed(chunk []byte) {
+func (s *sseScanner) Feed(chunk []byte) {
 	if s.stopped {
 		return
 	}
@@ -103,7 +105,7 @@ func (s *sseScanner) feed(chunk []byte) {
 
 // done exists for the bodyTee interface. An SSE scanner has already recorded
 // everything it is going to by the time the stream ends.
-func (s *sseScanner) done() {}
+func (s *sseScanner) Done() {}
 
 func (s *sseScanner) line(line []byte) {
 	switch {
@@ -172,7 +174,7 @@ type usageJSON struct {
 // applyTo copies only the fields the event actually carried, so a
 // message_delta reporting output tokens does not wipe the input count that
 // arrived on message_start.
-func (u usageJSON) applyTo(dst *Usage) {
+func (u usageJSON) applyTo(dst *provider.Usage) {
 	if u.InputTokens != nil {
 		dst.InputTokens = *u.InputTokens
 	}

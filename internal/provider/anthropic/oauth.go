@@ -1,18 +1,16 @@
-// Package oauth implements the provider login flows.
+// Anthropic's OAuth client.
 //
-// The Anthropic constants below are Claude Code's own OAuth client. They are
+// The constants below are Claude Code's own OAuth client. They are
 // not a documented public API — Anthropic's published authentication methods
 // are API keys, Workload Identity Federation and App Attest, none of which
 // relay a claude.ai subscription. Every value here was verified against the
 // Claude Code 2.1.263 binary, and any of them can change without notice, so
 // this file is deliberately the only place they appear.
-package oauth
+
+package anthropic
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,15 +19,12 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"claudication/internal/oauth"
 )
 
-// ErrInvalidGrant is the refusal that never comes right on its own: the
-// refresh token has been revoked, has expired, or was already spent. Retrying
-// it is not patience, it is a loop — only a human at a browser can fix it.
-var ErrInvalidGrant = errors.New("the refresh token is no longer valid")
-
 const (
-	AnthropicClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	ClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 
 	// Captured from `claude auth login --claudeai` on 2.1.263. Not claude.ai:
 	// that host answers "client_id: Field required" for this same request,
@@ -69,35 +64,7 @@ const (
 		"user:sessions:claude_code user:mcp_servers user:file_upload"
 )
 
-// PKCE is a verifier/challenge pair (RFC 7636, S256).
-type PKCE struct {
-	Verifier  string
-	Challenge string
-}
-
-func base64URL(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
-
-func NewPKCE() (PKCE, error) {
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return PKCE{}, fmt.Errorf("generate PKCE verifier: %w", err)
-	}
-	verifier := base64URL(raw)
-	sum := sha256.Sum256([]byte(verifier))
-	return PKCE{Verifier: verifier, Challenge: base64URL(sum[:])}, nil
-}
-
-// NewState returns 32 random bytes as 43 base64url characters, matching the
-// length the reference client emits.
-func NewState() (string, error) {
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate state: %w", err)
-	}
-	return base64URL(raw), nil
-}
-
-// AnthropicAuthURL builds the URL the operator opens in a browser, for the
+// AuthURL builds the URL the operator opens in a browser, for the
 // given redirect.
 //
 // The shape is copied from a URL captured out of `claude auth login
@@ -114,10 +81,10 @@ func NewState() (string, error) {
 // "+" for the separators — so the whole scope string goes through it as one
 // value. Parameters are emitted in order rather than via url.Values.Encode,
 // which sorts alphabetically.
-func AnthropicAuthURL(state string, pkce PKCE, redirectURI string) string {
+func AuthURL(state string, pkce oauth.PKCE, redirectURI string) string {
 	params := [][2]string{
 		{"code", "true"},
-		{"client_id", AnthropicClientID},
+		{"client_id", ClientID},
 		{"response_type", "code"},
 		{"redirect_uri", redirectURI},
 		{"scope", anthropicScopes},
@@ -138,51 +105,6 @@ func AnthropicAuthURL(state string, pkce PKCE, redirectURI string) string {
 	return anthropicAuthURL + "?" + q.String()
 }
 
-// ParseCallback extracts the authorization code and state from whatever the
-// operator pasted back: a full redirect URL, a bare "code#state" pair, or just
-// the code.
-//
-// Claude's consent screen sometimes hands back the code with the state joined
-// by "#", so both shapes have to work or the paste-based flow fails for
-// reasons the operator cannot see.
-func ParseCallback(input string) (code, state string, err error) {
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return "", "", fmt.Errorf("nothing to parse: paste the URL you were redirected to")
-	}
-
-	if strings.Contains(input, "://") {
-		u, perr := url.Parse(input)
-		if perr != nil {
-			return "", "", fmt.Errorf("that does not look like a URL: %w", perr)
-		}
-		q := u.Query()
-		if e := q.Get("error"); e != "" {
-			desc := q.Get("error_description")
-			if desc == "" {
-				desc = e
-			}
-			return "", "", fmt.Errorf("authorization was refused: %s", desc)
-		}
-		code, state = q.Get("code"), q.Get("state")
-	} else {
-		code = input
-	}
-
-	// "code#state" — split whichever field carries it.
-	if i := strings.Index(code, "#"); i >= 0 {
-		if state == "" {
-			state = code[i+1:]
-		}
-		code = code[:i]
-	}
-
-	if code == "" {
-		return "", "", fmt.Errorf("no authorization code found in %q", input)
-	}
-	return code, state, nil
-}
-
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
@@ -198,35 +120,15 @@ type tokenResponse struct {
 	} `json:"account"`
 }
 
-// Result is one successful token exchange.
-type Result struct {
-	AccessToken  string
-	RefreshToken string
-	ExpiresAt    time.Time
-	// RefreshTokenExpiresAt is when re-authorisation becomes unavoidable —
-	// refreshing cannot extend it. Zero when the provider did not say.
-	//
-	// This is the difference between an account that lapses silently and one
-	// that warns first. Refreshing keeps the access token alive indefinitely,
-	// right up until this passes, at which point every refresh fails and the
-	// only fix is a human at a browser.
-	RefreshTokenExpiresAt time.Time
-	// Email and AccountUUID are populated on the initial exchange. A refresh
-	// may omit them entirely, which is why callers must never use them to
-	// re-identify an existing account.
-	Email       string
-	AccountUUID string
-}
-
-func postAnthropicToken(ctx context.Context, client *http.Client, body any) (Result, error) {
+func postToken(ctx context.Context, client *http.Client, body any) (oauth.Result, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return Result{}, fmt.Errorf("encode token request: %w", err)
+		return oauth.Result{}, fmt.Errorf("encode token request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicTokenURL, strings.NewReader(string(payload)))
 	if err != nil {
-		return Result{}, fmt.Errorf("build token request: %w", err)
+		return oauth.Result{}, fmt.Errorf("build token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -247,19 +149,19 @@ func postAnthropicToken(ctx context.Context, client *http.Client, body any) (Res
 
 	resp, err := noFollow.Do(req)
 	if err != nil {
-		return Result{}, fmt.Errorf("contact the Anthropic token endpoint: %w", err)
+		return oauth.Result{}, fmt.Errorf("contact the Anthropic token endpoint: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		return Result{}, fmt.Errorf(
+		return oauth.Result{}, fmt.Errorf(
 			"token endpoint redirected (%d) to %q; the request body would have been dropped",
 			resp.StatusCode, resp.Header.Get("Location"))
 	}
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return Result{}, fmt.Errorf("read token response: %w", err)
+		return oauth.Result{}, fmt.Errorf("read token response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		// Pass the upstream's own words through: they are the only useful
@@ -280,24 +182,24 @@ func postAnthropicToken(ctx context.Context, client *http.Client, body any) (Res
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(raw, &oe) == nil && oe.Error == "invalid_grant" {
-			return Result{}, fmt.Errorf("%w: %s", ErrInvalidGrant, msg)
+			return oauth.Result{}, fmt.Errorf("%w: %s", oauth.ErrInvalidGrant, msg)
 		}
-		return Result{}, errors.New(msg)
+		return oauth.Result{}, errors.New(msg)
 	}
 
 	var tr tokenResponse
 	if err := json.Unmarshal(raw, &tr); err != nil {
-		return Result{}, fmt.Errorf("decode token response: %w", err)
+		return oauth.Result{}, fmt.Errorf("decode token response: %w", err)
 	}
 	if tr.AccessToken == "" {
-		return Result{}, fmt.Errorf("token response contained no access_token")
+		return oauth.Result{}, fmt.Errorf("token response contained no access_token")
 	}
 
 	expiresIn := tr.ExpiresIn
 	if expiresIn <= 0 {
 		expiresIn = 3600
 	}
-	res := Result{
+	res := oauth.Result{
 		AccessToken:  tr.AccessToken,
 		RefreshToken: tr.RefreshToken,
 		ExpiresAt:    time.Now().Add(time.Duration(expiresIn) * time.Second),
@@ -310,31 +212,31 @@ func postAnthropicToken(ctx context.Context, client *http.Client, body any) (Res
 	return res, nil
 }
 
-// ExchangeAnthropicCode trades an authorization code for tokens.
+// ExchangeCode trades an authorization code for tokens.
 //
 // redirectURI must be the same one the authorize request carried. That much is
 // a hard rule — the client replays its own choice here for exactly this reason
 // (`useManualRedirect: !hasPendingResponse()`), and a mismatch is rejected.
-func ExchangeAnthropicCode(ctx context.Context, client *http.Client, code, verifier, state, redirectURI string) (Result, error) {
-	return postAnthropicToken(ctx, client, map[string]string{
+func ExchangeCode(ctx context.Context, client *http.Client, code, verifier, state, redirectURI string) (oauth.Result, error) {
+	return postToken(ctx, client, map[string]string{
 		"code":          code,
 		"grant_type":    "authorization_code",
-		"client_id":     AnthropicClientID,
+		"client_id":     ClientID,
 		"redirect_uri":  redirectURI,
 		"code_verifier": verifier,
 		"state":         state,
 	})
 }
 
-// RefreshAnthropic exchanges a refresh token for a new access token.
-func RefreshAnthropic(ctx context.Context, client *http.Client, refreshToken string) (Result, error) {
-	res, err := postAnthropicToken(ctx, client, map[string]string{
-		"client_id":     AnthropicClientID,
+// Refresh exchanges a refresh token for a new access token.
+func Refresh(ctx context.Context, client *http.Client, refreshToken string) (oauth.Result, error) {
+	res, err := postToken(ctx, client, map[string]string{
+		"client_id":     ClientID,
 		"grant_type":    "refresh_token",
 		"refresh_token": refreshToken,
 	})
 	if err != nil {
-		return Result{}, err
+		return oauth.Result{}, err
 	}
 	// Some refreshes return no new refresh token; keep using the old one
 	// rather than storing an empty string and locking the account out.

@@ -11,8 +11,11 @@ be switched on and off at runtime from Settings.
 ## Read these before changing the relay
 
 1. `go doc ./internal/relay/passes` — the rule the relay follows, its six
-   exceptions, and why each exists. `go doc ./internal/upstream` is the relay
-   itself: accounts, retries, streaming, the stall retry.
+   exceptions, and why each exists. `go doc ./internal/relay` is the relay
+   itself: accounts, retries, streaming, the stall retry. `go doc
+   ./internal/provider` is the line between it and Anthropic, and
+   `internal/provider/anthropic` the only place Anthropic's URLs, headers,
+   event names and error shapes appear.
 2. [`docs/`](docs/) — `refused-requests.md` first: every refusal with the
    measurements behind it. Then `upstream-request-pipeline.md` for what the
    official client sends, and `reversing.md` for how to check any of it.
@@ -71,9 +74,9 @@ API is a script under `scripts/`, run by hand, and says so.
 ## Conventions
 
 - Comments say *why*, and record what was measured. The measurement tables in
-  `internal/relay/passes` and `internal/upstream` are the reason nobody has to
-  reverse the client again; keep them accurate or delete them, but do not let
-  them drift.
+  `internal/relay/passes`, `internal/relay` and `internal/provider/anthropic`
+  are the reason nobody has to reverse the client again; keep them accurate or
+  delete them, but do not let them drift.
 - Commit messages are imperative and explain the reasoning, not the diff.
   Commits are authored by the repository owner and carry no co-author or
   generated-by trailers.

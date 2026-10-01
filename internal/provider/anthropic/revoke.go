@@ -1,4 +1,4 @@
-package oauth
+package anthropic
 
 import (
 	"bytes"
@@ -29,7 +29,7 @@ const anthropicRevokeURL = "https://platform.claude.com/v1/oauth/token/revoke"
 // answer, so a slow endpoint must not hold up the delete that triggered it.
 const revokeTimeout = 5 * time.Second
 
-// RevokeAnthropic asks the provider to invalidate a refresh token.
+// Revoke asks the provider to invalidate a refresh token.
 //
 // Note the host: revocation goes to platform.claude.com, which is where the
 // client sends it, and not to the api.anthropic.com token endpoint this
@@ -39,7 +39,7 @@ const revokeTimeout = 5 * time.Second
 //
 // Only the refresh token is revoked. The client never sends the access token
 // either: it is short-lived and left to expire.
-func RevokeAnthropic(ctx context.Context, client *http.Client, refreshToken, clientID string) error {
+func Revoke(ctx context.Context, client *http.Client, refreshToken, clientID string) error {
 	return revokeAt(ctx, client, anthropicRevokeURL, refreshToken, clientID)
 }
 
@@ -50,7 +50,7 @@ func revokeAt(ctx context.Context, client *http.Client, url, refreshToken, clien
 		return nil
 	}
 	if clientID == "" {
-		clientID = AnthropicClientID
+		clientID = ClientID
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, revokeTimeout)

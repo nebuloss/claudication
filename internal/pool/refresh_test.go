@@ -42,7 +42,7 @@ func refreshFixture(t *testing.T) (*Pool, *store.Store, string) {
 		t.Fatalf("UpsertAccount: %v", err)
 	}
 
-	p := New(st, sealer, &http.Client{}, slog.New(slog.DiscardHandler))
+	p := New(st, sealer, &http.Client{}, slog.New(slog.DiscardHandler), nil) // each test sets exchange
 	return p, st, acct.ID
 }
 

@@ -1,4 +1,4 @@
-package oauth
+package anthropic
 
 import (
 	"context"
@@ -74,7 +74,7 @@ func TestRevokeDefaultsTheClientID(t *testing.T) {
 	if err := revokeAt(context.Background(), srv.Client(), srv.URL, "t", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got.ClientID != AnthropicClientID {
+	if got.ClientID != ClientID {
 		t.Errorf("client_id = %q, want the Claude Code client id", got.ClientID)
 	}
 }

@@ -1,4 +1,4 @@
-package upstream
+package relay
 
 import (
 	"bytes"
@@ -48,15 +48,8 @@ import (
 // it were fine, so it is the one that most likely serves the retry well, and
 // with one account connected it is the only one there is.
 
-// quietEvent reports whether an SSE event name carries no content: the ones
-// the upstream sends before it has produced anything.
-func quietEvent(name []byte) bool {
-	switch string(name) {
-	case "message_start", "content_block_start", "ping":
-		return true
-	}
-	return false
-}
+// Which events count as "no content yet" is the provider's to say
+// (provider.Wire.Quiet); the holding is the relay's.
 
 // maxHeld bounds what is held while waiting. The opening events are a few
 // hundred bytes; a body that reaches this without one content event is not a
@@ -194,7 +187,7 @@ func (h *heldBody) Close() error {
 // errors, or the timeout passes. On holdProgressed the returned body replays
 // everything read so far and then the rest; on the other outcomes the body has
 // been closed and the caller should abandon the attempt.
-func holdUntilContent(body io.ReadCloser, timeout time.Duration) (io.ReadCloser, holdOutcome) {
+func holdUntilContent(body io.ReadCloser, timeout time.Duration, quiet func([]byte) bool) (io.ReadCloser, holdOutcome) {
 	p := startPump(body)
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -220,7 +213,7 @@ func holdUntilContent(body io.ReadCloser, timeout time.Duration) (io.ReadCloser,
 			c.release() // copied into held; the buffer can go round again
 			var o holdOutcome
 			var decided bool
-			o, decided, scanned = classifyHeld(held, scanned)
+			o, decided, scanned = classifyHeld(held, scanned, quiet)
 			if decided {
 				return finish(o)
 			}
@@ -240,7 +233,7 @@ func holdUntilContent(body io.ReadCloser, timeout time.Duration) (io.ReadCloser,
 
 // classifyHeld looks at the complete lines of held from scanned onwards for the
 // first `event:` that is not a quiet one.
-func classifyHeld(held []byte, scanned int) (holdOutcome, bool, int) {
+func classifyHeld(held []byte, scanned int, quiet func([]byte) bool) (holdOutcome, bool, int) {
 	for {
 		i := bytes.IndexByte(held[scanned:], '\n')
 		if i < 0 {
@@ -253,7 +246,7 @@ func classifyHeld(held []byte, scanned int) (holdOutcome, bool, int) {
 		}
 		name := bytes.TrimSpace(line[len("event:"):])
 		switch {
-		case quietEvent(name):
+		case quiet(name):
 			continue
 		case bytes.Equal(name, []byte("error")):
 			return holdErrored, true, scanned

@@ -104,10 +104,17 @@ type Pool struct {
 	// error-propagation rules around it can be tested without a live provider.
 	// The rules are the part that has teeth: getting them wrong takes an
 	// account offline until a human redoes the browser flow.
-	exchange func(ctx context.Context, client *http.Client, refreshToken string) (oauth.Result, error)
+	exchange RefreshFunc
 }
 
-func New(st *store.Store, sealer *secret.Sealer, client *http.Client, log *slog.Logger) *Pool {
+// RefreshFunc trades a refresh token for new tokens at the provider. The pool
+// decides when to refresh and what to do with the answer; how is the
+// provider's, which is why it is handed in rather than known here.
+type RefreshFunc func(ctx context.Context, client *http.Client, refreshToken string) (oauth.Result, error)
+
+// New returns a pool over the accounts in st, refreshing their tokens with
+// refresh.
+func New(st *store.Store, sealer *secret.Sealer, client *http.Client, log *slog.Logger, refresh RefreshFunc) *Pool {
 	return &Pool{
 		store:    st,
 		sealer:   sealer,
@@ -115,7 +122,7 @@ func New(st *store.Store, sealer *secret.Sealer, client *http.Client, log *slog.
 		log:      log,
 		states:   make(map[string]*health),
 		now:      time.Now,
-		exchange: oauth.RefreshAnthropic,
+		exchange: refresh,
 	}
 }
 

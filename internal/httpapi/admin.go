@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"claudication/internal/oauth"
+	"claudication/internal/provider/anthropic"
 	"claudication/internal/store"
-	"claudication/internal/upstream"
 )
 
 const (
@@ -202,7 +202,7 @@ func toAccountJSON(a store.Account) accountJSON {
 			q.SevenDayReset = a.Quota.SevenDayReset.UTC().Format(time.RFC3339)
 		}
 		if a.Quota.Detail != "" {
-			var rows []upstream.UsageLimit
+			var rows []anthropic.UsageLimit
 			if err := json.Unmarshal([]byte(a.Quota.Detail), &rows); err == nil {
 				for _, l := range rows {
 					row := usageLimitJSON{
@@ -432,7 +432,7 @@ func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectURI := oauth.RedirectManual
+	redirectURI := anthropic.RedirectManual
 
 	pkce, err := oauth.NewPKCE()
 	if err != nil {
@@ -449,7 +449,7 @@ func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"provider":     body.Provider,
 		"state":        state,
-		"auth_url":     oauth.AnthropicAuthURL(state, pkce, redirectURI),
+		"auth_url":     anthropic.AuthURL(state, pkce, redirectURI),
 		"redirect_uri": redirectURI,
 		"expires_at":   expires.UTC().Format(time.RFC3339),
 		"instructions": "Open the URL, approve access, then paste the authorization code Anthropic shows you back here.",
@@ -490,7 +490,7 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 
 	// Replay the redirect the authorize request carried; a mismatch is
 	// rejected by the token endpoint.
-	res, err := oauth.ExchangeAnthropicCode(r.Context(), s.httpClient,
+	res, err := anthropic.ExchangeCode(r.Context(), s.httpClient,
 		code, attempt.PKCE.Verifier, body.State, attempt.RedirectURI)
 	if err != nil {
 		// The attempt stays live, so a corrected paste can be retried without
@@ -572,7 +572,7 @@ func (s *Server) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body)
 
-	result := upstream.ProbeAnthropic(r.Context(), s.httpClient, tokens.AccessToken, body.Model)
+	result := anthropic.Probe(r.Context(), s.httpClient, tokens.AccessToken, body.Model)
 	if result.OK {
 		s.store.MarkAccountUsed(r.Context(), id)
 	} else {
@@ -653,8 +653,8 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	// account to be gone; an upstream that is down, slow or has already
 	// forgotten the token must not be able to prevent that.
 	if tokens, err := s.store.AccountTokens(r.Context(), s.sealer, id); err == nil {
-		if err := oauth.RevokeAnthropic(r.Context(), s.httpClient,
-			tokens.RefreshToken, oauth.AnthropicClientID); err != nil {
+		if err := anthropic.Revoke(r.Context(), s.httpClient,
+			tokens.RefreshToken, anthropic.ClientID); err != nil {
 			s.log.Warn("could not revoke the refresh token upstream; deleting locally anyway",
 				"account", id, "err", err)
 		} else {

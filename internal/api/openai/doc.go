@@ -142,7 +142,7 @@
 //   - An idle timeout with no SSE frame at all fails the turn. Claude thinks
 //     for a long time before its first token, so the translator has to keep
 //     bytes moving across that gap. This is the mirror of the watchdog that
-//     makes internal/upstream flush every chunk.
+//     makes internal/relay flush every chunk.
 //   - A malformed SSE frame fails the turn outright.
 //
 // Which means an upstream error mid-stream cannot simply close the connection:

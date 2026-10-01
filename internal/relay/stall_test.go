@@ -1,4 +1,4 @@
-package upstream
+package relay
 
 import (
 	"log/slog"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/provider/anthropic"
 	"claudication/internal/request"
 )
 
@@ -60,7 +61,7 @@ func stallServer(t *testing.T, script func(n int) []string) (*httptest.Server, f
 }
 
 func stallRelay(srv *httptest.Server, p AccountPool, timeout time.Duration) *Relay {
-	return &Relay{
+	return &Relay{Wire: anthropic.Provider{},
 		Pool:         p,
 		Client:       srv.Client(),
 		Log:          slog.New(slog.DiscardHandler),
@@ -192,7 +193,7 @@ func TestClassifyHeld(t *testing.T) {
 		{sseStart + "event: message_delta\n", true, holdProgressed},
 		{"event: content_block_del", false, holdProgressed}, // partial line
 	} {
-		got, decided, _ := classifyHeld([]byte(tc.in), 0)
+		got, decided, _ := classifyHeld([]byte(tc.in), 0, anthropic.Provider{}.Quiet)
 		if decided != tc.decided || (decided && got != tc.want) {
 			t.Errorf("%q: got %v decided=%v, want %v decided=%v", tc.in, got, decided, tc.want, tc.decided)
 		}

@@ -1,4 +1,4 @@
-package upstream
+package relay
 
 import (
 	"io"
@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"claudication/internal/pool"
+	"claudication/internal/provider/anthropic"
 )
 
 // buildFor exercises the header rewriting in isolation.
 func buildFor(t *testing.T, in *http.Request) *http.Request {
 	t.Helper()
-	r := &Relay{}
+	r := &Relay{Wire: anthropic.Provider{}}
 	out, err := r.build(in, "https://api.anthropic.com/v1/messages", []byte(`{"a":1}`), "tok123")
 	if err != nil {
 		t.Fatalf("build: %v", err)
@@ -24,6 +25,9 @@ func buildFor(t *testing.T, in *http.Request) *http.Request {
 // The contract forbids allowlisting: unknown anthropic-* headers and unknown
 // beta values must reach the upstream untouched, or the next capability
 // Anthropic ships breaks on the release that introduces it.
+// oauthBeta is what the Anthropic wire must add to every request.
+const oauthBeta = "oauth-2025-04-20"
+
 func TestBuildForwardsUnknownHeadersAndBetas(t *testing.T) {
 	in := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
 	in.Header.Set("anthropic-beta", "some-future-beta-2030-01-01,another-one")
@@ -115,7 +119,7 @@ func TestBuildSendsTheBodyVerbatim(t *testing.T) {
 	in := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("ignored"))
 	body := []byte(`{"model":"claude-opus-5","system":[{"type":"text","text":"x"}]}`)
 
-	r := &Relay{}
+	r := &Relay{Wire: anthropic.Provider{}}
 	out, err := r.build(in, "https://api.anthropic.com/v1/messages", body, "tok")
 	if err != nil {
 		t.Fatal(err)
@@ -126,22 +130,6 @@ func TestBuildSendsTheBodyVerbatim(t *testing.T) {
 	}
 	if string(got) != string(body) {
 		t.Errorf("body was altered:\n got: %s\nwant: %s", got, body)
-	}
-}
-
-func TestHasBeta(t *testing.T) {
-	cases := map[string]bool{
-		"":                        false,
-		"oauth-2025-04-20":        true,
-		"a, oauth-2025-04-20 ,b":  true,
-		"OAUTH-2025-04-20":        true,
-		"oauth-2025-04-20-extra":  false,
-		"prefix-oauth-2025-04-20": false,
-	}
-	for header, want := range cases {
-		if got := hasBeta(header, oauthBeta); got != want {
-			t.Errorf("hasBeta(%q) = %v, want %v", header, got, want)
-		}
 	}
 }
 

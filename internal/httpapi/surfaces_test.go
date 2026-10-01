@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"claudication/internal/api/anthropic"
+	anthropicapi "claudication/internal/api/anthropic"
 	"claudication/internal/api/openai"
 	"claudication/internal/store"
 )
@@ -223,7 +223,7 @@ func TestASwitchedOffSurfaceAnswersInItsOwnDialect(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	for _, id := range []string{anthropic.ID, openai.ID} {
+	for _, id := range []string{anthropicapi.ID, openai.ID} {
 		if err := srv.surfaces.set(context.Background(), id, false); err != nil {
 			t.Fatal(err)
 		}
@@ -320,7 +320,7 @@ func TestASwitchSurvivesAReload(t *testing.T) {
 	if reloaded.enabled(openai.ID) {
 		t.Error("the OpenAI surface came back on after a reload")
 	}
-	if !reloaded.enabled(anthropic.ID) {
+	if !reloaded.enabled(anthropicapi.ID) {
 		t.Error("a surface nobody touched should still be on")
 	}
 }

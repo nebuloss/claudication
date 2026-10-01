@@ -1,4 +1,4 @@
-package upstream
+package relay
 
 import (
 	"compress/gzip"
@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"claudication/internal/pool"
+	"claudication/internal/provider/anthropic"
 	"claudication/internal/request"
 	"claudication/internal/store"
 )
@@ -33,7 +34,7 @@ func TestAClientAskingForGzipStillGetsAccountedFor(t *testing.T) {
 	upstreamSrv := httptest.NewServer(negotiating(&sawAcceptEncoding, stream))
 	defer upstreamSrv.Close()
 
-	r := &Relay{
+	r := &Relay{Wire: anthropic.Provider{},
 		Pool:    &onePool{},
 		Client:  upstreamSrv.Client(),
 		Log:     slog.New(slog.DiscardHandler),
@@ -72,7 +73,7 @@ func TestAFailedStreamIsNotCreditedWhenTheClientAsksForGzip(t *testing.T) {
 	defer upstreamSrv.Close()
 
 	p := &recordingPool{}
-	r := &Relay{
+	r := &Relay{Wire: anthropic.Provider{},
 		Pool:    p,
 		Client:  upstreamSrv.Client(),
 		Log:     slog.New(slog.DiscardHandler),
@@ -106,7 +107,7 @@ func TestAnUnexpectedlyCompressedBodyIsRelayedButNotCredited(t *testing.T) {
 	defer upstreamSrv.Close()
 
 	p := &recordingPool{}
-	r := &Relay{
+	r := &Relay{Wire: anthropic.Provider{},
 		Pool:    p,
 		Client:  upstreamSrv.Client(),
 		Log:     slog.New(slog.DiscardHandler),

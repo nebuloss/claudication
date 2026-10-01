@@ -1,6 +1,10 @@
-package upstream
+package anthropic
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"claudication/internal/provider"
+)
 
 // maxJSONUsageBytes bounds the copy kept for parsing. A message envelope is a
 // few KB; anything past this is not a shape we can read usage out of anyway,
@@ -19,15 +23,15 @@ const maxJSONUsageBytes = 1 << 20
 // that have already gone to the client, exactly as the SSE scanner does, and
 // nothing it decides can change what was relayed.
 type jsonUsage struct {
-	usage *Usage
+	usage *provider.Usage
 	buf   []byte
 }
 
-func newJSONUsage(usage *Usage) *jsonUsage {
+func newJSONUsage(usage *provider.Usage) *jsonUsage {
 	return &jsonUsage{usage: usage}
 }
 
-func (j *jsonUsage) feed(chunk []byte) {
+func (j *jsonUsage) Feed(chunk []byte) {
 	if len(j.buf) >= maxJSONUsageBytes {
 		return
 	}
@@ -40,7 +44,7 @@ func (j *jsonUsage) feed(chunk []byte) {
 // done parses what was collected. A body that is truncated, not JSON, or an
 // error envelope simply yields nothing: usage is a statistic, and failing to
 // find it is not a failure of the request.
-func (j *jsonUsage) done() {
+func (j *jsonUsage) Done() {
 	if len(j.buf) == 0 {
 		return
 	}

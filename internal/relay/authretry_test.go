@@ -1,4 +1,4 @@
-package upstream
+package relay
 
 import (
 	"log/slog"
@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"claudication/internal/provider/anthropic"
 	"claudication/internal/request"
 )
 
@@ -35,7 +36,7 @@ func TestA401RefreshesAndRetriesTheSameAccount(t *testing.T) {
 	defer upstreamSrv.Close()
 
 	p := &recordingPool{}
-	r := &Relay{
+	r := &Relay{Wire: anthropic.Provider{},
 		Pool:    p,
 		Client:  upstreamSrv.Client(),
 		Log:     slog.New(slog.DiscardHandler),
@@ -74,7 +75,7 @@ func TestARepeated401StopsAfterOneRefresh(t *testing.T) {
 	defer upstreamSrv.Close()
 
 	p := &recordingPool{}
-	r := &Relay{
+	r := &Relay{Wire: anthropic.Provider{},
 		Pool:    p,
 		Client:  upstreamSrv.Client(),
 		Log:     slog.New(slog.DiscardHandler),

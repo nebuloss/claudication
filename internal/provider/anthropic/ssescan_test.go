@@ -1,8 +1,10 @@
-package upstream
+package anthropic
 
 import (
 	"strings"
 	"testing"
+
+	"claudication/internal/provider"
 )
 
 // feedIn splits the stream at an awkward boundary to prove the scanner
@@ -11,7 +13,7 @@ import (
 func feedIn(s *sseScanner, stream string, chunk int) {
 	for i := 0; i < len(stream); i += chunk {
 		end := min(i+chunk, len(stream))
-		s.feed([]byte(stream[i:end]))
+		s.Feed([]byte(stream[i:end]))
 	}
 }
 
@@ -26,7 +28,7 @@ const usageStream = "event: message_start\n" +
 
 func TestScannerCollectsUsage(t *testing.T) {
 	for _, chunk := range []int{1, 7, 64, 4096} {
-		var usage Usage
+		var usage provider.Usage
 		var streamErr string
 		feedIn(newSSEScanner(&usage, &streamErr), usageStream, chunk)
 
@@ -56,7 +58,7 @@ func TestScannerCatchesMidStreamError(t *testing.T) {
 		`data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}` + "\n\n"
 
 	for _, chunk := range []int{1, 13, 4096} {
-		var usage Usage
+		var usage provider.Usage
 		var streamErr string
 		feedIn(newSSEScanner(&usage, &streamErr), stream, chunk)
 
@@ -71,14 +73,14 @@ func TestScannerCatchesMidStreamError(t *testing.T) {
 
 // Nothing the scanner sees is worth breaking a response over.
 func TestScannerToleratesGarbage(t *testing.T) {
-	var usage Usage
+	var usage provider.Usage
 	var streamErr string
 	s := newSSEScanner(&usage, &streamErr)
 
-	s.feed([]byte("event: message_delta\ndata: not json at all\n\n"))
-	s.feed([]byte(": a comment line\n\n"))
-	s.feed([]byte("data: {\"unterminated\": \n"))
-	s.feed([]byte("event: message_delta\ndata: {\"usage\":{\"output_tokens\":9}}\n\n"))
+	s.Feed([]byte("event: message_delta\ndata: not json at all\n\n"))
+	s.Feed([]byte(": a comment line\n\n"))
+	s.Feed([]byte("data: {\"unterminated\": \n"))
+	s.Feed([]byte("event: message_delta\ndata: {\"usage\":{\"output_tokens\":9}}\n\n"))
 
 	if streamErr != "" {
 		t.Errorf("garbage should not produce a stream error, got %q", streamErr)
@@ -91,7 +93,7 @@ func TestScannerToleratesGarbage(t *testing.T) {
 // A record with no trailing newline must not be able to grow the buffer
 // without bound.
 func TestScannerBoundsItsBuffer(t *testing.T) {
-	var usage Usage
+	var usage provider.Usage
 	var streamErr string
 	s := newSSEScanner(&usage, &streamErr)
 
@@ -100,7 +102,7 @@ func TestScannerBoundsItsBuffer(t *testing.T) {
 		blob[i] = 'x'
 	}
 	for range 32 {
-		s.feed(blob)
+		s.Feed(blob)
 	}
 	if len(s.buf) > maxPending {
 		t.Errorf("buffer grew to %d bytes", len(s.buf))
@@ -115,7 +117,7 @@ func TestScannerBoundsItsBuffer(t *testing.T) {
 // a 1 MB line in MTU-sized pieces, spent synchronously between two writes to
 // the client. Large tool-use payloads arrive exactly that way.
 func TestScannerReadsALineSplitAcrossManyChunks(t *testing.T) {
-	var usage Usage
+	var usage provider.Usage
 	var streamErr string
 	s := newSSEScanner(&usage, &streamErr)
 
@@ -126,7 +128,7 @@ func TestScannerReadsALineSplitAcrossManyChunks(t *testing.T) {
 
 	for i := 0; i < len(stream); i += 1400 {
 		end := min(i+1400, len(stream))
-		s.feed([]byte(stream[i:end]))
+		s.Feed([]byte(stream[i:end]))
 	}
 
 	if usage.OutputTokens != 4321 {

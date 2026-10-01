@@ -1,4 +1,4 @@
-package upstream
+package relay
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"claudication/internal/pool"
+	"claudication/internal/provider/anthropic"
 	"claudication/internal/request"
 	"claudication/internal/store"
 )
@@ -54,7 +55,7 @@ func TestARefusalReachesTheClientVerbatim(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	relay := &Relay{Pool: &onePool{}, Client: upstream.Client(), BaseURL: upstream.URL}
+	relay := &Relay{Wire: anthropic.Provider{}, Pool: &onePool{}, Client: upstream.Client(), BaseURL: upstream.URL}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
@@ -85,7 +86,7 @@ func TestARefusalReachesTheClientVerbatim(t *testing.T) {
 // A refusal with nothing behind it — no upstream reached at all — still has to
 // surface as an error, or the caller has nothing to report.
 func TestNoAccountStillErrors(t *testing.T) {
-	relay := &Relay{Pool: &emptyPool{}, Client: http.DefaultClient}
+	relay := &Relay{Wire: anthropic.Provider{}, Pool: &emptyPool{}, Client: http.DefaultClient}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))

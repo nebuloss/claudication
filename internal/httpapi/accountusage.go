@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"claudication/internal/provider/anthropic"
 	"claudication/internal/store"
-	"claudication/internal/upstream"
 )
 
 // How often every account's subscription usage is refreshed.
@@ -61,14 +61,14 @@ func (s *Server) usagePollInterval() time.Duration {
 
 // refreshAccountUsage asks the upstream what one account has spent and stores
 // it. Returns the figures so a handler can answer with them directly.
-func (s *Server) refreshAccountUsage(ctx context.Context, id string) (upstream.AccountUsage, error) {
+func (s *Server) refreshAccountUsage(ctx context.Context, id string) (anthropic.AccountUsage, error) {
 	token, err := s.pool.AccessToken(ctx, id)
 	if err != nil {
-		return upstream.AccountUsage{}, err
+		return anthropic.AccountUsage{}, err
 	}
-	usage, err := upstream.FetchUsage(ctx, s.httpClient, token)
+	usage, err := anthropic.FetchUsage(ctx, s.httpClient, token)
 	if err != nil {
-		return upstream.AccountUsage{}, err
+		return anthropic.AccountUsage{}, err
 	}
 
 	q := store.AccountQuota{UpdatedAt: usage.FetchedAt}

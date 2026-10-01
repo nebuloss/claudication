@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"claudication/internal/api"
+	"claudication/internal/provider/anthropic"
 	"claudication/internal/store"
-	"claudication/internal/upstream"
 	"claudication/internal/version"
 )
 
@@ -29,7 +29,7 @@ func (s *Server) recordUsage(e store.UsageEvent, budget int64) {
 	// Classified here rather than at each call site: every event goes through
 	// this function, and one place deciding what a failure is called is what
 	// keeps the column, its menu and its filter saying the same thing.
-	e.ErrorCode = upstream.ErrorCode(e.Status, e.Error)
+	e.ErrorCode = anthropic.ErrorCode(e.Status, e.Error)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -178,7 +178,7 @@ func toRequestJSON(e store.UsageEvent) requestJSON {
 		DurationMS:   e.Duration.Milliseconds(),
 		FirstTokenMS: e.FirstToken.Milliseconds(),
 		Error:        e.Error,
-		ErrorKind:    string(upstream.ClassifyRefusal(e.Error)),
+		ErrorKind:    string(anthropic.ClassifyRefusal(e.Error)),
 		ErrorCode:    e.ErrorCode,
 		Rejected:     e.Rejected,
 		IP:           e.IP,

@@ -1,4 +1,4 @@
-package upstream
+package anthropic
 
 import (
 	"context"
@@ -131,7 +131,7 @@ func FetchUsage(ctx context.Context, client *http.Client, accessToken string) (A
 	ctx, cancel := context.WithTimeout(ctx, usageTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, AnthropicBaseURL+usagePath, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, BaseURL+usagePath, nil)
 	if err != nil {
 		return AccountUsage{}, err
 	}

@@ -1,6 +1,10 @@
-package upstream
+package anthropic
 
-import "testing"
+import (
+	"testing"
+
+	"claudication/internal/provider"
+)
 
 // The body a non-streaming /v1/messages actually returns. Before this existed
 // every such request was recorded as zero tokens, which reads as "cost
@@ -13,13 +17,13 @@ func TestJSONUsageFromAMessageResponse(t *testing.T) {
 	          "usage":{"input_tokens":14,"output_tokens":6,
 	                   "cache_read_input_tokens":3,"cache_creation_input_tokens":9}}`
 
-	var got Usage
+	var got provider.Usage
 	j := newJSONUsage(&got)
 	// Fed in slices, because that is how it arrives off the wire.
 	for _, chunk := range split(body, 7) {
-		j.feed([]byte(chunk))
+		j.Feed([]byte(chunk))
 	}
-	j.done()
+	j.Done()
 
 	if got.InputTokens != 14 || got.OutputTokens != 6 {
 		t.Errorf("tokens = %d/%d, want 14/6", got.InputTokens, got.OutputTokens)
@@ -32,12 +36,12 @@ func TestJSONUsageFromAMessageResponse(t *testing.T) {
 // An error envelope has no usage, and must not be mistaken for zero usage on a
 // successful call — it simply leaves the figures alone.
 func TestJSONUsageIgnoresAnErrorEnvelope(t *testing.T) {
-	var got Usage
+	var got provider.Usage
 	j := newJSONUsage(&got)
-	j.feed([]byte(`{"type":"error","error":{"type":"not_found_error","message":"model: x"}}`))
-	j.done()
+	j.Feed([]byte(`{"type":"error","error":{"type":"not_found_error","message":"model: x"}}`))
+	j.Done()
 
-	if got != (Usage{}) {
+	if got != (provider.Usage{}) {
 		t.Errorf("usage = %+v, want zero", got)
 	}
 }
@@ -45,11 +49,11 @@ func TestJSONUsageIgnoresAnErrorEnvelope(t *testing.T) {
 // Anything unparseable is a statistic we did not get, never a failed request.
 func TestJSONUsageSurvivesRubbish(t *testing.T) {
 	for _, body := range []string{"", "not json at all", `{"usage":`, `{"usage":"nope"}`} {
-		var got Usage
+		var got provider.Usage
 		j := newJSONUsage(&got)
-		j.feed([]byte(body))
-		j.done()
-		if got != (Usage{}) {
+		j.Feed([]byte(body))
+		j.Done()
+		if got != (provider.Usage{}) {
 			t.Errorf("body %q produced %+v, want zero", body, got)
 		}
 	}
@@ -58,11 +62,11 @@ func TestJSONUsageSurvivesRubbish(t *testing.T) {
 // The buffer is bounded, or a relay grows its memory with the response it is
 // passing through.
 func TestJSONUsageIsBounded(t *testing.T) {
-	var got Usage
+	var got provider.Usage
 	j := newJSONUsage(&got)
 	chunk := make([]byte, 64*1024)
 	for i := 0; i < 64; i++ {
-		j.feed(chunk)
+		j.Feed(chunk)
 	}
 	if len(j.buf) > maxJSONUsageBytes {
 		t.Errorf("buffered %d bytes, cap is %d", len(j.buf), maxJSONUsageBytes)

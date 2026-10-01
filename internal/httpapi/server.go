@@ -15,16 +15,17 @@ import (
 	"time"
 
 	"claudication/internal/api"
-	"claudication/internal/api/anthropic"
+	anthropicapi "claudication/internal/api/anthropic"
 	"claudication/internal/api/openai"
 	"claudication/internal/config"
 	"claudication/internal/memlimit"
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
+	"claudication/internal/provider/anthropic"
+	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	"claudication/internal/secret"
 	"claudication/internal/store"
-	"claudication/internal/upstream"
 	"claudication/internal/version"
 )
 
@@ -47,7 +48,7 @@ type Server struct {
 	stopSweeper chan struct{}
 	sealer      *secret.Sealer
 	pool        *pool.Pool
-	relay       *upstream.Relay
+	relay       *relay.Relay
 	pending     *oauth.Pending
 	sessions    *sessions
 	httpClient  *http.Client
@@ -128,7 +129,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	// The composition root: the one place that knows which dialects exist.
 	// Order is what the admin UI lists.
 	s.protocols = api.Registry{
-		anthropic.New(),
+		anthropicapi.New(),
 		openai.New(cfg.OpenAI.Model, cfg.OpenAI.MaxTokens),
 	}
 	s.surfaces = newSurfaces(s.protocols, st)
@@ -165,8 +166,12 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		log.Warn("could not read the docs switch; serving the page anyway", "err", err)
 	}
 
-	s.pool = pool.New(st, sealer, s.httpClient, log)
-	s.relay = &upstream.Relay{
+	// Anthropic is the only provider. It is named here, in the composition
+	// root, and nowhere below: the pool is handed its token refresh and the
+	// relay its wire, and neither knows whose they are.
+	s.pool = pool.New(st, sealer, s.httpClient, log, anthropic.Refresh)
+	s.relay = &relay.Relay{
+		Wire: anthropic.Provider{},
 		Pool: s.pool,
 		Log:  log,
 		Passes: passes.Default(passes.Options{
@@ -331,7 +336,7 @@ func (s *Server) routes(r0 role) http.Handler {
 	// on the other end: /v1/messages is what a subscription account answers,
 	// whatever shape the caller asked in.
 	if r0.gateway {
-		messages, _ := s.protocols.Find(anthropic.ID)
+		messages, _ := s.protocols.Find(anthropicapi.ID)
 		responses, _ := s.protocols.Find(openai.ID)
 
 		// Model discovery belongs to the Anthropic surface alone. /v1/models
@@ -537,7 +542,7 @@ func (s *Server) fetchModels(ctx context.Context, rawQuery string) ([]byte, erro
 
 	base := s.relay.BaseURL
 	if base == "" {
-		base = upstream.AnthropicBaseURL
+		base = anthropic.BaseURL
 	}
 	url := base + "/v1/models"
 	if rawQuery != "" {

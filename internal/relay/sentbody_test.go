@@ -1,4 +1,4 @@
-package upstream
+package relay
 
 import (
 	"io"
