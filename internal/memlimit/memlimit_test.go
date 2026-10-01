@@ -54,6 +54,30 @@ func TestReadLimit(t *testing.T) {
 	}
 }
 
+// Under constant load there is never a quiet spell, so the periodic trigger
+// is what keeps memory from only ever ratcheting up: it trims with requests in
+// flight, but no more often than its interval.
+func TestTrimmerTrimsUnderLoadAtMostEveryInterval(t *testing.T) {
+	tr := &Trimmer{Quiet: time.Hour, Every: 80 * time.Millisecond, Busy: 0}
+	done := tr.Begin()
+	defer done()
+
+	tr.tick()
+	first := tr.lastTrim
+	if first.IsZero() {
+		t.Fatal("did not trim under load")
+	}
+	tr.tick()
+	if !tr.lastTrim.Equal(first) {
+		t.Fatal("trimmed again inside the interval")
+	}
+	time.Sleep(100 * time.Millisecond)
+	tr.tick()
+	if tr.lastTrim.Equal(first) {
+		t.Fatal("did not trim again once the interval had passed")
+	}
+}
+
 // The trimmer waits for quiet and gives memory back once per quiet spell —
 // never with a request in flight.
 func TestTrimmerWaitsForQuiet(t *testing.T) {

@@ -90,6 +90,9 @@ type responsesError struct {
 // NewStream prepares a translator writing Responses frames to w. It satisfies
 // api.StreamWriter, which is what the reshaping sink drives it through.
 func NewStream(w api.FlushWriter, req Request) *Stream {
+	// Only Tools and Model are read on the way back. The body is already
+	// upstream; holding it here would keep it alive for the whole stream.
+	req.Body = nil
 	return &Stream{w: w, req: req, model: req.Model, items: []json.RawMessage{}}
 }
 

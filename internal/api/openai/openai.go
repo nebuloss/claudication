@@ -84,7 +84,15 @@ type exchange struct {
 	req Request
 }
 
-func (e *exchange) Request() []byte { return e.req.Body }
+// Request hands over the translated body, once. The exchange lives as long as
+// the stream — the reshaping sink holds it — and keeping the body here would
+// pin a copy of the whole conversation for minutes per open stream, when the
+// answer side only ever needs the tool map.
+func (e *exchange) Request() []byte {
+	body := e.req.Body
+	e.req.Body = nil
+	return body
+}
 func (e *exchange) Model() string   { return e.req.Model }
 func (e *exchange) Streaming() bool { return e.req.Stream }
 

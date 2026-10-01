@@ -83,6 +83,10 @@ func (e exchange) Request() []byte { return e.body }
 func (e exchange) Model() string   { return e.prologue.Model }
 func (e exchange) Streaming() bool { return e.prologue.Stream }
 
+// Prologue is what Decode already read. The body going upstream is the one it
+// read it from, so the relay need not parse it a second time.
+func (e exchange) Prologue() upstream.Prologue { return e.prologue }
+
 // Headers does nothing, which is the point: the caller already speaks what the
 // upstream speaks, so every header it sent is meaningful there and the relay's
 // contract is to preserve them.

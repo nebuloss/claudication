@@ -155,28 +155,37 @@ func HumanBytes(n int64) string {
 	}
 }
 
-// Trimmer gives memory back to the system after a burst, once nothing is in
-// flight.
+// Trimmer gives memory the heap is no longer using back to the system, so the
+// process does not sit at its high-water mark.
 //
-// Not on a timer regardless of load: returning memory forces a collection,
-// and doing that in the middle of a burst would cost the requests running
-// then and be undone by them a moment later. So it waits for a quiet spell —
-// nothing in flight, and nothing finished for a while — and only bothers when
-// there is a worthwhile amount to give.
+// Two triggers. After a burst, once nothing is in flight and nothing has
+// finished for Quiet, whatever is idle goes back at once — the moment the
+// most is reclaimable and nobody pays for the collection. And continuously,
+// at most every Every, even while requests run, once a larger amount (Busy)
+// has built up: a gateway that is never quiet would otherwise never give
+// anything back, and its footprint would only ever ratchet up. Under load that
+// costs one forced collection per interval — milliseconds against seconds —
+// and the threshold keeps it from returning pages the next request would only
+// fault straight back in.
 type Trimmer struct {
 	inFlight atomic.Int64
 	lastDone atomic.Int64 // unix nanos
+	lastTrim time.Time
 
-	// Quiet is how long nothing must have finished; Min is the least idle
-	// heap worth returning.
-	Quiet time.Duration
-	Min   uint64
+	Quiet time.Duration // nothing finished for this long counts as quiet
+	Min   uint64        // least idle heap worth returning when quiet
+	Every time.Duration // least time between trims under load
+	Busy  uint64        // least idle heap worth returning under load
 	Log   *slog.Logger
 }
 
 // NewTrimmer returns a trimmer with defaults that suit a request gateway.
 func NewTrimmer(log *slog.Logger) *Trimmer {
-	return &Trimmer{Quiet: 15 * time.Second, Min: 16 << 20, Log: log}
+	return &Trimmer{
+		Quiet: 15 * time.Second, Min: 16 << 20,
+		Every: 30 * time.Second, Busy: 32 << 20,
+		Log: log,
+	}
 }
 
 // Begin marks a request in flight; the returned func marks it done.
@@ -203,29 +212,36 @@ func (t *Trimmer) Run(stop <-chan struct{}, interval time.Duration) {
 }
 
 func (t *Trimmer) tick() {
-	if t.inFlight.Load() > 0 {
-		return
-	}
-	last := t.lastDone.Load()
-	if last == 0 || time.Since(time.Unix(0, last)) < t.Quiet {
-		return
-	}
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	// Held from the system and not in use: what a trim would give back.
 	held := m.HeapIdle - m.HeapReleased
-	if held < t.Min {
+
+	reason := ""
+	last := t.lastDone.Load()
+	switch {
+	case t.inFlight.Load() == 0 && last != 0 && time.Since(time.Unix(0, last)) >= t.Quiet && held >= t.Min:
+		reason = "quiet"
+	case t.Every > 0 && time.Since(t.lastTrim) >= t.Every && held >= t.Busy:
+		reason = "periodic"
+	default:
 		return
 	}
+
 	start := time.Now()
 	debug.FreeOSMemory()
+	t.lastTrim = time.Now()
 	runtime.ReadMemStats(&m)
 	if t.Log != nil {
 		t.Log.Info("returned idle memory to the system",
+			"trigger", reason,
 			"released", HumanBytes(int64(held)),
 			"heap_in_use", HumanBytes(int64(m.HeapInuse)),
+			"in_flight", t.inFlight.Load(),
 			"took_ms", time.Since(start).Milliseconds())
 	}
-	// Once per quiet spell: the next one starts with the next request.
-	t.lastDone.Store(0)
+	if reason == "quiet" {
+		// Once per quiet spell: the next one starts with the next request.
+		t.lastDone.Store(0)
+	}
 }

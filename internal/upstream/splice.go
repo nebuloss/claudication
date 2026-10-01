@@ -93,58 +93,130 @@ func join(parts ...[]byte) []byte {
 // that spells "system" with one is reported as not understood rather than as
 // lacking the key.
 func topLevelValue(body []byte, key string) (start, end int, found, ok bool) {
+	_, start, end, found, ok = topLevelEntry(body, key)
+	return start, end, found, ok
+}
+
+// topLevelEntry is topLevelValue that also reports where the entry's key
+// begins, which is what removing the entry needs.
+func topLevelEntry(body []byte, key string) (keyStart, start, end int, found, ok bool) {
 	i := skipSpace(body, 0)
 	if i >= len(body) || body[i] != '{' {
-		return 0, 0, false, false
+		return 0, 0, 0, false, false
 	}
 	i = skipSpace(body, i+1)
 	if i < len(body) && body[i] == '}' {
-		return 0, 0, false, true
+		return 0, 0, 0, false, true
 	}
 	for i < len(body) {
 		if body[i] != '"' {
-			return 0, 0, false, false
+			return 0, 0, 0, false, false
 		}
+		kStart := i
 		kEnd, escaped := stringEnd(body, i)
 		if kEnd < 0 {
-			return 0, 0, false, false
+			return 0, 0, 0, false, false
 		}
 		name := body[i+1 : kEnd-1]
 		i = skipSpace(body, kEnd)
 		if i >= len(body) || body[i] != ':' {
-			return 0, 0, false, false
+			return 0, 0, 0, false, false
 		}
 		vStart := skipSpace(body, i+1)
 		vEnd := valueEnd(body, vStart)
 		if vEnd < 0 {
-			return 0, 0, false, false
+			return 0, 0, 0, false, false
 		}
 		if string(name) == key {
 			if escaped || found {
 				// Escaped, or said twice — and encoding/json keeps the last
 				// of two, so splicing the first would disagree with every
 				// other reader of this body. Not ours to resolve.
-				return 0, 0, false, false
+				return 0, 0, 0, false, false
 			}
-			start, end, found = vStart, vEnd, true
+			keyStart, start, end, found = kStart, vStart, vEnd, true
 		} else if escaped && len(name) >= len(key) {
 			// Might be the key, spelled with an escape. Not worth decoding.
-			return 0, 0, false, false
+			return 0, 0, 0, false, false
 		}
 		i = skipSpace(body, vEnd)
 		if i >= len(body) {
-			return 0, 0, false, false
+			return 0, 0, 0, false, false
 		}
 		switch body[i] {
 		case ',':
 			i = skipSpace(body, i+1)
 		case '}':
-			return start, end, found, true
+			return keyStart, start, end, found, true
 		default:
-			return 0, 0, false, false
+			return 0, 0, 0, false, false
 		}
 	}
-	return 0, 0, false, false
+	return 0, 0, 0, false, false
+}
+
+// replaceTopLevel returns body with key's value replaced, copying everything
+// else as it is. ok is false when the key is absent or the body is a shape
+// topLevelEntry does not understand.
+func replaceTopLevel(body []byte, key string, value []byte) ([]byte, bool) {
+	_, start, end, found, ok := topLevelEntry(body, key)
+	if !ok || !found {
+		return nil, false
+	}
+	return join(body[:start], value, body[end:]), true
+}
+
+// removeTopLevel returns body without key's entry, taking one neighbouring
+// comma with it so the object stays well formed.
+func removeTopLevel(body []byte, key string) ([]byte, bool) {
+	keyStart, _, end, found, ok := topLevelEntry(body, key)
+	if !ok || !found {
+		return nil, false
+	}
+	// A following comma goes with the entry; failing that, the preceding one.
+	if after := skipSpace(body, end); after < len(body) && body[after] == ',' {
+		return join(body[:keyStart], body[skipSpace(body, after+1):]), true
+	}
+	before := keyStart - 1
+	for before >= 0 && (body[before] == ' ' || body[before] == '\t' || body[before] == '\n' || body[before] == '\r') {
+		before--
+	}
+	if before >= 0 && body[before] == ',' {
+		return join(body[:before], body[end:]), true
+	}
+	return join(body[:keyStart], body[end:]), true // the only entry
+}
+
+// arrayElements returns the [start, end) range of each element of the array
+// occupying b[start:end], or ok false if it is not one.
+func arrayElements(b []byte, start, end int) (spans [][2]int, ok bool) {
+	if start >= end || b[start] != '[' {
+		return nil, false
+	}
+	i := skipSpace(b, start+1)
+	if i < end && b[i] == ']' {
+		return nil, true
+	}
+	for i < end {
+		e := valueEnd(b, i)
+		if e < 0 || e > end {
+			return nil, false
+		}
+		spans = append(spans, [2]int{i, e})
+		i = skipSpace(b, e)
+		if i >= end {
+			return nil, false
+		}
+		switch b[i] {
+		case ',':
+			i = skipSpace(b, i+1)
+		case ']':
+			return spans, true
+		default:
+			return nil, false
+		}
+	}
+	return nil, false
 }
 
 func skipSpace(b []byte, i int) int {

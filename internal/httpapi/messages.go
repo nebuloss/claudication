@@ -86,8 +86,15 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		ex.Headers(r.Header)
 
 		// Peeked from the bytes actually going upstream, which for a
-		// translating protocol are not the ones that arrived.
-		prologue := upstream.Peek(outbound)
+		// translating protocol are not the ones that arrived. A dialect that
+		// sends the caller's bytes as they are has already read it; a second
+		// Peek was one more full parse of every request for nothing.
+		var prologue upstream.Prologue
+		if pe, ok := ex.(interface{ Prologue() upstream.Prologue }); ok {
+			prologue = pe.Prologue()
+		} else {
+			prologue = upstream.Peek(outbound)
+		}
 
 		// A client naming its own conversation is answered with the name it
 		// will display. Tee that one answer so the gateway can read it; every
@@ -97,6 +104,18 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		if conversation != "" && s.titles.capturing() && isClientTitleRequest(outbound) {
 			captured = &captureSink{Sink: sink}
 			sink = captured
+		}
+
+		// The body outlives the relay only if a title may be asked for it.
+		//
+		// Anything still referring to it after Do keeps it in memory for the
+		// whole stream — minutes, for a body that is routinely megabytes, once
+		// per open stream. Titles are off by default and only want a chat that
+		// has no name yet, so for nearly every request this is nil and the
+		// body can go as soon as the upstream has it.
+		var titleBody []byte
+		if conversation != "" && s.titles.on() {
+			titleBody = outbound
 		}
 
 		started := time.Now()
@@ -154,7 +173,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			conversation: conversation,
 			model:        model,
 			accountID:    res.AccountID,
-			body:         outbound,
+			body:         titleBody,
 		})
 
 		attrs := []any{

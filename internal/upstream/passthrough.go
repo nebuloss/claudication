@@ -230,8 +230,15 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 
 	// After attribution, because that reads the prologue peeked from the
 	// original bytes and this one rewrites them.
-	body = NormaliseSystem(body)
-	body = DropEmptyMessageText(body)
+	//
+	// Both splice into the bytes rather than rebuilding them, relying on the
+	// prologue's word that the body parses rather than scanning it again.
+	if mayNeedSystemNormalising(body) {
+		body = normaliseSystem(body, p.parsed)
+	}
+	if bytes.Contains(body, []byte(`"text":""`)) {
+		body = dropEmptyMessageText(body, p.parsed)
+	}
 
 	// Likewise once: tool names the upstream would refuse outright are sent in
 	// the shape it accepts, and names is what puts them back on the way out.
@@ -295,6 +302,9 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 		upstreamReq = upstreamReq.WithContext(attemptCtx)
 
 		resp, err := r.Client.Do(upstreamReq)
+		// Answered, or failed for good: nothing will resend this body now, and
+		// the request outlives the call through resp.Request.
+		upstreamReq.GetBody = nil
 		if err != nil {
 			cancelAttempt()
 			// A cancelled client is not the account's fault.
@@ -397,10 +407,16 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 // build copies the client's request onto the upstream, changing only what has
 // to change: the credential, and the OAuth capability the upstream requires.
 func (r *Relay) build(req *http.Request, url string, body []byte, token string) (*http.Request, error) {
-	out, err := http.NewRequestWithContext(req.Context(), req.Method, url, bytes.NewReader(body))
+	out, err := http.NewRequestWithContext(req.Context(), req.Method, url, &sentBody{b: body})
 	if err != nil {
 		return nil, err
 	}
+	// Set by hand because the reader is not one NewRequest recognises. GetBody
+	// lets the transport resend the body if a connection dies before the
+	// request is answered; Do clears it once the response is in, since it
+	// would otherwise keep the body alive for the whole stream.
+	out.ContentLength = int64(len(body))
+	out.GetBody = func() (io.ReadCloser, error) { return &sentBody{b: body}, nil }
 
 	for name, values := range req.Header {
 		lower := strings.ToLower(name)
@@ -457,6 +473,30 @@ func (r *Relay) build(req *http.Request, url string, body []byte, token string) 
 		out.Header.Set("anthropic-version", "2023-06-01")
 	}
 	return out, nil
+}
+
+// sentBody is a request body that lets go of its bytes once they have been
+// read. A bytes.Reader keeps its slice for as long as it exists, and the
+// request it belongs to exists until the response is closed — so every body
+// stayed in memory for the length of its stream, minutes for megabytes.
+type sentBody struct{ b []byte }
+
+func (s *sentBody) Read(p []byte) (int, error) {
+	if len(s.b) == 0 {
+		s.b = nil
+		return 0, io.EOF
+	}
+	n := copy(p, s.b)
+	s.b = s.b[n:]
+	if len(s.b) == 0 {
+		s.b = nil
+	}
+	return n, nil
+}
+
+func (s *sentBody) Close() error {
+	s.b = nil
+	return nil
 }
 
 func hasBeta(header, want string) bool {

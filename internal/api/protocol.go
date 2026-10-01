@@ -53,7 +53,10 @@ type Protocol interface {
 // them back on the way in, and the map that does it belongs to that one
 // exchange and to nothing else.
 type Exchange interface {
-	// Request is the Anthropic request body to send upstream.
+	// Request is the Anthropic request body to send upstream. Called once:
+	// an exchange lives as long as its stream, so one that keeps the body
+	// after handing it over pins it in memory for the whole answer, and may
+	// drop it instead.
 	Request() []byte
 
 	// Model and Streaming are what the request asked for, read once here for

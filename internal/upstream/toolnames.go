@@ -80,10 +80,28 @@ func accepted(name string) string {
 
 // mayHoldRefusedName is the cheap gate: a body with neither marker in it
 // cannot carry a name this rewrites, and costs one scan to establish.
-// `"mcp_` covers both underscore shapes; the exact test happens per name.
+//
+// It matches the refused shape only — `"mcp_` followed by anything but a
+// second underscore — because the accepted `mcp__` is what every Claude Code
+// request with an MCP server carries. Matching both sent all of those through
+// a full decode of the envelope, the messages and the tools, to change
+// nothing: about three times the body in garbage per request.
 func mayHoldRefusedName(b []byte) bool {
-	return bytes.Contains(b, []byte(`"`+mcpPrefix)) ||
-		bytes.Contains(b, []byte(`"`+refusedTodoWrite+`"`))
+	if bytes.Contains(b, []byte(`"`+refusedTodoWrite+`"`)) {
+		return true
+	}
+	marker := []byte(`"` + mcpPrefix)
+	for i := 0; ; {
+		j := bytes.Index(b[i:], marker)
+		if j < 0 {
+			return false
+		}
+		next := i + j + len(marker)
+		if next < len(b) && b[next] != '_' {
+			return true
+		}
+		i = next
+	}
 }
 
 // RewriteRefusedToolNames sends every tool name the upstream would refuse in a

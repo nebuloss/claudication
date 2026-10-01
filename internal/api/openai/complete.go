@@ -40,6 +40,7 @@ func AnthropicToResponses(body []byte, req Request) ([]byte, error) {
 		return nil, fmt.Errorf("not an Anthropic message: %w", err)
 	}
 
+	req.Body = nil // as in NewStream: only Tools and Model are read back
 	s := &Stream{req: req, model: in.Model}
 	if s.model == "" {
 		s.model = req.Model

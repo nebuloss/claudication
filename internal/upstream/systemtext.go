@@ -52,13 +52,102 @@ const (
 // exception to relaying request bodies untouched: without it these requests do
 // not work at all.
 func NormaliseSystem(body []byte) []byte {
-	// Cheap gate, and it decides which of the two passes has to run.
-	line := bytes.Contains(body, []byte(claudeEnvLine))
-	empty := bytes.Contains(body, []byte(`"text":""`))
-	if !line && !empty {
+	if !mayNeedSystemNormalising(body) {
 		return body
 	}
+	return normaliseSystem(body, json.Valid(body))
+}
 
+// mayNeedSystemNormalising is the cheap gate: one scan for each marker.
+func mayNeedSystemNormalising(body []byte) bool {
+	return bytes.Contains(body, []byte(claudeEnvLine)) || bytes.Contains(body, []byte(`"text":""`))
+}
+
+// normaliseSystem rewrites only the system value and splices it back.
+//
+// opencode puts the environment line in every request, so this ran on all of
+// its traffic — and used to decode the whole envelope and re-encode the whole
+// body, transcript included, to change one line of the system prompt. Now the
+// system value alone is decoded and the body copied once around it. valid
+// says the body is already known to be JSON, which the splice relies on; when
+// it is not known, or the shape is one the splice will not touch, the old
+// whole-envelope path decides.
+func normaliseSystem(body []byte, valid bool) []byte {
+	if !valid {
+		return body // the slow path would refuse it too
+	}
+	_, start, end, found, ok := topLevelEntry(body, "system")
+	if !ok {
+		return normaliseSystemEnvelope(body)
+	}
+	if !found {
+		return body
+	}
+	value, drop, changed := normaliseSystemValue(body[start:end])
+	if !changed {
+		return body
+	}
+	if drop {
+		if out, ok := removeTopLevel(body, "system"); ok {
+			return out
+		}
+		return normaliseSystemEnvelope(body)
+	}
+	return join(body[:start], value, body[end:])
+}
+
+// normaliseSystemValue rewrites a system value: the reworded line in a bare
+// string or in any block, and empty blocks dropped. drop means every block was
+// empty and the field should go.
+func normaliseSystemValue(raw json.RawMessage) (out json.RawMessage, drop, changed bool) {
+	// The Messages API takes either a bare string or a list of blocks. A
+	// string cannot be an empty block, so it only wants the rewording.
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		if !strings.Contains(text, claudeEnvLine) {
+			return raw, false, false
+		}
+		encoded, err := json.Marshal(strings.ReplaceAll(text, claudeEnvLine, claudeEnvRewrite))
+		if err != nil {
+			return raw, false, false
+		}
+		return encoded, false, true
+	}
+
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return raw, false, false // neither shape; leave it for the upstream to reject
+	}
+	kept := make([]json.RawMessage, 0, len(blocks))
+	for _, block := range blocks {
+		out, dropBlock, ok := normaliseBlock(block)
+		if !ok {
+			kept = append(kept, block)
+			continue
+		}
+		changed = true
+		if !dropBlock {
+			kept = append(kept, out)
+		}
+	}
+	if !changed {
+		return raw, false, false
+	}
+	// Every block was empty. Omitting `system` is accepted; an empty array is
+	// not something the upstream promises anything about, so do not send one.
+	if len(kept) == 0 {
+		return nil, true, true
+	}
+	encoded, err := json.Marshal(kept)
+	if err != nil {
+		return raw, false, false
+	}
+	return encoded, false, true
+}
+
+// normaliseSystemEnvelope is the whole-envelope path, for a body whose shape
+// the splice will not touch — a duplicated or escaped key.
+func normaliseSystemEnvelope(body []byte) []byte {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return body
@@ -67,57 +156,15 @@ func NormaliseSystem(body []byte) []byte {
 	if !ok {
 		return body
 	}
-
-	// The Messages API takes either a bare string or a list of blocks. A
-	// string cannot be an empty block, so it only wants the rewording.
-	var text string
-	if err := json.Unmarshal(raw, &text); err == nil {
-		if !strings.Contains(text, claudeEnvLine) {
-			return body
-		}
-		encoded, err := json.Marshal(strings.ReplaceAll(text, claudeEnvLine, claudeEnvRewrite))
-		if err != nil {
-			return body
-		}
-		envelope["system"] = encoded
-		return remarshal(body, envelope)
-	}
-
-	var blocks []json.RawMessage
-	if err := json.Unmarshal(raw, &blocks); err != nil {
-		return body // neither shape; leave it for the upstream to reject
-	}
-
-	kept := make([]json.RawMessage, 0, len(blocks))
-	changed := false
-	for _, block := range blocks {
-		out, drop, ok := normaliseBlock(block)
-		if !ok {
-			kept = append(kept, block)
-			continue
-		}
-		changed = true
-		if drop {
-			continue
-		}
-		kept = append(kept, out)
-	}
+	value, drop, changed := normaliseSystemValue(raw)
 	if !changed {
 		return body
 	}
-
-	// Every block was empty. Omitting `system` is accepted; an empty array is
-	// not something the upstream promises anything about, so do not send one.
-	if len(kept) == 0 {
+	if drop {
 		delete(envelope, "system")
-		return remarshal(body, envelope)
+	} else {
+		envelope["system"] = value
 	}
-
-	encoded, err := json.Marshal(kept)
-	if err != nil {
-		return body
-	}
-	envelope["system"] = encoded
 	return remarshal(body, envelope)
 }
 
@@ -180,7 +227,90 @@ func DropEmptyMessageText(body []byte) []byte {
 	if !bytes.Contains(body, []byte(`"text":""`)) {
 		return body
 	}
+	return dropEmptyMessageText(body, json.Valid(body))
+}
 
+// dropEmptyMessageText rewrites only the messages that carry an empty block
+// and copies everything else — the rest of the transcript included — once,
+// as it is. It used to decode the envelope and the messages array and
+// re-encode both, which is the whole body twice over for one empty block.
+func dropEmptyMessageText(body []byte, valid bool) []byte {
+	if !valid {
+		return body
+	}
+	_, start, end, found, ok := topLevelEntry(body, "messages")
+	if !ok {
+		return dropEmptyMessageTextEnvelope(body)
+	}
+	if !found {
+		return body
+	}
+	spans, ok := arrayElements(body, start, end)
+	if !ok {
+		return body // not an array; the upstream's to reject
+	}
+
+	var out []byte
+	last := 0
+	for _, sp := range spans {
+		message := body[sp[0]:sp[1]]
+		// Skip a message with nothing to drop without decoding it, which is
+		// what keeps this off the critical path of a long transcript.
+		if !bytes.Contains(message, []byte(`"text":""`)) {
+			continue
+		}
+		rewritten, ok := dropEmptyBlocks(message)
+		if !ok {
+			continue
+		}
+		if out == nil {
+			out = make([]byte, 0, len(body))
+		}
+		out = append(out, body[last:sp[0]]...)
+		out = append(out, rewritten...)
+		last = sp[1]
+	}
+	if out == nil {
+		return body
+	}
+	return append(out, body[last:]...)
+}
+
+// dropEmptyBlocks rewrites one message without its empty text blocks. ok is
+// false when there is nothing to drop, or dropping would leave no blocks.
+func dropEmptyBlocks(message []byte) ([]byte, bool) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(message, &fields); err != nil {
+		return nil, false
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(fields["content"], &blocks); err != nil {
+		return nil, false // a bare string carries no blocks
+	}
+	kept := make([]json.RawMessage, 0, len(blocks))
+	for _, block := range blocks {
+		if !emptyTextBlock(block) {
+			kept = append(kept, block)
+		}
+	}
+	if len(kept) == len(blocks) || len(kept) == 0 {
+		return nil, false
+	}
+	encoded, err := json.Marshal(kept)
+	if err != nil {
+		return nil, false
+	}
+	fields["content"] = encoded
+	rewritten, err := json.Marshal(fields)
+	if err != nil {
+		return nil, false
+	}
+	return rewritten, true
+}
+
+// dropEmptyMessageTextEnvelope is the whole-envelope path, for a body whose
+// shape the splice will not touch.
+func dropEmptyMessageTextEnvelope(body []byte) []byte {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return body
@@ -193,49 +323,19 @@ func DropEmptyMessageText(body []byte) []byte {
 	if err := json.Unmarshal(raw, &messages); err != nil {
 		return body
 	}
-
 	changed := false
 	for i, message := range messages {
-		// Skip a message with nothing to drop without decoding it, which is
-		// what keeps this off the critical path of a long transcript.
 		if !bytes.Contains(message, []byte(`"text":""`)) {
 			continue
 		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(message, &fields); err != nil {
-			continue
+		if rewritten, ok := dropEmptyBlocks(message); ok {
+			messages[i] = rewritten
+			changed = true
 		}
-		var blocks []json.RawMessage
-		if err := json.Unmarshal(fields["content"], &blocks); err != nil {
-			continue // a bare string carries no blocks
-		}
-
-		kept := make([]json.RawMessage, 0, len(blocks))
-		for _, block := range blocks {
-			if !emptyTextBlock(block) {
-				kept = append(kept, block)
-			}
-		}
-		if len(kept) == len(blocks) || len(kept) == 0 {
-			continue
-		}
-
-		encoded, err := json.Marshal(kept)
-		if err != nil {
-			continue
-		}
-		fields["content"] = encoded
-		rewritten, err := json.Marshal(fields)
-		if err != nil {
-			continue
-		}
-		messages[i] = rewritten
-		changed = true
 	}
 	if !changed {
 		return body
 	}
-
 	encoded, err := json.Marshal(messages)
 	if err != nil {
 		return body
