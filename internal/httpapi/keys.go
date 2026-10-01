@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"claudication/internal/service/limits"
 	"claudication/internal/store"
 )
 
@@ -83,7 +84,7 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 	// lookup each. Also a nicety: a key still lists without it.
 	var spend map[string]store.UsageBucket
 	if s.cfg.Usage.Enabled() {
-		if spend, err = s.store.KeyUsage(r.Context(), time.Now().Add(-BudgetWindow)); err != nil {
+		if spend, err = s.store.KeyUsage(r.Context(), time.Now().Add(-limits.BudgetWindow)); err != nil {
 			s.log.Warn("key budget usage unavailable", "err", err)
 			spend = map[string]store.UsageBucket{}
 		}
@@ -103,7 +104,7 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 		// So the UI can name the two defaults rather than showing a bare 0,
 		// which means different things in the two columns: no ceiling for a
 		// budget, the server's own limit for a rate.
-		"budget_hours": int(BudgetWindow.Hours()),
+		"budget_hours": int(limits.BudgetWindow.Hours()),
 		"default_rpm":  s.cfg.Limits.RequestsPerMinute,
 	})
 }
@@ -195,7 +196,7 @@ func (s *Server) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	// Drop the cached spend so a raised or lowered budget takes effect on the
 	// next request rather than up to a refresh interval later — an operator
 	// raising a budget to unblock a client should not have to wait.
-	s.budgets.forget(id)
+	s.budgets.Forget(id)
 	s.log.Info("api key updated", "id", id, "name", name,
 		"rpm_limit", limits.RPMLimit, "rate_period", limits.Period().String(),
 		"token_budget", limits.TokenBudget, "ip", clientIPFrom(r.Context()))
@@ -225,7 +226,7 @@ func (s *Server) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "could not delete the key")
 		return
 	}
-	s.budgets.forget(id)
+	s.budgets.Forget(id)
 	s.log.Info("api key deleted", "id", id, "ip", clientIPFrom(r.Context()))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

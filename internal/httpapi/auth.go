@@ -82,8 +82,8 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 		// Peeking first still keeps an unauthenticated flood off the database:
 		// each failure charges the bucket, so once an IP has spent its budget
 		// the peek refuses it before the lookup.
-		anon := func() bool { return s.anonLimiter.allowPerMinute(ip, s.cfg.Limits.AnonPerMinute) }
-		if !s.anonLimiter.peek(ip, s.cfg.Limits.AnonPerMinute) {
+		anon := func() bool { return s.anonLimiter.AllowPerMinute(ip, s.cfg.Limits.AnonPerMinute) }
+		if !s.anonLimiter.Peek(ip, s.cfg.Limits.AnonPerMinute) {
 			writeError(w, http.StatusTooManyRequests, "rate_limit", "too many requests")
 			return
 		}
@@ -114,7 +114,7 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 		if count == 0 {
 			count, period = s.cfg.Limits.RequestsPerMinute, time.Minute
 		}
-		if !s.keyLimiter.allow(key.ID, count, period) {
+		if !s.keyLimiter.Allow(key.ID, count, period) {
 			// A key that exists and is going too fast: recorded under its own
 			// name, because this one is a client to fix rather than a stranger.
 			s.recordUsage(store.UsageEvent{

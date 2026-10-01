@@ -42,7 +42,7 @@ func (s *Server) recordUsage(e store.UsageEvent, budget int64) {
 	// taken half a minute ago. Only for a key that has a ceiling: for every
 	// other key there is nothing to keep up with.
 	if budget > 0 && e.KeyID != "" {
-		s.budgets.add(e.KeyID, e.Tokens())
+		s.budgets.Add(e.KeyID, e.Tokens())
 	}
 }
 

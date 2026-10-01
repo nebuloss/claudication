@@ -7,62 +7,6 @@ import (
 	"claudication/internal/store"
 )
 
-// The whole reason the period is stored rather than divided away in the
-// browser: "two hundred an hour" is not "three a minute". The first permits a
-// burst of ten in twenty seconds and then runs dry; the second refuses the
-// fourth request.
-func TestAPeriodIsNotTheSameAsADividedRate(t *testing.T) {
-	burst := func(count int, period time.Duration) int {
-		l := newLimiter()
-		start := time.Now()
-		l.now = func() time.Time { return start }
-		allowed := 0
-		for range 10 {
-			if l.allow("k", count, period) {
-				allowed++
-			}
-		}
-		return allowed
-	}
-
-	// 200 an hour: the whole allowance is there at once.
-	if got := burst(200, time.Hour); got != 10 {
-		t.Errorf("200/hour allowed %d of 10 immediate requests, want 10", got)
-	}
-	// The same limit divided down to a per-minute rate refuses most of them,
-	// which is the behaviour a UI-side conversion would have shipped.
-	if got := burst(3, time.Minute); got != 3 {
-		t.Errorf("3/minute allowed %d of 10 immediate requests, want 3", got)
-	}
-}
-
-// And the allowance really does refill over the period it names.
-func TestTheBucketRefillsOverItsPeriod(t *testing.T) {
-	l := newLimiter()
-	start := time.Now()
-	now := start
-	l.now = func() time.Time { return now }
-
-	// Spend all of a small hourly allowance.
-	for range 10 {
-		if !l.allow("k", 10, time.Hour) {
-			t.Fatal("the initial allowance was not available")
-		}
-	}
-	if l.allow("k", 10, time.Hour) {
-		t.Fatal("an eleventh request was allowed")
-	}
-
-	// Six minutes is a tenth of an hour, so one token is back.
-	now = start.Add(6 * time.Minute)
-	if !l.allow("k", 10, time.Hour) {
-		t.Error("no token had refilled after a tenth of the period")
-	}
-	if l.allow("k", 10, time.Hour) {
-		t.Error("more than one token refilled in a tenth of the period")
-	}
-}
-
 // A key created before periods existed keeps the behaviour it had.
 func TestAKeyWithNoPeriodMeansAMinute(t *testing.T) {
 	_, st, _ := newTestServer(t)

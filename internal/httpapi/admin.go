@@ -287,7 +287,7 @@ func (s *Server) tokenLogin(w http.ResponseWriter, r *http.Request, redirectTo s
 	}
 
 	ip := clientIPFrom(r.Context())
-	if !s.anonLimiter.allowPerMinute("token-login:"+ip, s.cfg.Limits.AnonPerMinute) {
+	if !s.anonLimiter.AllowPerMinute("token-login:"+ip, s.cfg.Limits.AnonPerMinute) {
 		writeError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
 		return true
 	}

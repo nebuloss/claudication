@@ -25,6 +25,7 @@ import (
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	"claudication/internal/secret"
+	"claudication/internal/service/limits"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
@@ -33,9 +34,9 @@ type Server struct {
 	cfg            config.Config
 	log            *slog.Logger
 	store          *store.Store
-	keyLimiter     *limiter
-	anonLimiter    *limiter
-	budgets        *budgets
+	keyLimiter     *limits.Limiter
+	anonLimiter    *limits.Limiter
+	budgets        *limits.Budgets
 	trustedProxies []*net.IPNet
 	httpServer     *http.Server
 	adminServer    *http.Server
@@ -111,9 +112,9 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		cfg:            cfg,
 		log:            log,
 		store:          st,
-		keyLimiter:     newLimiter(),
-		anonLimiter:    newLimiter(),
-		budgets:        newBudgets(),
+		keyLimiter:     limits.NewLimiter(),
+		anonLimiter:    limits.NewLimiter(),
+		budgets:        limits.NewBudgets(st),
 		trustedProxies: trusted,
 		stopSweeper:    make(chan struct{}),
 		sealer:         sealer,
@@ -583,9 +584,9 @@ func (s *Server) Run(ctx context.Context) error {
 	s.addr = ln.Addr().String()
 	s.mu.Unlock()
 
-	go s.keyLimiter.runSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
-	go s.anonLimiter.runSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
-	go s.budgets.runSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
+	go s.keyLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
+	go s.anonLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
+	go s.budgets.RunSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
 	go s.runUsagePruner()
 	go s.runUsagePoller(ctx)
 	go s.trimmer.Run(s.stopSweeper, 5*time.Second)

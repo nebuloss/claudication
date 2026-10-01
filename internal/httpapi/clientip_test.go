@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"claudication/internal/service/limits"
 )
 
 func mustTrust(t *testing.T, entries ...string) []*net.IPNet {
@@ -153,14 +155,14 @@ func TestTheAnonymousBudgetIsPerClientBehindAProxy(t *testing.T) {
 		}
 
 		// And the budget actually follows the distinction.
-		l := newLimiter()
+		l := limits.NewLimiter()
 		for range 3 {
-			l.allowPerMinute("198.51.100.7", 3)
+			l.AllowPerMinute("198.51.100.7", 3)
 		}
-		if l.allowPerMinute("198.51.100.7", 3) {
+		if l.AllowPerMinute("198.51.100.7", 3) {
 			t.Error("the noisy client was not throttled")
 		}
-		if !l.allowPerMinute("198.51.100.8", 3) {
+		if !l.AllowPerMinute("198.51.100.8", 3) {
 			t.Error("a quiet client was throttled by its neighbour's traffic")
 		}
 	})

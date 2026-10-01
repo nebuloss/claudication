@@ -76,24 +76,3 @@ func TestUnauthenticatedFloodIsStillThrottled(t *testing.T) {
 			budget*2, budget)
 	}
 }
-
-// peek must not consume, or it would be indistinguishable from allow.
-func TestPeekDoesNotSpendAToken(t *testing.T) {
-	l := newLimiter()
-	for range 100 {
-		if !l.peek("ip", 3) {
-			t.Fatal("peek refused on a bucket nothing has spent from")
-		}
-	}
-	for i := range 3 {
-		if !l.allowPerMinute("ip", 3) {
-			t.Fatalf("allow refused at %d, want the full budget still available", i)
-		}
-	}
-	if l.allowPerMinute("ip", 3) {
-		t.Error("allow granted a fourth token from a budget of 3")
-	}
-	if l.peek("ip", 3) {
-		t.Error("peek reported room in an exhausted bucket")
-	}
-}

@@ -1,16 +1,16 @@
-package httpapi
+package limits
 
 import (
 	"sync"
 	"time"
 )
 
-// limiter is a token bucket keyed by an arbitrary string.
+// Limiter is a token bucket keyed by an arbitrary string.
 //
 // Unlike auth2api's fixed 60/min-per-IP counter, the primary key here is the
 // API key, so one noisy client cannot throttle everyone sharing an egress IP,
 // and the per-request budget can differ per credential.
-type limiter struct {
+type Limiter struct {
 	mu      sync.Mutex
 	buckets map[string]*bucket
 	now     func() time.Time // injectable for tests
@@ -21,22 +21,22 @@ type bucket struct {
 	last   time.Time
 }
 
-func newLimiter() *limiter {
-	return &limiter{buckets: make(map[string]*bucket), now: time.Now}
+func NewLimiter() *Limiter {
+	return &Limiter{buckets: make(map[string]*bucket), now: time.Now}
 }
 
-// allow consumes one token for key, refilling at count tokens per period.
+// Allow consumes one token for key, refilling at count tokens per period.
 // A count of zero or less disables limiting for that caller.
-func (l *limiter) allow(key string, count int, period time.Duration) bool {
+func (l *Limiter) Allow(key string, count int, period time.Duration) bool {
 	return l.take(key, count, period, true)
 }
 
-// allowPerMinute is the common case, and what the anonymous budget uses.
-func (l *limiter) allowPerMinute(key string, perMinute int) bool {
-	return l.allow(key, perMinute, time.Minute)
+// AllowPerMinute is the common case, and what the anonymous budget uses.
+func (l *Limiter) AllowPerMinute(key string, perMinute int) bool {
+	return l.Allow(key, perMinute, time.Minute)
 }
 
-// peek reports whether a token is available without spending one.
+// Peek reports whether a token is available without spending one.
 //
 // This exists so a check can happen before the work that decides whether the
 // caller should be charged at all. The anonymous budget guards unauthenticated
@@ -44,7 +44,7 @@ func (l *limiter) allowPerMinute(key string, perMinute int) bool {
 // database lookup — so peek runs first (an IP that has already burned its
 // budget never reaches the database) and allow runs afterwards, on the requests
 // that turned out to be anonymous.
-func (l *limiter) peek(key string, perMinute int) bool {
+func (l *Limiter) Peek(key string, perMinute int) bool {
 	return l.take(key, perMinute, time.Minute, false)
 }
 
@@ -56,7 +56,7 @@ func (l *limiter) peek(key string, perMinute int) bool {
 // of ten in twenty seconds, which is exactly what two hundred an hour is
 // supposed to permit; the bucket already had a rate and a burst, and one number
 // conflated them.
-func (l *limiter) take(key string, count int, period time.Duration, spend bool) bool {
+func (l *Limiter) take(key string, count int, period time.Duration, spend bool) bool {
 	if count <= 0 {
 		return true
 	}
@@ -95,9 +95,9 @@ func (l *limiter) take(key string, count int, period time.Duration, spend bool) 
 	return true
 }
 
-// sweep drops buckets untouched for longer than idle, so the map cannot grow
+// Sweep drops buckets untouched for longer than idle, so the map cannot grow
 // without bound across a long-running process.
-func (l *limiter) sweep(idle time.Duration) {
+func (l *Limiter) Sweep(idle time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	cutoff := l.now().Add(-idle)
@@ -108,7 +108,7 @@ func (l *limiter) sweep(idle time.Duration) {
 	}
 }
 
-func (l *limiter) runSweeper(stop <-chan struct{}, every, idle time.Duration) {
+func (l *Limiter) RunSweeper(stop <-chan struct{}, every, idle time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
@@ -116,7 +116,7 @@ func (l *limiter) runSweeper(stop <-chan struct{}, every, idle time.Duration) {
 		case <-stop:
 			return
 		case <-t.C:
-			l.sweep(idle)
+			l.Sweep(idle)
 		}
 	}
 }
