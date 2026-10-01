@@ -764,3 +764,27 @@ func TestCompleteAnswerConverts(t *testing.T) {
 		t.Errorf("total_tokens = %d, want input+output with cache folded in", out.Usage.TotalTokens)
 	}
 }
+
+// message_delta can restate input_tokens. That figure is the uncached part
+// only, so it must not replace the total that already folds the cache in.
+func TestMessageDeltaInputKeepsTheCachedPart(t *testing.T) {
+	sse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_01abc","model":"claude-sonnet-5","usage":{"input_tokens":10,"cache_read_input_tokens":500,"cache_creation_input_tokens":20,"output_tokens":1}}}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":12,"output_tokens":7}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+	fs, _ := run(t, Request{Model: "claude-sonnet-5"}, sse)
+	usage := last(fs).data["response"].(map[string]any)["usage"].(map[string]any)
+	if got := usage["input_tokens"].(float64); got != 532 {
+		t.Errorf("input_tokens = %v, want 532: the restated uncached 12 plus 500 read and 20 written", got)
+	}
+	cached := usage["input_tokens_details"].(map[string]any)["cached_tokens"].(float64)
+	if cached != 500 {
+		t.Errorf("cached_tokens = %v, want 500", cached)
+	}
+}

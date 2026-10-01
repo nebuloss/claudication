@@ -515,14 +515,30 @@ func (p *Pool) ReportFailure(id string, kind FailureKind, detail string) {
 
 // RetryAfter reports how long until some account frees up, for a Retry-After
 // header when everything is cooling down.
-func (p *Pool) RetryAfter() time.Duration {
+//
+// Only the accounts Acquire would offer count. The cooldowns live in memory
+// and outlive the accounts they belong to, so reading them alone let a paused
+// or deleted account whose cooldown had run out answer "free now" — and the
+// client was told to retry at once into the same refusal.
+func (p *Pool) RetryAfter(ctx context.Context, provider string) time.Duration {
+	accounts, err := p.store.ListAccounts(ctx)
+	if err != nil {
+		return 0
+	}
+	return p.soonest(candidatesFor(accounts, provider, nil, p.now()))
+}
+
+// soonest is how long until the first of candidates is out of its cooldown,
+// or 0 when one already is.
+func (p *Pool) soonest(candidates []store.Account) time.Duration {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	now := p.now()
 	var soonest time.Duration
-	for _, h := range p.states {
-		if !h.cooldownUntil.After(now) {
+	for _, a := range candidates {
+		h, ok := p.states[a.ID]
+		if !ok || !h.cooldownUntil.After(now) {
 			return 0
 		}
 		d := h.cooldownUntil.Sub(now)

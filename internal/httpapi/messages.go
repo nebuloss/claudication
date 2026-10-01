@@ -246,7 +246,7 @@ func (s *Server) relayFailure(w http.ResponseWriter, r *http.Request, p api.Prot
 		p.WriteError(w, http.StatusServiceUnavailable, "no_accounts",
 			"no Claude account is connected; add one in the admin UI")
 	case errors.Is(err, pool.ErrAllCoolingUp):
-		if wait := s.pool.RetryAfter(); wait > 0 {
+		if wait := s.pool.RetryAfter(r.Context(), "anthropic"); wait > 0 {
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		}
 		p.WriteError(w, http.StatusServiceUnavailable, "overloaded_error",

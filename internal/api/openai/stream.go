@@ -60,6 +60,9 @@ type Stream struct {
 
 	usage      responsesUsage
 	stopReason string
+	// The parts Anthropic reports input in, kept apart so a later event that
+	// restates one of them can update it without losing the others.
+	uncached, cacheWrite int
 	// finished records that a terminal event has gone out, so a later error
 	// cannot send a second one. Codex reads the first and a second would be a
 	// frame arriving after the turn it belongs to.
@@ -226,8 +229,10 @@ type anthropicEvent struct {
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
 	Usage struct {
-		OutputTokens int `json:"output_tokens"`
-		InputTokens  int `json:"input_tokens"`
+		OutputTokens       int `json:"output_tokens"`
+		InputTokens        int `json:"input_tokens"`
+		CacheReadInput     int `json:"cache_read_input_tokens"`
+		CacheCreationInput int `json:"cache_creation_input_tokens"`
 	} `json:"usage"`
 	Error struct {
 		Type    string `json:"type"`
@@ -257,8 +262,7 @@ func (s *Stream) handle(event string, data []byte) error {
 			s.model = e.Message.Model
 		}
 		u := e.Message.Usage
-		s.usage.InputTokens = u.InputTokens + u.CacheReadInput + u.CacheCreationInput
-		s.usage.InputTokensDetails.CachedTokens = u.CacheReadInput
+		s.setInput(u.InputTokens, u.CacheReadInput, u.CacheCreationInput)
 		s.usage.OutputTokens = u.OutputTokens
 		return s.emit(evCreated, map[string]any{
 			"type":     evCreated,
@@ -290,9 +294,22 @@ func (s *Stream) handle(event string, data []byte) error {
 		if e.Usage.OutputTokens > 0 {
 			s.usage.OutputTokens = e.Usage.OutputTokens
 		}
-		if e.Usage.InputTokens > 0 {
-			s.usage.InputTokens = e.Usage.InputTokens
+		// input_tokens here is the uncached part, as on message_start, not
+		// the total Codex is given. Writing it over the total reported a turn
+		// served mostly from cache as nearly free; only the parts this event
+		// restates change.
+		u := e.Usage
+		uncached, read, write := s.uncached, s.usage.InputTokensDetails.CachedTokens, s.cacheWrite
+		if u.InputTokens > 0 {
+			uncached = u.InputTokens
 		}
+		if u.CacheReadInput > 0 {
+			read = u.CacheReadInput
+		}
+		if u.CacheCreationInput > 0 {
+			write = u.CacheCreationInput
+		}
+		s.setInput(uncached, read, write)
 		return nil
 
 	case "message_stop":
@@ -305,6 +322,15 @@ func (s *Stream) handle(event string, data []byte) error {
 		return s.Fail(code, msg)
 	}
 	return nil
+}
+
+// setInput records input usage from Anthropic's parts. OpenAI's input_tokens
+// is the whole prompt, cached or not, with the cache reads called out beside
+// it.
+func (s *Stream) setInput(uncached, cacheRead, cacheWrite int) {
+	s.uncached, s.cacheWrite = uncached, cacheWrite
+	s.usage.InputTokens = uncached + cacheRead + cacheWrite
+	s.usage.InputTokensDetails.CachedTokens = cacheRead
 }
 
 func (s *Stream) startBlock(e anthropicEvent) error {

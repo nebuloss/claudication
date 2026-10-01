@@ -200,18 +200,41 @@ func TestRetryAfter(t *testing.T) {
 	p := newTestPool()
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	p.now = func() time.Time { return base }
+	all := []store.Account{account("a", 0, ""), account("b", 0, ""), account("c", 0, "")}
 
-	if got := p.RetryAfter(); got != 0 {
-		t.Errorf("with no accounts known, RetryAfter = %v, want 0", got)
+	if got := p.soonest(nil); got != 0 {
+		t.Errorf("with no accounts, RetryAfter = %v, want 0", got)
 	}
 	p.coolDown("a", 3*time.Minute)
 	p.coolDown("b", 40*time.Second)
-	if got := p.RetryAfter(); got != 40*time.Second {
+	p.coolDown("c", time.Minute)
+	if got := p.soonest(all); got != 40*time.Second {
 		t.Errorf("RetryAfter = %v, want the soonest, 40s", got)
 	}
 	p.coolDown("c", 0)
-	if got := p.RetryAfter(); got != 0 {
+	if got := p.soonest(all); got != 0 {
 		t.Errorf("with one account free, RetryAfter = %v, want 0", got)
+	}
+}
+
+// A paused account's expired cooldown is not a free account: it cannot serve,
+// so it must not make Retry-After say "now".
+func TestRetryAfterIgnoresAccountsThatCannotServe(t *testing.T) {
+	p := newTestPool()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	p.now = func() time.Time { return base }
+
+	paused := account("paused", 0, "")
+	paused.Provider = "anthropic"
+	paused.DisabledAt = &base
+	live := account("live", 0, "")
+	live.Provider = "anthropic"
+	p.coolDown("paused", 0)
+	p.coolDown("live", 40*time.Second)
+
+	candidates := candidatesFor([]store.Account{paused, live}, "anthropic", nil, base)
+	if got := p.soonest(candidates); got != 40*time.Second {
+		t.Errorf("RetryAfter = %v, want 40s from the one account that can serve", got)
 	}
 }
 

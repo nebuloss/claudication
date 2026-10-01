@@ -220,6 +220,14 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 				replay(w, last, &res)
 				return res
 			}
+			// Likewise a network failure: that is what went wrong, and the
+			// pool having nothing left to retry on is only its consequence.
+			// Answering "every account is rate limited" for an unreachable
+			// upstream sent the operator looking at quotas, and dropped the
+			// real error from the log line.
+			if res.Err != nil && errors.Is(err, pool.ErrAllCoolingUp) {
+				return res
+			}
 			res.Err = err
 			return res
 		}
