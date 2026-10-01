@@ -56,7 +56,7 @@ func writeError(w http.ResponseWriter, status int, kind, msg string) {
 // shows up as rejections up to the per-IP cap and then as nothing, which is
 // what the cap means; the access log still records every one.
 func (s *Server) recordRejected(r *http.Request, ip string, status int, reason string) {
-	s.recordUsage(store.UsageEvent{
+	s.recorder.Record(store.UsageEvent{
 		At:       time.Now(),
 		Path:     r.URL.Path,
 		Status:   status,
@@ -117,7 +117,7 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 		if !s.keyLimiter.Allow(key.ID, count, period) {
 			// A key that exists and is going too fast: recorded under its own
 			// name, because this one is a client to fix rather than a stranger.
-			s.recordUsage(store.UsageEvent{
+			s.recorder.Record(store.UsageEvent{
 				At: time.Now(), KeyID: key.ID, KeyName: key.Name,
 				Path: r.URL.Path, Status: http.StatusTooManyRequests,
 				Client: api.ClientName(r.UserAgent()), IP: ip, Rejected: true,

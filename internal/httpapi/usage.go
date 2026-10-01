@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,83 +11,6 @@ import (
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
-
-// recordUsage files one relayed request.
-//
-// Deliberately best-effort and never on the caller's critical path: this is
-// bookkeeping, and a write failure should cost a row in a chart, not the
-// request. It runs with its own context because the request's is cancelled the
-// moment the client hangs up — which is exactly when a failed stream is most
-// worth recording.
-// budget is the key's ceiling, so an unlimited key can skip the tracker
-// entirely rather than taking its lock to discover it has nothing to update.
-func (s *Server) recordUsage(e store.UsageEvent, budget int64) {
-	if !s.cfg.Usage.Enabled() {
-		return
-	}
-	// Classified here rather than at each call site: every event goes through
-	// this function, and one place deciding what a failure is called is what
-	// keeps the column, its menu and its filter saying the same thing.
-	e.ErrorCode = anthropic.ErrorCode(e.Status, e.Error)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := s.store.RecordUsage(ctx, e); err != nil {
-		s.log.Warn("could not record usage", "err", err)
-		return
-	}
-	// Credit the budget tracker with what this cost, so the cached figure keeps
-	// up between refreshes rather than letting a burst through on a reading
-	// taken half a minute ago. Only for a key that has a ceiling: for every
-	// other key there is nothing to keep up with.
-	if budget > 0 && e.KeyID != "" {
-		s.budgets.Add(e.KeyID, e.Tokens())
-	}
-}
-
-// runUsagePruner keeps the event table bounded. Retention is the only thing
-// that does — an event table grows for as long as the gateway is used.
-func (s *Server) runUsagePruner() {
-	if !s.cfg.Usage.Enabled() {
-		return
-	}
-	prune := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		n, err := s.store.PruneUsage(ctx, s.cfg.Usage.Retention())
-		if err != nil {
-			s.log.Warn("could not prune usage", "err", err)
-			return
-		}
-		if n > 0 {
-			s.log.Info("pruned usage events", "rows", n,
-				"older_than_days", s.cfg.Usage.RetentionDays)
-		}
-		// Titles are keyed on conversations that only exist as events, so they
-		// are pruned here rather than on a schedule of their own: run
-		// separately they would drift, and a title outliving its events is a
-		// name for something nobody can look at.
-		if n, err := s.store.PruneChatTitles(ctx); err != nil {
-			s.log.Warn("could not prune chat titles", "err", err)
-		} else if n > 0 {
-			s.log.Info("pruned chat titles", "rows", n)
-		}
-	}
-
-	// Once at startup, because a gateway that was down for a month should not
-	// wait another day to catch up, then daily.
-	prune()
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-s.stopSweeper:
-			return
-		case <-ticker.C:
-			prune()
-		}
-	}
-}
 
 func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Usage.Enabled() {

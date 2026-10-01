@@ -134,7 +134,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		if res.Err != nil && res.Status == 0 {
 			// Nothing reached the client, but something was attempted and it
 			// is the failures that are worth having a record of.
-			s.recordUsage(store.UsageEvent{
+			s.recorder.Record(store.UsageEvent{
 				At: started, KeyID: key.ID, KeyName: key.Name,
 				AccountID: res.AccountID, AccountEmail: res.AccountEmail,
 				Model: model, Path: route, Status: 0, Streaming: streaming,
@@ -145,7 +145,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			return
 		}
 
-		s.recordUsage(store.UsageEvent{
+		s.recorder.Record(store.UsageEvent{
 			At: started, KeyID: key.ID, KeyName: key.Name,
 			AccountID: res.AccountID, AccountEmail: res.AccountEmail,
 			Model: model, Path: route, Status: res.Status, Streaming: streaming,

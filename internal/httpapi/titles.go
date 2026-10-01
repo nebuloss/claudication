@@ -533,7 +533,7 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	// Recorded like any other request, under the gateway's own key and against
 	// the chat it names, so the cost of naming a conversation is part of what
 	// that conversation cost rather than an unexplained line item.
-	t.server.recordUsage(store.UsageEvent{
+	t.server.recorder.Record(store.UsageEvent{
 		At: started, KeyID: keyID, KeyName: keyName,
 		AccountID: res.AccountID, AccountEmail: res.AccountEmail,
 		Model: ev.model, Path: store.InternalPath,

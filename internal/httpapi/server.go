@@ -27,6 +27,7 @@ import (
 	"claudication/internal/secret"
 	"claudication/internal/service/limits"
 	"claudication/internal/service/settings"
+	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
@@ -38,6 +39,7 @@ type Server struct {
 	keyLimiter     *limits.Limiter
 	anonLimiter    *limits.Limiter
 	budgets        *limits.Budgets
+	recorder       *usagesvc.Recorder
 	trustedProxies []*net.IPNet
 	httpServer     *http.Server
 	adminServer    *http.Server
@@ -168,6 +170,15 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		log.Warn("could not read the docs switch; serving the page anyway", "err", err)
 	}
 
+	// What each request cost, classified in the provider's vocabulary and
+	// credited to the key's budget.
+	s.recorder = &usagesvc.Recorder{
+		Store:     st,
+		Retention: cfg.Usage.Retention(),
+		Classify:  anthropic.ErrorCode,
+		Budgets:   s.budgets,
+		Log:       log,
+	}
 	// Anthropic is the only provider. It is named here, in the composition
 	// root, and nowhere below: the pool is handed its token refresh and the
 	// relay its wire, and neither knows whose they are.
@@ -588,7 +599,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.keyLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
 	go s.anonLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
 	go s.budgets.RunSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
-	go s.runUsagePruner()
+	go s.recorder.RunPruner(s.stopSweeper, 24*time.Hour)
 	go s.runUsagePoller(ctx)
 	go s.trimmer.Run(s.stopSweeper, 5*time.Second)
 
