@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"claudication/internal/service/titles"
 )
 
 // The chat screens.
@@ -95,13 +97,13 @@ func (s *Server) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
 		value *bool
 		what  string
 	}{
-		{titleSetting, body.Enabled, "generate"},
-		{captureSetting, body.Capture, "capture"},
+		{titles.SettingGenerate, body.Enabled, "generate"},
+		{titles.SettingCapture, body.Capture, "capture"},
 	} {
 		if change.value == nil {
 			continue
 		}
-		if err := s.titles.set(r.Context(), change.key, *change.value); err != nil {
+		if err := s.titles.Set(r.Context(), change.key, *change.value); err != nil {
 			s.log.Error("could not store the chat-title switch", "which", change.what, "err", err)
 			writeError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
 			return
@@ -110,8 +112,8 @@ func (s *Server) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"chat_titles":         s.titles.on(),
-		"chat_titles_capture": s.titles.capturing(),
+		"chat_titles":         s.titles.On(),
+		"chat_titles_capture": s.titles.Capturing(),
 	})
 }
 

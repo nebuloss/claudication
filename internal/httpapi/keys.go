@@ -54,7 +54,7 @@ func (s *Server) toKeyJSON(k store.APIKey, use store.UsageBucket) keyJSON {
 		RPMLimit:    k.RPMLimit,
 		RatePeriodS: int(k.Period().Seconds()),
 		TokenBudget: k.TokenBudget,
-		Managed:     s.titles.isOwnKey(k.ID),
+		Managed:     s.titles.IsOwnKey(k.ID),
 		Requests:    use.Requests,
 		Tokens:      use.InputTokens + use.OutputTokens + use.CacheTokens,
 	}

@@ -1,9 +1,16 @@
-package httpapi
+// Package titles names chats: reading the name a client asked a model for as
+// it goes past, and — when switched on — asking for one where the client never
+// does. See the long comment below for what was measured before either was
+// built, and why the request it makes is the caller's own with one message
+// appended.
+package titles
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +21,7 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/relay"
 	"claudication/internal/request"
+	"claudication/internal/service/settings"
 	"claudication/internal/store"
 )
 
@@ -89,14 +97,14 @@ var titleMarkers = []string{
 // misbehaving upstream from streaming into memory.
 const maxCapturedTitleAnswer = 64 << 10
 
-// isClientTitleRequest reports whether this request is a client naming its own
+// IsClientTitleRequest reports whether this request is a client naming its own
 // conversation.
 //
 // Two conditions, both required. No tools, because an agent turn always binds
 // them and a title call never does — that alone excludes nearly everything.
 // And a marker in the system text, which is what distinguishes a title request
 // from any other tool-less turn.
-func isClientTitleRequest(body []byte) bool {
+func IsClientTitleRequest(body []byte) bool {
 	var envelope struct {
 		Tools  []json.RawMessage `json:"tools"`
 		System json.RawMessage   `json:"system"`
@@ -179,32 +187,32 @@ func titleFromRelayedAnswer(body []byte) string {
 	return cleanTitle(text.String())
 }
 
-// captureSink tees a relayed answer into a buffer on its way to the client.
+// CaptureSink tees a relayed answer into a buffer on its way to the client.
 //
 // It never gates or alters the write: the client's bytes go out first and the
 // copy is incidental, so a chat name can never be the reason a response was
 // slow or truncated.
-type captureSink struct {
+type CaptureSink struct {
 	api.Sink
-	seen bytes.Buffer
+	Seen bytes.Buffer
 }
 
-func (c *captureSink) Write(p []byte) (int, error) {
+func (c *CaptureSink) Write(p []byte) (int, error) {
 	n, err := c.Sink.Write(p)
-	if n > 0 && c.seen.Len() < maxCapturedTitleAnswer {
-		c.seen.Write(p[:n])
+	if n > 0 && c.Seen.Len() < maxCapturedTitleAnswer {
+		c.Seen.Write(p[:n])
 	}
 	return n, err
 }
 
-// titleSetting is the settings row holding the switch.
-const titleSetting = "chat.titles.enabled"
+// SettingGenerate is the settings row holding the switch.
+const SettingGenerate = "chat.titles.enabled"
 
-// captureSetting is the switch for reading names clients generate themselves.
+// SettingCapture is the switch for reading names clients generate themselves.
 // Separate from generation because they are different bargains: this one costs
 // nothing and only notices an answer already going past, while generation
 // spends the operator's subscription.
-const captureSetting = "chat.titles.capture"
+const SettingCapture = "chat.titles.capture"
 
 // titleKeySetting remembers which API key the gateway issued itself.
 const titleKeySetting = "chat.titles.key"
@@ -242,13 +250,35 @@ someone scanning a list of conversations later. At most 6 words. No quotes, no
 punctuation at the end, no preamble, no explanation. Just the title.
 </system-reminder>`
 
-// titler mints chat titles.
-type titler struct {
-	server *Server
+// Store is what the titler keeps and reads. The database is one.
+type Store interface {
+	settings.Store
+	CreateKey(ctx context.Context, name string, limits store.KeyLimits) (store.APIKey, string, error)
+	ListKeys(ctx context.Context) ([]store.APIKey, error)
+	KeySpend(ctx context.Context, keyID string, since time.Time) (int64, error)
+	ListAccounts(ctx context.Context) ([]store.Account, error)
+	ChatTitle(ctx context.Context, id string) (string, bool, error)
+	SetChatTitle(ctx context.Context, id, title, model string) error
+}
+
+// Deps is what the titler is given.
+type Deps struct {
+	Store Store
+	// Relay is copied and pinned to one account for each title request.
+	Relay *relay.Relay
+	// Record files the request a title costs, like any other.
+	Record func(e store.UsageEvent, budget int64)
+	Log    *slog.Logger
+}
+
+// Titler mints chat titles.
+type Titler struct {
+	deps Deps
+
+	generate *settings.Switch
+	capture  *settings.Switch
 
 	mu      sync.Mutex
-	enabled bool
-	capture bool
 	keyID   string
 	keyName string
 	// inFlight stops two turns of the same new chat each asking for a title.
@@ -257,34 +287,43 @@ type titler struct {
 	inFlight map[string]bool
 }
 
-func newTitler(s *Server) *titler {
-	return &titler{server: s, inFlight: map[string]bool{}}
+// New returns a titler with both switches off until Load reads them.
+func New(d Deps) *Titler {
+	if d.Log == nil {
+		d.Log = slog.New(slog.DiscardHandler)
+	}
+	return &Titler{
+		deps:     d,
+		generate: settings.NewSwitch(d.Store, SettingGenerate, false),
+		capture:  settings.NewSwitch(d.Store, SettingCapture, false),
+		inFlight: map[string]bool{},
+	}
 }
 
-// load reads the switch at startup. A failure is worth reporting and not worth
-// refusing to start over: the default is off, which is a safe state.
-func (t *titler) load(ctx context.Context) error {
-	stored, err := t.server.store.Settings(ctx)
+// Load reads the switches and the gateway's own key at startup. A failure is
+// worth reporting and not worth refusing to start over: off is a safe state.
+func (t *Titler) Load(ctx context.Context) error {
+	stored, err := t.deps.Store.Settings(ctx)
 	if err != nil {
 		return err
 	}
+	t.generate.Apply(stored)
+	t.capture.Apply(stored)
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.enabled = stored[titleSetting] == "true"
-	t.capture = stored[captureSetting] == "true"
 	t.keyID = stored[titleKeySetting]
+	t.mu.Unlock()
 	return nil
 }
 
-func (t *titler) on() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.enabled
-}
+// On reports whether the gateway asks for titles itself.
+func (t *Titler) On() bool { return t.generate.On() }
 
-// isOwnKey reports whether an id is the key the gateway issued itself, so the
+// Capturing reports whether names clients ask for are read as they go past.
+func (t *Titler) Capturing() bool { return t.capture.On() }
+
+// IsOwnKey reports whether an id is the key the gateway issued itself, so the
 // keys screen can leave the Delete off that row.
-func (t *titler) isOwnKey(id string) bool {
+func (t *Titler) IsOwnKey(id string) bool {
 	if id == "" {
 		return false
 	}
@@ -293,31 +332,18 @@ func (t *titler) isOwnKey(id string) bool {
 	return t.keyID == id
 }
 
-func (t *titler) capturing() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.capture
-}
+// errUnknownSwitch is Set's answer for a key that is neither switch.
+var errUnknownSwitch = errors.New("no such title switch")
 
-// set changes a switch. The store is written first, so a switch that took
-// effect but did not survive a restart is not a state this can reach.
-func (t *titler) set(ctx context.Context, key string, on bool) error {
-	value := "false"
-	if on {
-		value = "true"
-	}
-	if err := t.server.store.SetSetting(ctx, key, value); err != nil {
-		return err
-	}
-	t.mu.Lock()
+// Set changes one of the two switches, by its settings key.
+func (t *Titler) Set(ctx context.Context, key string, on bool) error {
 	switch key {
-	case titleSetting:
-		t.enabled = on
-	case captureSetting:
-		t.capture = on
+	case SettingGenerate:
+		return t.generate.Set(ctx, on)
+	case SettingCapture:
+		return t.capture.Set(ctx, on)
 	}
-	t.mu.Unlock()
-	return nil
+	return errUnknownSwitch
 }
 
 // key returns the gateway's own API key, creating it the first time.
@@ -326,7 +352,7 @@ func (t *titler) set(ctx context.Context, key string, on bool) error {
 // it, because internal calls do not go in through the front door. What the key
 // is for is identity and a budget — a row in the keys list that usage can be
 // attributed to and a ceiling an operator can set.
-func (t *titler) key(ctx context.Context) (id, name string, err error) {
+func (t *Titler) key(ctx context.Context) (id, name string, err error) {
 	t.mu.Lock()
 	id, name = t.keyID, t.keyName
 	t.mu.Unlock()
@@ -348,11 +374,11 @@ func (t *titler) key(ctx context.Context) (id, name string, err error) {
 		// recording usage against a key that does not exist.
 	}
 
-	key, _, err := t.server.store.CreateKey(ctx, internalKeyName, store.KeyLimits{})
+	key, _, err := t.deps.Store.CreateKey(ctx, internalKeyName, store.KeyLimits{})
 	if err != nil {
 		return "", "", err
 	}
-	if err := t.server.store.SetSetting(ctx, titleKeySetting, key.ID); err != nil {
+	if err := t.deps.Store.SetSetting(ctx, titleKeySetting, key.ID); err != nil {
 		return "", "", err
 	}
 	t.mu.Lock()
@@ -363,8 +389,8 @@ func (t *titler) key(ctx context.Context) (id, name string, err error) {
 
 // lookupKey finds one key by id. The list is short and this runs once per
 // title, off the request path, so walking it costs nothing worth a new query.
-func (t *titler) lookupKey(ctx context.Context, id string) (store.APIKey, bool) {
-	keys, err := t.server.store.ListKeys(ctx)
+func (t *Titler) lookupKey(ctx context.Context, id string) (store.APIKey, bool) {
+	keys, err := t.deps.Store.ListKeys(ctx)
 	if err != nil {
 		return store.APIKey{}, false
 	}
@@ -377,7 +403,7 @@ func (t *titler) lookupKey(ctx context.Context, id string) (store.APIKey, bool) 
 }
 
 // claim reserves a conversation so only one turn asks for its title.
-func (t *titler) claim(id string) bool {
+func (t *Titler) claim(id string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.inFlight[id] {
@@ -387,39 +413,39 @@ func (t *titler) claim(id string) bool {
 	return true
 }
 
-func (t *titler) release(id string) {
+func (t *Titler) release(id string) {
 	t.mu.Lock()
 	delete(t.inFlight, id)
 	t.mu.Unlock()
 }
 
-// consider names a chat if it has no name yet.
+// Consider names a chat if it has no name yet.
 //
 // Called after a relayed request has already been answered, and it returns
 // immediately: the client's turn is finished and must never wait on this. Every
 // path out of here that is not a title is silent by design — titling is a
 // convenience, and an operator whose log filled with warnings because a model
 // declined to name something would rightly turn it off.
-func (t *titler) consider(ev titleRequest) {
-	if !t.on() || ev.conversation == "" || ev.accountID == "" || ev.model == "" {
+func (t *Titler) Consider(ev Request) {
+	if !t.On() || ev.Conversation == "" || ev.AccountID == "" || ev.Model == "" {
 		return
 	}
-	if len(ev.body) == 0 {
+	if len(ev.Body) == 0 {
 		return
 	}
 	// Never title a title request. For opencode this is the first request of a
 	// session, so without this the gateway would spend a call asking what to
 	// call a conversation whose only content is a request for a name — and the
 	// answer to the real question is already coming back on this very request,
-	// which is what captureTitle picks up.
-	if isClientTitleRequest(ev.body) {
+	// which is what CaptureTitle picks up.
+	if IsClientTitleRequest(ev.Body) {
 		return
 	}
-	if !t.claim(ev.conversation) {
+	if !t.claim(ev.Conversation) {
 		return
 	}
 	go func() {
-		defer t.release(ev.conversation)
+		defer t.release(ev.Conversation)
 		// Not the request's context: that one is cancelled the moment the
 		// client's turn ends, which is exactly when this starts.
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -428,14 +454,14 @@ func (t *titler) consider(ev titleRequest) {
 	}()
 }
 
-// captureTitle stores a name the client asked a model for, off the answer the
+// CaptureTitle stores a name the client asked a model for, off the answer the
 // gateway just relayed.
 //
 // Nothing is spent here: the request was the client's, the answer was going to
 // it anyway, and this only reads the copy. Silent on every failure for the same
-// reason consider is — a name is a convenience, and the model declining to give
+// reason Consider is — a name is a convenience, and the model declining to give
 // one is not an event worth a log line.
-func (t *titler) captureTitle(conversation, model string, answer []byte) {
+func (t *Titler) CaptureTitle(conversation, model string, answer []byte) {
 	if conversation == "" || len(answer) == 0 {
 		return
 	}
@@ -446,31 +472,31 @@ func (t *titler) captureTitle(conversation, model string, answer []byte) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := t.server.store.SetChatTitle(ctx, conversation, title, model); err != nil {
-			t.server.log.Warn("could not store a captured chat title", "err", err)
+		if err := t.deps.Store.SetChatTitle(ctx, conversation, title, model); err != nil {
+			t.deps.Log.Warn("could not store a captured chat title", "err", err)
 			return
 		}
-		t.server.log.Debug("read a chat name from the client's own title request",
+		t.deps.Log.Debug("read a chat name from the client's own title request",
 			"chat", conversation, "title", title)
 	}()
 }
 
-// titleRequest is what naming a chat needs, copied out of the request that
+// Request is what naming a chat needs, copied out of the request that
 // prompted it because that request is over by the time this runs.
-type titleRequest struct {
-	conversation string
-	model        string
-	accountID    string
-	// body is the request as it went upstream, which for a translating dialect
+type Request struct {
+	Conversation string
+	Model        string
+	AccountID    string
+	// Body is the request as it went upstream, which for a translating dialect
 	// is not the one that arrived. It has to be that one: the cached prefix is
 	// what the upstream saw.
-	body []byte
+	Body []byte
 }
 
-func (t *titler) run(ctx context.Context, ev titleRequest) {
-	log := t.server.log
+func (t *Titler) run(ctx context.Context, ev Request) {
+	log := t.deps.Log
 
-	if _, found, err := t.server.store.ChatTitle(ctx, ev.conversation); err != nil || found {
+	if _, found, err := t.deps.Store.ChatTitle(ctx, ev.Conversation); err != nil || found {
 		return
 	}
 
@@ -483,13 +509,13 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	// on the internal key is how an operator caps what titling may cost, using
 	// the control they already know rather than a second mechanism.
 	if k, ok := t.lookupKey(ctx, keyID); ok && k.TokenBudget > 0 {
-		spent, err := t.server.store.KeySpend(ctx, keyID, time.Now().Add(-24*time.Hour))
+		spent, err := t.deps.Store.KeySpend(ctx, keyID, time.Now().Add(-24*time.Hour))
 		if err == nil && spent >= k.TokenBudget {
 			return
 		}
 	}
 
-	body, ok := titleBody(ev.body)
+	body, ok := titleBody(ev.Body)
 	if !ok {
 		return
 	}
@@ -505,12 +531,12 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	// prompt cache is per-account, so any other account is a guaranteed miss
 	// and a title is not worth paying full price for: if this account is
 	// cooling, the pool refuses and the chat simply stays unnamed.
-	pinned := *t.server.relay
-	accounts, err := t.server.store.ListAccounts(ctx)
+	pinned := *t.deps.Relay
+	accounts, err := t.deps.Store.ListAccounts(ctx)
 	if err != nil {
 		return
 	}
-	pinned.Pool = pinnedPool{AccountPool: pinned.Pool, only: ev.accountID, all: accounts}
+	pinned.Pool = pinnedPool{AccountPool: pinned.Pool, only: ev.AccountID, all: accounts}
 
 	var answer bytes.Buffer
 	sink := &captureWriter{body: &answer, header: http.Header{}}
@@ -525,7 +551,7 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	if title == "" {
 		return
 	}
-	if err := t.server.store.SetChatTitle(ctx, ev.conversation, title, ev.model); err != nil {
+	if err := t.deps.Store.SetChatTitle(ctx, ev.Conversation, title, ev.Model); err != nil {
 		log.Warn("could not store a chat title", "err", err)
 		return
 	}
@@ -533,16 +559,16 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	// Recorded like any other request, under the gateway's own key and against
 	// the chat it names, so the cost of naming a conversation is part of what
 	// that conversation cost rather than an unexplained line item.
-	t.server.recorder.Record(store.UsageEvent{
+	t.deps.Record(store.UsageEvent{
 		At: started, KeyID: keyID, KeyName: keyName,
 		AccountID: res.AccountID, AccountEmail: res.AccountEmail,
-		Model: ev.model, Path: store.InternalPath,
+		Model: ev.Model, Path: store.InternalPath,
 		// No Client: this row is the gateway's own, and the column means "who
 		// was having this conversation". Stamping it here put the gateway's
 		// name on a crush chat, because the rollup picked a client with
 		// MAX(client) and a lowercase g sorts above Charm-Crush's C. The key
 		// name already says whose request it was.
-		ConversationID:   ev.conversation,
+		ConversationID:   ev.Conversation,
 		Status:           res.Status,
 		InputTokens:      res.Usage.InputTokens,
 		OutputTokens:     res.Usage.OutputTokens,
@@ -551,7 +577,7 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 		Duration:         time.Since(started),
 	}, 0)
 
-	log.Debug("named a chat", "chat", ev.conversation, "title", title,
+	log.Debug("named a chat", "chat", ev.Conversation, "title", title,
 		"cache_read", res.Usage.CacheReadTokens, "input", res.Usage.InputTokens)
 }
 

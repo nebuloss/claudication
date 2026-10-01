@@ -27,6 +27,7 @@ import (
 	"claudication/internal/secret"
 	"claudication/internal/service/limits"
 	"claudication/internal/service/settings"
+	"claudication/internal/service/titles"
 	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
 	"claudication/internal/version"
@@ -72,7 +73,7 @@ type Server struct {
 	surfaces  *surfaces
 	// titles names conversations by asking a model, which is the only traffic
 	// this gateway originates rather than relays. Off until switched on.
-	titles *titler
+	titles *titles.Titler
 	images *settings.Switch
 	docs   *settings.Switch
 
@@ -147,15 +148,6 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		log.Warn("could not read the API surface switches; serving every surface", "err", err)
 	}
 
-	// Same treatment, opposite default: a failure here leaves titling off,
-	// because it is the one thing that spends the operator's subscription on
-	// the gateway's own behalf and doing that by accident is not a state worth
-	// reaching.
-	s.titles = newTitler(s)
-	if err := s.titles.load(loadCtx); err != nil {
-		log.Warn("could not read the chat-title switch; leaving it off", "err", err)
-	}
-
 	// And again: off is the pass-through rule, so a switch we cannot read
 	// leaves the caller's bytes alone.
 	s.images = settings.NewSwitch(st, imageFitSetting, false)
@@ -216,6 +208,15 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 				DisableCompression: true,
 			},
 		},
+	}
+
+	// Chat titles, once the relay and the recorder they use exist. A failure
+	// to read the switches leaves titling off, because it is the one thing
+	// that spends the operator's subscription on the gateway's own behalf and
+	// doing that by accident is not a state worth reaching.
+	s.titles = titles.New(titles.Deps{Store: st, Relay: s.relay, Record: s.recorder.Record, Log: log})
+	if err := s.titles.Load(loadCtx); err != nil {
+		log.Warn("could not read the chat-title switch; leaving it off", "err", err)
 	}
 
 	// With admin-listen set, this one drops the admin API and the UI; they

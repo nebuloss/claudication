@@ -11,6 +11,7 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/relay"
 	"claudication/internal/request"
+	"claudication/internal/service/titles"
 	"claudication/internal/store"
 )
 
@@ -102,9 +103,9 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// will display. Tee that one answer so the gateway can read it; every
 		// other request is untouched, and the tee never gates the write.
 		sink := ex.Sink(w)
-		var captured *captureSink
-		if conversation != "" && s.titles.capturing() && isClientTitleRequest(outbound) {
-			captured = &captureSink{Sink: sink}
+		var captured *titles.CaptureSink
+		if conversation != "" && s.titles.Capturing() && titles.IsClientTitleRequest(outbound) {
+			captured = &titles.CaptureSink{Sink: sink}
 			sink = captured
 		}
 
@@ -116,7 +117,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// has no name yet, so for nearly every request this is nil and the
 		// body can go as soon as the upstream has it.
 		var titleBody []byte
-		if conversation != "" && s.titles.on() {
+		if conversation != "" && s.titles.On() {
 			titleBody = outbound
 		}
 
@@ -167,15 +168,15 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 		// Both after the answer, never before it: naming a chat is a
 		// convenience and the client's turn must not wait on one.
 		if captured != nil && res.Status == http.StatusOK {
-			s.titles.captureTitle(conversation, model, captured.seen.Bytes())
+			s.titles.CaptureTitle(conversation, model, captured.Seen.Bytes())
 		}
 		// Returns at once unless titling is on and this conversation has no
 		// name yet.
-		s.titles.consider(titleRequest{
-			conversation: conversation,
-			model:        model,
-			accountID:    res.AccountID,
-			body:         titleBody,
+		s.titles.Consider(titles.Request{
+			Conversation: conversation,
+			Model:        model,
+			AccountID:    res.AccountID,
+			Body:         titleBody,
 		})
 
 		attrs := []any{

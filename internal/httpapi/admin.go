@@ -694,8 +694,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		// switch that decides whether the gateway spends the operator's
 		// subscription on its own behalf. That belongs where they are already
 		// looking at what this gateway is allowed to do.
-		"chat_titles":         s.titles.on(),
-		"chat_titles_capture": s.titles.capturing(),
+		"chat_titles":         s.titles.On(),
+		"chat_titles_capture": s.titles.Capturing(),
 		"fit_images":          s.images.On(),
 		// Empty unless a public docs page is both configured and published,
 		// in which case the header links out to it.
