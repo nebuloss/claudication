@@ -56,6 +56,16 @@ const MaxEdge = 2000
 // anything is decoded, and a request the upstream would accept is returned
 // byte-identical.
 func ShrinkImages(body []byte, cache *ImageCache) ([]byte, int) {
+	// Counted in the bytes before anything is decoded. Decoding the body into
+	// a generic tree costs several times its size, and with the switch on it
+	// ran for every request — almost none of which carry twenty images. The
+	// token "image", quotes included, appears unescaped only as JSON, so this
+	// is an upper bound on the image blocks; only a body that might cross the
+	// threshold is parsed to count them properly.
+	if bytes.Count(body, []byte(`"image"`)) <= ManyImages {
+		return body, 0
+	}
+
 	var envelope any
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		// Not ours to repair. Every other pass takes the same view: a body we
@@ -158,7 +168,26 @@ type ImageCache struct {
 // DefaultImageCacheBytes bounds what the cache keeps. Generous because the
 // alternative is re-encoding on every turn, and small next to what a gateway
 // holding request bodies in memory already spends.
-const DefaultImageCacheBytes = 64 << 20
+const DefaultImageCacheBytes = 32 << 20
+
+// MaxPixels is the largest image decoded, in pixels: about 128 MB once
+// decoded at four bytes a pixel. The upstream allows 8000 px a side, and an
+// 8000 x 8000 image decodes to 256 MB — half the container this runs in — so
+// one such image could take the gateway down. An image past this is left as
+// it is; the upstream may refuse it, which is an error the caller can read,
+// where an out-of-memory kill takes every open stream with it.
+const MaxPixels = 32 << 20
+
+// decoding admits one image decode at a time, process-wide. Each holds a full
+// pixel buffer, and several requests resending the same history would
+// otherwise all decode the same image at once.
+var decoding = make(chan struct{}, 1)
+
+// unchangedCost is what keeping an "already small enough" verdict costs: no
+// image, but a key and an entry. Counted so the size bound can evict them;
+// at zero they were never evicted and the key list grew for the life of the
+// process.
+const unchangedCost = 128
 
 // NewImageCache returns a cache bounded to max bytes of rewritten images.
 func NewImageCache(max int) *ImageCache {
@@ -177,7 +206,9 @@ func (c *ImageCache) fit(data, media string) (string, string, bool) {
 	// No cache is a working configuration, just a slower one: the relay may be
 	// assembled without one, and the answer must not depend on that.
 	if c == nil {
+		decoding <- struct{}{}
 		r := shrinkOne(data, media)
+		<-decoding
 		return r.data, r.media, r.changed
 	}
 
@@ -190,11 +221,25 @@ func (c *ImageCache) fit(data, media string) (string, string, bool) {
 	}
 	c.mu.Unlock()
 
+	// One decode at a time; and whoever waited may find the answer is now
+	// in the cache, put there by the request it was waiting behind.
+	decoding <- struct{}{}
+	c.mu.Lock()
+	hit, ok := c.entries[key]
+	c.mu.Unlock()
+	if ok {
+		<-decoding
+		return hit.data, hit.media, hit.changed
+	}
 	result := shrinkOne(data, media)
+	<-decoding
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, ok := c.entries[key]; !ok {
+		if !result.changed {
+			result.bytes = unchangedCost
+		}
 		c.entries[key] = result
 		c.order = append(c.order, key)
 		c.held += result.bytes
@@ -227,6 +272,9 @@ func shrinkOne(data, media string) fitResult {
 	}
 	if cfg.Width <= MaxEdge && cfg.Height <= MaxEdge {
 		return fitResult{}
+	}
+	if int64(cfg.Width)*int64(cfg.Height) > MaxPixels {
+		return fitResult{} // see MaxPixels: refused upstream beats killed here
 	}
 
 	src, _, err := image.Decode(bytes.NewReader(raw))

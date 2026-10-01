@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -52,6 +53,11 @@ const (
 // loadBodyBytes is the request body size; see TestLoad.
 var loadBodyBytes int
 
+// loadStream, when set by CLAUDICATION_LOAD_STREAM, is how long each answer
+// streams. Real ones run for minutes, and anything a request holds for its
+// stream's lifetime only shows up in memory when streams are that long.
+var loadStream time.Duration
+
 func TestLoad(t *testing.T) {
 	if os.Getenv("CLAUDICATION_LOAD") == "" {
 		t.Skip("set CLAUDICATION_LOAD=1 to run the load test")
@@ -62,6 +68,7 @@ func TestLoad(t *testing.T) {
 	if v, err := strconv.Atoi(os.Getenv("CLAUDICATION_LOAD_BODY_KB")); err == nil && v > 0 {
 		loadBodyBytes = v << 10
 	}
+	loadStream, _ = time.ParseDuration(os.Getenv("CLAUDICATION_LOAD_STREAM"))
 	levels := []int{10, 50, 100, 250, 500}
 	if v := os.Getenv("CLAUDICATION_LOAD_LEVELS"); v != "" {
 		levels = nil
@@ -82,7 +89,9 @@ func TestLoad(t *testing.T) {
 				break
 			}
 		}
-		_, _ = bytes.NewBuffer(nil).ReadFrom(r.Body)
+		// Discarded, not buffered: the stub runs in the same process, and a
+		// copy of every body held here was being charged to the gateway.
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		rc := http.NewResponseController(w)
@@ -90,9 +99,13 @@ func TestLoad(t *testing.T) {
 		send("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":12,\"cache_read_input_tokens\":90000,\"output_tokens\":1}}}\n\n")
 		send("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
 		time.Sleep(loadFirstToken)
+		gap := loadDeltaGap
+		if loadStream > 0 {
+			gap = loadStream / loadDeltas
+		}
 		for i := 0; i < loadDeltas; i++ {
 			send("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lorem ipsum dolor \"}}\n\n")
-			time.Sleep(loadDeltaGap)
+			time.Sleep(gap)
 		}
 		send("event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":60}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 	}))

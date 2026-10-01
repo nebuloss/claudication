@@ -3,8 +3,10 @@ package upstream
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -289,5 +291,45 @@ func TestEachBase64ImageFindsThemAnywhere(t *testing.T) {
 	if len(found) != 2 {
 		t.Fatalf("found %d base64 images (%s), want the two that are base64",
 			len(found), strings.Join(found, ","))
+	}
+}
+
+// An image past MaxPixels is left alone without its pixels being decoded: the
+// header says how big it is, and a decode is the thing that would kill the
+// process. The header here claims 6000x6000 over a tiny real image; a decode
+// would fail, so only the size check can be what leaves it alone.
+func TestShrinkOneRefusesToDecodeAHugeImage(t *testing.T) {
+	raw, err := base64.StdEncoding.DecodeString(pngOf(t, 4, 4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// IHDR follows the 8-byte signature: length(4) type(4) width(4) height(4).
+	binary.BigEndian.PutUint32(raw[16:], 6000)
+	binary.BigEndian.PutUint32(raw[20:], 6000)
+	// The chunk's CRC covers its type and data, 17 bytes from offset 12.
+	binary.BigEndian.PutUint32(raw[29:], crc32.ChecksumIEEE(raw[12:29]))
+	if r := shrinkOne(base64.StdEncoding.EncodeToString(raw), "image/png"); r.changed {
+		t.Error("a 36-megapixel image was decoded and rewritten")
+	}
+}
+
+// "Needs no change" verdicts count towards the bound, so a long run of small
+// images cannot grow the cache for ever.
+func TestImageCacheEvictsUnchangedVerdicts(t *testing.T) {
+	cache := NewImageCache(10 * unchangedCost)
+	for i := 0; i < 100; i++ {
+		cache.fit(pngOf(t, 4+i%7, 4+i/7), "image/png")
+	}
+	if n := len(cache.entries); n > 11 {
+		t.Errorf("%d entries held under a bound of ten", n)
+	}
+}
+
+// Requests with twenty or fewer images are returned without being parsed.
+func TestShrinkImagesSkipsBodiesWithFewImageTokens(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":"` + strings.Repeat("x", 1<<20) + `"}]}`)
+	allocs := testing.AllocsPerRun(3, func() { ShrinkImages(body, nil) })
+	if allocs > 0 {
+		t.Errorf("%v allocations for a body with no images", allocs)
 	}
 }

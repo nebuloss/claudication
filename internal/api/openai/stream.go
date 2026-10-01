@@ -262,7 +262,7 @@ func (s *Stream) handle(event string, data []byte) error {
 		s.usage.OutputTokens = u.OutputTokens
 		return s.emit(evCreated, map[string]any{
 			"type":     evCreated,
-			"response": s.response("in_progress", nil, nil),
+			"response": s.progress(),
 		})
 
 	case "ping":
@@ -271,7 +271,7 @@ func (s *Stream) handle(event string, data []byte) error {
 		// turn, and in_progress is on Codex's explicit ignore list.
 		return s.emit(evInProgress, map[string]any{
 			"type":     evInProgress,
-			"response": s.response("in_progress", nil, nil),
+			"response": s.progress(),
 		})
 
 	case "content_block_start":
@@ -415,6 +415,10 @@ func (s *Stream) stopBlock() error {
 		item = s.messageItem("completed", s.text.String())
 	}
 
+	// Encoded once, and the same bytes go in the event and in the list that
+	// response.completed carries. A tool call's arguments are a JSON string
+	// inside JSON, and every quote in them escapes again on each encoding —
+	// encoding the item twice made a large call several times its size.
 	raw, err := json.Marshal(item)
 	if err != nil {
 		return err
@@ -423,8 +427,22 @@ func (s *Stream) stopBlock() error {
 	return s.emit(evItemDone, map[string]any{
 		"type":         evItemDone,
 		"output_index": s.outIndex,
-		"item":         item,
+		"item":         json.RawMessage(raw),
 	})
+}
+
+// progress is the response object for created and in_progress, without the
+// output so far.
+//
+// Codex ignores in_progress outright and needs only the id from either, and
+// in_progress is what every Anthropic ping turns into — so carrying the output
+// meant re-encoding and resending every finished item, tool arguments and all,
+// several times a minute for the length of the turn. response.completed still
+// carries the whole output, which is where clients that read it look.
+func (s *Stream) progress() map[string]any {
+	out := s.response("in_progress", nil, nil)
+	out["output"] = []json.RawMessage{}
+	return out
 }
 
 func (s *Stream) messageItem(status, text string) map[string]any {
@@ -569,8 +587,13 @@ func (s *Stream) emit(event string, payload map[string]any) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", event, data); err != nil {
-		return err
+	// Written in place rather than through Fprintf, which formatted a copy of
+	// every frame — a large tool call's included — into a buffer of its own.
+	// The writer buffers; Flush below is what sends the frame as one.
+	for _, part := range [][]byte{[]byte("event: " + event + "\ndata: "), data, []byte("\n\n")} {
+		if _, err := s.w.Write(part); err != nil {
+			return err
+		}
 	}
 	// Every frame, not every batch: an idle gap fails the turn, so a frame
 	// sitting in a buffer is indistinguishable from a gateway that hung.

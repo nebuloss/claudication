@@ -27,10 +27,19 @@ func readSized(r io.Reader, hint, limit int64) ([]byte, error) {
 	if hint <= 0 || (limit > 0 && hint > limit) {
 		return io.ReadAll(r)
 	}
+	// Trusted only so far before any bytes arrive: a client that announces
+	// 32 MB and sends nothing would otherwise pin 32 MB per connection. Real
+	// bodies past this grow the ordinary way.
+	if hint > maxUpfront {
+		hint = maxUpfront
+	}
 	buf := bytes.NewBuffer(make([]byte, 0, hint+bytes.MinRead))
 	_, err := buf.ReadFrom(r)
 	return buf.Bytes(), err
 }
+
+// maxUpfront bounds what readSized allocates on a size hint alone.
+const maxUpfront = 8 << 20
 
 // gzipSize is the uncompressed length a gzip stream records in its last four
 // bytes, modulo 2^32 — exact for any body this gateway would accept — or 0.
