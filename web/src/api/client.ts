@@ -258,6 +258,11 @@ export interface RequestRow {
   output_tokens: number
   cache_tokens: number
   duration_ms: number
+  /**
+   * How long a streamed request waited for its first token, retries included.
+   * Absent when not measured: not a stream, no content, or an older row.
+   */
+  first_token_ms?: number
   error?: string
   /** Set when the refusal does not mean what its message says. */
   error_kind?: string

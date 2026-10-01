@@ -58,10 +58,15 @@ type Relay struct {
 	// pin it to one account, and a sync primitive in here would make that copy
 	// a vet error. Nil is allowed and simply means no caching, so a Relay
 	// assembled by a test still works.
-	Images  *ImageCache
-	Client  *http.Client
-	Log     *slog.Logger
-	BaseURL string
+	Images *ImageCache
+	// StallTimeout is how long a streaming answer may go without content
+	// before the attempt is abandoned and the request sent again — see
+	// stall.go. Zero turns that off and relays every byte the moment it
+	// arrives, as before.
+	StallTimeout time.Duration
+	Client       *http.Client
+	Log          *slog.Logger
+	BaseURL      string
 }
 
 // logger is the relay's log, or one that discards. Log is optional — the
@@ -120,7 +125,18 @@ type Result struct {
 	// more to the point, a mid-stream error would have been invisible — so the
 	// attempt is not credited as a success either way.
 	Opaque bool
-	Err    error
+	// Stalls counts attempts abandoned because the stream never produced
+	// content (or errored before it did) and were sent again. See stall.go.
+	Stalls int
+	// FirstContent is how long the caller waited, from the start of Do, for
+	// the first event carrying content — the time to first token, stalled
+	// attempts included. Zero when no content arrived or the response was not
+	// a stream.
+	FirstContent time.Duration
+	Err          error
+
+	// firstContentAt is when the scanner saw that event.
+	firstContentAt time.Time
 }
 
 type Usage struct {
@@ -236,6 +252,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	}
 
 	var res Result
+	started := time.Now()
 	tried := map[string]bool{}
 	// Accounts whose token we have already refreshed for this request. One
 	// refresh per account is a repair; a second is a loop.
@@ -272,9 +289,14 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 			res.Err = err
 			return res
 		}
+		// Per attempt, so a stalled one can be torn down without touching the
+		// caller's own context.
+		attemptCtx, cancelAttempt := context.WithCancel(req.Context())
+		upstreamReq = upstreamReq.WithContext(attemptCtx)
 
 		resp, err := r.Client.Do(upstreamReq)
 		if err != nil {
+			cancelAttempt()
 			// A cancelled client is not the account's fault.
 			if errors.Is(err, context.Canceled) || req.Context().Err() != nil {
 				res.Err = err
@@ -293,6 +315,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 			// retry has nowhere to go.
 			raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxRefusalBytes))
 			resp.Body.Close()
+			cancelAttempt()
 			last = &refusal{
 				status: resp.StatusCode,
 				header: resp.Header.Clone(),
@@ -333,8 +356,30 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 			r.Pool.ReportFailure(lease.Account.ID, kind, res.UpstreamError)
 		}
 
+		// Hold the opening of a stream until it carries content, and send the
+		// request again if it never does. Only while another attempt is
+		// possible, once per request, and never on the retry itself.
+		if r.StallTimeout > 0 && res.Stalls == 0 && attempt < maxAttempts && holdable(resp) {
+			held, outcome := holdUntilContent(resp.Body, r.StallTimeout)
+			if outcome != holdProgressed {
+				cancelAttempt()
+				res.Stalls++
+				r.logger().Warn("upstream stream produced no content; sending the request again",
+					"outcome", outcome.String(),
+					"after", time.Since(started).Round(time.Millisecond).String(),
+					"account", lease.Account.Email,
+					"stall_timeout", r.StallTimeout.String())
+				continue
+			}
+			resp.Body = held
+		}
+
 		res.Status = resp.StatusCode
 		r.relay(w, resp, &res, names)
+		cancelAttempt()
+		if !res.firstContentAt.IsZero() {
+			res.FirstContent = res.firstContentAt.Sub(started)
+		}
 		if res.Status == http.StatusOK && res.StreamError == "" && !res.Opaque && kind == "" {
 			r.Pool.ReportSuccess(lease.Account.ID)
 		}
@@ -472,7 +517,9 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 		res.Opaque = true
 		tee = nopTee{}
 	case strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream"):
-		tee = newSSEScanner(&res.Usage, &res.StreamError)
+		scanner := newSSEScanner(&res.Usage, &res.StreamError)
+		scanner.firstContent = &res.firstContentAt
+		tee = scanner
 	default:
 		tee = newJSONUsage(&res.Usage)
 	}
@@ -523,6 +570,18 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 			return
 		}
 	}
+}
+
+// holdable reports whether a response is a stream whose start can be held:
+// a 200 Messages stream in plain text. Anything else is relayed as it comes.
+func holdable(resp *http.Response) bool {
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	if enc := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding"))); enc != "" && enc != "identity" {
+		return false
+	}
+	return strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 }
 
 // peekErrorAndRestore reads the error body for logging and puts it back, so

@@ -127,7 +127,17 @@ type PassthroughConfig struct {
 	// body, so it is a switch rather than a silent behaviour: turn it off to
 	// get strict passthrough and haiku-only for other clients.
 	ClaudeCodeAttribution bool `yaml:"claude-code-attribution"`
+	// StallTimeout is how long a streaming answer may produce nothing before
+	// the attempt is abandoned and the request sent again, invisibly to the
+	// client. 0 turns it off. See internal/upstream/stall.go for what was
+	// measured: accepted streams that sent message_start and then nothing for
+	// five minutes, while the requests beside them ran normally.
+	StallTimeout Duration `yaml:"stall-timeout"`
 }
+
+// MinStallTimeout keeps the stall check clear of an ordinary slow start: a
+// long prompt can legitimately take tens of seconds to its first token.
+const MinStallTimeout = 30 * time.Second
 
 // OpenAIConfig tunes the OpenAI Responses surface, which is what Codex CLI
 // speaks. It says nothing about whether that surface is served at all: that is
@@ -214,7 +224,12 @@ func Defaults() Config {
 			// couple of megabytes.
 			MaxBodyBytes: 32 << 20,
 		},
-		Passthrough: PassthroughConfig{ClaudeCodeAttribution: true},
+		Passthrough: PassthroughConfig{
+			ClaudeCodeAttribution: true,
+			// Under the five minutes clients wait before giving up on a silent
+			// stream, with room for the retry to answer inside them.
+			StallTimeout: Duration(90 * time.Second),
+		},
 		// Sonnet rather than opus: a Codex session is a long series of tool
 		// calls, and pointing that at the most expensive model by default
 		// spends a subscription's weekly allowance on shell commands.
@@ -379,6 +394,9 @@ func (c Config) validate() error {
 	}
 	if c.Usage.PollWatched.D() > c.Usage.PollIdle.D() {
 		return errors.New("usage.poll-watched must not be slower than usage.poll-idle")
+	}
+	if st := c.Passthrough.StallTimeout.D(); st != 0 && st < MinStallTimeout {
+		return fmt.Errorf("passthrough.stall-timeout must be 0 (off) or at least %s", MinStallTimeout)
 	}
 	if c.Shutdown.Grace.D() <= 0 {
 		return errors.New("shutdown.grace must be positive")

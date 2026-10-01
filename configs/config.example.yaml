@@ -144,3 +144,10 @@ passthrough:
   # Set false for strict passthrough: bodies are never edited, and other
   # clients get haiku only.
   claude-code-attribution: true
+  # How long a streaming answer may produce nothing before the gateway sends
+  # the request again. The upstream sometimes accepts a request, opens the
+  # stream, and then never works on it; the client waits five minutes and
+  # gives up. The opening events are held until the first token, so the retry
+  # happens before the client has seen anything. 0 turns it off; otherwise at
+  # least 30s, since a very long prompt can take a while to its first token.
+  stall-timeout: "90s"

@@ -134,6 +134,7 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			CacheReadTokens:  res.Usage.CacheReadTokens,
 			CacheWriteTokens: res.Usage.CacheCreationTokens,
 			Duration:         elapsed,
+			FirstToken:       res.FirstContent,
 			// A stream that died after its 200 is the more specific fact, so
 			// it wins; otherwise record whatever the upstream said when it
 			// refused.
@@ -164,6 +165,12 @@ func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.Hand
 			"bytes", res.BytesOut,
 			"duration_ms", elapsed.Milliseconds(),
 			"request_id", requestIDFrom(r.Context()),
+		}
+		if res.FirstContent > 0 {
+			attrs = append(attrs, "first_token_ms", res.FirstContent.Milliseconds())
+		}
+		if res.Stalls > 0 {
+			attrs = append(attrs, "stalls", res.Stalls)
 		}
 		if res.Usage.InputTokens > 0 || res.Usage.OutputTokens > 0 {
 			attrs = append(attrs,

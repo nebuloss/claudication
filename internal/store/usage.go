@@ -36,7 +36,10 @@ type UsageEvent struct {
 	CacheReadTokens  int
 	CacheWriteTokens int
 	Duration         time.Duration
-	Error            string
+	// FirstToken is how long a streamed request waited for its first token,
+	// or zero when that was not measured.
+	FirstToken time.Duration
+	Error      string
 	// ErrorCode is that failure in one word, decided once when the request was
 	// recorded: the upstream's own type, "content_check" for the refusal whose
 	// message is about billing and is not, "no_answer" when nothing came back,
@@ -83,12 +86,12 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 		                           status, streaming,
 		                           input_tokens, output_tokens,
 		                           cache_read_tokens, cache_write_tokens,
-		                           duration_ms, error, error_code, rejected, ip)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                           duration_ms, first_token_ms, error, error_code, rejected, ip)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.At.UTC().Format(time.RFC3339Nano), e.KeyID, e.KeyName, e.AccountID, e.AccountEmail,
 		e.Model, e.Path, e.ConversationID, e.Client, e.Status, e.Streaming,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens,
-		e.Duration.Milliseconds(), e.Error, e.ErrorCode, e.Rejected, e.IP,
+		e.Duration.Milliseconds(), e.FirstToken.Milliseconds(), e.Error, e.ErrorCode, e.Rejected, e.IP,
 	)
 	if err != nil {
 		return fmt.Errorf("record usage: %w", err)
@@ -798,7 +801,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 	const columns = `id, at, key_id, key_name, account_id, account_email, model, path,
 	                 conversation_id, client,
 	                 status, streaming, input_tokens, output_tokens,
-	                 cache_read_tokens, cache_write_tokens, duration_ms, error,
+	                 cache_read_tokens, cache_write_tokens, duration_ms, first_token_ms, error,
 	                 error_code, rejected, ip`
 
 	narrow, args := filter.where()
@@ -835,15 +838,16 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 	for rows.Next() {
 		var e UsageEvent
 		var at string
-		var ms int64
+		var ms, firstMS int64
 		if err := rows.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
 			&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
 			&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
-			&ms, &e.Error, &e.ErrorCode, &e.Rejected, &e.IP); err != nil {
+			&ms, &firstMS, &e.Error, &e.ErrorCode, &e.Rejected, &e.IP); err != nil {
 			return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)
 		}
 		e.At, _ = time.Parse(time.RFC3339Nano, at)
 		e.Duration = time.Duration(ms) * time.Millisecond
+		e.FirstToken = time.Duration(firstMS) * time.Millisecond
 		out = append(out, e)
 		next = UsageCursor{At: e.At, ID: e.ID}
 	}

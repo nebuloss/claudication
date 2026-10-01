@@ -163,7 +163,8 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	s.relay = &upstream.Relay{
 		Pool:        s.pool,
 		Log:         log,
-		Attribution: cfg.Passthrough.ClaudeCodeAttribution,
+		Attribution:  cfg.Passthrough.ClaudeCodeAttribution,
+		StallTimeout: cfg.Passthrough.StallTimeout.D(),
 		FitImages:   s.images.enabled,
 		Images:      upstream.NewImageCache(upstream.DefaultImageCacheBytes),
 		// Relayed inference gets its own client with NO client-level timeout:

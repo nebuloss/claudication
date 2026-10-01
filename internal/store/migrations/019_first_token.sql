@@ -1,0 +1,14 @@
+-- How long each streamed request waited for its first token.
+--
+-- Duration alone could not tell a slow answer from one that never started:
+-- a five-minute request is either a long generation or an upstream that
+-- accepted the request and then sat on it, and the second is what made crush
+-- report models "not responding" on 2026-10-01. Finding those took
+-- reconstructing them from byte counts in the access log. With this the
+-- request log says so directly.
+--
+-- Milliseconds from the start of the request to the first event carrying
+-- content, stalled-and-retried attempts included, since that is what the
+-- client waited. 0 means not measured: not a stream, or no content arrived.
+-- Rows from before this column read 0 for the same reason.
+ALTER TABLE usage_events ADD COLUMN first_token_ms INTEGER NOT NULL DEFAULT 0;

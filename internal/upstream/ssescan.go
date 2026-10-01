@@ -3,6 +3,7 @@ package upstream
 import (
 	"bytes"
 	"encoding/json"
+	"time"
 )
 
 // sseEvent names the events this scanner reacts to. An enum rather than the
@@ -61,6 +62,10 @@ type sseScanner struct {
 	usage   *Usage
 	errOut  *string
 	stopped bool
+	// firstContent, when set, receives the moment the first event carrying
+	// content went past — the time to first token, as the client saw it,
+	// since the scanner is fed right after each write.
+	firstContent *time.Time
 }
 
 func newSSEScanner(usage *Usage, errOut *string) *sseScanner {
@@ -105,7 +110,13 @@ func (s *sseScanner) line(line []byte) {
 	case len(line) == 0:
 		s.event = evOther
 	case bytes.HasPrefix(line, []byte("event:")):
-		s.event = eventOf(bytes.TrimSpace(line[len("event:"):]))
+		name := bytes.TrimSpace(line[len("event:"):])
+		s.event = eventOf(name)
+		// The same line stall.go draws: anything but the opening events and
+		// an error is the model having produced something.
+		if s.firstContent != nil && s.firstContent.IsZero() && s.event != evError && !quietEvent(name) {
+			*s.firstContent = time.Now()
+		}
 	case bytes.HasPrefix(line, []byte("data:")):
 		s.data(bytes.TrimSpace(line[len("data:"):]))
 	}

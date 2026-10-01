@@ -132,6 +132,9 @@ type requestJSON struct {
 	OutputTokens int    `json:"output_tokens"`
 	CacheTokens  int    `json:"cache_tokens"`
 	DurationMS   int64  `json:"duration_ms"`
+	// FirstTokenMS is how long a streamed request waited for its first token;
+	// absent when it was not measured.
+	FirstTokenMS int64  `json:"first_token_ms,omitempty"`
 	Error        string `json:"error,omitempty"`
 	// ErrorKind names a refusal whose message does not mean what it says.
 	// Computed on read rather than stored: it is a reading of the recorded
@@ -173,6 +176,7 @@ func toRequestJSON(e store.UsageEvent) requestJSON {
 		OutputTokens: e.OutputTokens,
 		CacheTokens:  e.CacheReadTokens + e.CacheWriteTokens,
 		DurationMS:   e.Duration.Milliseconds(),
+		FirstTokenMS: e.FirstToken.Milliseconds(),
 		Error:        e.Error,
 		ErrorKind:    string(upstream.ClassifyRefusal(e.Error)),
 		ErrorCode:    e.ErrorCode,

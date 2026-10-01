@@ -54,7 +54,7 @@ func (s *Server) handleExportRequests(w http.ResponseWriter, r *http.Request) {
 	_ = out.Write([]string{
 		"at", "status", "forwarded", "outcome", "model", "chat", "client",
 		"key", "account", "ip", "path", "streaming",
-		"input_tokens", "output_tokens", "cache_tokens", "duration_ms", "error",
+		"input_tokens", "output_tokens", "cache_tokens", "duration_ms", "first_token_ms", "error",
 	})
 
 	var cursor store.UsageCursor
@@ -107,6 +107,7 @@ func exportRow(e store.UsageEvent) []string {
 		strconv.Itoa(e.OutputTokens),
 		strconv.Itoa(e.CacheReadTokens + e.CacheWriteTokens),
 		strconv.FormatInt(e.Duration.Milliseconds(), 10),
+		strconv.FormatInt(e.FirstToken.Milliseconds(), 10),
 		e.Error,
 	}
 }

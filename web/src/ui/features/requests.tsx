@@ -627,7 +627,16 @@ function RecentRequests({
                   ? `${compact(r.input_tokens)} / ${compact(r.output_tokens)}`
                   : '—'}
               </td>
-              <td className="px-2 py-2 tabular-nums whitespace-nowrap">{r.duration_ms}ms</td>
+              <td className="px-2 py-2 tabular-nums whitespace-nowrap">
+                {r.duration_ms}ms
+                {/* Under the total, because the two together are what tell a
+                    long answer from one that sat silent before starting. */}
+                {r.first_token_ms !== undefined && (
+                  <div className="text-[11px] text-on-surface-variant" title="Time to first token">
+                    first {firstToken(r.first_token_ms)}
+                  </div>
+                )}
+              </td>
               {/* The stored class rather than the text: the text ends in a
                   request_id, so it is unique per row and filters to one. */}
               <td className="max-w-[18rem] px-2 py-2">
@@ -751,6 +760,7 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
             ['Path', <Mono>{row.path}</Mono>],
             ['Tokens', tokens],
             ['Duration', `${row.duration_ms}ms`],
+            ['First token', row.first_token_ms === undefined ? '—' : firstToken(row.first_token_ms)],
           ]}
         />
 
@@ -855,6 +865,7 @@ function asText(r: RequestRow): string {
     `streaming: ${r.streaming ? 'yes' : 'no'}`,
     `tokens:    ${r.input_tokens} in / ${r.output_tokens} out / ${r.cache_tokens} cache`,
     `duration:  ${r.duration_ms}ms`,
+    `first tok: ${r.first_token_ms === undefined ? '—' : `${r.first_token_ms}ms`}`,
   ]
   // Only when there is one: a blank heading followed by nothing reads as
   // something having gone missing.
@@ -907,6 +918,11 @@ function sortRows(rows: RequestRow[], sort: Sort): RequestRow[] {
 
 function dash(v: string | undefined): string {
   return v === undefined || v === '' ? '—' : v
+}
+
+/** Time to first token, in seconds once it is long enough to matter. */
+function firstToken(ms: number): string {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
 function statusTone(r: RequestRow): 'ok' | 'warn' | 'error' {

@@ -34,6 +34,13 @@
 // from the bytes that were just replaced. That bug shipped once, and was
 // invisible except through the system path.
 //
+// One thing changes when bytes are sent rather than what they are: a streaming
+// answer's opening events are held until the first one carrying content, so an
+// attempt the upstream accepted and then never worked on can be abandoned and
+// sent again before the client has seen any of it. Every byte still arrives,
+// in order and unchanged. stall.go has the measurements and the cost;
+// passthrough.stall-timeout turns it off.
+//
 // # Before adding a sixth
 //
 // Three of the five answer with the same message, and nothing in it is true:

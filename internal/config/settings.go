@@ -86,6 +86,9 @@ var definitions = []struct {
 	{"passthrough.claude-code-attribution", "CLAUDICATION_CLAUDE_CODE_ATTRIBUTION",
 		"Adds Claude Code's identity block when a client did not. Off means non-Claude-Code clients reach haiku and nothing above it.",
 		func(c Config) string { return strconv.FormatBool(c.Passthrough.ClaudeCodeAttribution) }},
+	{"passthrough.stall-timeout", "",
+		"How long a streaming answer may produce nothing before it is sent again, before the client has seen any of it. 0 is off.",
+		func(c Config) string { return c.Passthrough.StallTimeout.D().String() }},
 
 	{"openai.model", "CLAUDICATION_OPENAI_MODEL",
 		"Which Claude model a Responses request runs on when it asks for something else — a default Codex install asks for gpt-5-codex. A request naming a Claude model keeps it.",
