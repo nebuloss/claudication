@@ -88,7 +88,7 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 		                           cache_read_tokens, cache_write_tokens,
 		                           duration_ms, first_token_ms, error, error_code, rejected, ip)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.At.UTC().Format(time.RFC3339Nano), e.KeyID, e.KeyName, e.AccountID, e.AccountEmail,
+		stamp(e.At), e.KeyID, e.KeyName, e.AccountID, e.AccountEmail,
 		e.Model, e.Path, e.ConversationID, e.Client, e.Status, e.Streaming,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens,
 		e.Duration.Milliseconds(), e.FirstToken.Milliseconds(), e.Error, e.ErrorCode, e.Rejected, e.IP,
@@ -167,7 +167,7 @@ type UsageReport struct {
 // row, and running the whole breakdown report to get it made the first screen
 // after sign-in the most expensive query in the process.
 func (s *Store) Totals(ctx context.Context, since time.Time) (UsageTotals, error) {
-	from := since.UTC().Format(time.RFC3339Nano)
+	from := stamp(since)
 	var t UsageTotals
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*),
@@ -204,7 +204,7 @@ func (s *Store) Totals(ctx context.Context, since time.Time) (UsageTotals, error
 // duration rather than grouped, and a rewrite to window functions measured no
 // better.
 func (s *Store) Usage(ctx context.Context, since time.Time) (UsageReport, error) {
-	from := since.UTC().Format(time.RFC3339Nano)
+	from := stamp(since)
 	rep := UsageReport{Since: since.UTC()}
 
 	rows, err := s.db.QueryContext(ctx,
@@ -452,7 +452,7 @@ func (c UsageCursor) String() string {
 	if c.ID == 0 {
 		return ""
 	}
-	return c.At.UTC().Format(time.RFC3339Nano) + "|" + strconv.FormatInt(c.ID, 10)
+	return stamp(c.At) + "|" + strconv.FormatInt(c.ID, 10)
 }
 
 // ParseUsageCursor reads one back. An unparseable cursor is not an error: it
@@ -814,7 +814,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 	if after.ID > 0 {
 		// Row values, so the comparison is the same one the ORDER BY makes.
 		conditions = append(conditions, "(at, id) < (?, ?)")
-		params = append(params, after.At.UTC().Format(time.RFC3339Nano), after.ID)
+		params = append(params, stamp(after.At), after.ID)
 	}
 	if narrow != "" {
 		conditions = append(conditions, narrow)
@@ -871,7 +871,7 @@ func (s *Store) KeyUsage(ctx context.Context, since time.Time) (map[string]Usage
 		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0)
 		   FROM usage_events WHERE rejected = 0 AND at >= ? GROUP BY key_id`,
-		since.UTC().Format(time.RFC3339Nano))
+		stamp(since))
 	if err != nil {
 		return nil, err
 	}
@@ -897,7 +897,7 @@ func (s *Store) KeySpend(ctx context.Context, keyID string, since time.Time) (in
 		`SELECT COALESCE(SUM(input_tokens + output_tokens
 		                    + cache_read_tokens + cache_write_tokens), 0)
 		   FROM usage_events WHERE rejected = 0 AND at >= ? AND key_id = ?`,
-		since.UTC().Format(time.RFC3339Nano), keyID).Scan(&n)
+		stamp(since), keyID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("key spend: %w", err)
 	}
@@ -913,7 +913,7 @@ func (s *Store) OldestSpendAt(ctx context.Context, keyID string, since time.Time
 		`SELECT MIN(at) FROM usage_events
 		  WHERE rejected = 0 AND at >= ? AND key_id = ?
 		    AND input_tokens + output_tokens + cache_read_tokens + cache_write_tokens > 0`,
-		since.UTC().Format(time.RFC3339Nano), keyID).Scan(&at)
+		stamp(since), keyID).Scan(&at)
 	if err != nil || at == "" {
 		return time.Time{}, false
 	}
@@ -933,7 +933,7 @@ func (s *Store) AccountUsage(ctx context.Context, since time.Time) (map[string]U
 		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0)
 		   FROM usage_events WHERE rejected = 0 AND at >= ? GROUP BY account_id`,
-		since.UTC().Format(time.RFC3339Nano))
+		stamp(since))
 	if err != nil {
 		return nil, err
 	}
@@ -950,7 +950,7 @@ func (s *Store) PruneUsage(ctx context.Context, keep time.Duration) (int64, erro
 	if keep <= 0 {
 		return 0, nil
 	}
-	cutoff := time.Now().UTC().Add(-keep).Format(time.RFC3339Nano)
+	cutoff := stamp(time.Now().Add(-keep))
 	res, err := s.db.ExecContext(ctx, `DELETE FROM usage_events WHERE at < ?`, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("prune usage: %w", err)

@@ -52,12 +52,12 @@ func (s *Store) MintLoginLink(ctx context.Context, ttl time.Duration) (string, t
 	expires := now.Add(ttl)
 
 	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM login_links WHERE expires_at <= ?`, now.Format(time.RFC3339Nano)); err != nil {
+		`DELETE FROM login_links WHERE expires_at <= ?`, stamp(now)); err != nil {
 		return "", time.Time{}, fmt.Errorf("prune expired links: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO login_links (token, created_at, expires_at) VALUES (?, ?, ?)`,
-		token, now.Format(time.RFC3339Nano), expires.Format(time.RFC3339Nano),
+		token, stamp(now), stamp(expires),
 	); err != nil {
 		return "", time.Time{}, fmt.Errorf("store sign-in link: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // A chat is a conversation as the client that made it named it.
@@ -87,7 +88,7 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	from := since.UTC().Format(time.RFC3339Nano)
+	from := stamp(since)
 
 	var report ChatReport
 
@@ -305,12 +306,18 @@ func (s *Store) SetChatTitle(ctx context.Context, id, title, model string) error
 		return nil
 	}
 	if len(title) > maxTitle {
-		title = strings.TrimSpace(title[:maxTitle])
+		// Back to the start of a character: a cut through the middle of one
+		// stored invalid UTF-8, which the admin UI then renders as garbage.
+		cut := maxTitle
+		for cut > 0 && !utf8.RuneStart(title[cut]) {
+			cut--
+		}
+		title = strings.TrimSpace(title[:cut])
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO chat_titles (conversation_id, title, model, created_at)
 		 VALUES (?, ?, ?, ?) ON CONFLICT (conversation_id) DO NOTHING`,
-		id, title, model, time.Now().UTC().Format(time.RFC3339Nano))
+		id, title, model, stamp(time.Now()))
 	if err != nil {
 		return fmt.Errorf("set chat title: %w", err)
 	}

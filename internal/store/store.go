@@ -160,3 +160,16 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // DB exposes the handle for packages that need direct access.
 func (s *Store) DB() *sql.DB { return s.db }
+
+// stampLayout is how a moment is written into a column that is compared or
+// ordered as text: always UTC, always nine fraction digits.
+//
+// Fixed width is the point. SQLite compares these columns as strings, and
+// RFC3339Nano drops trailing zeros — 10:00:00.5Z is shorter than 10:00:00Z
+// and sorts before it, so a window starting on a whole second miscounted the
+// events inside that second. With every value the same width, text order is
+// time order. Go's RFC3339Nano parser reads it back unchanged.
+const stampLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
+// stamp formats t for such a column.
+func stamp(t time.Time) string { return t.UTC().Format(stampLayout) }
