@@ -77,9 +77,28 @@ func (Provider) Meter(contentType string, into provider.Reading) provider.Meter 
 	return newJSONUsage(into.Usage)
 }
 
-// Quiet implements provider.Wire: the events Messages sends before the model
-// has produced anything.
-func (Provider) Quiet(name []byte) bool { return quietEvent(name) }
+// Event implements provider.Wire for the Messages stream.
+func (Provider) Event(name []byte) provider.EventKind {
+	switch {
+	case quietEvent(name):
+		return provider.EventQuiet
+	case string(name) == "error":
+		return provider.EventError
+	case settlingEvent(name):
+		return provider.EventSettling
+	}
+	return provider.EventContent
+}
+
+// settlingEvent reports whether an event finishes a block or the answer: a
+// stream that has got this far is not stalled at its start.
+func settlingEvent(name []byte) bool {
+	switch string(name) {
+	case "content_block_stop", "message_delta", "message_stop":
+		return true
+	}
+	return false
+}
 
 // quietEvent reports whether an SSE event name carries no content: the ones
 // the upstream sends before it has produced anything.

@@ -63,8 +63,22 @@ type Wire interface {
 	// Meter returns a reader for an answer of the given content type.
 	Meter(contentType string, into Reading) Meter
 
-	// Quiet reports whether a streamed event carries no content yet — the
-	// opening events a stream sends before the model has produced anything.
-	// The relay holds those back to retry a stream that never starts.
-	Quiet(event []byte) bool
+	// Event classifies a streamed event by name. The relay holds a stream's
+	// opening back until it is flowing, and retries one that stalls before
+	// then; which events mean what is the provider's to say.
+	Event(name []byte) EventKind
 }
+
+// EventKind is what a streamed event means for whether the stream is alive.
+type EventKind uint8
+
+const (
+	// EventContent carries something the model produced.
+	EventContent EventKind = iota
+	// EventQuiet carries nothing yet: the stream opening, a keep-alive.
+	EventQuiet
+	// EventSettling finishes a block or the answer.
+	EventSettling
+	// EventError is a failure reported inside the stream.
+	EventError
+)

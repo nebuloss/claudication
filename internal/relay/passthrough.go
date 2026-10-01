@@ -305,7 +305,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 		// request again if it never does. Only while another attempt is
 		// possible, once per request, and never on the retry itself.
 		if r.StallTimeout > 0 && res.Stalls == 0 && attempt < maxAttempts && holdable(resp) {
-			held, outcome := holdUntilContent(resp.Body, r.StallTimeout, r.Wire.Quiet)
+			held, outcome := holdUntilContent(resp.Body, r.StallTimeout, r.Wire.Event)
 			if outcome != holdProgressed {
 				cancelAttempt()
 				res.Stalls++
