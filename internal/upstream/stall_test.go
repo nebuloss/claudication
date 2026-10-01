@@ -94,8 +94,8 @@ func TestAStreamThatNeverStartsIsSentAgain(t *testing.T) {
 	if body != want {
 		t.Errorf("client received\n%q\nwant only the second answer\n%q", body, want)
 	}
-	if strings.Count(body, "message_start") != 1 {
-		t.Errorf("message_start sent %d times", strings.Count(body, "message_start"))
+	if n := strings.Count(body, "event: message_start"); n != 1 {
+		t.Errorf("message_start sent %d times", n)
 	}
 	if p.failures != 0 {
 		t.Errorf("failures = %d: a stall must not cool down the account that will serve the retry", p.failures)
