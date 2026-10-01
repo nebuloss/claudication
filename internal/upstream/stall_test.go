@@ -185,14 +185,63 @@ func TestClassifyHeld(t *testing.T) {
 	}{
 		{sseStart, false, holdProgressed},
 		{sseStart + ssePing + sseBlock, false, holdProgressed},
-		{sseStart + sseDelta, true, holdProgressed},
+		// One delta is not yet a flowing stream: that is exactly where the
+		// stalls of 2026-10-01 afternoon stopped.
+		{sseStart + sseDelta, false, holdProgressed},
+		{sseStart + sseDelta + sseDelta, false, holdProgressed},
+		{sseStart + sseDelta + sseDelta + sseDelta, true, holdProgressed},
 		{sseStart + sseOverloaded, true, holdErrored},
+		{sseStart + sseDelta + sseOverloaded, true, holdErrored},
 		{sseStart + "event: message_delta\n", true, holdProgressed},
+		{sseStart + sseDelta + "event: content_block_stop\n", true, holdProgressed},
 		{"event: content_block_del", false, holdProgressed}, // partial line
 	} {
-		got, decided, _ := classifyHeld([]byte(tc.in), 0)
+		var sc heldScan
+		got, decided := classifyHeld([]byte(tc.in), &sc, time.Now())
 		if decided != tc.decided || (decided && got != tc.want) {
 			t.Errorf("%q: got %v decided=%v, want %v decided=%v", tc.in, got, decided, tc.want, tc.decided)
 		}
+	}
+}
+
+// The afternoon's stalls: one delta, then nothing. The opening is still held,
+// so the stall is retried invisibly instead of reaching the client.
+func TestAStreamThatStopsAfterOneDeltaIsSentAgain(t *testing.T) {
+	defer func(g time.Duration) { progressGap = g }(progressGap)
+	progressGap = 100 * time.Millisecond
+
+	srv, attempts := stallServer(t, func(n int) []string {
+		if n == 1 {
+			return []string{sseStart, sseBlock, sseDelta, ""}
+		}
+		return []string{sseStart, sseBlock, sseDelta, sseDelta, sseDelta, sseEnd}
+	})
+	// The overall limit is long: it is the gap after the first delta that
+	// must catch this one.
+	res, body := doStream(stallRelay(srv, &recordingPool{}, time.Minute))
+	if attempts() != 2 || res.Stalls != 1 {
+		t.Fatalf("attempts=%d stalls=%d, want 2/1", attempts(), res.Stalls)
+	}
+	if want := sseStart + sseBlock + sseDelta + sseDelta + sseDelta + sseEnd; body != want {
+		t.Errorf("client received\n%q\nwant only the second answer\n%q", body, want)
+	}
+}
+
+// A reply short enough to finish in one delta is released the moment it
+// settles, not held for more content that will never come.
+func TestAShortCompleteAnswerIsNotHeld(t *testing.T) {
+	defer func(g time.Duration) { progressGap = g }(progressGap)
+	progressGap = time.Hour
+
+	srv, attempts := stallServer(t, func(int) []string {
+		return []string{sseStart, sseBlock, sseDelta, "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n", sseEnd}
+	})
+	start := time.Now()
+	res, _ := doStream(stallRelay(srv, &recordingPool{}, time.Hour))
+	if attempts() != 1 || res.Stalls != 0 || res.Status != 200 {
+		t.Fatalf("attempts=%d stalls=%d status=%d", attempts(), res.Stalls, res.Status)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("a short answer was held for %s", took)
 	}
 }
