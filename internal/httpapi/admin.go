@@ -259,7 +259,7 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 		// Someone is looking, so the usage poller should work at its fast
 		// rate. Recorded here rather than in each handler so every panel
 		// counts, including ones that do not exist yet.
-		s.noteAdminActivity()
+		s.poller.NoteActivity()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -402,7 +402,7 @@ func (s *Server) handleReorderAccounts(w http.ResponseWriter, r *http.Request) {
 // the screen does not have to wait out the interval.
 func (s *Server) handleRefreshUsage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := s.refreshAccountUsage(r.Context(), id); err != nil {
+	if err := s.poller.Refresh(r.Context(), id); err != nil {
 		s.log.Warn("usage refresh failed", "account", id, "err", err)
 		writeError(w, http.StatusBadGateway, "upstream_error",
 			"could not read the subscription usage: "+err.Error())
@@ -525,7 +525,7 @@ func (s *Server) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 	// Read the subscription usage before answering. The poller would get to it
 	// within five minutes, but the operator is looking at the screen now, and a
 	// brand-new account showing nothing is exactly the gap worth closing.
-	if _, err := s.refreshAccountUsage(r.Context(), acct.ID); err != nil {
+	if err := s.poller.Refresh(r.Context(), acct.ID); err != nil {
 		s.log.Debug("could not read usage for the new account", "err", err)
 	} else if fresh, err := s.store.Account(r.Context(), acct.ID); err == nil {
 		acct = fresh

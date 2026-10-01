@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"claudication/internal/api"
@@ -25,6 +24,7 @@ import (
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	"claudication/internal/secret"
+	accountsvc "claudication/internal/service/accounts"
 	"claudication/internal/service/limits"
 	"claudication/internal/service/settings"
 	"claudication/internal/service/titles"
@@ -58,11 +58,9 @@ type Server struct {
 	sessions    *sessions
 	httpClient  *http.Client
 	startedAt   time.Time
-	// adminSeen is when the admin UI last asked for anything, as Unix nanos.
-	// The usage poller reads it to decide how hard to work; see
-	// accountusage.go. Atomic because it is written from every admin request
-	// and read from the poller's own goroutine.
-	adminSeen atomic.Int64
+	// poller keeps each account's subscription usage current, faster while
+	// the admin UI is open. See internal/service/accounts.
+	poller *accountsvc.Poller
 	// trimmer counts relayed requests in flight and hands idle heap back to
 	// the system once a burst is over. See internal/memlimit.
 	trimmer *memlimit.Trimmer
@@ -175,6 +173,20 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	// root, and nowhere below: the pool is handed its token refresh and the
 	// relay its wire, and neither knows whose they are.
 	s.pool = pool.New(st, sealer, s.httpClient, log, anthropic.Refresh)
+	s.poller = &accountsvc.Poller{
+		Store:  st,
+		Tokens: s.pool,
+		Fetch: func(ctx context.Context, token string) (store.AccountQuota, error) {
+			u, err := anthropic.FetchUsage(ctx, s.httpClient, token)
+			if err != nil {
+				return store.AccountQuota{}, err
+			}
+			return u.Quota(), nil
+		},
+		Idle:    cfg.Usage.PollIdle.D(),
+		Watched: cfg.Usage.PollWatched.D(),
+		Log:     log,
+	}
 	s.relay = &relay.Relay{
 		Wire: anthropic.Provider{},
 		Pool: s.pool,
@@ -601,7 +613,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.anonLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
 	go s.budgets.RunSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
 	go s.recorder.RunPruner(s.stopSweeper, 24*time.Hour)
-	go s.runUsagePoller(ctx)
+	go s.poller.Run(ctx, s.stopSweeper, accountsvc.Tick)
 	go s.trimmer.Run(s.stopSweeper, 5*time.Second)
 
 	// The admin listener binds before anything is served, so a port clash is a
