@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"claudication/internal/request"
 )
 
 // rebuild is the old way, kept here as the oracle: decode the envelope,
@@ -92,7 +94,7 @@ func TestSpliceRefusesWhatItCannotPlace(t *testing.T) {
 func TestEnsureAttributionAllocatesOnce(t *testing.T) {
 	body := []byte(`{"model":"m","system":"s","messages":[{"role":"user","content":"` +
 		strings.Repeat("x", 1<<20) + `"}]}`)
-	p := Peek(body)
+	p := request.Peek(body)
 	allocated := testing.AllocsPerRun(5, func() { _ = EnsureAttribution(body, p) })
 	// systemBlocks decodes the small system field; the body itself is copied
 	// once. A few dozen small allocations at most; the byte count below is

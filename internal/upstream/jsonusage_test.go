@@ -1,10 +1,6 @@
 package upstream
 
-import (
-	"testing"
-
-	"claudication/internal/request"
-)
+import "testing"
 
 // The body a non-streaming /v1/messages actually returns. Before this existed
 // every such request was recorded as zero tokens, which reads as "cost

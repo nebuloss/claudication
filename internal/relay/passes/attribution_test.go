@@ -3,6 +3,8 @@ package passes
 import (
 	"encoding/json"
 	"testing"
+
+	"claudication/internal/request"
 )
 
 // The case that matters most: Claude Code's own traffic must come out the
@@ -18,7 +20,7 @@ func TestAttributionLeavesAnAttributedBodyAlone(t *testing.T) {
 			`"You are a Claude agent, built on Anthropic's Claude Agent SDK."}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := EnsureAttribution([]byte(body), Peek([]byte(body)))
+			got := EnsureAttribution([]byte(body), request.Peek([]byte(body)))
 			if string(got) != body {
 				t.Errorf("body was rewritten:\n got %s\nwant %s", got, body)
 			}
@@ -45,7 +47,7 @@ func TestAttributionIsAddedWhenAbsent(t *testing.T) {
 					Text string `json:"text"`
 				} `json:"system"`
 			}
-			if err := json.Unmarshal(EnsureAttribution([]byte(body), Peek([]byte(body))), &out); err != nil {
+			if err := json.Unmarshal(EnsureAttribution([]byte(body), request.Peek([]byte(body))), &out); err != nil {
 				t.Fatalf("result is not valid JSON: %v", err)
 			}
 			if len(out.System) == 0 {
@@ -79,7 +81,7 @@ func TestAttributionKeepsTheRestOfTheRequest(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
-	if err := json.Unmarshal(EnsureAttribution([]byte(body), Peek([]byte(body))), &out); err != nil {
+	if err := json.Unmarshal(EnsureAttribution([]byte(body), request.Peek([]byte(body))), &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -99,7 +101,7 @@ func TestAttributionKeepsTheRestOfTheRequest(t *testing.T) {
 // reject. Guessing at it would turn a clear 400 into something stranger.
 func TestAttributionLeavesUnparseableBodiesAlone(t *testing.T) {
 	for _, body := range []string{"", "not json", `{"system":`, `{"system":42}`, `[]`} {
-		if got := EnsureAttribution([]byte(body), Peek([]byte(body))); string(got) != body {
+		if got := EnsureAttribution([]byte(body), request.Peek([]byte(body))); string(got) != body {
 			t.Errorf("body %q was rewritten to %q", body, got)
 		}
 	}

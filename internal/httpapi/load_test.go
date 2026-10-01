@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/relay/passes"
 	"claudication/internal/store"
 )
 
@@ -149,7 +150,11 @@ func TestLoad(t *testing.T) {
 			t.Fatal(err)
 		}
 		if os.Getenv("CLAUDICATION_LOAD_IMAGECACHE") == "off" {
-			srv.relay.Images = nil
+			// The same pipeline with no image cache, so every request decodes.
+			srv.relay.Passes = passes.Default(passes.Options{
+				Attribution: srv.cfg.Passthrough.ClaudeCodeAttribution,
+				FitImages:   srv.images.enabled,
+			})
 		}
 	}
 	body := loadShapeV.body
