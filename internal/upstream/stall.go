@@ -85,10 +85,26 @@ func (o holdOutcome) String() string {
 	return "progressed"
 }
 
-// pumped is one read from the upstream body.
+// pumped is one read from the upstream body. buf is the pooled buffer b was
+// read into, handed back once b has been consumed.
 type pumped struct {
 	b   []byte
+	buf *[]byte
 	err error
+}
+
+// pumpBuffers recycles read buffers. Without it every chunk of every stream
+// was a fresh 32 KB — 170 MB allocated in a short load test, all of it
+// garbage the moment the chunk had been copied on.
+var pumpBuffers = sync.Pool{New: func() any {
+	b := make([]byte, 32*1024)
+	return &b
+}}
+
+func (c pumped) release() {
+	if c.buf != nil {
+		pumpBuffers.Put(c.buf)
+	}
 }
 
 // pump reads a body on its own goroutine, so that waiting for the next chunk
@@ -99,7 +115,7 @@ type pump struct {
 	ch   chan pumped
 	stop chan struct{}
 	once sync.Once
-	cur  []byte
+	cur  pumped
 	err  error
 }
 
@@ -107,14 +123,17 @@ func startPump(body io.Reader) *pump {
 	p := &pump{ch: make(chan pumped), stop: make(chan struct{})}
 	go func() {
 		for {
-			buf := make([]byte, 32*1024)
-			n, err := body.Read(buf)
+			buf := pumpBuffers.Get().(*[]byte)
+			n, err := body.Read(*buf)
 			if n > 0 {
 				select {
-				case p.ch <- pumped{b: buf[:n]}:
+				case p.ch <- pumped{b: (*buf)[:n], buf: buf}:
 				case <-p.stop:
+					pumpBuffers.Put(buf)
 					return
 				}
+			} else {
+				pumpBuffers.Put(buf)
 			}
 			if err != nil {
 				select {
@@ -139,15 +158,17 @@ func (p *pump) next(deadline <-chan time.Time) (c pumped, ok bool) {
 }
 
 func (p *pump) Read(b []byte) (int, error) {
-	for len(p.cur) == 0 {
+	for len(p.cur.b) == 0 {
+		p.cur.release()
+		p.cur = pumped{}
 		if p.err != nil {
 			return 0, p.err
 		}
 		c := <-p.ch
-		p.cur, p.err = c.b, c.err
+		p.cur, p.err = c, c.err
 	}
-	n := copy(b, p.cur)
-	p.cur = p.cur[n:]
+	n := copy(b, p.cur.b)
+	p.cur.b = p.cur.b[n:]
 	return n, nil
 }
 
@@ -196,6 +217,7 @@ func holdUntilContent(body io.ReadCloser, timeout time.Duration) (io.ReadCloser,
 		}
 		if len(c.b) > 0 {
 			held = append(held, c.b...)
+			c.release() // copied into held; the buffer can go round again
 			var o holdOutcome
 			var decided bool
 			o, decided, scanned = classifyHeld(held, scanned)

@@ -78,6 +78,16 @@ shutdown:
   # responses are long-lived, so this is deliberately generous.
   grace: "120s"
 
+# The memory this process may use: the container's limit. Go's collector
+# otherwise aims for twice what is in use, so a burst of agents with
+# megabyte-sized requests grows straight past a small container's limit and
+# the kernel kills it, with every stream open. Set this on a container that
+# cannot see its own limit — a Proxmox LXC cannot, nor can anything that reads
+# /proc/meminfo as the host's. Left empty, it is read from the cgroup where
+# that is visible (Docker, systemd), and otherwise no limit is set.
+# GOMEMLIMIT in the environment overrides it.
+# memory-limit: "512MiB"
+
 # Per-request history, for the Usage tab. The gateway records one row per
 # proxied request: which key, which account, which model, how many tokens.
 usage:

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"claudication/internal/api"
+	"claudication/internal/memlimit"
 	"claudication/internal/api/anthropic"
 	"claudication/internal/api/openai"
 	"claudication/internal/config"
@@ -55,6 +56,9 @@ type Server struct {
 	// accountusage.go. Atomic because it is written from every admin request
 	// and read from the poller's own goroutine.
 	adminSeen atomic.Int64
+	// trimmer counts relayed requests in flight and hands idle heap back to
+	// the system once a burst is over. See internal/memlimit.
+	trimmer *memlimit.Trimmer
 	// protocols are the client-facing dialects this gateway serves, in the
 	// order the admin UI lists them. Anthropic is one of them rather than the
 	// default case — see internal/api.
@@ -112,6 +116,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		stopSweeper:    make(chan struct{}),
 		sealer:         sealer,
 		pending:        oauth.NewPending(15 * time.Minute),
+		trimmer:        memlimit.NewTrimmer(log),
 		sessions:       newSessions(),
 		startedAt:      time.Now(),
 		// Upstream calls made by the gateway itself: token exchange, refresh,
@@ -574,6 +579,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.budgets.runSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
 	go s.runUsagePruner()
 	go s.runUsagePoller(ctx)
+	go s.trimmer.Run(s.stopSweeper, 5*time.Second)
 
 	// The admin listener binds before anything is served, so a port clash is a
 	// startup failure rather than a gateway that comes up with no way in.

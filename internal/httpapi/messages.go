@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -28,7 +27,10 @@ import (
 // retry on another account has to replay it.
 func (s *Server) inference(p api.Protocol, route, upstreamPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
+		// Counted, so memory is only handed back once nothing is in flight.
+		defer s.trimmer.Begin()()
+
+		body, err := readSized(r.Body, r.ContentLength, s.cfg.Limits.MaxBodyBytes)
 		if err != nil {
 			p.WriteError(w, http.StatusBadRequest, "invalid_request", "could not read the request body")
 			return

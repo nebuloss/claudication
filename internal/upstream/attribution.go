@@ -16,13 +16,18 @@ type Prologue struct {
 	Model  string          `json:"model"`
 	Stream bool            `json:"stream"`
 	System json.RawMessage `json:"system"`
+
+	// parsed records that the whole body is valid JSON, which is what lets
+	// the attribution be spliced in rather than the body rebuilt: the splice
+	// finds structure without checking it.
+	parsed bool
 }
 
 // Peek reads the prologue. An unparseable body yields a zero Prologue and is
 // left for the upstream to reject.
 func Peek(body []byte) Prologue {
 	var p Prologue
-	_ = json.Unmarshal(body, &p)
+	p.parsed = json.Unmarshal(body, &p) == nil
 	return p
 }
 
@@ -94,8 +99,16 @@ func EnsureAttribution(body []byte, p Prologue) []byte {
 		return body // already attributed; leave the bytes alone
 	}
 
-	// Only now, on the rare path that actually rewrites, is the whole envelope
-	// parsed. Unmarshalling into map[string]json.RawMessage copies every
+	// Rare for Claude Code, and every request for anything else. Spliced into
+	// the bytes where the shape allows — see splice.go — so the body is
+	// copied once rather than decoded, rebuilt and re-encoded.
+	if p.parsed {
+		if out, ok := spliceAttribution(body); ok {
+			return out
+		}
+	}
+
+	// Otherwise the whole envelope is parsed. Unmarshalling into map[string]json.RawMessage copies every
 	// top-level value, so on a Claude Code turn — which resends the entire
 	// transcript, routinely a megabyte or more — doing it up front duplicated
 	// the body before deciding it had nothing to change.

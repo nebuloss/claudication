@@ -25,6 +25,7 @@ import (
 	"claudication/internal/config"
 	"claudication/internal/httpapi"
 	"claudication/internal/logging"
+	"claudication/internal/memlimit"
 	"claudication/internal/secret"
 	"claudication/internal/store"
 	"claudication/internal/version"
@@ -182,6 +183,10 @@ func cmdServe(args []string) error {
 	defer st.Close()
 
 	log := logging.New(cfg.Log.Level, cfg.Log.Format)
+
+	// Before anything allocates in earnest. Validated by config.Load already.
+	limit, _ := memlimit.ParseSize(cfg.MemoryLimit)
+	memlimit.Apply(limit, log)
 
 	srv, err := httpapi.New(cfg, log, st, sealer)
 	if err != nil {

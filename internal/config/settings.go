@@ -110,6 +110,10 @@ var definitions = []struct {
 		"The same while this UI is open. One upstream call per account per tick, on your own subscriptions; at least 10s.",
 		func(c Config) string { return c.Usage.PollWatched.D().String() }},
 
+	{"memory-limit", "",
+		"Memory this process may use, e.g. 512MiB. Needed where the container cannot see its own limit; empty detects it where it can.",
+		func(c Config) string { return c.MemoryLimit }},
+
 	{"shutdown.grace", "",
 		"How long in-flight requests may finish after a signal. Streams are long-lived, so this is generous.",
 		func(c Config) string { return c.Shutdown.Grace.D().String() }},

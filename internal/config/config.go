@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"claudication/internal/memlimit"
 )
 
 // Duration is a time.Duration that decodes from a YAML string like "30s".
@@ -91,6 +93,11 @@ type Config struct {
 	OpenAI         OpenAIConfig      `yaml:"openai"`
 	Usage          UsageConfig       `yaml:"usage"`
 	Shutdown       ShutdownConfig    `yaml:"shutdown"`
+	// MemoryLimit is the memory this process may use, like "512MiB": the
+	// container's limit, on a host where the container cannot see it — a
+	// Proxmox LXC among them. Empty detects it from the cgroup where that is
+	// visible, and otherwise sets none. See internal/memlimit.
+	MemoryLimit string `yaml:"memory-limit"`
 
 	// Path is the file this was read from, empty when there was none. Reported
 	// by the admin UI so "where do I change this" has an answer on screen.
@@ -394,6 +401,11 @@ func (c Config) validate() error {
 	}
 	if c.Usage.PollWatched.D() > c.Usage.PollIdle.D() {
 		return errors.New("usage.poll-watched must not be slower than usage.poll-idle")
+	}
+	if n, err := memlimit.ParseSize(c.MemoryLimit); err != nil {
+		return fmt.Errorf("memory-limit: %w", err)
+	} else if n != 0 && n < 64<<20 {
+		return errors.New("memory-limit below 64MiB leaves nothing to serve a request with")
 	}
 	if st := c.Passthrough.StallTimeout.D(); st != 0 && st < MinStallTimeout {
 		return fmt.Errorf("passthrough.stall-timeout must be 0 (off) or at least %s", MinStallTimeout)

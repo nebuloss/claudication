@@ -10,6 +10,38 @@ import (
 	"strings"
 )
 
+// readSized reads r whole, into a buffer sized from hint when hint is
+// believable.
+//
+// io.ReadAll does not know how much is coming, so it doubles its way up and
+// leaves every smaller buffer behind: about 2.5 times the body allocated to
+// hold it once, for every request, and request bodies here are megabytes. The
+// size is usually known — Content-Length, or the length a gzip stream records
+// in its trailer — so the buffer is made once at the right size. The spare
+// MinRead is what bytes.Buffer insists on having free for its last read, which
+// would otherwise double the buffer just to discover EOF.
+//
+// A hint is only a hint: a wrong one costs a regrow, not a wrong answer, and one
+// over the limit is ignored rather than trusted with an allocation.
+func readSized(r io.Reader, hint, limit int64) ([]byte, error) {
+	if hint <= 0 || (limit > 0 && hint > limit) {
+		return io.ReadAll(r)
+	}
+	buf := bytes.NewBuffer(make([]byte, 0, hint+bytes.MinRead))
+	_, err := buf.ReadFrom(r)
+	return buf.Bytes(), err
+}
+
+// gzipSize is the uncompressed length a gzip stream records in its last four
+// bytes, modulo 2^32 — exact for any body this gateway would accept — or 0.
+func gzipSize(gz []byte) int64 {
+	if len(gz) < 18 {
+		return 0
+	}
+	t := gz[len(gz)-4:]
+	return int64(t[0]) | int64(t[1])<<8 | int64(t[2])<<16 | int64(t[3])<<24
+}
+
 // decodeBody returns the request body as the JSON the caller meant, opening a
 // content coding if one was applied.
 //
@@ -47,7 +79,7 @@ func decodeBody(r *http.Request, body []byte, limit int64) ([]byte, error) {
 	if limit <= 0 {
 		limit = 32 << 20
 	}
-	out, err := io.ReadAll(io.LimitReader(zr, limit+1))
+	out, err := readSized(io.LimitReader(zr, limit+1), gzipSize(body), limit)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the gzipped body: %w", err)
 	}

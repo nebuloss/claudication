@@ -100,6 +100,7 @@ func TestLoad(t *testing.T) {
 	// Every client here is 127.0.0.1, so the per-IP bucket would measure
 	// itself rather than the gateway.
 	srv.cfg.Limits.AnonPerMinute = 1_000_000
+	srv.trimmer.Quiet = 2 * time.Second
 	if err := seedAccount(t, st, srv); err != nil {
 		t.Fatal(err)
 	}
@@ -120,16 +121,16 @@ func TestLoad(t *testing.T) {
 
 	t.Logf("history %d rows, body %d KB, stub first token %s + %d deltas x %s",
 		loadHistory, len(body)>>10, loadFirstToken, loadDeltas, loadDeltaGap)
-	t.Logf("%6s %8s %7s %9s %9s %9s %9s %10s %9s %8s",
+	t.Logf("%6s %8s %7s %9s %9s %9s %9s %10s %9s %8s %8s %8s",
 		"agents", "requests", "errors", "added p50", "added p90", "added p99", "added max",
-		"admin p99", "heap MB", "gorout.")
+		"admin p99", "heap MB", "gorout.", "RSS peak", "RSS idle")
 
 	for _, agents := range levels {
 		r := runLevel(client, base, key, body, agents, cookie)
-		t.Logf("%6d %8d %7s %9s %9s %9s %9s %10s %9d %8d",
+		t.Logf("%6d %8d %7s %9s %9s %9s %9s %10s %9d %8d %8d %8d",
 			agents, r.requests, r.errorsText(),
 			ms(r.added(.5)), ms(r.added(.9)), ms(r.added(.99)), ms(r.added(1)),
-			ms(r.adminP99()), r.heapMB, r.goroutines)
+			ms(r.adminP99()), r.heapMB, r.goroutines, r.rssPeakMB, r.rssIdleMB)
 		if agents == levels[0] {
 			var parts []string
 			for path, ds := range r.adminBy {
@@ -156,6 +157,23 @@ type levelResult struct {
 	adminBy    map[string][]time.Duration
 	heapMB     uint64
 	goroutines int
+	rssPeakMB  int64
+	rssIdleMB  int64 // after the burst, once the trimmer has had its chance
+}
+
+// rssMB is the process's resident memory, which is what a container's limit
+// counts — not the heap.
+func rssMB() int64 {
+	b, err := os.ReadFile("/proc/self/statm")
+	if err != nil {
+		return 0
+	}
+	f := strings.Fields(string(b))
+	if len(f) < 2 {
+		return 0
+	}
+	pages, _ := strconv.ParseInt(f[1], 10, 64)
+	return pages * int64(os.Getpagesize()) >> 20
 }
 
 func (r *levelResult) added(q float64) time.Duration {
@@ -257,6 +275,9 @@ func runLevel(client *http.Client, base, key string, body []byte, agents int, co
 			if g := runtime.NumGoroutine(); g > peakG {
 				peakG = g
 			}
+			if r := rssMB(); r > res.rssPeakMB {
+				res.rssPeakMB = r
+			}
 			time.Sleep(200 * time.Millisecond)
 		}
 	}()
@@ -270,8 +291,17 @@ func runLevel(client *http.Client, base, key string, body []byte, agents int, co
 	sort.Slice(res.admin, func(i, j int) bool { return res.admin[i] < res.admin[j] })
 	res.heapMB = peakHeap >> 20
 	res.goroutines = peakG
+
+	// Quiet, long enough for the trimmer's quiet period and a tick after it.
+	time.Sleep(loadIdle)
+	res.rssIdleMB = rssMB()
 	return res
 }
+
+// loadIdle is how long each level waits after its burst before reading what
+// the process still holds. The test shortens the trimmer's quiet period to 2 s
+// so this does not dominate the run.
+const loadIdle = 9 * time.Second
 
 // oneRequest runs one streamed request to the end and returns when its first
 // token arrived, or what went wrong.
