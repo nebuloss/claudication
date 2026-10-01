@@ -74,11 +74,11 @@ func TestDropEmptyMessageTextTouchesOnlyThatMessage(t *testing.T) {
 // refused mcp_ shape must.
 func TestRefusedNameGateIgnoresDoubleUnderscore(t *testing.T) {
 	for body, want := range map[string]bool{
-		`{"tools":[{"name":"mcp__github__search"}]}`:                    false,
-		`{"tools":[{"name":"mcp_github_search"}]}`:                      true,
-		`{"tools":[{"name":"mcp__a"},{"name":"mcp_b"}]}`:                true,
+		`{"tools":[{"name":"mcp__github__search"}]}`:                     false,
+		`{"tools":[{"name":"mcp_github_search"}]}`:                       true,
+		`{"tools":[{"name":"mcp__a"},{"name":"mcp_b"}]}`:                 true,
 		`{"tools":[{"name":"Read"}],"messages":"mentions mcp_ in text"}`: false,
-		`{"tools":[{"name":"todowrite"}]}`:                              true,
+		`{"tools":[{"name":"todowrite"}]}`:                               true,
 	} {
 		if got := mayHoldRefusedName([]byte(body)); got != want {
 			t.Errorf("%s: gate = %v, want %v", body, got, want)
