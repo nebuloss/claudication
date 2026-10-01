@@ -1,0 +1,345 @@
+package httpapi
+
+import (
+	"compress/gzip"
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// adminOnly serves the admin-only listener and returns its base URL.
+func adminOnly(t *testing.T, srv *Server) string {
+	t.Helper()
+	ts := httptest.NewServer(srv.routes(role{admin: true}))
+	t.Cleanup(ts.Close)
+	return ts.URL
+}
+
+// docsOnly serves the public docs listener and returns its base URL.
+func docsOnly(t *testing.T, srv *Server) string {
+	t.Helper()
+	ts := httptest.NewServer(srv.routes(role{docs: true}))
+	t.Cleanup(ts.Close)
+	return ts.URL
+}
+
+// fakeUI stands in for a built UI. The checkout used for tests has none
+// embedded, so the bundle is replaced before any handler is built from it.
+func fakeUI(srv *Server) (index, script string) {
+	index = "<!doctype html><title>admin</title>" + strings.Repeat("<p>admin</p>", 200)
+	script = strings.Repeat("console.log('compressible');\n", 200)
+	srv.bundle()
+	srv.assets = map[string]asset{
+		"index.html":         newAsset("index.html", []byte(index)),
+		"docs.html":          newAsset("docs.html", []byte("<!doctype html><title>docs</title>")),
+		"assets/app-1a2b.js": newAsset("assets/app-1a2b.js", []byte(script)),
+		"favicon.png":        newAsset("favicon.png", []byte("\x89PNG\r\n\x1a\nnot really")),
+	}
+	return index, script
+}
+
+func get(t *testing.T, h http.Handler, method, path string, header map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(method, path, nil)
+	for k, v := range header {
+		r.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+// The UI is fetched across tunnels and slow links, so it is compressed once
+// and served gzipped to whoever asks; fingerprinted assets are cached forever
+// and the entry document never is, or a deploy would be invisible until the
+// cache expired.
+func TestStaticAssetsAreCompressedAndCachedCorrectly(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	index, script := fakeUI(srv)
+	h := srv.staticHandler("index.html")
+
+	w := get(t, h, http.MethodGet, "/assets/app-1a2b.js", map[string]string{"Accept-Encoding": "br, gzip;q=0.8"})
+	if w.Code != http.StatusOK || w.Header().Get("Content-Encoding") != "gzip" {
+		t.Fatalf("script: %d, encoding %q", w.Code, w.Header().Get("Content-Encoding"))
+	}
+	if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Errorf("fingerprinted asset Cache-Control = %q", cc)
+	}
+	if !strings.Contains(w.Header().Get("Vary"), "Accept-Encoding") {
+		t.Error("a negotiated response does not Vary on Accept-Encoding")
+	}
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := io.ReadAll(zr)
+	if string(plain) != script {
+		t.Error("the gzipped body does not inflate to the asset")
+	}
+
+	// Without gzip in Accept-Encoding the bytes go as they are.
+	w = get(t, h, http.MethodGet, "/assets/app-1a2b.js", map[string]string{"Accept-Encoding": "identity"})
+	if w.Header().Get("Content-Encoding") != "" || w.Body.String() != script {
+		t.Error("an identity request got compressed bytes")
+	}
+
+	// The entry document: never cached without revalidation, conditional GET
+	// honoured.
+	w = get(t, h, http.MethodGet, "/", nil)
+	if w.Code != http.StatusOK || w.Body.String() != index || w.Header().Get("Cache-Control") != "no-cache" {
+		t.Fatalf("index: %d %q", w.Code, w.Header().Get("Cache-Control"))
+	}
+	etag := w.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag on the entry document")
+	}
+	for _, inm := range []string{etag, `"other", ` + etag, "*"} {
+		if w := get(t, h, http.MethodGet, "/", map[string]string{"If-None-Match": inm}); w.Code != http.StatusNotModified {
+			t.Errorf("If-None-Match %s: %d, want 304", inm, w.Code)
+		}
+	}
+	if w := get(t, h, http.MethodGet, "/", map[string]string{"If-None-Match": `"stale"`}); w.Code != http.StatusOK {
+		t.Errorf("a stale ETag: %d", w.Code)
+	}
+
+	// A client-side route resolves to the app; a missing file does not.
+	if w := get(t, h, http.MethodGet, "/accounts/settings", nil); w.Body.String() != index {
+		t.Error("a client-side route did not get the app shell")
+	}
+	if w := get(t, h, http.MethodGet, "/assets/app-old.js", nil); w.Code != http.StatusNotFound {
+		t.Errorf("a stale asset reference: %d, want 404", w.Code)
+	}
+
+	// HEAD says how long without sending it.
+	w = get(t, h, http.MethodHead, "/", nil)
+	if w.Body.Len() != 0 || w.Header().Get("Content-Length") == "" {
+		t.Errorf("HEAD: body %d bytes, Content-Length %q", w.Body.Len(), w.Header().Get("Content-Length"))
+	}
+
+	// Already-compressed formats are not gzipped again.
+	if w := get(t, h, http.MethodGet, "/favicon.png", map[string]string{"Accept-Encoding": "gzip"}); w.Header().Get("Content-Encoding") != "" {
+		t.Error("a PNG was gzipped")
+	}
+}
+
+func TestCompressionDecisions(t *testing.T) {
+	for ctype, want := range map[string]bool{
+		"text/html; charset=utf-8": true,
+		"image/svg+xml":            true,
+		"application/javascript":   true,
+		"application/json":         true,
+		"application/xml":          true,
+		"image/png":                false,
+		"font/woff2":               false,
+	} {
+		if got := compressible(ctype); got != want {
+			t.Errorf("compressible(%q) = %v", ctype, got)
+		}
+	}
+	for header, want := range map[string]bool{
+		"gzip": true, "GZIP": true, "deflate, gzip;q=0.1": true, "br": false, "": false, "gzipx": false,
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Header.Set("Accept-Encoding", header)
+		if got := acceptsGzip(r); got != want {
+			t.Errorf("acceptsGzip(%q) = %v", header, got)
+		}
+	}
+	// Small files stay as they are: gzip's own header would make them bigger.
+	if a := newAsset("x.js", []byte("tiny()")); a.gzipped != nil {
+		t.Error("a tiny file was compressed")
+	}
+	// An unknown extension falls back to sniffing.
+	if a := newAsset("LICENSE", []byte("plain words")); !strings.HasPrefix(a.ctype, "text/plain") {
+		t.Errorf("sniffed type = %q", a.ctype)
+	}
+}
+
+// A binary built without the UI still proxies, and says why there is no UI
+// rather than serving a bare error that looks like an outage.
+func TestNoUIBuiltSaysSo(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	h := srv.staticHandler("missing-entry.html")
+	w := get(t, h, http.MethodGet, "/", nil)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Admin UI not built") {
+		t.Errorf("no UI: %d %q", w.Code, w.Body.String())
+	}
+	if w := get(t, h, http.MethodGet, "/app.js", nil); w.Code != http.StatusNotFound {
+		t.Errorf("an asset with no UI: %d, want 404", w.Code)
+	}
+}
+
+// The docs listener is public. Switched off it must say nothing about this
+// gateway; switched on it serves the page and the one endpoint behind it, and
+// never anything that can change state.
+func TestDocsListener(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	srv.cfg.PublicURL = "https://relay.example"
+	fakeUI(srv)
+	fake := &fakeAnthropic{}
+	fake.install(srv)
+	base := docsOnly(t, srv)
+
+	// Off: a readable 404 at the root, JSON everywhere else.
+	resp, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(page), "This is an API endpoint") ||
+		resp.Header.Get("Cache-Control") != "no-store" {
+		t.Errorf("welcome: %d %q", resp.StatusCode, resp.Header.Get("Cache-Control"))
+	}
+	for _, leak := range []string{"claudication", "version", "account"} {
+		if strings.Contains(strings.ToLower(string(page)), leak) {
+			t.Errorf("the welcome page mentions %q", leak)
+		}
+	}
+	if status, body := call(t, base, http.MethodHead, "/", "", nil); status != http.StatusNotFound || len(body) != 0 {
+		t.Errorf("HEAD welcome: %d, %d bytes", status, len(body))
+	}
+	if status, body := call(t, base, http.MethodGet, "/elsewhere", "", nil); status != http.StatusNotFound || errType(t, body) != "not_found" {
+		t.Errorf("off, elsewhere: %d %s", status, body)
+	}
+	if status, _ := call(t, base, http.MethodGet, "/api/docs", "", nil); status != http.StatusNotFound {
+		t.Errorf("/api/docs while off: %d", status)
+	}
+
+	if err := srv.docs.Set(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedAccount(t, st, srv); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err = http.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(page), "<title>docs</title>") ||
+		resp.Header.Get("Referrer-Policy") != "no-referrer" {
+		t.Errorf("docs page: %d %q", resp.StatusCode, page)
+	}
+
+	status, body := call(t, base, http.MethodGet, "/api/docs", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("/api/docs: %d %s", status, body)
+	}
+	info := decode[map[string]any](t, body)
+	if info["public_url"] != "https://relay.example" || info["ready"] != true || info["models"] == nil {
+		t.Errorf("docs info = %v", info)
+	}
+	for _, leak := range []string{"listen", "state_dir", "trusted_proxies", "accounts", "keys"} {
+		if _, ok := info[leak]; ok {
+			t.Errorf("the public endpoint leaks %q", leak)
+		}
+	}
+	// A second load does not spend another upstream call.
+	call(t, base, http.MethodGet, "/api/docs", "", nil)
+	if n := fake.models(); n != 1 {
+		t.Errorf("model list fetched %d times for two page loads", n)
+	}
+
+	// Nothing on this listener changes anything.
+	for _, ep := range []struct{ method, path string }{
+		{http.MethodPost, "/admin/setup"},
+		{http.MethodGet, "/admin/accounts"},
+		{http.MethodPost, "/v1/messages"},
+		{http.MethodPost, "/"},
+	} {
+		if status, _ := call(t, base, ep.method, ep.path, `{}`, nil); status != http.StatusNotFound {
+			t.Errorf("%s %s on the docs listener: %d, want 404", ep.method, ep.path, status)
+		}
+	}
+}
+
+// A relay-only listener answers 404 at the root: it has nothing to show a
+// browser and must not hint that an admin UI exists somewhere.
+func TestRelayOnlyRootIsNotFound(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	ts := httptest.NewServer(srv.routes(role{gateway: true}))
+	defer ts.Close()
+	if status, body := call(t, ts.URL, http.MethodGet, "/", "", nil); status != http.StatusNotFound || errType(t, body) != "not_found" {
+		t.Errorf("relay root: %d %s", status, body)
+	}
+}
+
+// The public page's model list is cached: the page is unauthenticated, and
+// uncached anyone could spend the subscription by reloading it. A burst
+// collapses into one fetch, and a failure keeps serving the last good answer.
+func TestModelCache(t *testing.T) {
+	var c modelCache
+	var calls atomic.Int32
+	release := make(chan struct{})
+	fetch := func(context.Context) ([]byte, error) {
+		calls.Add(1)
+		<-release
+		return []byte("v1"), nil
+	}
+
+	var wg sync.WaitGroup
+	results := make([]string, 5)
+	for i := range results {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = string(c.get(context.Background(), fetch))
+		}()
+	}
+	// Let the burst pile up on the one in flight, then answer it.
+	deadline := time.Now().Add(2 * time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	if n := calls.Load(); n != 1 {
+		t.Errorf("a burst of 5 fetched %d times", n)
+	}
+	for _, r := range results {
+		if r != "v1" {
+			t.Errorf("a caller got %q", r)
+		}
+	}
+
+	// Fresh: no fetch at all.
+	if got := c.get(context.Background(), func(context.Context) ([]byte, error) {
+		t.Error("fetched while fresh")
+		return nil, nil
+	}); string(got) != "v1" {
+		t.Errorf("cached = %q", got)
+	}
+
+	// Expired and failing: the stale copy is served, and the next caller may
+	// try again soon rather than after a whole TTL.
+	c.mu.Lock()
+	c.at = time.Now().Add(-2 * modelsTTL)
+	c.mu.Unlock()
+	failing := func(context.Context) ([]byte, error) { return nil, errors.New("upstream down") }
+	if got := c.get(context.Background(), failing); string(got) != "v1" {
+		t.Errorf("on failure = %q, want the stale copy", got)
+	}
+	c.mu.Lock()
+	age := time.Since(c.at)
+	c.mu.Unlock()
+	if age < modelsTTL-2*time.Minute || age > modelsTTL {
+		t.Errorf("after a failure the copy is %s old; the next caller should retry within a minute", age)
+	}
+
+	// Never fetched and failing: nothing, rather than an error.
+	var empty modelCache
+	if got := empty.get(context.Background(), failing); got != nil {
+		t.Errorf("empty cache on failure = %q", got)
+	}
+}
