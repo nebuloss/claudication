@@ -12,9 +12,9 @@ import (
 
 	"claudication/internal/api"
 	"claudication/internal/pool"
+	"claudication/internal/request"
 	"claudication/internal/store"
 	"claudication/internal/upstream"
-	"claudication/internal/request"
 )
 
 // Naming a chat.

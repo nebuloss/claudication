@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"claudication/internal/pool"
-	"claudication/internal/store"
 	"claudication/internal/request"
+	"claudication/internal/store"
 )
 
 // onePool is a Pool stand-in with a single account, which is the case that

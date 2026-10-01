@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"claudication/internal/request"
 	"claudication/internal/relay/passes"
+	"claudication/internal/request"
 )
 
 // Conformance with Anthropic's gateway compatibility contract.
@@ -162,11 +162,11 @@ func relayThroughAttributed(t *testing.T, clientReq *http.Request, body []byte, 
 	t.Cleanup(srv.Close)
 
 	r := &Relay{
-		Pool:        &recordingPool{},
-		Passes:      passes.Default(passes.Options{Attribution: true}),
-		Client:      srv.Client(),
-		Log:         slog.New(slog.DiscardHandler),
-		BaseURL:     srv.URL,
+		Pool:    &recordingPool{},
+		Passes:  passes.Default(passes.Options{Attribution: true}),
+		Client:  srv.Client(),
+		Log:     slog.New(slog.DiscardHandler),
+		BaseURL: srv.URL,
 	}
 	f.rec = httptest.NewRecorder()
 	f.res = r.Do(f.rec, clientReq, "anthropic", "/v1/messages", body, request.Peek(body))

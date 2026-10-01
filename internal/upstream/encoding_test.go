@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"claudication/internal/pool"
-	"claudication/internal/store"
 	"claudication/internal/request"
+	"claudication/internal/store"
 )
 
 // A client asking for gzip must not be able to blind the gateway.
