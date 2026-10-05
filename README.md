@@ -118,6 +118,17 @@ is the wrong answer when one of them is the account you would rather not spend.
 An account can be **paused** without deleting it. Deleting revokes its refresh
 token upstream, so getting it back means going through the consent flow again.
 
+A login does not last forever: Anthropic gives each one a lifetime, and the card
+counts down to it. When it is close, or once the refresh token has been refused,
+**Reconnect** on that account's card runs the consent flow for that account and
+renews it in place — same place in the list, same history. The sign-in page is
+pre-filled with the account's address, as `claude auth login --email` does. The
+browser still approves as whichever Claude account it is signed in to, so the
+gateway checks whose tokens came back: approving as someone else changes nothing
+and the tokens are handed back. Sign out of claude.ai first, or open the link the
+form offers in a private window. Adding an account that is already connected
+renews it too, and says so.
+
 ### Subscription usage
 
 Each account shows what it has spent, as the same rows `/usage` prints in the

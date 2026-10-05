@@ -246,12 +246,36 @@ export default function Overview({
           )}
         </Banner>
       )}
+      {(data.accounts.needs_reauth ?? 0) > 0 && (
+        <Banner tone="error">
+          {data.accounts.needs_reauth === 1
+            ? 'An account has lost its login. It serves until its current token expires,'
+            : `${data.accounts.needs_reauth} accounts have lost their login. They serve until their current tokens expire,`}{' '}
+          and nothing the gateway does brings a refused login back.{' '}
+          <button
+            type="button"
+            className="underline underline-offset-2"
+            onClick={() => onGoTo('accounts')}
+          >
+            Reconnect
+          </button>
+          .
+        </Banner>
+      )}
       {data.accounts.needs_reauth_soon > 0 && (
         <Banner tone="warn">
           {data.accounts.needs_reauth_soon === 1
             ? 'An account needs re-authorising soon.'
             : `${data.accounts.needs_reauth_soon} accounts need re-authorising soon.`}{' '}
-          Refreshing cannot push that date back.
+          Refreshing cannot push that date back.{' '}
+          <button
+            type="button"
+            className="underline underline-offset-2"
+            onClick={() => onGoTo('accounts')}
+          >
+            Reconnect
+          </button>
+          .
         </Banner>
       )}
 

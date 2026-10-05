@@ -9,7 +9,7 @@ import (
 
 func TestAnthropicAuthURL(t *testing.T) {
 	pkce := oauth.PKCE{Verifier: "v", Challenge: "chal"}
-	got := AuthURL("st4te", pkce, RedirectManual)
+	got := AuthURL("st4te", pkce, RedirectManual, "")
 
 	// Pinned against a URL captured from `claude auth login --claudeai` on
 	// 2.1.263 and confirmed working in a browser. Every deviation from this
@@ -37,7 +37,7 @@ func TestAnthropicAuthURL(t *testing.T) {
 // order is pinned to the client's rather than left to map iteration or
 // alphabetical sorting.
 func TestAnthropicAuthURLParameterOrder(t *testing.T) {
-	got := AuthURL("st4te", oauth.PKCE{Challenge: "chal"}, RedirectManual)
+	got := AuthURL("st4te", oauth.PKCE{Challenge: "chal"}, RedirectManual, "")
 	query := got[strings.Index(got, "?")+1:]
 
 	var names []string
@@ -50,5 +50,17 @@ func TestAnthropicAuthURLParameterOrder(t *testing.T) {
 	}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("parameter order = %v, want %v", names, want)
+	}
+}
+
+// A reconnect names the account, as `claude auth login --email` does: last,
+// after state, and only when there is one to name.
+func TestAuthURLCarriesTheLoginHint(t *testing.T) {
+	got := AuthURL("st4te", oauth.PKCE{Challenge: "chal"}, RedirectManual, "me+work@example.com")
+	if !strings.HasSuffix(got, "&state=st4te&login_hint=me%2Bwork%40example.com") {
+		t.Errorf("login_hint missing, misplaced or unescaped: %s", got)
+	}
+	if strings.Contains(AuthURL("st4te", oauth.PKCE{}, RedirectManual, ""), "login_hint") {
+		t.Error("an empty hint was sent")
 	}
 }

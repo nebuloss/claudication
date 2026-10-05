@@ -106,6 +106,16 @@ export interface OAuthStart {
   redirect_uri: string
   expires_at: string
   instructions: string
+  /** Set on a reconnect: the account being renewed, and who to sign in as. */
+  account_id?: string
+  email?: string
+}
+
+/** What a finished consent flow stored. */
+export interface OAuthResult {
+  account: Account
+  /** True when an account already connected was renewed rather than added. */
+  renewed: boolean
 }
 
 export interface Session {
@@ -582,16 +592,24 @@ export const api = {
     return toAccountList(res)
   },
 
-  startOAuth: (provider: string) =>
-    request<OAuthStart>('POST', '/admin/accounts/oauth/start', { provider }),
-
-  completeOAuth: async (provider: string, state: string, redirectUrl: string): Promise<Account> => {
-    const res = await request<{ account: Account }>('POST', '/admin/accounts/oauth/complete', {
+  /** Begins a consent flow: for a new account, or to reconnect `accountId`. */
+  startOAuth: (provider: string, accountId?: string) =>
+    request<OAuthStart>('POST', '/admin/accounts/oauth/start', {
       provider,
-      state,
-      redirect_url: redirectUrl,
-    })
-    return res.account
+      ...(accountId !== undefined ? { account_id: accountId } : {}),
+    }),
+
+  completeOAuth: async (
+    provider: string,
+    state: string,
+    redirectUrl: string,
+  ): Promise<OAuthResult> => {
+    const res = await request<{ account: Account; renewed?: boolean }>(
+      'POST',
+      '/admin/accounts/oauth/complete',
+      { provider, state, redirect_url: redirectUrl },
+    )
+    return { account: res.account, renewed: res.renewed === true }
   },
 
   testAccount: (id: string) =>

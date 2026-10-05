@@ -81,7 +81,20 @@ const (
 // "+" for the separators — so the whole scope string goes through it as one
 // value. Parameters are emitted in order rather than via url.Values.Encode,
 // which sorts alphabetically.
-func AuthURL(state string, pkce oauth.PKCE, redirectURI string) string {
+//
+// loginHint, when not empty, names the account to sign in as. The client
+// sends it from `claude auth login --email <email>` ("Pre-populate email
+// address on the login page"), appended after state with orgUUID and
+// login_method beside it, each only when set (2.1.289, the authorize URL
+// builder):
+//
+//	…,D.searchParams.append("state",n),S)D.searchParams.append("orgUUID",S);
+//	if(E)D.searchParams.append("login_hint",E);if(w)D.searchParams.append("login_method",w)
+//
+// It fills in the sign-in form and no more: a browser already signed in to
+// another Claude account approves as that one. The caller has to check whose
+// tokens came back.
+func AuthURL(state string, pkce oauth.PKCE, redirectURI, loginHint string) string {
 	params := [][2]string{
 		{"code", "true"},
 		{"client_id", ClientID},
@@ -91,6 +104,9 @@ func AuthURL(state string, pkce oauth.PKCE, redirectURI string) string {
 		{"code_challenge", pkce.Challenge},
 		{"code_challenge_method", "S256"},
 		{"state", state},
+	}
+	if loginHint != "" {
+		params = append(params, [2]string{"login_hint", loginHint})
 	}
 
 	var q strings.Builder

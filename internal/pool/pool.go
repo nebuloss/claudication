@@ -488,6 +488,25 @@ func (p *Pool) ReportSuccess(id string) {
 	p.store.MarkAccountUsed(ctx, id)
 }
 
+// Reset forgets an account's cooldown and failure count, for when its
+// credentials have just been replaced.
+//
+// The backoff is earned by the old credentials. An account reconnected after
+// its refresh token died had been failing on every attempt, so without this it
+// would sit out up to the longest backoff with a token that works — invisible
+// in the store, and exactly the account the operator just fixed.
+//
+// The backoff only: a refresh still in flight keeps its single-flight record,
+// because dropping it would let a second refresh start beside it.
+func (p *Pool) Reset(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if h, ok := p.states[id]; ok {
+		h.cooldownUntil = time.Time{}
+		h.failures = 0
+	}
+}
+
 // ReportFailure cools an account down, backing off further each consecutive
 // time so a persistently broken account stops being tried every request.
 func (p *Pool) ReportFailure(id string, kind FailureKind, detail string) {

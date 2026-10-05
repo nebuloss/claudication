@@ -32,6 +32,8 @@ const FALLBACK_REFRESH_MS = 20_000
  */
 export default function Accounts({ onExpired }: { onExpired: () => void }) {
   const [adding, setAdding] = useState(false)
+  // What the last consent flow did, when that was not what was asked for.
+  const [notice, setNotice] = useState('')
   const [ordering, setOrdering] = useState(false)
   const [dragging, setDragging] = useState<number | null>(null)
   const [over, setOver] = useState<number | null>(null)
@@ -84,15 +86,32 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
     <div className="flex flex-col gap-5">
       {adding ? (
         <AddAccount
-          onAdded={() => {
+          onAdded={({ account, renewed }) => {
             setAdding(false)
+            // The browser decides which account approves, so "add" in a browser
+            // still signed in to a connected account renews that one. Say so,
+            // or it looks as though nothing happened.
+            setNotice(
+              renewed
+                ? `${account.email} was already connected, so it was renewed rather than added. ` +
+                    'To add a different account, sign in to claude.ai as it first, or open the ' +
+                    'login link in a private window.'
+                : '',
+            )
             void reload()
           }}
           onCancel={() => setAdding(false)}
         />
       ) : (
         <div className="flex flex-wrap items-center gap-3">
-          <TonalButton onClick={() => setAdding(true)}>Add account</TonalButton>
+          <TonalButton
+            onClick={() => {
+              setNotice('')
+              setAdding(true)
+            }}
+          >
+            Add account
+          </TonalButton>
           {orderable && (
             <span className="text-sm text-on-surface-variant">
               Served top-down — the next one takes over when Anthropic says the one above is out.
@@ -100,6 +119,8 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
           )}
         </div>
       )}
+
+      {notice !== '' && <Banner>{notice}</Banner>}
 
       <Card>
         <CardTitle

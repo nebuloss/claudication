@@ -429,6 +429,47 @@ func (s *Store) UpdateAccountTokens(ctx context.Context, sealer *secret.Sealer, 
 	return nil
 }
 
+// RenewAccount stores the credentials of a fresh consent flow on the account
+// with the given id: the reconnect, as opposed to UpsertAccount's add.
+//
+// By id rather than by email, so the account keeps everything that is not a
+// credential — its place in the priority list, its history, its id — even when
+// the provider now reports a different address for it. The caller has already
+// established that the tokens belong to this account.
+//
+// It clears what a consent flow repairs: the error, the dead refresh token,
+// and a pause, as UpsertAccount does. The refresh token's lifetime is replaced
+// outright rather than kept when absent, because the old one described the old
+// grant.
+func (s *Store) RenewAccount(ctx context.Context, sealer *secret.Sealer, id string, acct Account, tok Tokens) (Account, error) {
+	sealedAccess, err := sealer.Seal(tok.AccessToken)
+	if err != nil {
+		return Account{}, err
+	}
+	sealedRefresh, err := sealer.Seal(tok.RefreshToken)
+	if err != nil {
+		return Account{}, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE accounts
+		   SET access_token = ?, refresh_token = ?, expires_at = ?,
+		       refresh_expires_at = ?, last_refresh_at = ?,
+		       email = COALESCE(NULLIF(?, ''), email),
+		       account_uuid = COALESCE(NULLIF(?, ''), account_uuid),
+		       last_error = NULL, disabled_at = NULL, refresh_dead_at = NULL
+		 WHERE id = ?`,
+		sealedAccess, sealedRefresh, acct.ExpiresAt.UTC().Format(time.RFC3339),
+		nullTime(acct.RefreshExpiresAt), now, acct.Email, acct.AccountUUID, id)
+	if err != nil {
+		return Account{}, fmt.Errorf("renew account: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Account{}, ErrAccountNotFound
+	}
+	return s.Account(ctx, id)
+}
+
 func (s *Store) MarkAccountError(ctx context.Context, id, msg string) {
 	_, _ = s.db.ExecContext(ctx, `UPDATE accounts SET last_error = ? WHERE id = ?`,
 		strings.TrimSpace(msg), id)

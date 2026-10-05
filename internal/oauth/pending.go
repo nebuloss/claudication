@@ -24,13 +24,20 @@ type flow struct {
 	// redirectURI is remembered because the exchange must replay whichever
 	// redirect the authorize request carried.
 	redirectURI string
-	expiresAt   time.Time
+	// account is the stored account this attempt renews, or empty for one
+	// that adds whichever account the operator approves as.
+	account   string
+	expiresAt time.Time
 }
 
 // Attempt is a resolved in-flight login.
 type Attempt struct {
 	PKCE        PKCE
 	RedirectURI string
+	// Account is the stored account being reconnected, empty when the attempt
+	// adds a new one. Kept with the attempt rather than sent back by the
+	// browser, so completing it cannot be pointed at a different account.
+	Account string
 }
 
 var (
@@ -48,6 +55,12 @@ func NewPending(ttl time.Duration) *Pending {
 
 // Start registers a new attempt and returns when it expires.
 func (p *Pending) Start(provider, state string, pkce PKCE, redirectURI string) time.Time {
+	return p.StartFor(provider, state, pkce, redirectURI, "")
+}
+
+// StartFor registers an attempt that renews the stored account with the given
+// id, and returns when it expires.
+func (p *Pending) StartFor(provider, state string, pkce PKCE, redirectURI, account string) time.Time {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.evictLocked()
@@ -57,6 +70,7 @@ func (p *Pending) Start(provider, state string, pkce PKCE, redirectURI string) t
 		provider:    provider,
 		pkce:        pkce,
 		redirectURI: redirectURI,
+		account:     account,
 		expiresAt:   expires,
 	}
 	return expires
@@ -82,7 +96,7 @@ func (p *Pending) Peek(provider, state string) (Attempt, error) {
 	if f.provider != provider {
 		return Attempt{}, ErrStateMismatch
 	}
-	return Attempt{PKCE: f.pkce, RedirectURI: f.redirectURI}, nil
+	return Attempt{PKCE: f.pkce, RedirectURI: f.redirectURI, Account: f.account}, nil
 }
 
 // Consume discards an attempt once it has been redeemed.

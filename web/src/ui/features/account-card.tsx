@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import QuotaMeter from './quota-meter'
+import { ConsentFlow } from './add-account'
 import { api, messageOf, type Account, type ProbeResult } from '../../api/client'
 import {
   Banner,
   Chip,
+  FilledButton,
   KeyValue,
   OutlinedButton,
   Spinner,
@@ -85,8 +87,12 @@ export default function AccountCard({
   const [probe, setProbe] = useState<ProbeResult | null>(null)
   const [busy, setBusy] = useState<Busy>('')
   const [error, setError] = useState('')
+  const [reconnecting, setReconnecting] = useState(false)
 
   const chip = status(account)
+  // Reconnecting is the fix for a dead refresh token and the only cure for an
+  // expiring one, so it leads the actions when either is the case.
+  const reauthDue = account.needs_reauth === true || account.needs_reauth_soon === true
 
   const runTest = async () => {
     setBusy('test')
@@ -236,7 +242,7 @@ export default function AccountCard({
           {account.reauth_days_left !== undefined
             ? ` in ${account.reauth_days_left} day${account.reauth_days_left === 1 ? '' : 's'}`
             : ' soon'}
-          . Refreshing the token cannot push this back — add the account again.
+          . Refreshing the token cannot push this back — reconnect the account.
         </Banner>
       )}
 
@@ -251,7 +257,27 @@ export default function AccountCard({
         </Banner>
       )}
 
+      {reconnecting && (
+        <div className="mt-5 rounded-[var(--radius-md3-m)] border border-outline bg-surface-high p-4">
+          <ConsentFlow
+            account={account}
+            onDone={() => {
+              setReconnecting(false)
+              setError('')
+              setProbe(null)
+              onChanged()
+            }}
+            onCancel={() => setReconnecting(false)}
+          />
+        </div>
+      )}
+
       <div className="mt-5 flex flex-wrap items-center gap-2">
+        {reauthDue && !reconnecting && (
+          <FilledButton type="button" onClick={() => setReconnecting(true)} disabled={busy !== ''}>
+            Reconnect
+          </FilledButton>
+        )}
         <TonalButton onClick={runTest} disabled={busy !== ''}>
           {busy === 'test' && <Spinner />}
           {busy === 'test' ? 'Testing…' : 'Test'}
@@ -263,6 +289,11 @@ export default function AccountCard({
         {/* Pausing keeps the credentials; removing destroys them and revokes
             the token upstream, so getting the account back means going through
             the browser consent flow again. */}
+        {!reauthDue && !reconnecting && (
+          <OutlinedButton onClick={() => setReconnecting(true)} disabled={busy !== ''}>
+            Reconnect
+          </OutlinedButton>
+        )}
         <OutlinedButton onClick={runToggleDisabled} disabled={busy !== ''}>
           {busy === 'disable' && <Spinner />}
           {account.disabled ? 'Resume' : 'Pause'}
