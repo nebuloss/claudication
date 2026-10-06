@@ -8,6 +8,7 @@ import (
 
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/service/titles"
+	"claudication/internal/store"
 )
 
 // chatWindow is the time window a chat request asks for, bounded by retention.
@@ -149,5 +150,8 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 		"enabled":  true,
 		"id":       id,
 		"requests": out,
+		// Over the requests returned, with the times it compacted, so the
+		// chart marks the same falls the list counts.
+		"context": store.ContextOf(events),
 	})
 }

@@ -1,7 +1,8 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { api, type Chat, type Chats } from '../../api/client'
 import { LogScale, Palette } from '../charts'
 import { useLoader } from '../hooks'
+import ChatContextDetail from './chat-context'
 import { requestsHref, type RequestFilter } from './requests'
 import { navigate } from '../route'
 import { Empty, ErrorState, Spinner, Table, compact, type Column } from '../primitives'
@@ -25,7 +26,7 @@ import { Empty, ErrorState, Spinner, Table, compact, type Column } from '../prim
  * invented title that would drift from what the client shows.
  */
 
-type SortKey = 'tokens' | 'requests' | 'last'
+type SortKey = 'tokens' | 'context' | 'requests' | 'last'
 
 /** Model colours, so a chat's models read the same here as in the charts. */
 function useModelPalette(chats: Chat[]): Palette {
@@ -117,6 +118,9 @@ function tokens(c: Chat): number {
 
 export default function ChatsPanel({ days, onExpired }: { days: number; onExpired: () => void }) {
   const [sort, setSort] = useState<SortKey>('tokens')
+  // The chat whose context curve is open, if any. One at a time: each is a
+  // chart that follows its chat while open.
+  const [open, setOpen] = useState<string | null>(null)
   const { data, error, loading, reload } = useLoader<Chats>(
     () => api.chats(days),
     onExpired,
@@ -134,6 +138,7 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
     const rows = [...chats]
     rows.sort((a, b) => {
       if (sort === 'requests') return b.requests - a.requests
+      if (sort === 'context') return (b.context?.now ?? 0) - (a.context?.now ?? 0)
       if (sort === 'last') return new Date(b.last).getTime() - new Date(a.last).getTime()
       return tokens(b) - tokens(a)
     })
@@ -190,87 +195,129 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
           'Client',
           'Models',
           column('Tokens', 'tokens'),
+          column('Context', 'context'),
           column('Requests', 'requests'),
           column('Started', 'last'),
           'Span',
         ]}
       >
         {sorted.map((c) => (
-          <tr key={c.id} className="border-b border-outline-variant last:border-0">
-            {/* The name when there is one, the id when there is not. The id
-                stays on the line beneath either way: it is the join key back to
-                the client's own session list, which is where the conversation
-                itself can actually be read. */}
-            <td className="px-2 py-2">
-              <div className="flex flex-col">
-                <span className="truncate font-medium text-on-surface" title={c.title}>
-                  {c.title || 'Unnamed'}
-                </span>
-                <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
-                  {shortID(c.id)}
-                </span>
-              </div>
-            </td>
-            <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
-              {c.client || '—'}
-            </td>
-            <td className="px-2 py-2 whitespace-nowrap">
-              <div className="flex items-center gap-2">
-                {c.models.map((m) => (
-                  <span key={m} className="flex items-center gap-1 text-xs">
-                    <span
-                      aria-hidden
-                      className="size-2 shrink-0 rounded-[2px]"
-                      style={{ background: palette.colour(m) }}
-                    />
-                    {m.replace(/^claude-/, '')}
-                  </span>
-                ))}
-                {c.models.length === 0 && <span className="text-on-surface-variant">—</span>}
-              </div>
-            </td>
-            <td className="px-2 py-2 whitespace-nowrap">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-24 shrink-0 overflow-hidden rounded-sm bg-surface-container">
-                  <span
-                    className="block h-full"
-                    style={{
-                      width: `${width(tokens(c))}%`,
-                      background: palette.colour(c.models[0] ?? ''),
-                    }}
-                  />
-                </span>
-                <span className="tabular-nums">{compact(tokens(c))}</span>
-              </div>
-            </td>
-            {/* Both numbers link into the request log, on different filters:
-                the total asks "what happened in this chat", the failures ask
-                "which ones broke". They are real links — the URL carries the
-                filter, so it can be shared, bookmarked and walked back to —
-                rather than a list this table grows for itself. */}
-            <td className="px-2 py-2 tabular-nums whitespace-nowrap">
-              <RequestLink filter={{ chat: [c.id] }}>
-                {c.requests}
-              </RequestLink>
-              {c.errors > 0 && (
-                <RequestLink
-                  tone="error"
-                  filter={{ chat: [c.id], status: 'failed' }}
-                >
-                  · {c.errors} failed
-                </RequestLink>
-              )}
-            </td>
-            <td
-              title={c.first}
-              className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant"
+          <Fragment key={c.id}>
+            <tr
+              className={`border-b border-outline-variant last:border-0 ${
+                open === c.id ? 'bg-surface-container/40' : ''
+              }`}
             >
-              {started(c.first)}
-            </td>
-            <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
-              {span(c.first, c.last)}
-            </td>
-          </tr>
+              {/* The name when there is one, the id when there is not. The id
+                  stays on the line beneath either way: it is the join key back to
+                  the client's own session list, which is where the conversation
+                  itself can actually be read. */}
+              <td className="px-2 py-2">
+                {/* The row's own control: opening the context curve is what a
+                    chat row is clicked for, and a button says so to a keyboard
+                    and a screen reader as well as to a pointer. */}
+                <button
+                  type="button"
+                  aria-expanded={open === c.id}
+                  onClick={() => setOpen(open === c.id ? null : c.id)}
+                  className="state-layer flex w-full min-w-0 flex-col rounded-[var(--radius-md3-xs)] text-left"
+                >
+                  <span className="truncate font-medium text-on-surface" title={c.title}>
+                    {open === c.id ? '▾ ' : '▸ '}
+                    {c.title || 'Unnamed'}
+                  </span>
+                  <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
+                    {shortID(c.id)}
+                  </span>
+                </button>
+              </td>
+              <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
+                {c.client || '—'}
+              </td>
+              <td className="px-2 py-2 whitespace-nowrap">
+                <div className="flex items-center gap-2">
+                  {c.models.map((m) => (
+                    <span key={m} className="flex items-center gap-1 text-xs">
+                      <span
+                        aria-hidden
+                        className="size-2 shrink-0 rounded-[2px]"
+                        style={{ background: palette.colour(m) }}
+                      />
+                      {m.replace(/^claude-/, '')}
+                    </span>
+                  ))}
+                  {c.models.length === 0 && <span className="text-on-surface-variant">—</span>}
+                </div>
+              </td>
+              <td className="px-2 py-2 whitespace-nowrap">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-24 shrink-0 overflow-hidden rounded-sm bg-surface-container">
+                    <span
+                      className="block h-full"
+                      style={{
+                        width: `${width(tokens(c))}%`,
+                        background: palette.colour(c.models[0] ?? ''),
+                      }}
+                    />
+                  </span>
+                  <span className="tabular-nums">{compact(tokens(c))}</span>
+                </div>
+              </td>
+              {/* What the client resends each turn, and how often it has started
+                  over. The peak is the question a compaction setting answers. */}
+              <td className="px-2 py-2 whitespace-nowrap">
+                {c.context !== undefined && c.context.model !== '' ? (
+                  <div className="flex flex-col">
+                    <span className="tabular-nums text-on-surface">{compact(c.context.now)}</span>
+                    <span className="text-xs tabular-nums text-on-surface-variant">
+                      peak {compact(c.context.peak)}
+                      {c.context.compactions > 0 && ` · ${c.context.compactions}× compacted`}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-on-surface-variant">—</span>
+                )}
+              </td>
+              {/* Both numbers link into the request log, on different filters:
+                  the total asks "what happened in this chat", the failures ask
+                  "which ones broke". They are real links — the URL carries the
+                  filter, so it can be shared, bookmarked and walked back to —
+                  rather than a list this table grows for itself. */}
+              <td className="px-2 py-2 tabular-nums whitespace-nowrap">
+                <RequestLink filter={{ chat: [c.id] }}>
+                  {c.requests}
+                </RequestLink>
+                {c.errors > 0 && (
+                  <RequestLink
+                    tone="error"
+                    filter={{ chat: [c.id], status: 'failed' }}
+                  >
+                    · {c.errors} failed
+                  </RequestLink>
+                )}
+              </td>
+              <td
+                title={c.first}
+                className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant"
+              >
+                {started(c.first)}
+              </td>
+              <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
+                {span(c.first, c.last)}
+              </td>
+            </tr>
+            {open === c.id && (
+              <tr className="border-b border-outline-variant bg-surface-container/40">
+                <td colSpan={8} className="px-3 pt-1 pb-4">
+                  <ChatContextDetail
+                    id={c.id}
+                    colour={palette.colour(c.context?.model || c.models[0] || '')}
+                    onExpired={onExpired}
+                  />
+                </td>
+              </tr>
+            )}
+          </Fragment>
         ))}
 
         {/* Shown rather than dropped: without it the totals here would not add
@@ -291,6 +338,7 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
             <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
               {compact(tokens(unattributed))}
             </td>
+            <td className="px-2 py-2 text-on-surface-variant">—</td>
             <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
               {unattributed.requests}
               {unattributed.errors > 0 && <span> · {unattributed.errors} failed</span>}
@@ -303,7 +351,8 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
 
       <p className="m-0 text-xs text-on-surface-variant">
         A chat is grouped by the session id its client sends, never by anything read from the
-        messages. {report !== undefined && report.total > sorted.length
+        messages. Context is what its main model is resent each turn; open a chat to see it grow
+        and where its client compacted. {report !== undefined && report.total > sorted.length
           ? `Showing the ${sorted.length} busiest of ${report.total}.`
           : ''}
       </p>

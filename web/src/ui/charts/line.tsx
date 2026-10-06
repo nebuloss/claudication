@@ -36,6 +36,7 @@ export function LineChart<T>({
   height = 240,
   hovered = null,
   onHover,
+  marks = [],
 }: {
   data: readonly T[]
   series: readonly LineSeries<T>[]
@@ -47,6 +48,9 @@ export function LineChart<T>({
   height?: number
   hovered?: number | null
   onHover?: (i: number | null) => void
+  /** Columns where something happened that the lines alone do not say — a
+   *  chat compacting — drawn as a guide the full height of the plot. */
+  marks?: readonly number[]
 }) {
   const plotH = height - PAD.top - PAD.bottom
   const plotW = W - PAD.left - PAD.right
@@ -103,6 +107,20 @@ export function LineChart<T>({
             {format(v)}
           </text>
         </g>
+      ))}
+
+      {marks.map((i) => (
+        <line
+          key={`mark-${i}`}
+          x1={x(i)}
+          x2={x(i)}
+          y1={PAD.top}
+          y2={PAD.top + plotH}
+          stroke="currentColor"
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
+          className="text-warning"
+        />
       ))}
 
       {series.map((s) => {

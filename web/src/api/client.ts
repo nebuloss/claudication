@@ -234,6 +234,31 @@ export interface Chat {
   cache_tokens: number
   first: string
   last: string
+  /** Where the conversation's context stands. Absent on the unattributed row. */
+  context?: ChatContext
+}
+
+/**
+ * A chat's context: the prompt its client resends each turn, counted on the
+ * model that carried its largest one, and how often it fell by more than half
+ * — compacted. See internal/store/context.go for the rule.
+ */
+export interface ChatContext {
+  /** Empty when no request in the window succeeded. */
+  model: string
+  now: number
+  peak: number
+  compactions: number
+  /** When it compacted, oldest first. Only on one chat's detail. */
+  compacted_at?: string[]
+}
+
+export interface ChatDetail {
+  enabled: boolean
+  id: string
+  /** The latest requests, oldest first. */
+  requests: RequestRow[]
+  context: ChatContext
 }
 
 export interface ChatReport {
@@ -714,12 +739,8 @@ export const api = {
   chats: (days?: number) =>
     request<Chats>('GET', days === undefined ? '/admin/chats' : `/admin/chats?days=${days}`),
 
-  /** One conversation's requests, oldest first — the drill-down behind a row. */
-  chat: (id: string) =>
-    request<{ enabled: boolean; id: string; requests: RequestRow[] }>(
-      'GET',
-      `/admin/chats/${encodeURIComponent(id)}`,
-    ),
+  /** One conversation's latest requests, oldest first — the drill-down behind a row. */
+  chat: (id: string) => request<ChatDetail>('GET', `/admin/chats/${encodeURIComponent(id)}`),
 
   docsInfo: () => request<DocsInfo>('GET', '/api/docs'),
 

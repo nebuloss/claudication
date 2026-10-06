@@ -57,6 +57,9 @@ type Chat struct {
 	CacheTokens  int64     `json:"cache_tokens"`
 	First        time.Time `json:"first"`
 	Last         time.Time `json:"last"`
+	// Context is where the conversation's context stands: what its client is
+	// resending each turn, and how often it has compacted. See context.go.
+	Context ChatContext `json:"context"`
 }
 
 // Tokens is the billable total, the same four columns UsageEvent.Tokens adds.
@@ -152,6 +155,20 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 	if err := rows.Err(); err != nil {
 		return ChatReport{}, fmt.Errorf("chats: %w", err)
 	}
+	rows.Close()
+
+	// For the listed chats only: the page, not the window, is what is shown.
+	ids := make([]string, len(report.Chats))
+	for i, c := range report.Chats {
+		ids[i] = c.ID
+	}
+	contexts, err := s.ChatContexts(ctx, ids, since)
+	if err != nil {
+		return ChatReport{}, err
+	}
+	for i := range report.Chats {
+		report.Chats[i].Context = contexts[report.Chats[i].ID]
+	}
 
 	un, err := s.unattributed(ctx, from)
 	if err != nil {
@@ -228,10 +245,14 @@ func (s *Store) unattributed(ctx context.Context, from string) (Chat, error) {
 	return c, nil
 }
 
-// ChatEvents returns one conversation's requests, oldest first.
+// ChatEvents returns one conversation's latest requests, oldest first.
 //
 // Oldest first because a chat is read forwards: the interesting shape is how
 // the context grew turn by turn, and that is a curve you read left to right.
+// The latest, because a chat that outgrows the limit is a long-running one, and
+// where it stands now is the question; its first few hundred turns were
+// returned here before, which for a session of thousands of requests stopped
+// days short of the present.
 func (s *Store) ChatEvents(ctx context.Context, id string, limit int) ([]UsageEvent, error) {
 	if id == "" {
 		return nil, fmt.Errorf("chat events: no conversation id")
@@ -240,13 +261,15 @@ func (s *Store) ChatEvents(ctx context.Context, id string, limit int) ([]UsageEv
 		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, at, key_id, key_name, account_id, account_email, model, path,
-		        conversation_id, client, status, streaming,
-		        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-		        duration_ms, first_token_ms, error
-		   FROM usage_events
-		  WHERE conversation_id = ?
-		  ORDER BY at ASC, id ASC LIMIT ?`, id, limit)
+		`SELECT * FROM (
+		    SELECT id, at, key_id, key_name, account_id, account_email, model, path,
+		           conversation_id, client, status, streaming,
+		           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+		           duration_ms, first_token_ms, error
+		      FROM usage_events
+		     WHERE conversation_id = ?
+		     ORDER BY at DESC, id DESC LIMIT ?)
+		  ORDER BY at ASC, id ASC`, id, limit)
 	if err != nil {
 		return nil, fmt.Errorf("chat events: %w", err)
 	}
