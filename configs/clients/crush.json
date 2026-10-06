@@ -10,7 +10,7 @@
         {
           "id": "claude-opus-5",
           "name": "Claude Opus 5",
-          "context_window": 1000000,
+          "context_window": 600000,
           "default_max_tokens": 128000,
           "can_reason": true,
           "supports_attachments": true,
@@ -30,7 +30,7 @@
         {
           "id": "claude-sonnet-5",
           "name": "Claude Sonnet 5",
-          "context_window": 1000000,
+          "context_window": 600000,
           "default_max_tokens": 128000,
           "can_reason": true,
           "supports_attachments": true,
@@ -50,7 +50,7 @@
         {
           "id": "claude-fable-5-1",
           "name": "Claude Fable 5.1",
-          "context_window": 1000000,
+          "context_window": 600000,
           "default_max_tokens": 64000,
           "can_reason": true,
           "supports_attachments": true,
@@ -70,7 +70,7 @@
         {
           "id": "claude-fable-5",
           "name": "Claude Fable 5",
-          "context_window": 1000000,
+          "context_window": 600000,
           "default_max_tokens": 64000,
           "can_reason": true,
           "supports_attachments": true,
@@ -90,7 +90,7 @@
         {
           "id": "claude-opus-4-8",
           "name": "Claude Opus 4.8",
-          "context_window": 1000000,
+          "context_window": 600000,
           "default_max_tokens": 64000,
           "can_reason": true,
           "supports_attachments": true,
@@ -110,7 +110,7 @@
         {
           "id": "claude-opus-4-7",
           "name": "Claude Opus 4.7",
-          "context_window": 1000000,
+          "context_window": 600000,
           "default_max_tokens": 64000,
           "can_reason": true,
           "supports_attachments": true,
@@ -130,7 +130,7 @@
         {
           "id": "claude-opus-4-6",
           "name": "Claude Opus 4.6",
-          "context_window": 1000000,
+          "context_window": 600000,
           "default_max_tokens": 64000,
           "can_reason": true,
           "supports_attachments": true,
@@ -150,7 +150,7 @@
         {
           "id": "claude-sonnet-4-6",
           "name": "Claude Sonnet 4.6",
-          "context_window": 1000000,
+          "context_window": 600000,
           "default_max_tokens": 64000,
           "can_reason": true,
           "supports_attachments": true,
@@ -170,7 +170,7 @@
         {
           "id": "claude-sonnet-4-5-20250929",
           "name": "Claude Sonnet 4.5",
-          "context_window": 1000000,
+          "context_window": 600000,
           "default_max_tokens": 64000,
           "can_reason": false,
           "supports_attachments": true,

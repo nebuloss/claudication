@@ -72,6 +72,25 @@ never calls `/v1/models`, and Codex looks names up in a catalog. The files in
 `configs/clients/` list the models that existed when they were written; the
 Setup tab shows the live list beside them.
 
+### When crush compacts
+
+crush summarises a session when the room left in `context_window` falls to
+20k tokens (or to 20% of the window, for windows of 200k and under). It counts
+the context correctly — input, cache reads and cache writes, as the gateway
+passes them through — so the figure in the config is the one that decides.
+
+`crush.json` declares **600k** for the models whose real window is 1M, so crush
+compacts at about 580k. Declared at 1M it compacted at 980k, and sessions ran
+there: on the request log over four days of crush traffic, the median Opus turn
+carried 458k tokens and the largest 981k. Every turn re-reads its whole cached
+context, so that is quota and time to first token spent on every turn, and
+models do their weakest work at the far end of a long context. 600k keeps most
+sessions whole and stops the longest ones well short of the edge.
+
+The number only moves crush's compaction point and its context gauge; nothing
+is sent upstream, and the window Anthropic allows stays 1M. Raise or lower it
+in your own copy to taste — 800k compacts rarely, 400k often.
+
 ## Before you run Codex
 
 Two prerequisites that have nothing to do with the gateway. Both look like the
