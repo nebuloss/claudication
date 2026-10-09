@@ -162,7 +162,7 @@ type recordingPool struct {
 	refreshes int
 }
 
-func (p *recordingPool) Acquire(_ context.Context, _ string, exclude map[string]bool) (pool.Lease, error) {
+func (p *recordingPool) Acquire(_ context.Context, _, _ string, exclude map[string]bool) (pool.Lease, error) {
 	if exclude["only"] {
 		return pool.Lease{}, pool.ErrAllCoolingUp
 	}

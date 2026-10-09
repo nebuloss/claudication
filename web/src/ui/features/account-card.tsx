@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import QuotaMeter from './quota-meter'
 import { ConsentFlow } from './add-account'
+import AccountModels from './account-models'
 import { api, messageOf, type Account, type ProbeResult } from '../../api/client'
 import {
   Banner,
@@ -88,6 +89,8 @@ export default function AccountCard({
   const [busy, setBusy] = useState<Busy>('')
   const [error, setError] = useState('')
   const [reconnecting, setReconnecting] = useState(false)
+  const [showModels, setShowModels] = useState(false)
+  const off = account.models_off?.length ?? 0
 
   const chip = status(account)
   // Reconnecting is the fix for a dead refresh token and the only cure for an
@@ -235,6 +238,27 @@ export default function AccountCard({
           ],
         ]}
       />
+
+      {/* Which models this account may serve. Collapsed: it is one upstream
+          call to open, and the list beside it re-reads itself constantly. */}
+      <div className="mt-4 rounded-[var(--radius-md3-m)] border border-outline-variant px-4 py-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-xs tracking-wide text-on-surface-variant uppercase">
+            Models
+            <span className="ml-2 tracking-normal normal-case">
+              {off === 0 ? 'all on' : `${off} off`}
+            </span>
+          </span>
+          <SmallButton onClick={() => setShowModels(!showModels)}>
+            {showModels ? 'Hide' : 'Manage'}
+          </SmallButton>
+        </div>
+        {showModels && (
+          <div className="mt-3">
+            <AccountModels account={account} onChanged={onChanged} />
+          </div>
+        )}
+      </div>
 
       {account.needs_reauth_soon === true && (
         <Banner tone="warn" className="mt-4">

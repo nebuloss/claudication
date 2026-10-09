@@ -115,6 +115,14 @@ room. That order is the operator's rather than something inferred — a personal
 subscription and a work one are not interchangeable, and "spread the load evenly"
 is the wrong answer when one of them is the account you would rather not spend.
 
+Each account can also turn **models** off, under Models on its card: the list is
+what that account's own subscription serves, read with its token, since plans
+differ. A request goes to the first account in the list that has its model on;
+with it off on every account, the client is told the gateway does not serve it,
+and the model leaves `/v1/models` and the configs the gateway hands out. Models
+are on until switched off, so one Anthropic releases tomorrow is available
+without anyone switching it on.
+
 An account can be **paused** without deleting it. Deleting revokes its refresh
 token upstream, so getting it back means going through the consent flow again.
 

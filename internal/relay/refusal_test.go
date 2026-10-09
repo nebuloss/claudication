@@ -21,7 +21,7 @@ type onePool struct {
 	handedOut int
 }
 
-func (p *onePool) Acquire(_ context.Context, _ string, exclude map[string]bool) (pool.Lease, error) {
+func (p *onePool) Acquire(_ context.Context, _, _ string, exclude map[string]bool) (pool.Lease, error) {
 	if exclude["only"] {
 		return pool.Lease{}, pool.ErrAllCoolingUp
 	}
@@ -102,7 +102,7 @@ func TestNoAccountStillErrors(t *testing.T) {
 
 type emptyPool struct{}
 
-func (emptyPool) Acquire(context.Context, string, map[string]bool) (pool.Lease, error) {
+func (emptyPool) Acquire(context.Context, string, string, map[string]bool) (pool.Lease, error) {
 	return pool.Lease{}, pool.ErrNoAccounts
 }
 func (emptyPool) ReportFailure(string, pool.FailureKind, string) {}

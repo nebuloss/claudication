@@ -232,7 +232,7 @@ func TestRetryAfterIgnoresAccountsThatCannotServe(t *testing.T) {
 	p.coolDown("paused", 0)
 	p.coolDown("live", 40*time.Second)
 
-	candidates := candidatesFor([]store.Account{paused, live}, "anthropic", nil, base)
+	candidates := candidatesFor([]store.Account{paused, live}, "anthropic", "", nil, base)
 	if got := p.soonest(candidates); got != 40*time.Second {
 		t.Errorf("RetryAfter = %v, want 40s from the one account that can serve", got)
 	}
@@ -244,7 +244,7 @@ func TestAcquireServesAValidTokenWithoutRefreshing(t *testing.T) {
 	p, _ := fixture(t)
 	id := connect(t, p, "a@example.com", fresh())
 
-	lease, err := p.Acquire(context.Background(), "anthropic", nil)
+	lease, err := p.Acquire(context.Background(), "anthropic", "", nil)
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestAcquireRefreshesANearlyExpiredToken(t *testing.T) {
 	var calls int
 	p.exchange = newTokens("brand-new", &calls)
 
-	lease, err := p.Acquire(context.Background(), "anthropic", nil)
+	lease, err := p.Acquire(context.Background(), "anthropic", "", nil)
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestAcquireCoolsDownOnRefreshFailure(t *testing.T) {
 		return oauth.Result{}, errors.New("provider down")
 	}
 
-	_, err := p.Acquire(context.Background(), "anthropic", nil)
+	_, err := p.Acquire(context.Background(), "anthropic", "", nil)
 	if err == nil || !strings.Contains(err.Error(), "a@example.com") {
 		t.Fatalf("Acquire error = %v, want one naming the account", err)
 	}
@@ -302,21 +302,21 @@ func TestAcquireCoolsDownOnRefreshFailure(t *testing.T) {
 // accounts is a setup problem, all excluded is a retry that ran out.
 func TestAcquireEmptyAnswers(t *testing.T) {
 	p, _ := fixture(t)
-	if _, err := p.Acquire(context.Background(), "anthropic", nil); !errors.Is(err, ErrNoAccounts) {
+	if _, err := p.Acquire(context.Background(), "anthropic", "", nil); !errors.Is(err, ErrNoAccounts) {
 		t.Errorf("empty pool: %v, want ErrNoAccounts", err)
 	}
 	id := connect(t, p, "a@example.com", fresh())
-	if _, err := p.Acquire(context.Background(), "openai", nil); !errors.Is(err, ErrNoAccounts) {
+	if _, err := p.Acquire(context.Background(), "openai", "", nil); !errors.Is(err, ErrNoAccounts) {
 		t.Errorf("other provider: %v, want ErrNoAccounts", err)
 	}
-	if _, err := p.Acquire(context.Background(), "anthropic", map[string]bool{id: true}); !errors.Is(err, ErrAllCoolingUp) {
+	if _, err := p.Acquire(context.Background(), "anthropic", "", map[string]bool{id: true}); !errors.Is(err, ErrAllCoolingUp) {
 		t.Errorf("all excluded: %v, want ErrAllCoolingUp", err)
 	}
 	// An empty exclude set is not a retry, so it is still "no accounts".
 	if err := p.store.SetAccountDisabled(context.Background(), id, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Acquire(context.Background(), "anthropic", map[string]bool{}); !errors.Is(err, ErrNoAccounts) {
+	if _, err := p.Acquire(context.Background(), "anthropic", "", map[string]bool{}); !errors.Is(err, ErrNoAccounts) {
 		t.Errorf("only a disabled account: %v, want ErrNoAccounts", err)
 	}
 }
@@ -328,11 +328,11 @@ func TestAcquireHonoursExclude(t *testing.T) {
 	first := connect(t, p, "first@example.com", fresh())
 	second := connect(t, p, "second@example.com", fresh())
 
-	lease, err := p.Acquire(context.Background(), "anthropic", nil)
+	lease, err := p.Acquire(context.Background(), "anthropic", "", nil)
 	if err != nil || lease.Account.ID != first {
 		t.Fatalf("Acquire = %s, %v; want the first account", lease.Account.ID, err)
 	}
-	lease, err = p.Acquire(context.Background(), "anthropic", map[string]bool{first: true})
+	lease, err = p.Acquire(context.Background(), "anthropic", "", map[string]bool{first: true})
 	if err != nil || lease.Account.ID != second {
 		t.Fatalf("retry Acquire = %s, %v; want the second account", lease.Account.ID, err)
 	}
@@ -348,7 +348,7 @@ func TestCandidatesWithADeadRefreshToken(t *testing.T) {
 	gone := store.Account{ID: "gone", Provider: "anthropic", ExpiresAt: now.Add(-time.Second), RefreshDeadAt: &dead}
 	disabled := store.Account{ID: "off", Provider: "anthropic", ExpiresAt: now.Add(time.Hour), DisabledAt: &dead}
 
-	got := candidatesFor([]store.Account{alive, gone, disabled}, "anthropic", nil, now)
+	got := candidatesFor([]store.Account{alive, gone, disabled}, "anthropic", "", nil, now)
 	if len(got) != 1 || got[0].ID != "alive" {
 		ids := []string{}
 		for _, a := range got {
@@ -396,7 +396,7 @@ func TestStatusReportsThePoolsView(t *testing.T) {
 		t.Errorf("NeedsReauth = %d, want 1", s.NeedsReauth)
 	}
 
-	lease, err := p.Acquire(ctx, "anthropic", nil)
+	lease, err := p.Acquire(ctx, "anthropic", "", nil)
 	if err != nil || lease.Account.ID != s.Serving {
 		t.Errorf("Acquire chose %s (%v) but Status said %s", lease.Account.ID, err, s.Serving)
 	}
@@ -424,7 +424,7 @@ func TestStoreErrorsSurface(t *testing.T) {
 	if _, err := p.Status(context.Background(), "anthropic"); err == nil {
 		t.Error("Status on a closed store returned no error")
 	}
-	if _, err := p.Acquire(context.Background(), "anthropic", nil); err == nil || errors.Is(err, ErrNoAccounts) {
+	if _, err := p.Acquire(context.Background(), "anthropic", "", nil); err == nil || errors.Is(err, ErrNoAccounts) {
 		t.Errorf("Acquire on a closed store = %v, want a store error", err)
 	}
 	if _, err := p.AccessToken(context.Background(), "whatever"); err == nil {

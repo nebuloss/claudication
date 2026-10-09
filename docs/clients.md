@@ -54,11 +54,14 @@ The admin UI shows it under **Setup**. Two cases:
 
 ## Which models
 
-Whatever your accounts serve. The gateway has **no model allowlist**: it relays
-the name a client sends, `/v1/models` is proxied straight from the upstream,
-and the only model-name logic anywhere is the OpenAI surface substituting a
-Claude model when a caller asks for something that is not one. Fable, Opus,
-Sonnet and Haiku all work, on both APIs, and a model added upstream tomorrow
+Whatever your accounts serve, less what you have switched off. Every model is
+on until an operator turns it off for an account (Accounts → the account's
+Models): a request is relayed by the first account that has its model on, and
+refused as a model this gateway does not serve when none has. `/v1/models` is
+the union of what each account's subscription lists, less those switches, so
+two accounts on different plans offer everything either has. The only other
+model-name logic is the OpenAI surface substituting a Claude model when a
+caller asks for something that is not one. A model added upstream tomorrow
 works without a gateway change.
 
 Ask yours:

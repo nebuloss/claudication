@@ -143,7 +143,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 				ConversationID: conversation, Client: client, IP: ip,
 				Duration: elapsed, Error: res.Err.Error(),
 			}, key.TokenBudget)
-			s.relayFailure(w, r, p, res.Err)
+			s.relayFailure(w, r, p, model, res.Err)
 			return
 		}
 
@@ -241,13 +241,22 @@ func firstNonEmpty(vs ...string) string {
 // relayFailure answers when no bytes reached the client. The shape is the
 // caller's own error envelope, because an error a client cannot parse is an
 // error it cannot act on.
-func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Protocol, err error) {
+func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Protocol, model string, err error) {
 	switch {
 	case errors.Is(err, pool.ErrNoAccounts):
 		p.WriteError(w, http.StatusServiceUnavailable, "no_accounts",
 			"no Claude account is connected; add one in the admin UI")
+	case errors.Is(err, pool.ErrModelOff):
+		// 404 and not_found_error, as Anthropic answers a model it does not
+		// serve: that is what this is, from the client's side, and it stops
+		// a client retrying rather than waiting out a cooldown that is not
+		// coming. The message says who can change it, because the person
+		// reading it in a client log is usually not the one who switched it.
+		p.WriteError(w, http.StatusNotFound, "not_found_error",
+			"model "+model+" is turned off on this gateway for every connected account; "+
+				"an administrator can turn it on under Accounts")
 	case errors.Is(err, pool.ErrAllCoolingUp):
-		if wait := s.pool.RetryAfter(r.Context(), "anthropic"); wait > 0 {
+		if wait := s.pool.RetryAfter(r.Context(), "anthropic", model); wait > 0 {
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		}
 		p.WriteError(w, http.StatusServiceUnavailable, "overloaded_error",

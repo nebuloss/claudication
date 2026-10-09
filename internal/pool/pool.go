@@ -65,6 +65,10 @@ var (
 	// already been refused for good. Retrying invalid_grant is a loop, not
 	// patience.
 	ErrNeedsReauth = errors.New("this account needs re-authorising in a browser")
+	// ErrModelOff is a request for a model that every account able to serve
+	// has turned off. Not a cooldown: waiting does not bring it back, an
+	// operator does, so it is answered as a model this gateway does not serve.
+	ErrModelOff = errors.New("no account has this model turned on")
 )
 
 // Lease is one account, ready to serve a request.
@@ -164,7 +168,7 @@ func (p *Pool) Status(ctx context.Context, provider string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	candidates := candidatesFor(accounts, provider, nil, p.now())
+	candidates := candidatesFor(accounts, provider, "", nil, p.now())
 
 	st := Status{Cooling: map[string]time.Time{}}
 	for _, a := range accounts {
@@ -195,10 +199,13 @@ func (p *Pool) Status(ctx context.Context, provider string) (Status, error) {
 
 // candidatesFor is the one place that decides which accounts are in play, so
 // Acquire and Status cannot answer differently.
-func candidatesFor(accounts []store.Account, provider string, exclude map[string]bool, now time.Time) []store.Account {
+//
+// model narrows it to the accounts that have that model on; empty asks about
+// the account alone. See store.Account.Serves.
+func candidatesFor(accounts []store.Account, provider, model string, exclude map[string]bool, now time.Time) []store.Account {
 	out := make([]store.Account, 0, len(accounts))
 	for _, a := range accounts {
-		if a.Provider != provider || a.Disabled() || exclude[a.ID] {
+		if a.Provider != provider || a.Disabled() || exclude[a.ID] || !a.Serves(model) {
 			continue
 		}
 		// A dead refresh token still leaves whatever is left of the access
@@ -213,19 +220,26 @@ func candidatesFor(accounts []store.Account, provider string, exclude map[string
 	return out
 }
 
-// Acquire picks an account, refreshing its token first if it has expired.
+// Acquire picks an account that has model on, refreshing its token first if
+// it has expired. An empty model is served by any account.
 //
 // exclude lets a retry skip accounts that already failed for this request.
-func (p *Pool) Acquire(ctx context.Context, provider string, exclude map[string]bool) (Lease, error) {
+func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[string]bool) (Lease, error) {
 	accounts, err := p.store.ListAccounts(ctx)
 	if err != nil {
 		return Lease{}, err
 	}
 
-	candidates := candidatesFor(accounts, provider, exclude, p.now())
+	now := p.now()
+	candidates := candidatesFor(accounts, provider, model, exclude, now)
 	if len(candidates) == 0 {
-		if exclude != nil && len(exclude) > 0 {
+		switch {
+		case len(exclude) > 0:
+			// Every account that has the model on was tried.
 			return Lease{}, ErrAllCoolingUp
+		case len(candidatesFor(accounts, provider, "", nil, now)) > 0:
+			// There are accounts; none has this model on.
+			return Lease{}, ErrModelOff
 		}
 		return Lease{}, ErrNoAccounts
 	}
@@ -539,12 +553,12 @@ func (p *Pool) ReportFailure(id string, kind FailureKind, detail string) {
 // and outlive the accounts they belong to, so reading them alone let a paused
 // or deleted account whose cooldown had run out answer "free now" — and the
 // client was told to retry at once into the same refusal.
-func (p *Pool) RetryAfter(ctx context.Context, provider string) time.Duration {
+func (p *Pool) RetryAfter(ctx context.Context, provider, model string) time.Duration {
 	accounts, err := p.store.ListAccounts(ctx)
 	if err != nil {
 		return 0
 	}
-	return p.soonest(candidatesFor(accounts, provider, nil, p.now()))
+	return p.soonest(candidatesFor(accounts, provider, model, nil, p.now()))
 }
 
 // soonest is how long until the first of candidates is out of its cooldown,

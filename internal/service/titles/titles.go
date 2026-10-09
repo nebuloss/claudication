@@ -686,7 +686,7 @@ type pinnedPool struct {
 	all  []store.Account
 }
 
-func (p pinnedPool) Acquire(ctx context.Context, provider string, exclude map[string]bool) (pool.Lease, error) {
+func (p pinnedPool) Acquire(ctx context.Context, provider, model string, exclude map[string]bool) (pool.Lease, error) {
 	only := make(map[string]bool, len(p.all))
 	for k, v := range exclude {
 		only[k] = v
@@ -696,7 +696,7 @@ func (p pinnedPool) Acquire(ctx context.Context, provider string, exclude map[st
 			only[a.ID] = true
 		}
 	}
-	return p.AccountPool.Acquire(ctx, provider, only)
+	return p.AccountPool.Acquire(ctx, provider, model, only)
 }
 
 // captureWriter is an http.ResponseWriter that keeps the answer instead of

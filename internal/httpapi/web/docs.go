@@ -172,9 +172,7 @@ func (s *Site) HandleDocsInfo(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if body := s.docsModels.get(ctx, func(c context.Context) ([]byte, error) {
-		// Every model, as the admin list asks: the default page is 20, and the
-		// client configs on this page are written from what comes back.
-		return s.fetchModels(c, "limit=1000")
+		return s.fetchModels(c)
 	}); body != nil {
 		var parsed any
 		if err := json.Unmarshal(body, &parsed); err == nil {

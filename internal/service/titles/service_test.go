@@ -151,7 +151,7 @@ type fakePool struct {
 	excluded []map[string]bool
 }
 
-func (p *fakePool) Acquire(_ context.Context, _ string, exclude map[string]bool) (pool.Lease, error) {
+func (p *fakePool) Acquire(_ context.Context, _, _ string, exclude map[string]bool) (pool.Lease, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	cp := map[string]bool{}

@@ -40,6 +40,9 @@ type Account struct {
 	// Quota is what the upstream last reported about this account's
 	// subscription windows. Zero-valued until a response has been seen.
 	Quota AccountQuota
+	// ModelsOff are the models an operator turned off for this account, as
+	// they were switched. See models.go; Serves is the question to ask.
+	ModelsOff []string
 }
 
 // AccountQuota is what /api/oauth/usage reported for this account — the same
@@ -186,7 +189,9 @@ const accountColumns = `id, provider, email, account_uuid, expires_at, refresh_e
                         created_at, last_refresh_at, last_used_at, last_error, disabled_at,
                         refresh_dead_at,
                         quota_updated_at, quota_5h_util, quota_5h_reset, quota_5h_status,
-                        quota_7d_util, quota_7d_reset, quota_7d_status, position, usage_json`
+                        quota_7d_util, quota_7d_reset, quota_7d_status, position, usage_json,
+                        COALESCE((SELECT group_concat(model, char(31)) FROM account_models_off o
+                                   WHERE o.account_id = accounts.id), '')`
 
 type scanner interface{ Scan(...any) error }
 
@@ -219,13 +224,17 @@ func scanAccount(sc scanner) (Account, error) {
 		refreshExpires, lastRefresh, lastUsed, lastErr, disabled sql.NullString
 		refreshDead                                              sql.NullString
 		quotaUpdated, reset5h, reset7d                           string
+		modelsOff                                                string
 	)
 	if err := sc.Scan(&a.ID, &a.Provider, &a.Email, &a.AccountUUID, &expiresAt, &refreshExpires,
 		&createdAt, &lastRefresh, &lastUsed, &lastErr, &disabled, &refreshDead,
 		&quotaUpdated, &a.Quota.FiveHourUtil, &reset5h, &a.Quota.FiveHourStatus,
 		&a.Quota.SevenDayUtil, &reset7d, &a.Quota.SevenDayStatus, &a.Position,
-		&a.Quota.Detail); err != nil {
+		&a.Quota.Detail, &modelsOff); err != nil {
 		return Account{}, err
+	}
+	if modelsOff != "" {
+		a.ModelsOff = strings.Split(modelsOff, "\x1f")
 	}
 	a.Quota.UpdatedAt = parseRFC3339(quotaUpdated)
 	a.Quota.FiveHourReset = parseRFC3339(reset5h)

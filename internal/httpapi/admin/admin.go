@@ -51,7 +51,8 @@ type Admin struct {
 	trustedProxies []*net.IPNet
 	startedAt      time.Time
 	sessions       *sessions
-	fetchModels    func(ctx context.Context, rawQuery string) ([]byte, error)
+	fetchModels    func(ctx context.Context) ([]byte, error)
+	accountModels  func(ctx context.Context, accountID, rawQuery string) ([]byte, error)
 }
 
 // Deps is what an Admin is built from. Every field is required.
@@ -74,7 +75,9 @@ type Deps struct {
 	TrustedProxies []*net.IPNet
 	StartedAt      time.Time
 	// Models is the upstream model list, as the client-facing API reads it.
-	Models func(ctx context.Context, rawQuery string) ([]byte, error)
+	Models func(ctx context.Context) ([]byte, error)
+	// AccountModels is the upstream model list as one account sees it.
+	AccountModels func(ctx context.Context, accountID, rawQuery string) ([]byte, error)
 }
 
 // New builds an Admin with no session open.
@@ -85,7 +88,7 @@ func New(d Deps) *Admin {
 		docs: d.Docs, surfaces: d.Surfaces, protocols: d.Protocols,
 		httpClient: d.HTTPClient, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
-		sessions: newSessions(), fetchModels: d.Models,
+		sessions: newSessions(), fetchModels: d.Models, accountModels: d.AccountModels,
 	}
 }
 
@@ -116,6 +119,8 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/accounts/{id}/refresh", admin(s.handleRefreshAccount))
 	mux.Handle("POST /admin/accounts/{id}/usage", admin(s.handleRefreshUsage))
 	mux.Handle("POST /admin/accounts/{id}/disabled", admin(s.handleSetAccountDisabled))
+	mux.Handle("GET /admin/accounts/{id}/models", admin(s.handleAccountModels))
+	mux.Handle("POST /admin/accounts/{id}/models", admin(s.handleSetAccountModel))
 	mux.Handle("DELETE /admin/accounts/{id}", admin(s.handleDeleteAccount))
 
 	// Client API keys — the credential a Claude Code points at the gateway.
@@ -241,6 +246,8 @@ type AccountJSON struct {
 	// When a sidelined account comes back, if it is sitting one out. This is
 	// the pool's in-memory state, so it is empty after a restart.
 	CoolingUntil string `json:"cooling_until,omitempty"`
+	// ModelsOff are the models turned off for this account, as switched.
+	ModelsOff []string `json:"models_off,omitempty"`
 }
 
 // quotaJSON is what /api/oauth/usage reported: the two headline windows, plus
@@ -281,6 +288,7 @@ func toAccountJSON(a store.Account) AccountJSON {
 		LastError: a.LastError,
 		Expired:   a.Expired(),
 		Disabled:  a.Disabled(),
+		ModelsOff: a.ModelsOff,
 	}
 	if a.LastRefreshAt != nil {
 		out.LastRefreshAt = a.LastRefreshAt.UTC().Format(time.RFC3339)
@@ -946,7 +954,7 @@ func (s *Admin) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	body, err := s.fetchModels(ctx, "limit=1000")
+	body, err := s.fetchModels(ctx)
 	if err != nil {
 		s.log.Warn("could not read the upstream model list", "err", err)
 		httpx.WriteError(w, http.StatusBadGateway, "api_error",

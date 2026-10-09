@@ -59,6 +59,8 @@ export interface Account {
    * so this is empty for a healthy account and after a restart.
    */
   cooling_until?: string
+  /** Models turned off for this account, as they were switched. */
+  models_off?: string[]
 }
 
 export interface AccountList {
@@ -109,6 +111,14 @@ export interface OAuthStart {
   /** Set on a reconnect: the account being renewed, and who to sign in as. */
   account_id?: string
   email?: string
+}
+
+/** One model as one account's subscription serves it, with its switch. */
+export interface AccountModel extends Model {
+  /** Whether this account may serve it. */
+  enabled: boolean
+  /** False for a model switched off that the upstream no longer lists. */
+  listed: boolean
 }
 
 /** What a finished consent flow stored. */
@@ -644,6 +654,20 @@ export const api = {
     )
     return { account: res.account, renewed: res.renewed === true }
   },
+
+  /** The models one account serves, each with whether it may serve it. */
+  accountModels: (id: string) =>
+    request<{ account_id: string; models: AccountModel[] }>(
+      'GET',
+      `/admin/accounts/${encodeURIComponent(id)}/models`,
+    ),
+
+  setAccountModel: (id: string, model: string, enabled: boolean) =>
+    request<{ account_id: string; models_off: string[] }>(
+      'POST',
+      `/admin/accounts/${encodeURIComponent(id)}/models`,
+      { model, enabled },
+    ),
 
   testAccount: (id: string) =>
     request<ProbeResult>('POST', `/admin/accounts/${encodeURIComponent(id)}/test`, { model: '' }),

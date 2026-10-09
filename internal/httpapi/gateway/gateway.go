@@ -5,6 +5,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -131,7 +132,7 @@ func (s *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	body, err := s.FetchModels(ctx, r.URL.RawQuery)
+	body, err := s.FetchModels(ctx)
 	if err != nil {
 		s.log.Warn("model discovery failed; answering 502 so the client keeps its cached list",
 			"err", err, "request_id", httpx.RequestID(r.Context()))
@@ -142,18 +143,68 @@ func (s *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-// FetchModels is the upstream model list, read with whichever account would
-// serve: one answer to which models exist, for /v1/models, the admin UI and
-// the public docs page alike.
+// FetchModels is the models this gateway serves: one answer for /v1/models,
+// the admin UI and the configs it writes, and the public docs page alike.
 //
-// Addressed and authorised by the relay's wire, as a relayed request is, so
-// the provider's address and headers stay in the provider's package.
-func (s *Gateway) FetchModels(ctx context.Context, rawQuery string) ([]byte, error) {
-	lease, err := s.pool.Acquire(ctx, "anthropic", nil)
+// The union of what each account able to serve lists, less what is switched
+// off on that account. Per account, because subscriptions differ: a model
+// only the second account's plan has is still a model the gateway serves, and
+// asking only the first would leave it out. And less the switches, because a
+// model off everywhere is one a client would only meet as a refusal; clients
+// that build their menus from this list — Claude Code, and the configs the
+// admin UI writes from it — leave it out instead.
+//
+// One upstream call per account, in priority order, each for its whole list:
+// a client's paging asked of every account separately would page nothing it
+// could follow, so the answer is always all of it. An account whose list cannot
+// be read is skipped; only when none can is it an error.
+func (s *Gateway) FetchModels(ctx context.Context) ([]byte, error) {
+	accounts, err := s.store.ListAccounts(ctx)
 	if err != nil {
 		return nil, err
 	}
+	var (
+		lists   [][]byte
+		serving []store.Account
+		lastErr error
+	)
+	for _, a := range accounts {
+		if a.Provider != "anthropic" || a.Disabled() {
+			continue
+		}
+		body, err := s.FetchModelsFor(ctx, a.ID, "limit=1000")
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		lists = append(lists, body)
+		serving = append(serving, a)
+	}
+	if len(lists) == 0 {
+		if lastErr == nil {
+			lastErr = pool.ErrNoAccounts
+		}
+		return nil, lastErr
+	}
+	return mergeModels(lists, serving), nil
+}
 
+// FetchModelsFor is the model list as one account sees it, unfiltered: the
+// models its own subscription serves, which is what that account's switches
+// are switches over. Subscriptions differ, so this is asked per account.
+func (s *Gateway) FetchModelsFor(ctx context.Context, accountID, rawQuery string) ([]byte, error) {
+	token, err := s.pool.AccessToken(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return s.listModels(ctx, token, rawQuery)
+}
+
+// listModels asks the upstream for its models with one account's token.
+//
+// Addressed and authorised by the relay's wire, as a relayed request is, so
+// the provider's address and headers stay in the provider's package.
+func (s *Gateway) listModels(ctx context.Context, token, rawQuery string) ([]byte, error) {
 	base := s.relay.BaseURL
 	if base == "" {
 		base = s.relay.Wire.BaseURL()
@@ -166,7 +217,7 @@ func (s *Gateway) FetchModels(ctx context.Context, rawQuery string) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	s.relay.Wire.Authorize(req, lease.AccessToken)
+	s.relay.Wire.Authorize(req, token)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -177,6 +228,76 @@ func (s *Gateway) FetchModels(ctx context.Context, rawQuery string) ([]byte, err
 		return nil, fmt.Errorf("upstream models returned %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+}
+
+// mergeModels is the union of several accounts' model lists, each less the
+// models switched off on its own account, in the order the lists came: the
+// first account's models as it lists them, then any the others add.
+//
+// The first list is returned as it stands — the same bytes — when it is the
+// only one and its account has nothing off, which is the usual case and costs
+// nothing to keep exact. Otherwise the result is the first list's envelope
+// with its data replaced, and the paging fields made true of what is in it.
+func mergeModels(lists [][]byte, accounts []store.Account) []byte {
+	if len(lists) == 1 && len(accounts[0].ModelsOff) == 0 {
+		return lists[0]
+	}
+
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(lists[0], &envelope); err != nil {
+		return lists[0]
+	}
+	seen := map[string]bool{}
+	var (
+		kept          []json.RawMessage
+		first, latest string
+	)
+	for i, body := range lists {
+		var list struct {
+			Data []json.RawMessage `json:"data"`
+		}
+		if json.Unmarshal(body, &list) != nil {
+			continue
+		}
+		for _, e := range list.Data {
+			var m struct {
+				ID string `json:"id"`
+			}
+			if json.Unmarshal(e, &m) != nil || m.ID == "" {
+				continue
+			}
+			key := store.ModelKey(m.ID)
+			if seen[key] || !accounts[i].Serves(m.ID) {
+				continue
+			}
+			seen[key] = true
+			kept = append(kept, e)
+			if first == "" {
+				first = m.ID
+			}
+			latest = m.ID
+		}
+	}
+	if kept == nil {
+		kept = []json.RawMessage{}
+	}
+	set := func(field string, v any) {
+		if raw, err := json.Marshal(v); err == nil {
+			envelope[field] = raw
+		}
+	}
+	set("data", kept)
+	// Every account's list was asked for in full, so this is all of it.
+	set("has_more", false)
+	if first != "" {
+		set("first_id", first)
+		set("last_id", latest)
+	}
+	out, err := json.Marshal(envelope)
+	if err != nil {
+		return lists[0]
+	}
+	return out
 }
 
 // surface gates a route on its API being switched on.

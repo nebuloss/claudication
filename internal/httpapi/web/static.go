@@ -32,7 +32,7 @@ type Site struct {
 	store       *store.Store
 	docs        *settings.Switch
 	surfaces    *surfaces.Surfaces
-	fetchModels func(ctx context.Context, rawQuery string) ([]byte, error)
+	fetchModels func(ctx context.Context) ([]byte, error)
 	// files holds the built UI under webdist/.
 	files fs.FS
 
@@ -50,7 +50,7 @@ type Deps struct {
 	Docs     *settings.Switch
 	Surfaces *surfaces.Surfaces
 	// Models is the upstream model list, as the client-facing API reads it.
-	Models func(ctx context.Context, rawQuery string) ([]byte, error)
+	Models func(ctx context.Context) ([]byte, error)
 	// Files is the embedded build, with the UI under webdist/.
 	Files fs.FS
 }

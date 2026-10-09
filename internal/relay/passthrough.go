@@ -80,7 +80,8 @@ func (nopMeter) Done()       {}
 // the part the contract is strictest about — can be exercised
 // without a database and a live provider behind them. *pool.Pool satisfies it.
 type AccountPool interface {
-	Acquire(ctx context.Context, provider string, exclude map[string]bool) (pool.Lease, error)
+	// Acquire leases an account that has model on; see pool.Pool.Acquire.
+	Acquire(ctx context.Context, provider, model string, exclude map[string]bool) (pool.Lease, error)
 	ReportFailure(id string, kind pool.FailureKind, detail string)
 	ReportSuccess(id string)
 	Refresh(ctx context.Context, id string) error
@@ -207,7 +208,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		res.Attempts = attempt
 
-		lease, err := r.Pool.Acquire(req.Context(), provider, tried)
+		lease, err := r.Pool.Acquire(req.Context(), provider, p.Model, tried)
 		if err != nil {
 			// Nothing left to try. If an upstream already refused this
 			// request, that refusal is the answer: it names the limit and
