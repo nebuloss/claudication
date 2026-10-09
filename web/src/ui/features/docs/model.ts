@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { type Surface } from '../../../api/client'
 import { type Lang } from '../../primitives/code'
+import { type Catalog } from './catalog'
 
 /**
  * The example address inside configs/clients/*.
@@ -31,6 +32,11 @@ export type ConfigFile = {
   lang: Lang
   /** The committed file, imported as text. */
   body: string
+  /**
+   * Rewrites the file's models from the live list, when there is one. Absent
+   * on a file that names no model. See catalog.ts.
+   */
+  tailor?: (body: string, catalog: Catalog) => string
 }
 
 /** What a client needs, before any of it is resolved against a gateway. */
@@ -87,12 +93,23 @@ export class ClientRecipe {
   }
 
   /**
-   * Its files, with the example address replaced by this gateway's own, and
-   * the example key by a real one when there is one to give.
+   * Its files, with the example address replaced by this gateway's own, the
+   * example key by a real one when there is one to give, and the models by the
+   * ones the gateway's accounts serve when that list could be read.
    */
-  files(gateway: string, key = ''): ConfigFile[] {
+  files(gateway: string, key = '', catalog?: Catalog): ConfigFile[] {
     return this.data.files.map((f) => {
-      let body = f.body.split(EXAMPLE_BASE).join(gateway)
+      let body = f.body
+      if (catalog?.known && f.tailor) {
+        try {
+          body = f.tailor(body, catalog)
+        } catch {
+          // A committed file the rewrite cannot read is still a working file:
+          // hand it out as it stands rather than nothing.
+          body = f.body
+        }
+      }
+      body = body.split(EXAMPLE_BASE).join(gateway)
       if (key !== '') body = body.split(EXAMPLE_KEY).join(key)
       return { ...f, body }
     })

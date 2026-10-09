@@ -3,6 +3,7 @@ import { api, type DocsInfo } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { Banner, CopyField, Spinner } from '../../primitives'
 import { CodeViewer } from '../../primitives/code'
+import { Catalog } from './catalog'
 import { CLIENTS, SECTIONS, TROUBLESHOOTING } from './content'
 import { EXAMPLE_BASE, type ClientRecipe } from './model'
 import { useCurrentSection } from './use-current-section'
@@ -45,6 +46,9 @@ export default function Docs() {
   const configured = data.public_url ?? ''
   const gateway = configured !== '' ? configured : EXAMPLE_BASE
   const models = data.models?.data ?? []
+  // The files below are written from this when it could be read, and are the
+  // committed ones when it could not.
+  const catalog = new Catalog(models)
   const surfaces = data.surfaces ?? []
 
   return (
@@ -97,14 +101,21 @@ export default function Docs() {
         </Section>
 
         {CLIENTS.map((client) => (
-          <ClientSection key={client.id} client={client} gateway={gateway} surfaces={surfaces} />
+          <ClientSection
+            key={client.id}
+            client={client}
+            gateway={gateway}
+            surfaces={surfaces}
+            catalog={catalog}
+          />
         ))}
 
         <Section id="models" title="Models">
           <P>
             Everything this gateway will serve, read from upstream. Clients that ask for the list
-            discover these on their own; crush and Codex need them written into their config, which
-            the examples above do.
+            discover these on their own; crush and Codex need them written into their config, and
+            the files above are written from this list — so when a model is released, the files
+            here have it the next time this page loads.
           </P>
           {models.length === 0 ? (
             <p className="m-0 text-sm text-on-surface-variant">
@@ -152,10 +163,12 @@ function ClientSection({
   client,
   gateway,
   surfaces,
+  catalog,
 }: {
   client: ClientRecipe
   gateway: string
   surfaces: DocsInfo['surfaces']
+  catalog: Catalog
 }) {
   const missing = client.missingSurfaces(surfaces)
   return (
@@ -177,7 +190,7 @@ function ClientSection({
       )}
 
       <div className="my-5 flex flex-col gap-4">
-        {client.files(gateway).map((f) => (
+        {client.files(gateway, '', catalog).map((f) => (
           <CodeViewer
             key={f.filename}
             label={f.label}

@@ -10,7 +10,7 @@ export ANTHROPIC_AUTH_TOKEN=clc_...
 # Optional. Without these Claude Code discovers models through /v1/models,
 # which the gateway proxies. Keep the small one small: it runs many times a
 # session for titles and summaries.
-export ANTHROPIC_MODEL=claude-opus-5
-export ANTHROPIC_SMALL_FAST_MODEL=claude-haiku-4-5-20251001
+export ANTHROPIC_MODEL=claude-opus-5-5
+export ANTHROPIC_SMALL_FAST_MODEL=claude-haiku-5-5
 
 claude

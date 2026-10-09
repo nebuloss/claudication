@@ -403,9 +403,17 @@ export interface Surface {
  * relays whatever name a client sends — so any list written into the UI would
  * be a second opinion that quietly goes stale.
  */
+/** One entry of GET /v1/models. Only id is guaranteed; the rest is read by
+ *  ui/features/docs/catalog.ts, which falls back when a field is missing. */
 export interface Model {
   id: string
   display_name?: string
+  created_at?: string
+  line?: string
+  max_input_tokens?: number
+  max_tokens?: number
+  lifecycle?: string
+  capabilities?: Record<string, unknown>
 }
 
 export interface GatewayConfig {

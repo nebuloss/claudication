@@ -1,5 +1,8 @@
-import { type GatewayConfig } from '../../api/client'
-import { Banner, TonalButton, saveAs } from '../primitives'
+import { useMemo } from 'react'
+import { api, type GatewayConfig } from '../../api/client'
+import { useLoader } from '../hooks'
+import { Banner, Spinner, TonalButton, saveAs } from '../primitives'
+import { Catalog } from './docs/catalog'
 import { CLIENTS } from './docs/content'
 import { EXAMPLE_BASE } from './docs/model'
 
@@ -39,12 +42,28 @@ export function KeyConfigs({
   const address = relayAddress(config)
   const gateway = address !== '' ? address : EXAMPLE_BASE
 
+  // The models the accounts serve, read once when the dialog opens. A failure
+  // is not an error worth showing over a key that is visible once: the files
+  // fall back to the committed ones, which are complete, and the line below
+  // says so.
+  const { data: models, loading } = useLoader(() => api.models(), undefined, [], 0)
+  const catalog = useMemo(() => new Catalog(models?.data), [models])
+
   return (
     <section className="mt-6">
       <h3 className="m-0 text-sm font-medium text-on-surface">Configure a client</h3>
       <p className="mt-1 mb-3 text-xs text-on-surface-variant">
         Each file already carries this key and the gateway&rsquo;s address. Treat a downloaded file
-        like the key itself.
+        like the key itself.{' '}
+        {loading && models === null ? (
+          <span className="inline-flex items-center gap-1">
+            <Spinner className="size-3" /> Reading the model list…
+          </span>
+        ) : catalog.known ? (
+          `Models: the ${catalog.models.length} your accounts serve, read from Anthropic just now.`
+        ) : (
+          'Models: the list shipped with this release, because the live one could not be read.'
+        )}
       </p>
 
       {address === '' && (
@@ -73,8 +92,12 @@ export function KeyConfigs({
                 )}
               </div>
               <span className="flex flex-wrap gap-2">
-                {client.files(gateway, plaintext).map((f) => (
-                  <TonalButton key={f.filename} onClick={() => saveAs(f.filename, f.body)}>
+                {client.files(gateway, plaintext, catalog).map((f) => (
+                  <TonalButton
+                    key={f.filename}
+                    onClick={() => saveAs(f.filename, f.body)}
+                    disabled={loading && models === null}
+                  >
                     {f.filename}
                   </TonalButton>
                 ))}

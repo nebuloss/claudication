@@ -3,6 +3,13 @@ import codexToml from '#configs/clients/codex.toml?raw'
 import codexModels from '#configs/clients/codex-models.json?raw'
 import crushJson from '#configs/clients/crush.json?raw'
 import opencodeJsonc from '#configs/clients/opencode.jsonc?raw'
+import {
+  tailorClaudeCode,
+  tailorCodexCatalog,
+  tailorCodexConfig,
+  tailorCrush,
+  tailorOpencode,
+} from './catalog'
 import { ClientRecipe, type Section, type Symptom } from './model'
 
 /**
@@ -29,7 +36,13 @@ export const CLIENTS: ClientRecipe[] = [
       </>
     ),
     files: [
-      { label: 'claudication.sh', filename: 'claude-code.sh', lang: 'sh', body: claudeCodeSh },
+      {
+        label: 'claudication.sh',
+        filename: 'claude-code.sh',
+        lang: 'sh',
+        body: claudeCodeSh,
+        tailor: tailorClaudeCode,
+      },
     ],
   }),
   new ClientRecipe({
@@ -45,12 +58,19 @@ export const CLIENTS: ClientRecipe[] = [
       </>
     ),
     files: [
-      { label: '~/.codex/config.toml', filename: 'config.toml', lang: 'toml', body: codexToml },
+      {
+        label: '~/.codex/config.toml',
+        filename: 'config.toml',
+        lang: 'toml',
+        body: codexToml,
+        tailor: tailorCodexConfig,
+      },
       {
         label: '~/.codex/claude-models.json',
         filename: 'claude-models.json',
         lang: 'json',
         body: codexModels,
+        tailor: tailorCodexCatalog,
       },
     ],
     notes: [
@@ -85,6 +105,7 @@ export const CLIENTS: ClientRecipe[] = [
         filename: 'opencode.jsonc',
         lang: 'jsonc',
         body: opencodeJsonc,
+        tailor: tailorOpencode,
       },
     ],
   }),
@@ -97,7 +118,8 @@ export const CLIENTS: ClientRecipe[] = [
       <>
         Every model is spelled out here, and that is deliberate: crush never calls{' '}
         <code className="font-mono">/v1/models</code>, so a model missing from this file cannot be
-        selected however well the gateway serves it.
+        selected however well the gateway serves it. The list is the gateway&rsquo;s own, read
+        from Anthropic when this page loaded, so download it again when a model is released.
       </>
     ),
     files: [
@@ -106,6 +128,7 @@ export const CLIENTS: ClientRecipe[] = [
         filename: 'crush.json',
         lang: 'json',
         body: crushJson,
+        tailor: tailorCrush,
       },
     ],
   }),

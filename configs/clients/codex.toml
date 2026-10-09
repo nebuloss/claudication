@@ -10,7 +10,7 @@
 # means nothing upstream, and the gateway then substitutes its own default.
 
 model_provider = "claudication"
-model = "claude-opus-5"
+model = "claude-opus-5-5"
 
 # Fixes Codex guessing a conservative context window for a model it has never
 # heard of, which makes it compact the conversation far too early.

@@ -199,6 +199,86 @@ check('an unknown panel falls back', panel('#nonesuch'), 'requests')
 // A malformed escape must not throw inside a render.
 check('a broken escape does not throw', panel('#%E0%A4%A'), 'requests')
 
+// The client configs handed out are the committed files with their models
+// rewritten from the gateway's live list. Checked against the real committed
+// files, because the rewrite is only as good as its reading of them.
+console.log('\n— model catalog: the configs are written from the live list —')
+{
+  const {
+    Catalog,
+    CRUSH_WINDOW,
+    tailorCrush,
+    tailorCodexCatalog,
+    tailorCodexConfig,
+    tailorClaudeCode,
+    tailorOpencode,
+  } = await import(`${OUT}/features/docs/catalog.js`)
+  const { readFileSync } = await import('node:fs')
+  const committed = (name) =>
+    readFileSync(new URL(`../configs/clients/${name}`, import.meta.url), 'utf8')
+
+  const effort = (...levels) => ({
+    supported: true,
+    ...Object.fromEntries(['low', 'medium', 'high', 'xhigh', 'max'].map((l) => [l, { supported: levels.includes(l) }])),
+  })
+  // Shaped as GET /v1/models answered on 2026-10-09, newest first.
+  const live = [
+    { id: 'claude-haiku-5-5', display_name: 'Claude Haiku 5.5', line: 'haiku', lifecycle: 'active',
+      max_input_tokens: 1000000, max_tokens: 128000,
+      capabilities: { effort: effort('low', 'medium', 'high', 'xhigh', 'max'), image_input: { supported: true } } },
+    { id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', line: 'opus', lifecycle: 'active',
+      max_input_tokens: 1000000, max_tokens: 128000,
+      capabilities: { effort: effort('low', 'medium', 'high', 'xhigh', 'max'), image_input: { supported: true } } },
+    { id: 'claude-opus-4-5-20251101', display_name: 'Claude Opus 4.5', line: 'opus', lifecycle: 'active',
+      max_input_tokens: 200000, max_tokens: 64000,
+      capabilities: { effort: effort('low', 'medium', 'high'), image_input: { supported: true } } },
+    { id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5', lifecycle: 'active',
+      max_input_tokens: 200000, max_tokens: 64000,
+      capabilities: { effort: { supported: false }, image_input: { supported: true } } },
+    { id: 'claude-sonnet-3-9', lifecycle: 'deprecated', max_input_tokens: 200000 },
+    { id: 'gpt-something' },
+  ]
+  const catalog = new Catalog(live)
+
+  check('retired and foreign models are left out', catalog.models.map((m) => m.id), [
+    'claude-haiku-5-5', 'claude-opus-5-5', 'claude-opus-4-5-20251101', 'claude-sonnet-4-5-20250929',
+  ])
+  check('the large default is the newest Opus', catalog.large, 'claude-opus-5-5')
+  check('the small default is the newest Haiku', catalog.small, 'claude-haiku-5-5')
+  check('an empty list writes nothing', new Catalog(null).known, false)
+
+  const crush = JSON.parse(tailorCrush(committed('crush.json'), catalog))
+  const crushModels = Object.values(crush.providers)[0].models
+  const byID = Object.fromEntries(crushModels.map((m) => [m.id, m]))
+  check('crush gets every live model', crushModels.map((m) => m.id), catalog.models.map((m) => m.id))
+  check('a 1M model is declared at the compaction window', byID['claude-opus-5-5'].context_window, CRUSH_WINDOW)
+  check('a 200k model keeps its own window', byID['claude-opus-4-5-20251101'].context_window, 200000)
+  check('effort levels are the ones the model accepts', byID['claude-opus-4-5-20251101'].reasoning_levels, ['low', 'medium', 'high'])
+  check('a model with no effort setting does not reason', [byID['claude-sonnet-4-5-20250929'].can_reason, 'reasoning_levels' in byID['claude-sonnet-4-5-20250929']], [false, false])
+  check('the output cap is the model\'s', byID['claude-opus-5-5'].default_max_tokens, 128000)
+  check('crush defaults follow', [crush.models.large.model, crush.models.small.model], ['claude-opus-5-5', 'claude-haiku-5-5'])
+  check('the rest of crush.json is the committed file\'s', [crush.$schema, Object.keys(crush.providers)[0], crush.models.large.think],
+    [JSON.parse(committed('crush.json')).$schema, 'claudication', true])
+
+  const codexCommitted = JSON.parse(committed('codex-models.json'))
+  const codex = JSON.parse(tailorCodexCatalog(committed('codex-models.json'), catalog)).models
+  check('codex gets every live model, in order', codex.map((m) => [m.slug, m.priority]),
+    catalog.models.map((m, i) => [m.id, (i + 1) * 10]))
+  check('codex windows are the real ones', [codex[1].context_window, codex[2].max_context_window], [1000000, 200000])
+  check('everything else in a codex entry is the committed one', codex[1].base_instructions, codexCommitted.models[0].base_instructions)
+
+  const toml = tailorCodexConfig(committed('codex.toml'), catalog)
+  check('codex.toml names the new default', /^model = "claude-opus-5-5"$/m.test(toml), true)
+  check('and nothing else in it moves', toml.replace('claude-opus-5-5', 'X'), committed('codex.toml').replace(/^model = "[^"]*"/m, 'model = "X"'))
+
+  const sh = tailorClaudeCode(committed('claude-code.sh'), catalog)
+  check('Claude Code gets both defaults', [/^export ANTHROPIC_MODEL=claude-opus-5-5$/m.test(sh), /^export ANTHROPIC_SMALL_FAST_MODEL=claude-haiku-5-5$/m.test(sh)], [true, true])
+
+  const oc = tailorOpencode(committed('opencode.jsonc'), catalog)
+  check('opencode gets both defaults, quotes intact', [oc.includes('"model": "anthropic/claude-opus-5-5"'), oc.includes('"small_model": "anthropic/claude-haiku-5-5"')], [true, true])
+  check('opencode keeps its comments', oc.includes('// opencode, pointed at a claudication gateway.'), true)
+}
+
 console.log('\n— every axis covers its data —')
 for (const m of [1, 7, 42, 99, 100, 101, 999, 1183402, 5e9, 0.3]) {
   check(`top >= ${m}`, niceTicks(m).at(-1) >= m, true)

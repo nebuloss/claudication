@@ -68,9 +68,18 @@ curl https://claudication.example.com/v1/models -H "x-api-key: clc_…"
 ```
 
 Two clients need models named by hand, and both are the client's doing: crush
-never calls `/v1/models`, and Codex looks names up in a catalog. The files in
-`configs/clients/` list the models that existed when they were written; the
-Setup tab shows the live list beside them.
+never calls `/v1/models`, and Codex looks names up in a catalog. So the files a
+gateway hands out — the downloads beside a new key, and the public docs page —
+are the committed ones with their models written from that same live list: every
+active model your accounts serve, each with its real context window, output cap
+and effort levels, and the newest Opus and Haiku as the defaults. A model
+Anthropic releases tomorrow is in them the next time the page loads, with no
+gateway change. The rewrite is `web/src/ui/features/docs/catalog.ts`; when the
+list cannot be read, the committed files are handed out as they stand.
+
+The files in `configs/clients/` are those same files, written from the list as it
+was on the day they were committed. Download again to pick up a newer model; an
+existing crush or Codex setup does not learn about one on its own.
 
 ### When crush compacts
 
