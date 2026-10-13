@@ -751,93 +751,39 @@ func TestCaptureWriterIsBounded(t *testing.T) {
 	}
 }
 
-// The production case: crush named the chat after its init prompt, and the
-// chat went on for hundreds of requests. At retitleFirst it is renamed through
-// the same pinned, cached call, and the basis is kept so the next rename waits
-// for four-fold growth. A second attempt inside the backoff spends nothing.
-func TestALongChatOutgrowsItsCapturedTitle(t *testing.T) {
-	h := newHarness(t)
-	if err := h.titler.Set(context.Background(), SettingGenerate, true); err != nil {
-		t.Fatal(err)
-	}
-	h.st.titles["chat-1"] = "Generate AGENTS.md for codebase"
-	h.st.requests["chat-1"] = retitleFirst - 1
-
-	h.titler.run(context.Background(), h.ev())
-	if n := h.up.count(); n != 0 {
-		t.Fatalf("renamed at %d requests; asked upstream %d times", retitleFirst-1, n)
-	}
-
-	h.st.requests["chat-1"] = retitleFirst
-	h.titler.run(context.Background(), h.ev())
-	if n := h.up.count(); n != 1 {
-		t.Fatalf("upstream asked %d times, want one rename", n)
-	}
-	r, _, _ := h.st.TitleRecord(context.Background(), "chat-1")
-	if want := (store.TitleRecord{Title: "Fix the SSE parser", Requests: retitleFirst, Turns: 1}); r != want {
-		t.Errorf("after rename: %+v, want %+v", r, want)
-	}
-	if e := h.waitRecorded(t).ev; e.Path != store.InternalPath || e.ConversationID != "chat-1" {
-		t.Errorf("the rename was not filed like a title: %+v", e)
-	}
-
-	// Due again only at four-fold; and a due rename that just ran is not
-	// retried inside the backoff even if the threshold says so.
-	h.st.requests["chat-1"] = retitleGrowth*retitleFirst - 1
-	h.titler.run(context.Background(), h.ev())
-	h.st.bases["chat-1"] = store.TitleRecord{}
-	h.titler.run(context.Background(), h.ev())
-	if n := h.up.count(); n != 1 {
-		t.Errorf("upstream asked %d times, want no second rename", n)
-	}
-}
-
-// The operator's refresh: refused while generation is off; for a chat the
-// titler has seen, a rename now from what the user typed, sent as a small
-// request of its own; for one it has not (a restart since), a rename at the
-// chat's next request, which then counts as done.
-func TestRefreshNowNamesFromWhatTheUserTyped(t *testing.T) {
+// The production case: crush named the chat after its init prompt. Once the
+// user types a second message the agent's whole reply is in the body, and the
+// chat is renamed from that opening exchange — a small request of its own,
+// with no tools and nothing of the cached conversation — and then not again.
+func TestRenamedOnceFromTheOpeningExchange(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
-	if _, _, err := h.titler.RefreshNow(ctx, "chat-1"); !errors.Is(err, ErrGenerateOff) {
-		t.Fatalf("RefreshNow with generation off: %v, want ErrGenerateOff", err)
-	}
 	if err := h.titler.Set(ctx, SettingGenerate, true); err != nil {
 		t.Fatal(err)
 	}
 	h.st.titles["chat-1"] = "Generate AGENTS.md for codebase"
-	h.st.requests["chat-1"] = 3
+	summary := `{"role":"assistant","content":[{"type":"text","text":"Wrote AGENTS.md for the ZeeOS installer."}]}`
 
-	// Not seen since start: marked, nothing sent yet. A failed automatic
-	// attempt must not hold that back.
-	h.titler.mayRename("chat-1", time.Now())
-	if _, pending, err := h.titler.RefreshNow(ctx, "chat-1"); err != nil || !pending {
-		t.Fatalf("unknown chat: pending=%v err=%v, want pending", pending, err)
-	}
+	ev := h.ev()
+	ev.Body = convo(crushInit, assistantUse, toolResult, summary)
+	h.titler.run(ctx, ev)
 	if n := h.up.count(); n != 0 {
-		t.Fatalf("an unknown chat was named from nothing; asked %d times", n)
+		t.Fatalf("renamed before the opening exchange was over; asked %d times", n)
 	}
-	h.titler.run(ctx, h.ev())
-	if n := h.up.count(); n != 1 {
-		t.Fatalf("upstream asked %d times, want the marked rename", n)
-	}
-	h.waitRecorded(t)
 
-	// Seen now: renamed at once, from the excerpt, with its own small request.
-	h.st.titles["chat-1"] = "Something stale"
-	title, pending, err := h.titler.RefreshNow(ctx, "chat-1")
-	if err != nil || pending || title != "Fix the SSE parser" {
-		t.Fatalf("RefreshNow = %q, pending=%v, %v", title, pending, err)
+	ev.Body = convo(crushInit, assistantUse, toolResult, summary, followUp)
+	h.titler.run(ctx, ev)
+	if n := h.up.count(); n != 1 {
+		t.Fatalf("upstream asked %d times, want one rename", n)
 	}
-	if got, _, _ := h.st.title("chat-1"); got != "Fix the SSE parser" {
-		t.Errorf("stored title %q", got)
+	r, _, _ := h.st.TitleRecord(ctx, "chat-1")
+	if r.Title != "Fix the SSE parser" || r.Turns != 2 || r.Manual {
+		t.Errorf("after rename: %+v", r)
 	}
 	h.up.mu.Lock()
-	sent := h.up.bodies[1]
+	sent := h.up.bodies[0]
 	h.up.mu.Unlock()
 	var body struct {
-		Model    string            `json:"model"`
-		Stream   *bool             `json:"stream"`
 		Tools    []json.RawMessage `json:"tools"`
 		System   []struct{ Text string }
 		Messages []struct{ Content string }
@@ -845,84 +791,43 @@ func TestRefreshNowNamesFromWhatTheUserTyped(t *testing.T) {
 	if err := json.Unmarshal(sent, &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Model != "claude-sonnet-5" || body.Stream != nil || len(body.Tools) != 0 ||
-		len(body.System) == 0 || !strings.Contains(body.System[len(body.System)-1].Text, "You name conversations") ||
-		len(body.Messages) != 1 || !strings.Contains(body.Messages[0].Content, "fix the parser") {
-		t.Errorf("refresh request is not the excerpt on its own: %s", sent)
+	if len(body.Tools) != 0 || len(body.System) == 0 ||
+		!strings.Contains(body.System[len(body.System)-1].Text, "how\none began") ||
+		len(body.Messages) != 1 ||
+		!strings.Contains(body.Messages[0].Content, "Analyze this codebase") ||
+		!strings.Contains(body.Messages[0].Content, "ZeeOS installer") ||
+		strings.Contains(body.Messages[0].Content, "ext4") {
+		t.Errorf("rename request is not the opening exchange on its own: %s", sent)
 	}
 	if e := h.waitRecorded(t).ev; e.Path != store.InternalPath || e.ConversationID != "chat-1" {
-		t.Errorf("the refresh was not filed like a title: %+v", e)
+		t.Errorf("the rename was not filed like a title: %+v", e)
 	}
 
-	// The mark was cleared by the first rename: the next request is ordinary.
+	// Named from its opening once; later turns leave it alone.
 	h.titler.mu.Lock()
 	delete(h.titler.renamed, "chat-1")
 	h.titler.mu.Unlock()
-	h.titler.run(ctx, h.ev())
-	if n := h.up.count(); n != 2 {
-		t.Errorf("upstream asked %d times; the mark was not cleared", n)
+	ev.Body = convo(crushInit, assistantUse, toolResult, summary, followUp, assistantSay, followUp)
+	h.titler.run(ctx, ev)
+	if n := h.up.count(); n != 1 {
+		t.Errorf("upstream asked %d times; renamed a second time", n)
 	}
 }
 
-// A title the operator typed is never renamed automatically, however long the
-// chat grows; their refresh is the only thing that hands it back.
+// A title the operator typed is never renamed automatically.
 func TestATypedTitleIsLeftAlone(t *testing.T) {
+	ctx := context.Background()
 	h := newHarness(t)
-	if err := h.titler.Set(context.Background(), SettingGenerate, true); err != nil {
+	if err := h.titler.Set(ctx, SettingGenerate, true); err != nil {
 		t.Fatal(err)
 	}
 	h.st.titles["chat-1"] = "ZeeOS installer"
 	h.st.bases["chat-1"] = store.TitleRecord{Manual: true}
-	h.st.requests["chat-1"] = 10 * retitleFirst
-
-	h.titler.run(context.Background(), h.ev())
-	if n := h.up.count(); n != 0 {
-		t.Fatalf("a typed title was renamed automatically; asked %d times", n)
-	}
-
-	// Typing a title cancels a refresh marked before it.
-	h.titler.forced["chat-1"] = true
-	h.titler.Forget("chat-1")
-	h.titler.run(context.Background(), h.ev())
-	if n := h.up.count(); n != 0 {
-		t.Fatalf("a forgotten refresh still renamed; asked %d times", n)
-	}
-
-	if _, _, err := h.titler.RefreshNow(context.Background(), "chat-1"); err != nil {
-		t.Fatal(err)
-	}
-	if n := h.up.count(); n != 1 {
-		t.Fatalf("the operator's refresh did not rename; asked %d times", n)
-	}
-	if r, _, _ := h.st.TitleRecord(context.Background(), "chat-1"); r.Manual {
-		t.Error("still manual after a generated rename")
-	}
-}
-
-// A chat that opened with an init prompt is renamed at the user's second
-// message, long before the request threshold.
-func TestAnInitChatIsRenamedAtTheSecondMessage(t *testing.T) {
-	h := newHarness(t)
-	if err := h.titler.Set(context.Background(), SettingGenerate, true); err != nil {
-		t.Fatal(err)
-	}
-	h.st.titles["chat-1"] = "Generate AGENTS.md for codebase"
-	h.st.requests["chat-1"] = 12
 
 	ev := h.ev()
-	ev.Body = convo(crushInit, assistantUse, toolResult, assistantSay)
-	h.titler.run(context.Background(), ev)
+	ev.Body = convo(crushInit, assistantSay, followUp)
+	h.titler.run(ctx, ev)
 	if n := h.up.count(); n != 0 {
-		t.Fatalf("renamed while the chat was still the init; asked %d times", n)
-	}
-
-	ev.Body = convo(crushInit, assistantUse, toolResult, assistantSay, followUp)
-	h.titler.run(context.Background(), ev)
-	if n := h.up.count(); n != 1 {
-		t.Fatalf("upstream asked %d times, want one rename", n)
-	}
-	r, _, _ := h.st.TitleRecord(context.Background(), "chat-1")
-	if r.Title != "Fix the SSE parser" || r.Turns != 2 || r.Requests != 12 {
-		t.Errorf("after rename: %+v", r)
+		t.Fatalf("a typed title was renamed automatically; asked %d times", n)
 	}
 }

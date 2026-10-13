@@ -399,23 +399,9 @@ func (s *Store) RetitleChat(ctx context.Context, id, title, model string, basis 
 	return nil
 }
 
-// SetTitleManual switches a titled chat between automatic and manual naming
-// without touching its title. found is false when the chat has no title yet:
-// manual naming means a name the operator chose, so there has to be one.
-func (s *Store) SetTitleManual(ctx context.Context, id string, manual bool) (found bool, err error) {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE chat_titles SET manual = ? WHERE conversation_id = ?`, manual, id)
-	if err != nil {
-		return false, fmt.Errorf("set title mode: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
-}
-
-// SetManualTitle stores a title an operator typed, replacing any there was,
-// and holds it against automatic renames until RetitleChat writes over it —
-// which only an operator's own refresh leads to. No model wrote it, so none
-// is recorded.
+// SetManualTitle stores a title an operator typed, replacing any there was.
+// The titler never renames a manual title, so it stays until the operator
+// types another. No model wrote it, so none is recorded.
 func (s *Store) SetManualTitle(ctx context.Context, id, title string) (string, error) {
 	title = clipTitle(title)
 	if id == "" || title == "" {

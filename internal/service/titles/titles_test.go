@@ -3,7 +3,6 @@ package titles
 import (
 	"bytes"
 	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -207,93 +206,57 @@ func TestUserTurnsCountsOnlyWhatTheUserTyped(t *testing.T) {
 	}
 }
 
-func TestOpensWithInit(t *testing.T) {
-	if !opensWithInit(convo(crushInit, assistantSay, followUp)) {
-		t.Error("crush's init prompt as the first message was not recognised")
+// The user's first message and the agent's text in reply, up to the user's
+// next message; tool traffic and reminders left out.
+func TestOpeningExchange(t *testing.T) {
+	narrate := `{"role":"assistant","content":[{"type":"text","text":"Reading the tree."},{"type":"tool_use","id":"t1","name":"ls","input":{}}]}`
+	summary := `{"role":"assistant","content":[{"type":"text","text":"Wrote AGENTS.md for the ZeeOS installer."}]}`
+	later := `{"role":"assistant","content":[{"type":"text","text":"Resized the ext4 image."}]}`
+
+	got := openingExchange(convo(crushInit, narrate, toolResult, summary, followUp, later))
+	for _, want := range []string{"<user>\nAnalyze this codebase", "<agent>\nReading the tree.\n\nWrote AGENTS.md for the ZeeOS installer.\n</agent>"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
 	}
-	if !opensWithInit(convo(`{"role":"user","content":"Please analyze this codebase and create a CLAUDE.md file"}`)) {
-		t.Error("Claude Code's /init was not recognised")
+	for _, not := range []string{"Makefile", "todo list", "ext4", "tool_use"} {
+		if strings.Contains(got, not) {
+			t.Errorf("%q leaked into the opening exchange:\n%s", not, got)
+		}
 	}
-	// The marker inside CLAUDE.md, carried in a reminder, is not the user
-	// asking for anything.
-	if opensWithInit(convo(reminderOnly)) {
-		t.Error("a marker inside a <system-reminder> was taken for the user's request")
+
+	// Claude Code's CLAUDE.md reminder is not what the user typed.
+	if got := openingExchange(convo(reminderOnly)); got != "<user>\nwhy does the SSE parser drop events?\n</user>" {
+		t.Errorf("with a reminder in front: %q", got)
 	}
-	// Only the first message counts: asking for an AGENTS.md later on is work
-	// done in the chat, not how it opened.
-	if opensWithInit(convo(followUp, assistantSay, crushInit)) {
-		t.Error("an init prompt later in the chat was taken for its opening")
+	if got := openingExchange(convo(toolResult)); got != "" {
+		t.Errorf("nothing typed should be no exchange: %q", got)
+	}
+
+	// A long reply keeps its end, where the summary is.
+	long := `{"role":"assistant","content":[{"type":"text","text":"` + strings.Repeat("a", 3*openingAgent) + ` THE END"}]}`
+	got = openingExchange(convo(followUp, long))
+	if !strings.HasSuffix(got, "THE END\n</agent>") || len(got) > openingAgent+openingUser+64 {
+		t.Errorf("long reply: %d bytes, ends %q", len(got), got[len(got)-24:])
 	}
 }
 
 func TestRenameDue(t *testing.T) {
-	captured := store.TitleRecord{Title: "Generate AGENTS.md for codebase"}
 	for _, c := range []struct {
-		name            string
-		current         store.TitleRecord
-		requests, turns int
-		init            bool
-		want            bool
+		name    string
+		current store.TitleRecord
+		turns   int
+		want    bool
 	}{
-		{"init chat, still on the init", captured, 12, 1, true, false},
-		{"init chat, the user typed again", captured, 14, 2, true, true},
-		{"init chat already renamed at its second turn", store.TitleRecord{Requests: 14, Turns: 2}, 30, 3, true, false},
-		{"ordinary chat, short", captured, 49, 5, false, false},
-		{"ordinary chat reaches the first threshold", captured, 50, 5, false, true},
-		{"renamed at 50, not yet four-fold", store.TitleRecord{Requests: 50}, 199, 9, false, false},
-		{"renamed at 50, four-fold", store.TitleRecord{Requests: 50}, 200, 9, false, true},
-		// A title written on the chat's first turn records one request; that
-		// must not make it due at four.
-		{"generated on turn one", store.TitleRecord{Requests: 1, Turns: 1}, 4, 1, false, false},
+		{"captured, still on the first message", store.TitleRecord{}, 1, false},
+		{"captured, the user typed again", store.TitleRecord{}, 2, true},
+		{"generated on turn one, the user typed again", store.TitleRecord{Turns: 1}, 2, true},
+		{"already named from the opening exchange", store.TitleRecord{Turns: 2}, 9, false},
+		{"typed by the operator", store.TitleRecord{Manual: true}, 9, false},
 	} {
-		if got := renameDue(c.current, c.requests, c.turns, c.init); got != c.want {
+		if got := renameDue(c.current, c.turns); got != c.want {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
-	}
-}
-
-// The opening message and the latest, in order, each cut to its share, with
-// tool results and reminders left out and a marker where the middle went.
-func TestExcerptKeepsTheOpeningAndTheLatest(t *testing.T) {
-	texts := []string{"open the parser", "", strings.Repeat("x", 3000)}
-	for i := 0; i < 20; i++ {
-		texts = append(texts, "middle "+strings.Repeat("m", 1000))
-	}
-	texts = append(texts, "", "now fix ext4 resize")
-
-	got := excerpt(texts)
-	if !strings.HasPrefix(got, "open the parser\n---\n[…]\n---\n") {
-		t.Errorf("does not open with the first message and a gap marker: %.80q", got)
-	}
-	if !strings.HasSuffix(got, "now fix ext4 resize") {
-		t.Errorf("does not end on the latest message: …%q", got[len(got)-40:])
-	}
-	if len(got) > excerptBudget+excerptFirst+128 {
-		t.Errorf("excerpt is %d bytes, over its budget", len(got))
-	}
-	if excerpt([]string{"", ""}) != "" {
-		t.Error("nothing typed should be no excerpt")
-	}
-	if got := excerpt([]string{"a", "b"}); got != "a\n---\nb" {
-		t.Errorf("short chat: %q", got)
-	}
-}
-
-func TestRememberDropsTheStalestChat(t *testing.T) {
-	tl := &Titler{recent: map[string]recentChat{}}
-	t0 := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < recentLimit; i++ {
-		tl.remember(string(rune('a'+i%26))+strconv.Itoa(i), recentChat{excerpt: "x", model: "m", at: t0.Add(time.Duration(i) * time.Second)})
-	}
-	tl.remember("new", recentChat{excerpt: "x", model: "m", at: t0.Add(time.Hour)})
-	if len(tl.recent) != recentLimit {
-		t.Errorf("holds %d chats, want %d", len(tl.recent), recentLimit)
-	}
-	if _, ok := tl.recent["a0"]; ok {
-		t.Error("the stalest chat was kept")
-	}
-	if _, ok := tl.recent["new"]; !ok {
-		t.Error("the newest chat was not remembered")
 	}
 }
 

@@ -932,7 +932,7 @@ export function ContextMenu({
   }, [onClose])
 
   useEffect(() => {
-    panel.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()
+    panel.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
   }, [])
 
   // Kept on screen, as HeaderMenu is: a right-click near an edge would
@@ -959,31 +959,21 @@ export function ContextMenu({
 export function MenuRow({
   onClick,
   active = false,
-  checked,
   children,
 }: {
   onClick: () => void
   active?: boolean
-  /** Set to make the row a toggle, drawn with a tick when on. */
-  checked?: boolean
   children: ReactNode
 }) {
-  const toggle = checked !== undefined
   return (
     <button
       type="button"
-      role={toggle ? 'menuitemcheckbox' : 'menuitem'}
-      aria-checked={toggle ? checked : undefined}
+      role="menuitem"
       onClick={onClick}
       className={`state-layer flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-normal tracking-normal ${
         active ? 'text-primary' : 'text-on-surface'
       }`}
     >
-      {toggle && (
-        <span aria-hidden className={`w-3 shrink-0 ${checked ? 'text-primary' : 'opacity-0'}`}>
-          ✓
-        </span>
-      )}
       {children}
     </button>
   )

@@ -11,7 +11,8 @@
 -- requests is how many requests the conversation had when the title was
 -- written; turns is how many messages the user had typed by then. Both are 0
 -- for a title the gateway did not write itself (one read off a client's own
--- title request, or any row from before this migration), which is what makes
--- those eligible to be replaced once the chat has grown.
+-- title request, or any row from before this migration). A title written
+-- before the user's second message is replaced once, from the chat's opening
+-- exchange; turns is how the titler tells which titles those are.
 ALTER TABLE chat_titles ADD COLUMN requests INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE chat_titles ADD COLUMN turns INTEGER NOT NULL DEFAULT 0;

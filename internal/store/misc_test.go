@@ -511,21 +511,6 @@ func TestManualTitleHoldsUntilRetitled(t *testing.T) {
 		t.Fatalf("chat list: %+v, %v", rep.Chats, err)
 	}
 
-	// The mode switches without touching the title, and only a titled chat
-	// has one to switch.
-	if found, err := st.SetTitleManual(ctx, "c1", false); err != nil || !found {
-		t.Fatalf("SetTitleManual(false) = %v, %v", found, err)
-	}
-	if r, _, _ := st.TitleRecord(ctx, "c1"); r.Manual || r.Title != "ZeeOS installer" {
-		t.Errorf("after switching to automatic: %+v", r)
-	}
-	if found, _ := st.SetTitleManual(ctx, "c1", true); !found {
-		t.Error("switching back to manual found no title")
-	}
-	if found, _ := st.SetTitleManual(ctx, "nope", true); found {
-		t.Error("an untitled chat was switched to manual")
-	}
-
 	if err := st.RetitleChat(ctx, "c1", "Installer UI theme", "claude-opus-5", TitleRecord{Requests: 9}); err != nil {
 		t.Fatal(err)
 	}

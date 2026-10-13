@@ -776,25 +776,6 @@ export const api = {
   /** One conversation's latest requests, oldest first — the drill-down behind a row. */
   chat: (id: string) => request<ChatDetail>('GET', `/admin/chats/${encodeURIComponent(id)}`),
 
-  /**
-   * Rename a chat now, from what its user typed. `pending` instead of a title
-   * when the gateway restarted since the chat's last request and has nothing
-   * to name it from: it is then renamed at that next request.
-   */
-  retitleChat: (id: string) =>
-    request<{ title?: string; pending?: boolean }>(
-      'POST',
-      `/admin/chats/${encodeURIComponent(id)}/retitle`,
-    ),
-
-  /** Switch a titled chat between automatic and manual naming, keeping its title. */
-  setTitleMode: (id: string, manual: boolean) =>
-    request<{ title_manual: boolean }>(
-      'POST',
-      `/admin/chats/${encodeURIComponent(id)}/title-mode`,
-      { manual },
-    ),
-
   /** A title typed by hand, held against automatic renames. */
   setChatTitle: (id: string, title: string) =>
     request<{ title: string; title_manual: boolean }>(

@@ -254,54 +254,34 @@ At most 6 words. No quotes, no punctuation at the end, no preamble, no
 explanation. Just the title.
 </system-reminder>`
 
-// Renaming a chat that has outgrown its title.
+// Naming a chat from its opening exchange.
 //
-// A title is written early, from what the chat was at the time, and the chat
-// then keeps going. On production (2026-10-13) the long chats were exactly the
-// badly named ones: every crush chat titled some variant of "Generate
-// AGENTS.md" in the week before had opened with crush's init prompt — all
-// twelve title requests were 655 input tokens — and ran for 75 to 757 requests
-// over several days. crush names a session from its first message only, so
-// its own title was no better; the gateway was faithfully copying a name that
-// had stopped being true within minutes.
+// The first title is written from the first request, which holds only what the
+// user asked — and crush's own title, which the gateway captures, is the same:
+// crush names a session from its first message alone. On production
+// (2026-10-13) that was routinely the wrong thing. Every crush chat titled some
+// variant of "Generate AGENTS.md" in the week before had opened with crush's
+// init prompt — all twelve title requests were 655 input tokens — and those
+// were the long chats, 75 to 757 requests over several days.
 //
-// Two rules, both of which end in an ordinary generated title — the same
-// cached call, on the same account and model, under the same key and budget:
+// What the user asked is half of it. The agent's answer says what the work
+// turned out to be: for an init, which project the AGENTS.md describes. So a
+// chat is renamed once, when the user types their second message — the first
+// request whose body holds the agent's whole reply to the first — from the
+// opening exchange: the first message and the agent's text in reply, with
+// tool calls and their results left out (see openingExchange). After that it
+// is not renamed on the gateway's initiative again; an operator can ask.
 //
-//   - A chat that opened with a client's init prompt is renamed as soon as the
-//     user types a second message, because only then is there anything else to
-//     name it after.
-//   - Any chat is renamed when it reaches retitleFirst requests, and again each
-//     time it grows retitleGrowth-fold past the request count its title was
-//     written at. Geometric, so a chat of a few thousand requests is renamed
-//     four or five times in its life, not on a schedule.
-//
-// Captured titles and rows from before this existed record no request count,
-// so they are due once at retitleFirst. That is deliberate: it is what renames
-// the chats already misnamed.
-const (
-	retitleFirst  = 50
-	retitleGrowth = 4
-	// retitleBackoff spaces out attempts at one chat. A rename that fails —
-	// the account is cooling, the model called a tool instead — is still due
-	// on the next request, and without this every request would try again.
-	retitleBackoff = 10 * time.Minute
-)
+// That rename is a small request of its own rather than the chat's request
+// with one message appended. The cached path re-reads the whole conversation,
+// which by the second turn of an init is every file the agent read; on
+// production (2026-10-13) a rename of a long chat on that path read 161,554
+// cached tokens for a 15-token title.
 
-// initMarkers identify a client's "write the agent instructions file" prompt
-// in the first thing the user sent. Lower case.
-//
-//	crush v0.97.2   "Analyze this codebase and create/update **AGENTS.md** to
-//	                 help future agents work effectively in this repository."
-//	Claude Code     "Please analyze this codebase and create a CLAUDE.md file"
-//
-// Read out of the crush binary and off Claude Code's /init, 2026-10-13. Like
-// titleMarkers this fails safe: a missed match only means the chat waits for
-// retitleFirst instead.
-var initMarkers = []string{
-	"analyze this codebase",
-	"analyse this codebase",
-}
+// retitleBackoff spaces out attempts at one chat. A rename that fails — the
+// account is cooling, the model answered without a title — is still due on
+// the next request, and without this every request would try again.
+const retitleBackoff = 10 * time.Minute
 
 // Store is what the titler keeps and reads. The database is one.
 type Store interface {
@@ -344,111 +324,108 @@ type Titler struct {
 	// retitleBackoff. Entries older than that are swept on insert, so it holds
 	// only the chats being renamed right now.
 	renamed map[string]time.Time
-	// forced holds the chats an operator asked to rename. Cleared once one is
-	// renamed; lost on restart, which loses nothing worth keeping — the button
-	// is still there.
-	forced map[string]bool
-	// recent is what each active chat's user typed, for RefreshNow.
-	recent map[string]recentChat
 }
 
-// ErrGenerateOff is Refresh's answer while the gateway does not generate
-// titles: marking a chat would do nothing, and silently doing nothing is what
-// makes an operator click again.
-var ErrGenerateOff = errors.New("title generation is off; switch it on in Settings first")
-
-// Refreshing a title when the operator asks.
-//
-// The automatic path appends to the chat's own request, so that it reads the
-// prompt cache — but that needs a request in hand, and an operator who clicks
-// Refresh wants the name now, not at the client's next turn. So the titler
-// remembers, per chat, what the user typed in it: only the text of the user's
-// own messages, never tool results or the agent's side, cut to an excerpt of
-// the opening message and the latest ones (excerptBudget). That is what a
-// title is about, and it is small enough to keep for every active chat.
-//
-// The refresh sends that excerpt as a short request of its own, on the chat's
-// model and through the ordinary pool. It reads no cache and needs none: a few
-// thousand input tokens, against the automatic path's cache read of the whole
-// conversation — which in a long chat is the larger of the two.
-//
-// What is remembered lives in memory, recentLimit chats at most, oldest
-// dropped first. After a restart a chat is unknown until its next request;
-// Refresh then falls back to renaming it at that request and says so.
+// What the opening exchange is cut to. The user's message is the ask; the
+// agent's text is cut from the front, because the end of its reply is the
+// summary of what it did, which is what a name is made of.
 const (
-	recentLimit   = 512
-	excerptBudget = 8 << 10
-	// Each message's share, so one pasted log cannot be the whole excerpt.
-	excerptFirst   = 2 << 10
-	excerptMessage = 1536
+	openingUser  = 2 << 10
+	openingAgent = 6 << 10
 )
 
-// recentChat is what Refresh needs to name a chat without a request in hand.
-type recentChat struct {
-	excerpt string
-	model   string
-	turns   int
-	at      time.Time
-}
-
-// remember keeps the latest of a chat's excerpts, dropping the stalest chat
-// once there are recentLimit of them.
-func (t *Titler) remember(id string, rc recentChat) {
-	if rc.excerpt == "" || rc.model == "" {
-		return
+// openingExchange is the user's first message and the agent's text in reply,
+// up to the user's next message: what the chat set out to do and what the
+// agent made of it. Tool calls and their results are left out — they are the
+// bulk of an agent's turn and say little a name needs — and so are a client's
+// injected reminders. "" when the user has typed nothing yet.
+func openingExchange(body []byte) string {
+	var envelope struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if _, known := t.recent[id]; !known && len(t.recent) >= recentLimit {
-		oldest, at := "", time.Time{}
-		for k, v := range t.recent {
-			if oldest == "" || v.at.Before(at) {
-				oldest, at = k, v.at
-			}
-		}
-		delete(t.recent, oldest)
-	}
-	t.recent[id] = rc
-}
-
-func (t *Titler) recalled(id string) (recentChat, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	rc, ok := t.recent[id]
-	return rc, ok
-}
-
-// excerpt is the opening message and as many of the latest as fit, in order,
-// each cut to its share. The opening says what the chat set out to do and the
-// latest say what it is doing now; a title needs both.
-func excerpt(texts []string) string {
-	var typed []string
-	for _, s := range texts {
-		if s != "" {
-			typed = append(typed, s)
-		}
-	}
-	if len(typed) == 0 {
+	if err := json.Unmarshal(body, &envelope); err != nil {
 		return ""
 	}
-	parts := []string{clip(typed[0], excerptFirst)}
-	used := len(parts[0])
-	var latest []string
-	for i := len(typed) - 1; i > 0; i-- {
-		p := clip(typed[i], excerptMessage)
-		if used+len(p) > excerptBudget {
-			break
+	var user string
+	var agent []string
+	for _, m := range envelope.Messages {
+		switch m.Role {
+		case "user":
+			typed := typedTextOf(m.Content)
+			if typed == "" {
+				continue
+			}
+			if user != "" {
+				// The user spoke again: the opening exchange is over.
+				return openingText(user, agent)
+			}
+			user = typed
+		case "assistant":
+			if user == "" {
+				continue
+			}
+			for _, b := range contentBlocks(m.Content) {
+				if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+					agent = append(agent, strings.TrimSpace(b.Text))
+				}
+			}
 		}
-		latest = append([]string{p}, latest...)
-		used += len(p)
 	}
-	if len(latest) > 0 && len(typed)-1 > len(latest) {
-		parts = append(parts, "[…]")
+	if user == "" {
+		return ""
 	}
-	return strings.Join(append(parts, latest...), "\n---\n")
+	return openingText(user, agent)
 }
 
-// clip cuts s to n bytes on a character boundary.
+func openingText(user string, agent []string) string {
+	out := "<user>\n" + clip(user, openingUser) + "\n</user>"
+	if reply := strings.Join(agent, "\n\n"); reply != "" {
+		out += "\n<agent>\n" + clipFront(reply, openingAgent) + "\n</agent>"
+	}
+	return out
+}
+
+type contentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// contentBlocks reads a message's content, which a client may send as a plain
+// string or as an array of blocks.
+func contentBlocks(raw json.RawMessage) []contentBlock {
+	var plain string
+	if err := json.Unmarshal(raw, &plain); err == nil {
+		return []contentBlock{{Type: "text", Text: plain}}
+	}
+	var blocks []contentBlock
+	_ = json.Unmarshal(raw, &blocks)
+	return blocks
+}
+
+// typedTextOf is what the user typed in one user-role message: "" for one that
+// carries tool results back, or nothing but injected reminders.
+func typedTextOf(raw json.RawMessage) string {
+	var text strings.Builder
+	for _, b := range contentBlocks(raw) {
+		switch b.Type {
+		case "tool_result":
+			// A client may tuck a note beside the results it sends back; that
+			// is still the agent's loop, not the user speaking.
+			return ""
+		case "text":
+			if t := typedText(b.Text); t != "" {
+				text.WriteString(t)
+				text.WriteByte('\n')
+			}
+		}
+	}
+	return strings.TrimSpace(text.String())
+}
+
+// clip cuts s to n bytes on a character boundary, keeping the start.
 func clip(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -459,75 +436,35 @@ func clip(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// refreshSystem is the refresh request's instruction. A system prompt of its
-// own is right here, unlike on the automatic path: there is no cached prefix
-// to preserve, because nothing of the chat's own request is sent.
-const refreshSystem = `You name conversations between a user and a coding agent. You are shown the
-messages the user typed, the first and the latest, separated by ---. Reply with
-ONLY a short title naming what the conversation is about, for someone scanning a
-list of conversations later. If it opened with setup, such as writing AGENTS.md
-or CLAUDE.md, name the work that came after it instead. At most 6 words. No
-quotes, no punctuation at the end, no preamble. Just the title.`
+// clipFront cuts s to n bytes on a character boundary, keeping the end.
+func clipFront(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := len(s) - n
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return "…" + s[cut:]
+}
 
-func refreshBody(model, excerpt string) ([]byte, error) {
+// openingSystem is the rename request's instruction. A system prompt of its
+// own is right here, unlike on the first-title path: there is no cached prefix
+// to preserve, because nothing of the chat's own request is sent.
+const openingSystem = `You name conversations between a user and a coding agent. You are shown how
+one began: the user's first message and the agent's reply. Reply with ONLY a
+short title naming what the conversation is about, for someone scanning a list
+of conversations later. Name the subject, not the setup step: if the exchange
+is writing AGENTS.md or CLAUDE.md, name the project it describes. At most 6
+words. No quotes, no punctuation at the end, no preamble. Just the title.`
+
+func openingBody(model, opening string) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"model":      model,
 		"max_tokens": titleMaxTokens,
-		"system":     []map[string]string{{"type": "text", "text": refreshSystem}},
-		"messages": []map[string]string{{
-			"role":    "user",
-			"content": "<messages>\n" + excerpt + "\n</messages>",
-		}},
+		"system":     []map[string]string{{"type": "text", "text": openingSystem}},
+		"messages":   []map[string]string{{"role": "user", "content": opening}},
 	})
-}
-
-// RefreshNow renames a chat from what its user typed, and returns the name.
-//
-// pending is true when the chat is not remembered — the gateway restarted
-// since its last request — and it has instead been marked to be renamed at
-// that next request.
-func (t *Titler) RefreshNow(ctx context.Context, id string) (title string, pending bool, err error) {
-	if !t.On() {
-		return "", false, ErrGenerateOff
-	}
-	rc, ok := t.recalled(id)
-	if !ok {
-		t.mu.Lock()
-		t.forced[id] = true
-		// An operator's ask is not held back by an automatic attempt that
-		// failed.
-		delete(t.renamed, id)
-		t.mu.Unlock()
-		return "", true, nil
-	}
-	body, err := refreshBody(rc.model, rc.excerpt)
-	if err != nil {
-		return "", false, err
-	}
-	requests, err := t.deps.Store.ConversationRequests(ctx, id)
-	if err != nil {
-		return "", false, err
-	}
-	title, err = t.ask(ctx, id, rc.model, "", body, store.TitleRecord{Requests: requests, Turns: rc.turns})
-	if err != nil {
-		return "", false, err
-	}
-	t.deps.Log.Debug("renamed a chat on request", "chat", id, "title", title)
-	return title, false, nil
-}
-
-// Forget drops a pending refresh, for when the operator has since typed a
-// title of their own.
-func (t *Titler) Forget(id string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	delete(t.forced, id)
-}
-
-func (t *Titler) isForced(id string) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.forced[id]
 }
 
 // New returns a titler with both switches off until Load reads them.
@@ -541,8 +478,6 @@ func New(d Deps) *Titler {
 		capture:  settings.NewSwitch(d.Store, SettingCapture, false),
 		inFlight: map[string]bool{},
 		renamed:  map[string]time.Time{},
-		forced:   map[string]bool{},
-		recent:   map[string]recentChat{},
 	}
 }
 
@@ -682,13 +617,13 @@ func (t *Titler) mayRename(id string, now time.Time) bool {
 	return true
 }
 
-// renameDue reports whether a chat has outgrown the title it has. See
-// "Renaming a chat that has outgrown its title".
-func renameDue(current store.TitleRecord, requests, turns int, opensWithInit bool) bool {
-	if opensWithInit && turns >= 2 && current.Turns < 2 {
-		return true
-	}
-	return requests >= retitleFirst && requests >= retitleGrowth*current.Requests
+// renameDue reports whether a chat is due its one rename from the opening
+// exchange: the user has typed a second message, so the agent's reply to the
+// first is complete in the body, and the title was written before that. A
+// title the operator typed is never due. See "Naming a chat from its opening
+// exchange".
+func renameDue(current store.TitleRecord, turns int) bool {
+	return !current.Manual && current.Turns < 2 && turns >= 2
 }
 
 // Consider names a chat if it has no name yet, or renames one that has
@@ -777,32 +712,37 @@ func (t *Titler) run(ctx context.Context, ev Request) {
 	if err != nil {
 		return
 	}
-	texts := userTexts(ev.Body)
-	turns := countTurns(texts)
-	t.remember(ev.Conversation, recentChat{
-		excerpt: excerpt(texts), model: ev.Model, turns: turns, at: time.Now(),
-	})
+	turns := userTurns(ev.Body)
+	basis := store.TitleRecord{Requests: requests, Turns: turns}
+
+	var body []byte
+	pinTo := ""
 	if found {
-		// A title an operator typed is never renamed on the gateway's own
-		// initiative; only their own refresh hands the chat back.
-		forced := t.isForced(ev.Conversation)
-		due := forced ||
-			(!current.Manual && renameDue(current, requests, turns, textsOpenWithInit(texts)))
-		if !due || !t.mayRename(ev.Conversation, time.Now()) {
+		if !renameDue(current, turns) || !t.mayRename(ev.Conversation, time.Now()) {
 			return
 		}
+		opening := openingExchange(ev.Body)
+		if opening == "" {
+			return
+		}
+		// A request of its own and through the ordinary pool: nothing of the
+		// chat's cached prefix is sent, so no account is cheaper than another.
+		if body, err = openingBody(ev.Model, opening); err != nil {
+			return
+		}
+	} else {
+		var ok bool
+		if body, ok = titleBody(ev.Body); !ok {
+			return
+		}
+		// Pinned to the account that served the chat. The prompt cache is
+		// per-account, so any other account is a guaranteed miss and a title
+		// is not worth paying full price for: if this account is cooling, the
+		// pool refuses and the chat simply stays unnamed.
+		pinTo = ev.AccountID
 	}
 
-	body, ok := titleBody(ev.Body)
-	if !ok {
-		return
-	}
-	basis := store.TitleRecord{Requests: requests, Turns: turns}
-	// Pinned to the account that served the chat. The prompt cache is
-	// per-account, so any other account is a guaranteed miss and a title is
-	// not worth paying full price for: if this account is cooling, the pool
-	// refuses and the chat simply stays unnamed.
-	title, err := t.ask(ctx, ev.Conversation, ev.Model, ev.AccountID, body, basis)
+	title, err := t.ask(ctx, ev.Conversation, ev.Model, pinTo, body, basis)
 	if err != nil {
 		log.Debug("could not name a chat", "chat", ev.Conversation, "err", err)
 		return
@@ -872,7 +812,7 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 		t.deps.Log.Warn("could not store a chat title", "err", err)
 		return "", err
 	}
-	t.Forget(conversation)
+
 
 	// Recorded like any other request, under the gateway's own key and against
 	// the chat it names, so the cost of naming a conversation is part of what
@@ -898,43 +838,8 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 }
 
 // userTurns counts the messages the user typed, as opposed to the user-role
-// messages that carry tool results back. A message counts if it has text that
-// is not only a client's injected <system-reminder>.
-func userTurns(body []byte) int { return countTurns(userTexts(body)) }
-
-func countTurns(texts []string) int {
-	n := 0
-	for _, text := range texts {
-		if text != "" {
-			n++
-		}
-	}
-	return n
-}
-
-// opensWithInit reports whether the first thing the user sent was a client's
-// init prompt.
-func opensWithInit(body []byte) bool { return textsOpenWithInit(userTexts(body)) }
-
-func textsOpenWithInit(texts []string) bool {
-	for _, text := range texts {
-		if text == "" {
-			continue
-		}
-		text = strings.ToLower(text)
-		for _, marker := range initMarkers {
-			if strings.Contains(text, marker) {
-				return true
-			}
-		}
-		return false
-	}
-	return false
-}
-
-// userTexts returns, for each user message, the text the user wrote in it:
-// "" for a message that is only tool results or injected reminders.
-func userTexts(body []byte) []string {
+// messages that carry tool results back.
+func userTurns(body []byte) int {
 	var envelope struct {
 		Messages []struct {
 			Role    string          `json:"role"`
@@ -942,54 +847,20 @@ func userTexts(body []byte) []string {
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return nil
+		return 0
 	}
-	var out []string
+	n := 0
 	for _, m := range envelope.Messages {
-		if m.Role != "user" {
-			continue
+		if m.Role == "user" && typedTextOf(m.Content) != "" {
+			n++
 		}
-		var plain string
-		if err := json.Unmarshal(m.Content, &plain); err == nil {
-			out = append(out, typedText(plain))
-			continue
-		}
-		var blocks []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal(m.Content, &blocks); err != nil {
-			out = append(out, "")
-			continue
-		}
-		var text strings.Builder
-		sentResults := false
-		for _, b := range blocks {
-			switch b.Type {
-			case "tool_result":
-				sentResults = true
-			case "text":
-				if t := typedText(b.Text); t != "" {
-					text.WriteString(t)
-					text.WriteByte('\n')
-				}
-			}
-		}
-		if sentResults {
-			// A client may tuck a note beside the results it sends back; that
-			// is still the agent's loop, not the user speaking.
-			out = append(out, "")
-			continue
-		}
-		out = append(out, strings.TrimSpace(text.String()))
 	}
-	return out
+	return n
 }
 
 // typedText is text minus a block that is wholly a client's <system-reminder>,
 // which Claude Code puts at the front of a user message to carry CLAUDE.md and
-// the like. Those are not the user talking, and CLAUDE.md is free to contain
-// any marker this package looks for.
+// the like. Those are not the user talking.
 func typedText(s string) string {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "<system-reminder>") && strings.HasSuffix(s, "</system-reminder>") {

@@ -25,21 +25,12 @@ import {
  * and crush's `ses_…`, Codex's session id — all of them in headers, so nothing
  * on this screen is derived from message content.
  *
- * A title, when there is one, is either the name the client asked a model for,
- * one the gateway generated (and renames as the chat grows), or one an
- * operator typed — right-click a chat to rename it or hand it back to
- * automatic naming. The id stays beneath it either way: it is the key back to
- * the client's own session list.
+ * A title, when there is one, is the name the client asked a model for or one
+ * the gateway generated — renamed once from the chat's opening exchange — or
+ * one an operator typed by right-clicking the chat, which the gateway then
+ * leaves alone. The id stays beneath it either way: it is the key back to the
+ * client's own session list.
  */
-
-function without(p: Record<string, string>, id: string): Record<string, string> {
-  const next = { ...p }
-  delete next[id]
-  return next
-}
-
-/** A message about one row, shown under the table until the next action. */
-type Notice = { id: string; text: string; tone: 'error' | 'info' }
 
 /**
  * A title edited in place.
@@ -187,79 +178,27 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
     CHATS_REFRESH_MS,
   )
 
-  // The right-click menu, the title being edited, and the chats waiting on a
-  // refresh — keyed to the title they had when it was asked for, so the note
-  // goes away by itself once the list shows a different one.
+  // The right-click menu, the title being edited, and what went wrong saving
+  // one.
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
-  const [pending, setPending] = useState<Record<string, string>>({})
-  const [notice, setNotice] = useState<Notice | null>(null)
-  // The chat whose refresh is on its way back.
-  const [renaming, setRenaming] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
-
-  const failed = (id: string, err: unknown) => {
-    if (err instanceof ApiError && err.isUnauthenticated) {
-      onExpired()
-      return
-    }
-    setNotice({ id, text: messageOf(err), tone: 'error' })
-  }
-
-  const refreshTitle = (c: Chat) => {
-    setMenu(null)
-    setNotice(null)
-    setRenaming(c.id)
-    api
-      .retitleChat(c.id)
-      .then(
-        (res) => {
-          if (res.pending === true) {
-            // Only after a restart, for a chat that has not spoken since.
-            setPending((p) => ({ ...p, [c.id]: c.title }))
-            setNotice({
-              id: c.id,
-              text: 'The gateway restarted since this chat’s last request, so it has nothing to name it from yet. It will be renamed at that next request.',
-              tone: 'info',
-            })
-            return
-          }
-          setPending((p) => without(p, c.id))
-          void reload()
-        },
-        (err) => failed(c.id, err),
-      )
-      .finally(() => setRenaming(null))
-  }
-
-  /**
-   * The menu's toggle. Manual on a chat with no title has nothing to keep, so
-   * it goes straight to typing one — saving it is what makes it manual.
-   */
-  const setMode = (c: Chat, manual: boolean) => {
-    setMenu(null)
-    if (manual && c.title === '') {
-      setEditing(c.id)
-      return
-    }
-    api.setTitleMode(c.id, manual).then(
-      () => {
-        if (manual) setPending((p) => without(p, c.id))
-        void reload()
-      },
-      (err) => failed(c.id, err),
-    )
-  }
 
   const saveTitle = (c: Chat, title: string) => {
     setEditing(null)
     api.setChatTitle(c.id, title).then(
       () => {
-        setPending((p) => without(p, c.id))
         setNotice(null)
         void reload()
       },
-      (err) => failed(c.id, err),
+      (err) => {
+        if (err instanceof ApiError && err.isUnauthenticated) {
+          onExpired()
+          return
+        }
+        setNotice(messageOf(err))
+      },
     )
   }
 
@@ -369,42 +308,26 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
                     }}
                     className="state-layer flex w-full min-w-0 flex-col rounded-[var(--radius-md3-xs)] text-left"
                   >
-                    <span className="flex min-w-0 items-center gap-1.5 font-medium text-on-surface" title={c.title}>
-                      <span className="truncate">
-                        {open === c.id ? '▾ ' : '▸ '}
-                        {c.title || 'Unnamed'}
-                      </span>
-                      {renaming === c.id && <Spinner className="shrink-0" />}
+                    <span className="truncate font-medium text-on-surface" title={c.title}>
+                      {open === c.id ? '▾ ' : '▸ '}
+                      {c.title || 'Unnamed'}
                     </span>
                     <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
                       {shortID(c.id)}
                       {c.title_manual && ' · named by hand'}
-                      {pending[c.id] !== undefined && pending[c.id] === c.title &&
-                        ' · renaming at next request'}
                     </span>
                   </button>
                 )}
                 {menu?.id === c.id && (
                   <ContextMenu at={menu} label={`Title of ${c.title || c.id}`} onClose={closeMenu}>
-                    {/* One switch, and the action that goes with where it is:
-                        an automatic title can be asked for again, a manual one
-                        is typed. */}
-                    <MenuRow checked={!c.title_manual} onClick={() => setMode(c, !c.title_manual)}>
-                      Automatic naming
+                    <MenuRow
+                      onClick={() => {
+                        setMenu(null)
+                        setEditing(c.id)
+                      }}
+                    >
+                      Rename…
                     </MenuRow>
-                    <div className="my-1 border-t border-outline-variant" />
-                    {c.title_manual ? (
-                      <MenuRow
-                        onClick={() => {
-                          setMenu(null)
-                          setEditing(c.id)
-                        }}
-                      >
-                        Rename…
-                      </MenuRow>
-                    ) : (
-                      <MenuRow onClick={() => refreshTitle(c)}>Refresh title</MenuRow>
-                    )}
                   </ContextMenu>
                 )}
               </td>
@@ -527,11 +450,8 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
       </Table>
 
       {notice !== null && (
-        <p
-          role={notice.tone === 'error' ? 'alert' : 'status'}
-          className={`m-0 text-sm ${notice.tone === 'error' ? 'text-error' : 'text-on-surface-variant'}`}
-        >
-          {notice.text}
+        <p role="alert" className="m-0 text-sm text-error">
+          {notice}
         </p>
       )}
 

@@ -1,9 +1,7 @@
 package admin
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -114,38 +112,11 @@ func (s *Admin) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRetitleChat renames a chat now and answers with the new name.
-//
-// 202 only when the gateway has restarted since the chat's last request and
-// so has nothing to name it from: it is then renamed at that next request,
-// and the screen says so. See titles.Titler.RefreshNow.
-func (s *Admin) handleRetitleChat(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "no conversation id")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
-	title, pending, err := s.titles.RefreshNow(ctx, id)
-	switch {
-	case errors.Is(err, titles.ErrGenerateOff):
-		httpx.WriteError(w, http.StatusConflict, "titles_off", err.Error())
-	case err != nil:
-		s.log.Warn("could not refresh a chat title", "chat", id, "err", err)
-		httpx.WriteError(w, http.StatusBadGateway, "title_failed", "could not name the chat: "+err.Error())
-	case pending:
-		httpx.WriteJSON(w, http.StatusAccepted, map[string]any{"pending": true})
-	default:
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"title": title, "title_manual": false})
-	}
-}
-
 // handleSetChatTitle stores a title the operator typed.
 //
 // It holds against every automatic rename (migration 024), so the one name
-// known to be right is not replaced by a guess; Refresh hands it back. Works
-// with generation off, since nothing is spent.
+// known to be right is not replaced by a guess. Works with generation off,
+// since nothing is spent.
 func (s *Admin) handleSetChatTitle(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
@@ -165,45 +136,7 @@ func (s *Admin) handleSetChatTitle(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not store the title")
 		return
 	}
-	// A refresh asked for earlier would otherwise rename over what was just
-	// typed at the next request.
-	s.titles.Forget(id)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"title": title, "title_manual": true})
-}
-
-// handleSetTitleMode switches a chat between automatic and manual naming.
-//
-// Manual keeps the title it has and stops the gateway renaming it; automatic
-// lets the growth rules apply again, without renaming anything by itself — a
-// rename right now is what Refresh is for.
-func (s *Admin) handleSetTitleMode(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var body struct {
-		Manual *bool `json:"manual"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil ||
-		body.Manual == nil || id == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", `expected {"manual": true|false}`)
-		return
-	}
-	found, err := s.store.SetTitleManual(r.Context(), id, *body.Manual)
-	if err != nil {
-		s.log.Error("could not set the title mode", "err", err, "chat", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not store the title mode")
-		return
-	}
-	if !found {
-		if *body.Manual {
-			httpx.WriteError(w, http.StatusConflict, "no_title",
-				"this chat has no title to keep yet; rename it to name it by hand")
-			return
-		}
-		// Automatic is what an untitled chat already is.
-	}
-	if *body.Manual {
-		s.titles.Forget(id)
-	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"title_manual": *body.Manual})
 }
 
 // handleChat answers one conversation's requests.
