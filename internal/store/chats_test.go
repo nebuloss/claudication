@@ -196,3 +196,51 @@ func TestChatEventsAreOldestFirst(t *testing.T) {
 		t.Error("an empty id must be refused, not answered with every unnamed request")
 	}
 }
+
+// A captured title is written once and carries no basis; a generated one
+// replaces it and records what it was written from, which is what the next
+// decision to rename compares against.
+func TestRetitleReplacesAndRemembersItsBasis(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+
+	if err := st.SetChatTitle(ctx, "d7a4bb17", "Generate AGENTS.md for codebase", "claude-haiku-4-5"); err != nil {
+		t.Fatal(err)
+	}
+	// First writer wins on the capture path, still.
+	if err := st.SetChatTitle(ctx, "d7a4bb17", "Something else", "claude-haiku-4-5"); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := st.ChatTitle(ctx, "d7a4bb17")
+	if err != nil || !found {
+		t.Fatalf("ChatTitle: found=%v err=%v", found, err)
+	}
+	if got != (ChatTitle{Title: "Generate AGENTS.md for codebase"}) {
+		t.Errorf("after capture: %+v, want the first title and no basis", got)
+	}
+
+	basis := ChatTitle{Requests: 57, Turns: 4}
+	if err := st.RetitleChat(ctx, "d7a4bb17", "ext4 resize in go-diskfs", "claude-opus-5", basis); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ = st.ChatTitle(ctx, "d7a4bb17")
+	if want := (ChatTitle{Title: "ext4 resize in go-diskfs", Requests: 57, Turns: 4}); got != want {
+		t.Errorf("after retitle: %+v, want %+v", got, want)
+	}
+}
+
+func TestConversationRequestsCountsOneChat(t *testing.T) {
+	st := usageStore(t)
+	for i := 0; i < 3; i++ {
+		record(t, st, UsageEvent{ConversationID: "a", Model: "claude-opus-5", Status: 200})
+	}
+	record(t, st, UsageEvent{ConversationID: "b", Model: "claude-opus-5", Status: 200})
+
+	n, err := st.ConversationRequests(context.Background(), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 3 {
+		t.Errorf("requests = %d, want 3", n)
+	}
+}

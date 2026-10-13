@@ -237,9 +237,59 @@ const titlePrompt = `<system-reminder>
 Ignore the task above. Do not use any tool. Do not answer the conversation.
 
 Reply with ONLY a short title naming what this conversation is about, for
-someone scanning a list of conversations later. At most 6 words. No quotes, no
-punctuation at the end, no preamble, no explanation. Just the title.
+someone scanning a list of conversations later. If it opened with setup, such
+as writing AGENTS.md or CLAUDE.md, name the work that came after it instead.
+At most 6 words. No quotes, no punctuation at the end, no preamble, no
+explanation. Just the title.
 </system-reminder>`
+
+// Renaming a chat that has outgrown its title.
+//
+// A title is written early, from what the chat was at the time, and the chat
+// then keeps going. On production (2026-10-13) the long chats were exactly the
+// badly named ones: every crush chat titled some variant of "Generate
+// AGENTS.md" in the week before had opened with crush's init prompt, and ran
+// for 75 to 757 requests over several days. crush names a session from its
+// first message only, so its own title was no better; the gateway was
+// faithfully copying a name that had stopped being true within minutes.
+//
+// Two rules, both of which end in an ordinary generated title — the same
+// cached call, on the same account and model, under the same key and budget:
+//
+//   - A chat that opened with a client's init prompt is renamed as soon as the
+//     user types a second message, because only then is there anything else to
+//     name it after.
+//   - Any chat is renamed when it reaches retitleFirst requests, and again each
+//     time it grows retitleGrowth-fold past the request count its title was
+//     written at. Geometric, so a chat of a few thousand requests is renamed
+//     four or five times in its life, not on a schedule.
+//
+// Captured titles and rows from before this existed record no request count,
+// so they are due once at retitleFirst. That is deliberate: it is what renames
+// the chats already misnamed.
+const (
+	retitleFirst  = 50
+	retitleGrowth = 4
+	// retitleBackoff spaces out attempts at one chat. A rename that fails —
+	// the account is cooling, the model called a tool instead — is still due
+	// on the next request, and without this every request would try again.
+	retitleBackoff = 10 * time.Minute
+)
+
+// initMarkers identify a client's "write the agent instructions file" prompt
+// in the first thing the user sent. Lower case.
+//
+//	crush v0.97.2   "Analyze this codebase and create/update **AGENTS.md** to
+//	                 help future agents work effectively in this repository."
+//	Claude Code     "Please analyze this codebase and create a CLAUDE.md file"
+//
+// Read out of the crush binary and off Claude Code's /init, 2026-10-13. Like
+// titleMarkers this fails safe: a missed match only means the chat waits for
+// retitleFirst instead.
+var initMarkers = []string{
+	"analyze this codebase",
+	"analyse this codebase",
+}
 
 // titler mints chat titles.
 type titler struct {
@@ -254,10 +304,14 @@ type titler struct {
 	// The store's first-writer-wins insert makes a duplicate harmless, but it
 	// would still be two billed requests for one name.
 	inFlight map[string]bool
+	// renamed is when each chat last had a rename attempted, for
+	// retitleBackoff. Entries older than that are swept on insert, so it holds
+	// only the chats being renamed right now.
+	renamed map[string]time.Time
 }
 
 func newTitler(s *Server) *titler {
-	return &titler{server: s, inFlight: map[string]bool{}}
+	return &titler{server: s, inFlight: map[string]bool{}, renamed: map[string]time.Time{}}
 }
 
 // load reads the switch at startup. A failure is worth reporting and not worth
@@ -392,6 +446,32 @@ func (t *titler) release(id string) {
 	t.mu.Unlock()
 }
 
+// mayRename reports whether a rename of this chat may be attempted now, and
+// if so records the attempt.
+func (t *titler) mayRename(id string, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if last, ok := t.renamed[id]; ok && now.Sub(last) < retitleBackoff {
+		return false
+	}
+	for k, at := range t.renamed {
+		if now.Sub(at) >= retitleBackoff {
+			delete(t.renamed, k)
+		}
+	}
+	t.renamed[id] = now
+	return true
+}
+
+// renameDue reports whether a chat has outgrown the title it has. See
+// "Renaming a chat that has outgrown its title".
+func renameDue(current store.ChatTitle, requests, turns int, opensWithInit bool) bool {
+	if opensWithInit && turns >= 2 && current.Turns < 2 {
+		return true
+	}
+	return requests >= retitleFirst && requests >= retitleGrowth*current.Requests
+}
+
 // consider names a chat if it has no name yet.
 //
 // Called after a relayed request has already been answered, and it returns
@@ -469,8 +549,20 @@ type titleRequest struct {
 func (t *titler) run(ctx context.Context, ev titleRequest) {
 	log := t.server.log
 
-	if _, found, err := t.server.store.ChatTitle(ctx, ev.conversation); err != nil || found {
+	current, found, err := t.server.store.ChatTitle(ctx, ev.conversation)
+	if err != nil {
 		return
+	}
+	requests, err := t.server.store.ConversationRequests(ctx, ev.conversation)
+	if err != nil {
+		return
+	}
+	turns := userTurns(ev.body)
+	if found {
+		if !renameDue(current, requests, turns, opensWithInit(ev.body)) ||
+			!t.mayRename(ev.conversation, time.Now()) {
+			return
+		}
 	}
 
 	keyID, keyName, err := t.key(ctx)
@@ -524,7 +616,8 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	if title == "" {
 		return
 	}
-	if err := t.server.store.SetChatTitle(ctx, ev.conversation, title, ev.model); err != nil {
+	basis := store.ChatTitle{Requests: requests, Turns: turns}
+	if err := t.server.store.RetitleChat(ctx, ev.conversation, title, ev.model, basis); err != nil {
 		log.Warn("could not store a chat title", "err", err)
 		return
 	}
@@ -551,7 +644,105 @@ func (t *titler) run(ctx context.Context, ev titleRequest) {
 	}, 0)
 
 	log.Debug("named a chat", "chat", ev.conversation, "title", title,
+		"was", current.Title, "requests", requests, "turns", turns,
 		"cache_read", res.Usage.CacheReadTokens, "input", res.Usage.InputTokens)
+}
+
+// userTurns counts the messages the user typed, as opposed to the user-role
+// messages that carry tool results back. A message counts if it has text that
+// is not only a client's injected <system-reminder>.
+func userTurns(body []byte) int {
+	n := 0
+	for _, text := range userTexts(body) {
+		if text != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// opensWithInit reports whether the first thing the user sent was a client's
+// init prompt.
+func opensWithInit(body []byte) bool {
+	for _, text := range userTexts(body) {
+		if text == "" {
+			continue
+		}
+		text = strings.ToLower(text)
+		for _, marker := range initMarkers {
+			if strings.Contains(text, marker) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// userTexts returns, for each user message, the text the user wrote in it:
+// "" for a message that is only tool results or injected reminders.
+func userTexts(body []byte) []string {
+	var envelope struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil
+	}
+	var out []string
+	for _, m := range envelope.Messages {
+		if m.Role != "user" {
+			continue
+		}
+		var plain string
+		if err := json.Unmarshal(m.Content, &plain); err == nil {
+			out = append(out, typedText(plain))
+			continue
+		}
+		var blocks []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(m.Content, &blocks); err != nil {
+			out = append(out, "")
+			continue
+		}
+		var text strings.Builder
+		sentResults := false
+		for _, b := range blocks {
+			switch b.Type {
+			case "tool_result":
+				sentResults = true
+			case "text":
+				if t := typedText(b.Text); t != "" {
+					text.WriteString(t)
+					text.WriteByte('\n')
+				}
+			}
+		}
+		if sentResults {
+			// A client may tuck a note beside the results it sends back; that
+			// is still the agent's loop, not the user speaking.
+			out = append(out, "")
+			continue
+		}
+		out = append(out, strings.TrimSpace(text.String()))
+	}
+	return out
+}
+
+// typedText is text minus a block that is wholly a client's <system-reminder>,
+// which Claude Code puts at the front of a user message to carry CLAUDE.md and
+// the like. Those are not the user talking, and CLAUDE.md is free to contain
+// any marker this package looks for.
+func typedText(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "<system-reminder>") && strings.HasSuffix(s, "</system-reminder>") {
+		return ""
+	}
+	return s
 }
 
 // titleBody turns the relayed request into the one that asks for a title.

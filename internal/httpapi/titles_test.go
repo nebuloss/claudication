@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	"claudication/internal/store"
 )
 
 // compactJSON strips insignificant whitespace so two encodings of the same
@@ -165,5 +168,102 @@ func TestTitleFromAnswer(t *testing.T) {
 		if got := titleFromAnswer([]byte(c.body)); got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// crush's init prompt as it opens a chat, then the agent loop, then the user
+// typing again. Shapes as crush and Claude Code send them: crush's text as a
+// block, a tool result in a user-role message, and Claude Code's CLAUDE.md
+// carried in a <system-reminder> block in front of what the user typed.
+const (
+	crushInit    = `{"role":"user","content":[{"type":"text","text":"Analyze this codebase and create/update **AGENTS.md** to help future agents work effectively in this repository."}]}`
+	assistantUse = `{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"ls","input":{}}]}`
+	toolResult   = `{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Makefile"},{"type":"text","text":"<system-reminder>todo list is empty</system-reminder>"}]}`
+	assistantSay = `{"role":"assistant","content":[{"type":"text","text":"Written."}]}`
+	followUp     = `{"role":"user","content":"Now fix the ext4 resize in go-diskfs"}`
+	reminderOnly = `{"role":"user","content":[{"type":"text","text":"<system-reminder>\n# CLAUDE.md\nPlease analyze this codebase and create a CLAUDE.md file\n</system-reminder>"},{"type":"text","text":"why does the SSE parser drop events?"}]}`
+)
+
+func chatBody(m ...string) []byte {
+	return []byte(`{"model":"claude-opus-5","messages":[` + strings.Join(m, ",") + `]}`)
+}
+
+func TestUserTurnsCountsOnlyWhatTheUserTyped(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		body []byte
+		want int
+	}{
+		{"init alone", chatBody(crushInit), 1},
+		{"init and its agent loop", chatBody(crushInit, assistantUse, toolResult, assistantSay), 1},
+		{"then the user speaks again", chatBody(crushInit, assistantUse, toolResult, assistantSay, followUp), 2},
+		{"a reminder is not a turn on its own", chatBody(`{"role":"user","content":[{"type":"text","text":"<system-reminder>x</system-reminder>"}]}`), 0},
+		{"not a request", []byte(`garbage`), 0},
+	} {
+		if got := userTurns(c.body); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+func TestOpensWithInit(t *testing.T) {
+	if !opensWithInit(chatBody(crushInit, assistantSay, followUp)) {
+		t.Error("crush's init prompt as the first message was not recognised")
+	}
+	if !opensWithInit(chatBody(`{"role":"user","content":"Please analyze this codebase and create a CLAUDE.md file"}`)) {
+		t.Error("Claude Code's /init was not recognised")
+	}
+	// The marker inside CLAUDE.md, carried in a reminder, is not the user
+	// asking for anything.
+	if opensWithInit(chatBody(reminderOnly)) {
+		t.Error("a marker inside a <system-reminder> was taken for the user's request")
+	}
+	// Only the first message counts: asking for an AGENTS.md later on is work
+	// done in the chat, not how it opened.
+	if opensWithInit(chatBody(followUp, assistantSay, crushInit)) {
+		t.Error("an init prompt later in the chat was taken for its opening")
+	}
+}
+
+func TestRenameDue(t *testing.T) {
+	captured := store.ChatTitle{Title: "Generate AGENTS.md for codebase"}
+	for _, c := range []struct {
+		name            string
+		current         store.ChatTitle
+		requests, turns int
+		init            bool
+		want            bool
+	}{
+		{"init chat, still on the init", captured, 12, 1, true, false},
+		{"init chat, the user typed again", captured, 14, 2, true, true},
+		{"init chat already renamed at its second turn", store.ChatTitle{Requests: 14, Turns: 2}, 30, 3, true, false},
+		{"ordinary chat, short", captured, 49, 5, false, false},
+		{"ordinary chat reaches the first threshold", captured, 50, 5, false, true},
+		{"renamed at 50, not yet four-fold", store.ChatTitle{Requests: 50}, 199, 9, false, false},
+		{"renamed at 50, four-fold", store.ChatTitle{Requests: 50}, 200, 9, false, true},
+		// A title written on the chat's first turn records one request; that
+		// must not make it due at four.
+		{"generated on turn one", store.ChatTitle{Requests: 1, Turns: 1}, 4, 1, false, false},
+	} {
+		if got := renameDue(c.current, c.requests, c.turns, c.init); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestRenameAttemptsAreSpacedOut(t *testing.T) {
+	tl := newTitler(nil)
+	t0 := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	if !tl.mayRename("a", t0) {
+		t.Fatal("first attempt refused")
+	}
+	if tl.mayRename("a", t0.Add(time.Minute)) {
+		t.Error("a second attempt inside the backoff was allowed")
+	}
+	if !tl.mayRename("b", t0.Add(time.Minute)) {
+		t.Error("another chat was held back by this one's attempt")
+	}
+	if !tl.mayRename("a", t0.Add(retitleBackoff)) {
+		t.Error("an attempt after the backoff was refused")
 	}
 }
