@@ -53,7 +53,7 @@ function linked(b: UsageBucket, href: ((id: string) => string) | undefined) {
 /**
  * What a scope spent: the whole gateway, one account, or one key.
  *
- * One component for all three, so an account's page and the Overview read the
+ * One component for every scope, so an account's page and a key's read the
  * same way and a number means the same thing on both. `views` picks the
  * breakdowns worth offering there — on an account's page "by account" is one
  * row, so it offers "by key" instead, and the other way round on a key's.

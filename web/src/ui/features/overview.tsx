@@ -1,5 +1,11 @@
-import { api, type MemorySnapshot, type Overview as OverviewData } from '../../api/client'
-import ScopedUsage from './usage'
+import { useState } from 'react'
+import {
+  api,
+  type MemorySnapshot,
+  type Overview as OverviewData,
+  type Usage,
+} from '../../api/client'
+import { Traffic } from './traffic'
 import { useLoader } from '../hooks'
 import {
   Banner,
@@ -88,6 +94,50 @@ function MemoryCard({ memory }: { memory: MemorySnapshot }) {
 function mib(bytes: number): string {
   const v = bytes / (1 << 20)
   return v >= 100 ? `${Math.round(v)} MiB` : `${v.toFixed(1)} MiB`
+}
+
+/** How many days of history the chart can show. */
+const WINDOWS = [7, 14, 30] as const
+
+/** The chart aggregates whole days, so it barely moves minute to minute. */
+const TRAFFIC_REFRESH_MS = 60_000
+
+/**
+ * What the gateway has been doing, as one chart over time.
+ *
+ * Only the chart. The totals are the status card's 24-hour figures above, and
+ * the breakdowns by account and by key are on each account's and each key's
+ * own page — the Overview carrying them too was the same numbers twice, in a
+ * card long enough to push everything else off the screen.
+ *
+ * Its own loader, so changing the window does not re-fetch the status, and a
+ * usage table that is off or empty cannot take the screen down with it.
+ */
+function TrafficCard() {
+  const [days, setDays] = useState(14)
+  const { data: usage } = useLoader<Usage>(
+    () => api.usage(days),
+    undefined,
+    [days],
+    TRAFFIC_REFRESH_MS,
+  )
+  return (
+    <Card>
+      <CardTitle>Traffic</CardTitle>
+      {usage === null ? (
+        <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
+          <Spinner /> Loading…
+        </p>
+      ) : usage.enabled === false ? (
+        <p className="m-0 text-sm text-on-surface-variant">
+          Per-request history is off — <code>usage.retention-days</code> is 0, so the gateway
+          records nothing to chart.
+        </p>
+      ) : (
+        <Traffic cross={usage.report?.cross} days={days} onDays={setDays} windows={WINDOWS} />
+      )}
+    </Card>
+  )
 }
 
 /**
@@ -274,11 +324,7 @@ export default function Overview({
         </Banner>
       )}
 
-      {/* The gateway's whole spend. Its own loader inside, so changing the
-          window does not re-fetch the status above, and a usage table that is
-          off or empty cannot take the screen down with it. Each account and
-          key in the breakdowns opens its own page. */}
-      <ScopedUsage views={['day', 'model', 'account', 'key']} onExpired={onExpired} />
+      <TrafficCard />
     </div>
   )
 }
