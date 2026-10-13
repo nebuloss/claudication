@@ -40,6 +40,14 @@ export function itemFromPath(pathname: string): string {
 }
 
 /**
+ * Which page of an item: the third segment, `settings` in
+ * `/accounts/<id>/settings`, or empty for the item's main page.
+ */
+export function sectionFromPath(pathname: string): string {
+  return pathname.replace(/^\/+/, '').split('/')[2] ?? ''
+}
+
+/**
  * The path for a screen.
  *
  * The default screen lives at `/`, not `/overview`. Two URLs for one page is

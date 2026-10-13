@@ -3,16 +3,16 @@ import { api, messageOf, type ApiKey, type SubscriptionShare } from '../../api/c
 import { useLoader } from '../hooks'
 import { navigate } from '../route'
 import ScopedUsage, { accountHref, keyHref } from './usage'
+import { DetailHeader, detailSection } from './detail'
 import type { ReactNode } from 'react'
 import {
   AppLink,
   Banner,
   Card,
   CardTitle,
+  Chip,
   Empty,
   Field,
-  KeyValue,
-  Modal,
   Freshness,
   Segmented,
   FilledButton,
@@ -251,148 +251,185 @@ function SubscriptionCard({ share }: { share: SubscriptionShare }) {
 }
 
 /**
- * One key: its limits and controls on top, and below them what it spent — the
- * usage report narrowed to this key, broken down by the accounts that served
- * it.
+ * One key, on two pages.
+ *
+ * /keys/<id> is what it spent: its share of the subscription, and the usage
+ * report narrowed to it — totals, traffic over time, which models and
+ * accounts, the chats. /keys/<id>/settings is changing it: its name and
+ * limits, and deleting it.
  *
  * Read from the key list rather than an endpoint of its own, for the reason
  * the account page is: one source, so the page and the list cannot disagree.
  */
-export function KeyPage({ id, onExpired }: { id: string; onExpired: () => void }) {
-  const [editing, setEditing] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [actionError, setActionError] = useState('')
-
+export function KeyPage({
+  id,
+  section: path,
+  onExpired,
+}: {
+  id: string
+  section: string
+  onExpired: () => void
+}) {
+  const section = detailSection(path)
+  // Not on the settings page: the form is filled from the loaded key, and a
+  // poll landing mid-edit would reset the fields under the cursor.
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     () => api.listKeys(),
     onExpired,
     [],
-    editing || busy ? 0 : REFRESH_MS,
+    section === 'settings' ? 0 : REFRESH_MS,
   )
   const k = data?.keys.find((key) => key.id === id)
 
+  if (loading && data === null) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-on-surface-variant">
+        <Spinner /> Loading…
+      </p>
+    )
+  }
+  if (k === undefined) {
+    return (
+      <div className="flex flex-col gap-5">
+        {error !== '' && <Banner tone="error">{error}</Banner>}
+        <Empty>
+          No such key — it may have been deleted. What it spent is still in the request log, under
+          the name it was recorded with.
+        </Empty>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <DetailHeader
+        back="/keys"
+        backLabel="All keys"
+        title={k.name}
+        subtitle={
+          <>
+            <code className="font-mono text-xs">{k.display}</code> · created {ago(k.created_at)} ·
+            last used {ago(k.last_used_at)}
+          </>
+        }
+        aside={
+          <span className="flex flex-wrap items-center gap-3 text-xs text-on-surface">
+            {k.managed && <Chip tone="neutral">gateway&rsquo;s own</Chip>}
+            <span>
+              <span className="text-on-surface-variant">Rate</span>{' '}
+              {k.rpm_limit > 0
+                ? `${compact(k.rpm_limit)} / ${periodName(k.rate_period_s)}`
+                : 'default'}
+            </span>
+            <span>
+              <span className="text-on-surface-variant">Today</span>{' '}
+              <Budget budget={k.token_budget} spent={k.spent_today} />
+            </span>
+            {k.subscription !== undefined && <SubscriptionCell share={k.subscription} />}
+          </span>
+        }
+        base={keyHref(k.id)}
+        section={section}
+        freshness={{ updatedAt, refreshing, live, onRefresh: () => void reload() }}
+      />
+
+      {error !== '' && <Banner tone="error">{error}</Banner>}
+
+      {section === 'settings' ? (
+        <KeySettings
+          apiKey={k}
+          defaultRpm={data?.defaultRpm ?? 0}
+          onSaved={() => void reload()}
+        />
+      ) : (
+        <>
+          {k.subscription !== undefined && <SubscriptionCard share={k.subscription} />}
+          <ScopedUsage scope={{ key: k.id }} breakdown="account" onExpired={onExpired} />
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A key's settings page: its name and limits in a form, and deleting it apart
+ * from them, where it cannot be hit while saving a limit.
+ */
+function KeySettings({
+  apiKey: k,
+  defaultRpm,
+  onSaved,
+}: {
+  apiKey: ApiKey
+  defaultRpm: number
+  onSaved: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  if (k.managed) {
+    return (
+      <Card>
+        <CardTitle>Settings</CardTitle>
+        <p className="m-0 text-sm text-on-surface-variant">{MANAGED_HINT}</p>
+      </Card>
+    )
+  }
+
+  const save = async (name: string, rpm: number, periodS: number, tokenBudget: number) => {
+    setBusy(true)
+    setError('')
+    setSaved(false)
+    try {
+      await api.updateKey(k.id, name, rpm, periodS, tokenBudget)
+      setSaved(true)
+      onSaved()
+    } catch (err) {
+      setError(messageOf(err))
+    }
+    setBusy(false)
+  }
+
   const remove = async () => {
-    if (k === undefined) return
     if (!window.confirm(`Delete ${k.name}? Clients using it stop working immediately.`)) return
     setBusy(true)
-    setActionError('')
+    setError('')
     try {
       await api.deleteKey(k.id)
       navigate('/keys')
     } catch (err) {
-      setActionError(messageOf(err))
+      setError(messageOf(err))
       setBusy(false)
     }
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-3">
-        <AppLink href="/keys" className="text-sm text-on-surface-variant">
-          ‹ All keys
-        </AppLink>
-        <Freshness
-          updatedAt={updatedAt}
-          refreshing={refreshing}
-          live={live}
-          onRefresh={() => void reload()}
-        />
-      </div>
+    <>
+      <Card>
+        <CardTitle>Name and limits</CardTitle>
+        <KeyEditor apiKey={k} defaultRpm={defaultRpm} busy={busy} onSave={save} />
+        {error !== '' && (
+          <Banner tone="error" className="mt-4">
+            {error}
+          </Banner>
+        )}
+        {saved && error === '' && (
+          <p className="mt-3 mb-0 text-sm text-on-surface-variant">Saved.</p>
+        )}
+      </Card>
 
-      {error !== '' && <Banner tone="error">{error}</Banner>}
-
-      {loading && data === null ? (
-        <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-          <Spinner /> Loading…
+      <Card>
+        <CardTitle>Delete this key</CardTitle>
+        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+          Clients holding it stop working immediately, and it cannot be undone. Its usage stays,
+          under the name it was recorded with.
         </p>
-      ) : k === undefined ? (
-        <Empty>
-          No such key — it may have been deleted. What it spent is still in the request log, under
-          the name it was recorded with.
-        </Empty>
-      ) : (
-        <>
-          <Card>
-            <CardTitle>{k.name}</CardTitle>
-            <KeyValue
-              items={[
-                ['Key', <span className="font-mono text-xs">{k.display}</span>],
-                ['Created', ago(k.created_at)],
-                ['Last used', ago(k.last_used_at)],
-                [
-                  'Rate limit',
-                  k.rpm_limit > 0
-                    ? `${compact(k.rpm_limit)} / ${periodName(k.rate_period_s)}`
-                    : 'the server default',
-                ],
-                ['Tokens today', <Budget budget={k.token_budget} spent={k.spent_today} />],
-                [
-                  `Over ${data?.windowDays ?? 7}d`,
-                  `${compact(k.requests)} requests · ${compact(k.tokens)} tokens`,
-                ],
-              ]}
-            />
-            {actionError !== '' && !editing && (
-              <Banner tone="error" className="mt-4">
-                {actionError}
-              </Banner>
-            )}
-            {/* A key the gateway issued to itself is not an operator's to edit
-                or withdraw. Disabled rather than removed, so the absence reads
-                as a rule rather than a rendering bug; the tooltip says where
-                the control actually is. */}
-            <div className="mt-5 flex flex-wrap gap-2" title={k.managed ? MANAGED_HINT : undefined}>
-              <TonalButton disabled={busy || k.managed} onClick={() => setEditing(true)}>
-                Edit
-              </TonalButton>
-              <OutlinedButton tone="error" disabled={busy || k.managed} onClick={() => void remove()}>
-                Delete
-              </OutlinedButton>
-            </div>
-            <p className="mt-4 mb-0 text-xs text-on-surface-variant">
-              Deleting stops a key working immediately and cannot be undone. Its usage stays, under
-              the name it was recorded with.
-            </p>
-          </Card>
-
-          {k.subscription !== undefined && <SubscriptionCard share={k.subscription} />}
-
-          <ScopedUsage
-            title={`Usage of ${k.name}`}
-            scope={{ key: k.id }}
-            breakdown="account"
-            onExpired={onExpired}
-          />
-
-          {editing && (
-            <EditKeyModal
-              apiKey={k}
-              defaultRpm={data?.defaultRpm ?? 0}
-              busy={busy}
-              error={actionError}
-              onClose={() => {
-                setEditing(false)
-                setActionError('')
-              }}
-              onSave={(name, rpm, periodS, tokenBudget) =>
-                void (async () => {
-                  setBusy(true)
-                  setActionError('')
-                  try {
-                    await api.updateKey(k.id, name, rpm, periodS, tokenBudget)
-                    await reload()
-                    setEditing(false)
-                  } catch (err) {
-                    setActionError(messageOf(err))
-                  }
-                  setBusy(false)
-                })()
-              }
-            />
-          )}
-        </>
-      )}
-    </div>
+        <OutlinedButton tone="error" disabled={busy} onClick={() => void remove()}>
+          Delete {k.name}
+        </OutlinedButton>
+      </Card>
+    </>
   )
 }
 
@@ -614,20 +651,16 @@ function KeyLimitFields({
   )
 }
 
-function EditKeyModal({
+function KeyEditor({
   apiKey,
   defaultRpm,
   busy,
-  error,
   onSave,
-  onClose,
 }: {
   apiKey: ApiKey
   defaultRpm: number
   busy: boolean
-  error: string
   onSave: (name: string, rpmLimit: number, periodS: number, tokenBudget: number) => void
-  onClose: () => void
 }) {
   const [name, setName] = useState(apiKey.name)
   const [rpm, setRpm] = useState(apiKey.rpm_limit)
@@ -635,10 +668,14 @@ function EditKeyModal({
   const [budget, setBudget] = useState(apiKey.token_budget)
 
   const valid = name.trim() !== ''
+  const changed =
+    name.trim() !== apiKey.name ||
+    rpm !== apiKey.rpm_limit ||
+    periodS !== (apiKey.rate_period_s || DEFAULT_PERIOD_S) ||
+    budget !== apiKey.token_budget
 
   return (
-    <Modal title={`Edit ${apiKey.name}`} size="lg" onClose={onClose}>
-      <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4">
         <Field label="Name" value={name} onChange={setName} autoFocus />
 
         <KeyLimitFields
@@ -661,23 +698,28 @@ function EditKeyModal({
           </p>
         </div>
 
-        {error !== '' && <Banner tone="error">{error}</Banner>}
-
         <div className="flex items-center justify-end gap-2">
-          <OutlinedButton onClick={onClose} disabled={busy}>
-            Cancel
+          <OutlinedButton
+            onClick={() => {
+              setName(apiKey.name)
+              setRpm(apiKey.rpm_limit)
+              setPeriodS(apiKey.rate_period_s || DEFAULT_PERIOD_S)
+              setBudget(apiKey.token_budget)
+            }}
+            disabled={busy || !changed}
+          >
+            Undo changes
           </OutlinedButton>
           <FilledButton
             type="button"
-            disabled={busy || !valid}
+            disabled={busy || !valid || !changed}
             onClick={() => onSave(name.trim(), rpm, periodS, budget)}
           >
             {busy && <Spinner />}
             {busy ? 'Saving…' : 'Save'}
           </FilledButton>
         </div>
-      </div>
-    </Modal>
+    </div>
   )
 }
 

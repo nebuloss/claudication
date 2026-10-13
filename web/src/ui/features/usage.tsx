@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { api, type Usage, type UsageBucket, type UsageScope } from '../../api/client'
 import { RankedBars } from '../charts'
 import ChatsPanel from './chats'
@@ -15,6 +15,7 @@ import {
   Freshness,
   Spinner,
   Segmented,
+  SmallButton,
   Stat,
   compact,
 } from '../primitives'
@@ -23,7 +24,7 @@ const WINDOWS = [1, 7, 30] as const
 
 const REPORT_REFRESH_MS = 30_000
 
-/** How many rows a breakdown shows; the rest are one line saying so. */
+/** How many rows a breakdown shows before it offers the rest. */
 const TOP = 5
 
 /** Where an account's or a key's own page lives. */
@@ -39,17 +40,26 @@ function linked(b: UsageBucket, href: ((id: string) => string) | undefined) {
 
 const tokensOf = (b: UsageBucket) => b.input_tokens + b.output_tokens + b.cache_tokens
 
-/** One breakdown as a short ranked list, under a heading. */
+/**
+ * One breakdown as a ranked list under a heading: the top few, and the rest
+ * a click away rather than gone.
+ */
 function Breakdown({
   title,
   buckets,
+  measure,
   href,
 }: {
   title: string
   buckets: UsageBucket[]
+  /** Tokens, or requests where tokens were never recorded (status codes). */
+  measure: 'tokens' | 'requests'
   href?: (id: string) => string
 }) {
-  const shown = [...buckets].sort((a, b) => tokensOf(b) - tokensOf(a)).slice(0, TOP)
+  const [all, setAll] = useState(false)
+  const value = measure === 'tokens' ? tokensOf : (b: UsageBucket) => b.requests
+  const sorted = [...buckets].sort((a, b) => value(b) - value(a))
+  const shown = all ? sorted : sorted.slice(0, TOP)
   return (
     <div className="min-w-0">
       <h3 className="mt-0 mb-2 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
@@ -63,39 +73,54 @@ function Breakdown({
           format={compact}
           rows={shown.map((b) => ({
             label: b.label,
-            value: tokensOf(b),
-            right: `${compact(tokensOf(b))} tok`,
+            value: value(b),
+            right:
+              measure === 'tokens'
+                ? `${compact(tokensOf(b))} tok · ${compact(b.requests)} req`
+                : `${compact(b.requests)} req`,
             ...linked(b, href),
           }))}
         />
       )}
-      {buckets.length > TOP && (
-        <p className="mt-2 mb-0 text-xs text-on-surface-variant">and {buckets.length - TOP} more</p>
+      {sorted.length > TOP && (
+        <div className="mt-2">
+          <SmallButton onClick={() => setAll(!all)}>
+            {all ? 'Show fewer' : `Show all ${sorted.length}`}
+          </SmallButton>
+        </div>
       )}
     </div>
+  )
+}
+
+/** A section heading inside the usage area, for a card without one of its own. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Card>
+      <CardTitle>{title}</CardTitle>
+      {children}
+    </Card>
   )
 }
 
 /**
  * What one account or one key spent, on its own page.
  *
- * One screen, no tabs. The figures, a chart over time, the two breakdowns
- * that mean something here side by side — models, and the other side of the
- * account/key pair — and the chats below in a card of their own. It used to
- * be a row of sub-tabs, one of which held a chart with a second row of tabs
- * and two toggles: three levels of choosing before a number.
+ * Sections rather than tabs: the figures, then traffic over time, then where
+ * it went, then the chats — each a card with a heading, read top to bottom.
+ * The window chosen at the top applies to all of them. Only the chart keeps a
+ * row of choices, because which dimension to draw is the one question with
+ * several answers worth switching between.
  */
 export default function ScopedUsage({
   scope,
   breakdown,
   onExpired,
-  title = 'Usage',
 }: {
   scope: UsageScope
   /** The other side: an account's page breaks down by key, a key's by account. */
   breakdown: 'account' | 'key'
   onExpired: () => void
-  title?: string
 }) {
   const [days, setDays] = useState<number>(7)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<Usage>(
@@ -110,18 +135,18 @@ export default function ScopedUsage({
   }
   if (data !== null && !data.enabled) {
     return (
-      <Card>
-        <CardTitle>{title}</CardTitle>
+      <Section title="Usage">
         <Empty>
           Per-request history is turned off. Set <code>usage.retention-days</code> above 0 to record
           it.
         </Empty>
-      </Card>
+      </Section>
     )
   }
 
   const report = data?.report
   const totals = report?.totals
+  const busy = report === undefined || totals === undefined || totals.requests === 0
 
   // The request log, narrowed to the same scope.
   const logHref = requestsHref({
@@ -154,18 +179,18 @@ export default function ScopedUsage({
             </div>
           }
         >
-          {title}
+          Usage
         </CardTitle>
 
         {loading && data === null ? (
           <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
             <Spinner /> Loading…
           </p>
-        ) : report === undefined || totals === undefined || totals.requests === 0 ? (
+        ) : busy ? (
           <Empty>Nothing proxied in the last {days === 1 ? 'day' : `${days} days`}.</Empty>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               <Stat
                 label="Requests"
                 value={compact(totals.requests)}
@@ -177,38 +202,46 @@ export default function ScopedUsage({
               <Stat
                 label="Cache"
                 value={compact(totals.cache_read_tokens + totals.cache_write_tokens)}
-                hint={`${compact(totals.cache_read_tokens)} read`}
+                hint={`${compact(totals.cache_read_tokens)} read · ${compact(totals.cache_write_tokens)} written`}
               />
+              <Stat label="Latency" value={`${totals.median_ms}ms`} hint={`p95 ${totals.p95_ms}ms`} />
             </div>
-
-            {days > 1 && (
-              <div className="mt-5">
-                <Traffic cross={report.cross} days={days} plain />
-              </div>
-            )}
-
-            <div className="mt-5 grid gap-6 sm:grid-cols-2">
-              <Breakdown title="By model" buckets={report.by_model} />
-              {breakdown === 'key' ? (
-                <Breakdown title="By key" buckets={report.by_key} href={keyHref} />
-              ) : (
-                <Breakdown title="By account" buckets={report.by_account} href={accountHref} />
-              )}
-            </div>
-
-            <p className="mt-5 mb-0 text-xs text-on-surface-variant">
-              Latency {totals.median_ms}ms median, {totals.p95_ms}ms p95. Kept for{' '}
-              {data?.retention_days ?? 0} days.{' '}
+            <p className="mt-3 mb-0 text-xs text-on-surface-variant">
+              Kept for {data?.retention_days ?? 0} days.{' '}
               <AppLink href={logHref}>Every request in the log</AppLink>
             </p>
           </>
         )}
       </Card>
 
-      <Card>
-        <CardTitle>Chats</CardTitle>
+      {!busy && (
+        <>
+          <Section title="Over time">
+            <Traffic cross={report.cross} days={days} hide={[breakdown === 'key' ? 'account' : 'key']} />
+          </Section>
+
+          <Section title="Where it went">
+            <div className="grid gap-6 lg:grid-cols-3">
+              <Breakdown title="Models" buckets={report.by_model} measure="tokens" />
+              {breakdown === 'key' ? (
+                <Breakdown title="API keys" buckets={report.by_key} measure="tokens" href={keyHref} />
+              ) : (
+                <Breakdown
+                  title="Accounts"
+                  buckets={report.by_account}
+                  measure="tokens"
+                  href={accountHref}
+                />
+              )}
+              <Breakdown title="Status codes" buckets={report.by_status} measure="requests" />
+            </div>
+          </Section>
+        </>
+      )}
+
+      <Section title="Chats">
         <ChatsPanel days={days} scope={scope} onExpired={onExpired} />
-      </Card>
+      </Section>
     </>
   )
 }

@@ -19,7 +19,9 @@ const OUT = process.env.OUT ?? new URL('../web/.charts-check', import.meta.url).
 const { niceTicks, LinearScale, LogScale, BandScale, edgeAnchor } =
   await import(`${OUT}/charts/scale.js`)
 const { Stack } = await import(`${OUT}/charts/stack.js`)
-const { tabFromPath, pathForTab, panelFromHash, itemFromPath } = await import(`${OUT}/route.js`)
+const { tabFromPath, pathForTab, panelFromHash, itemFromPath, sectionFromPath } = await import(
+  `${OUT}/route.js`
+)
 const { Solid, Hatch, Line } = await import(`${OUT}/charts/paint.js`)
 
 let failures = 0
@@ -207,6 +209,10 @@ check('a list has no item', itemFromPath('/accounts'), '')
 check('nor does a trailing slash', itemFromPath('/accounts/'), '')
 check('an item is decoded', itemFromPath('/keys/a%2Fb'), 'a/b')
 check('a broken item escape does not throw', itemFromPath('/keys/%E0%A4%A'), '')
+check('an item page has no section', sectionFromPath('/accounts/8189e5dc'), '')
+check('its settings are one', sectionFromPath('/accounts/8189e5dc/settings'), 'settings')
+check('and still name the item', itemFromPath('/accounts/8189e5dc/settings'), '8189e5dc')
+check('a list has no section either', sectionFromPath('/keys'), '')
 
 // The client configs handed out are the committed files with their models
 // rewritten from the gateway's live list. Checked against the real committed

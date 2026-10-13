@@ -206,7 +206,7 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
 }
 
 /** A subscription window's fill, as a short bar and a figure. */
-function Window({ label, util }: { label: string; util: number }) {
+export function Window({ label, util }: { label: string; util: number }) {
   const pct = Math.max(0, Math.min(100, Math.round(util)))
   const tone = pct >= 90 ? 'bg-error' : pct >= 70 ? 'bg-warning' : 'bg-success'
   return (

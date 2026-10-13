@@ -22,7 +22,7 @@ const LABELS: Record<Panel, string> = { chats: 'Chats', requests: 'Requests' }
  * filtered log has to land on the log.
  */
 export default function Activity({ onExpired }: { onExpired: () => void }) {
-  const item = usePathItem()
+  const { item } = usePathItem()
   const panel: Panel = (PANELS as readonly string[]).includes(item) ? (item as Panel) : 'chats'
 
   return (

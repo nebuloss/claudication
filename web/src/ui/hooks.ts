@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, messageOf } from '../api/client'
-import { itemFromPath, navigate, panelFromHash, pathForTab, tabFromPath } from './route'
+import {
+  itemFromPath,
+  navigate,
+  panelFromHash,
+  pathForTab,
+  sectionFromPath,
+  tabFromPath,
+} from './route'
 
-/** The item a screen is showing — `<id>` in `/accounts/<id>` — or empty. */
-export function usePathItem(): string {
-  const [item, setItem] = useState(() => itemFromPath(window.location.pathname))
+/**
+ * The item a screen is showing and which of its pages — `<id>` and
+ * `settings` in `/accounts/<id>/settings` — each empty when absent.
+ */
+export function usePathItem(): { item: string; section: string } {
+  const read = () => ({
+    item: itemFromPath(window.location.pathname),
+    section: sectionFromPath(window.location.pathname),
+  })
+  const [where, setWhere] = useState(read)
   useEffect(() => {
-    const onPop = () => setItem(itemFromPath(window.location.pathname))
+    const onPop = () => setWhere(read())
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
-  return item
+  return where
 }
 
 /** Close on Escape — same contract as the hook in singbox-admin. */

@@ -103,7 +103,7 @@ export default function App() {
   const [state, setState] = useState<State>({ phase: 'probing' })
   const [tab, setTab] = usePathTab<Tab>(TABS, 'overview')
   // The account or key a page is about, from /accounts/<id> or /keys/<id>.
-  const item = usePathItem()
+  const { item, section } = usePathItem()
   // The configuration, loaded once for the whole signed-in app: the header
   // reads the docs link out of it and Settings renders the rest of it. One
   // copy, because a switch on that screen decides whether the header shows a
@@ -268,13 +268,13 @@ export default function App() {
           (item === '' ? (
             <Accounts onExpired={expired} />
           ) : (
-            <AccountPage key={item} id={item} onExpired={expired} />
+            <AccountPage key={item} id={item} section={section} onExpired={expired} />
           ))}
         {tab === 'keys' &&
           (item === '' ? (
             <Keys onExpired={expired} onMinted={setMinted} />
           ) : (
-            <KeyPage key={item} id={item} onExpired={expired} />
+            <KeyPage key={item} id={item} section={section} onExpired={expired} />
           ))}
         {tab === 'activity' && <Activity onExpired={expired} />}
         {tab === 'settings' && (

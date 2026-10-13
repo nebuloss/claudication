@@ -90,7 +90,7 @@ export function Traffic({
   days,
   onDays,
   windows,
-  plain = false,
+  hide = [],
 }: {
   /** The cross-tabs, keyed by dimension, as /admin/usage returns them. */
   cross: Record<string, UsageCell[]> | undefined
@@ -98,19 +98,19 @@ export function Traffic({
   onDays?: (d: number) => void
   windows?: readonly number[]
   /**
-   * Requests by model on a log scale, and none of the controls. For an
-   * account's or a key's page, where the chart sits among other figures and a
-   * second row of tabs inside the card was one too many.
+   * Dimensions not worth offering here: on an account's own page "by
+   * account" is one line, the account itself.
    */
-  plain?: boolean
+  hide?: readonly Dimension[]
 }) {
+  const tabs = TABS.filter((t) => !hide.includes(t.id))
   const [tab, setTab] = useState<Dimension>('model')
   const [metric, setMetric] = useState<'requests' | 'tokens'>('requests')
   const [log, setLog] = useState(true)
   const [hovered, setHovered] = useState<number | null>(null)
 
-  const current = TABS.find((t) => t.id === tab) ?? TABS[0]
-  const cells = cross?.[tab] ?? []
+  const current = tabs.find((t) => t.id === tab) ?? tabs[0]
+  const cells = cross?.[current.id] ?? []
   // Tokens is not merely empty on the status tab, it has never been recorded;
   // offering the control there would be a button that does nothing.
   const effective = current.tokens === false ? 'requests' : metric
@@ -144,15 +144,14 @@ export function Traffic({
 
   return (
     <>
-      {!plain && (
       <SubNav
         label="Break down by"
-        value={tab}
+        value={current.id}
         onChange={(id) => {
           setTab(id)
           setHovered(null)
         }}
-        options={TABS.map((t) => ({ id: t.id, label: t.label }))}
+        options={tabs.map((t) => ({ id: t.id, label: t.label }))}
         aside={
           <div className="flex flex-wrap items-center gap-2">
             <Segmented
@@ -190,7 +189,6 @@ export function Traffic({
           </div>
         }
       />
-      )}
 
       {rows.length === 0 ? (
         <p className="mt-4 mb-0 text-sm text-on-surface-variant">
