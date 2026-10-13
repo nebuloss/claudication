@@ -33,7 +33,7 @@ export function useEscapeKey(handler: () => void, enabled = true) {
  * so it belongs in the path where a URL bar shows it plainly. `#chats` is
  * which panel of that place is open, which is a detail of the view rather than
  * a different page, and the hash is exactly what the web already means by
- * that. Together they make `/usage#chats` a link straight to one sub-tab,
+ * that. Together they make `/accounts/<id>#chats` a link straight to one panel,
  * which is the whole point.
  *
  * Still no router dependency. Two reads off `location` and one `pushState` is
