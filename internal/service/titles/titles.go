@@ -813,7 +813,6 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 		return "", err
 	}
 
-
 	// Recorded like any other request, under the gateway's own key and against
 	// the chat it names, so the cost of naming a conversation is part of what
 	// that conversation cost rather than an unexplained line item.
