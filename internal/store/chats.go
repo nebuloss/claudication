@@ -316,18 +316,46 @@ func (s *Store) ChatTitle(ctx context.Context, id string) (string, bool, error) 
 	return title, true, nil
 }
 
-// SetChatTitle records a title, once.
-//
-// First writer wins. A chat is titled from its opening turn, and re-titling it
-// later from a conversation that has moved on would rename something the
-// operator has already learned to recognise. DO NOTHING rather than REPLACE
-// also makes the racing-turns case harmless: two turns of a new chat can both
-// decide it needs a title, and the loser simply does nothing.
-func (s *Store) SetChatTitle(ctx context.Context, id, title, model string) error {
-	title = strings.TrimSpace(title)
-	if id == "" || title == "" {
-		return nil
+// TitleRecord is a stored title and what it was written from.
+type TitleRecord struct {
+	Title string
+	// Requests and Turns are the conversation's request count and the number
+	// of messages the user had typed when the gateway wrote this title. Zero
+	// when it did not write it: see migration 023.
+	Requests int
+	Turns    int
+}
+
+// TitleRecord returns a conversation's title with what it was written from.
+func (s *Store) TitleRecord(ctx context.Context, id string) (TitleRecord, bool, error) {
+	var r TitleRecord
+	err := s.db.QueryRowContext(ctx,
+		`SELECT title, requests, turns FROM chat_titles WHERE conversation_id = ?`, id).
+		Scan(&r.Title, &r.Requests, &r.Turns)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TitleRecord{}, false, nil
 	}
+	if err != nil {
+		return TitleRecord{}, false, fmt.Errorf("chat title: %w", err)
+	}
+	return r, true, nil
+}
+
+// ConversationRequests counts the requests recorded against a conversation,
+// from idx_usage_conversation_at without touching the table.
+func (s *Store) ConversationRequests(ctx context.Context, id string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM usage_events WHERE conversation_id = ?`, id).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("conversation requests: %w", err)
+	}
+	return n, nil
+}
+
+// clipTitle trims a title and bounds it at maxTitle.
+func clipTitle(title string) string {
+	title = strings.TrimSpace(title)
 	if len(title) > maxTitle {
 		// Back to the start of a character: a cut through the middle of one
 		// stored invalid UTF-8, which the admin UI then renders as garbage.
@@ -336,6 +364,42 @@ func (s *Store) SetChatTitle(ctx context.Context, id, title, model string) error
 			cut--
 		}
 		title = strings.TrimSpace(title[:cut])
+	}
+	return title
+}
+
+// RetitleChat writes a title the gateway generated, replacing any there was,
+// and records what it was written from so the next decision to replace it has
+// something to compare against.
+func (s *Store) RetitleChat(ctx context.Context, id, title, model string, basis TitleRecord) error {
+	title = clipTitle(title)
+	if id == "" || title == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO chat_titles (conversation_id, title, model, created_at, requests, turns)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (conversation_id) DO UPDATE SET
+		   title = excluded.title, model = excluded.model,
+		   created_at = excluded.created_at,
+		   requests = excluded.requests, turns = excluded.turns`,
+		id, title, model, stamp(time.Now()), basis.Requests, basis.Turns)
+	if err != nil {
+		return fmt.Errorf("retitle chat: %w", err)
+	}
+	return nil
+}
+
+// SetChatTitle records a title, once.
+//
+// First writer wins. DO NOTHING rather than REPLACE makes the racing-turns case
+// harmless: two turns of a new chat can both decide it needs a title, and the
+// loser simply does nothing. Replacing a title on purpose, once a chat has
+// outgrown it, is RetitleChat.
+func (s *Store) SetChatTitle(ctx context.Context, id, title, model string) error {
+	title = clipTitle(title)
+	if id == "" || title == "" {
+		return nil
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO chat_titles (conversation_id, title, model, created_at)

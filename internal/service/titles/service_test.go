@@ -30,11 +30,13 @@ type fakeStore struct {
 	accounts []store.Account
 	titles   map[string]string
 	models   map[string]string
+	bases    map[string]store.TitleRecord
+	requests map[string]int
 	created  int
 
 	settingsErr, setSettingErr, createErr, titleErr, setTitleErr, accountsErr, listKeysErr error
 
-	// titled is signalled after every SetChatTitle, stored or not.
+	// titled is signalled after every SetChatTitle or RetitleChat, stored or not.
 	titled chan struct{}
 }
 
@@ -43,6 +45,8 @@ func newFakeStore() *fakeStore {
 		settings: map[string]string{},
 		titles:   map[string]string{},
 		models:   map[string]string{},
+		bases:    map[string]store.TitleRecord{},
+		requests: map[string]int{},
 		accounts: []store.Account{{ID: "a1", Email: "one@example.com"}, {ID: "a2", Email: "two@example.com"}},
 		titled:   make(chan struct{}, 8),
 	}
@@ -108,14 +112,40 @@ func (s *fakeStore) ListAccounts(context.Context) ([]store.Account, error) {
 	return append([]store.Account(nil), s.accounts...), nil
 }
 
-func (s *fakeStore) ChatTitle(_ context.Context, id string) (string, bool, error) {
+func (s *fakeStore) TitleRecord(_ context.Context, id string) (store.TitleRecord, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.titleErr != nil {
-		return "", false, s.titleErr
+		return store.TitleRecord{}, false, s.titleErr
 	}
 	title, ok := s.titles[id]
-	return title, ok, nil
+	if !ok {
+		return store.TitleRecord{}, false, nil
+	}
+	r := s.bases[id]
+	r.Title = title
+	return r, true, nil
+}
+
+func (s *fakeStore) ConversationRequests(_ context.Context, id string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.requests[id], nil
+}
+
+func (s *fakeStore) RetitleChat(_ context.Context, id, title, model string, basis store.TitleRecord) error {
+	s.mu.Lock()
+	defer func() {
+		s.mu.Unlock()
+		s.titled <- struct{}{}
+	}()
+	if s.setTitleErr != nil {
+		return s.setTitleErr
+	}
+	s.titles[id] = title
+	s.models[id] = model
+	s.bases[id] = basis
+	return nil
 }
 
 func (s *fakeStore) SetChatTitle(_ context.Context, id, title, model string) error {
@@ -718,5 +748,74 @@ func TestCaptureWriterIsBounded(t *testing.T) {
 	}
 	if buf.Len() != 1<<20+1 {
 		t.Errorf("held %d bytes", buf.Len())
+	}
+}
+
+// The production case: crush named the chat after its init prompt, and the
+// chat went on for hundreds of requests. At retitleFirst it is renamed through
+// the same pinned, cached call, and the basis is kept so the next rename waits
+// for four-fold growth. A second attempt inside the backoff spends nothing.
+func TestALongChatOutgrowsItsCapturedTitle(t *testing.T) {
+	h := newHarness(t)
+	if err := h.titler.Set(context.Background(), SettingGenerate, true); err != nil {
+		t.Fatal(err)
+	}
+	h.st.titles["chat-1"] = "Generate AGENTS.md for codebase"
+	h.st.requests["chat-1"] = retitleFirst - 1
+
+	h.titler.run(context.Background(), h.ev())
+	if n := h.up.count(); n != 0 {
+		t.Fatalf("renamed at %d requests; asked upstream %d times", retitleFirst-1, n)
+	}
+
+	h.st.requests["chat-1"] = retitleFirst
+	h.titler.run(context.Background(), h.ev())
+	if n := h.up.count(); n != 1 {
+		t.Fatalf("upstream asked %d times, want one rename", n)
+	}
+	r, _, _ := h.st.TitleRecord(context.Background(), "chat-1")
+	if want := (store.TitleRecord{Title: "Fix the SSE parser", Requests: retitleFirst, Turns: 1}); r != want {
+		t.Errorf("after rename: %+v, want %+v", r, want)
+	}
+	if e := h.waitRecorded(t).ev; e.Path != store.InternalPath || e.ConversationID != "chat-1" {
+		t.Errorf("the rename was not filed like a title: %+v", e)
+	}
+
+	// Due again only at four-fold; and a due rename that just ran is not
+	// retried inside the backoff even if the threshold says so.
+	h.st.requests["chat-1"] = retitleGrowth*retitleFirst - 1
+	h.titler.run(context.Background(), h.ev())
+	h.st.bases["chat-1"] = store.TitleRecord{}
+	h.titler.run(context.Background(), h.ev())
+	if n := h.up.count(); n != 1 {
+		t.Errorf("upstream asked %d times, want no second rename", n)
+	}
+}
+
+// A chat that opened with an init prompt is renamed at the user's second
+// message, long before the request threshold.
+func TestAnInitChatIsRenamedAtTheSecondMessage(t *testing.T) {
+	h := newHarness(t)
+	if err := h.titler.Set(context.Background(), SettingGenerate, true); err != nil {
+		t.Fatal(err)
+	}
+	h.st.titles["chat-1"] = "Generate AGENTS.md for codebase"
+	h.st.requests["chat-1"] = 12
+
+	ev := h.ev()
+	ev.Body = convo(crushInit, assistantUse, toolResult, assistantSay)
+	h.titler.run(context.Background(), ev)
+	if n := h.up.count(); n != 0 {
+		t.Fatalf("renamed while the chat was still the init; asked %d times", n)
+	}
+
+	ev.Body = convo(crushInit, assistantUse, toolResult, assistantSay, followUp)
+	h.titler.run(context.Background(), ev)
+	if n := h.up.count(); n != 1 {
+		t.Fatalf("upstream asked %d times, want one rename", n)
+	}
+	r, _, _ := h.st.TitleRecord(context.Background(), "chat-1")
+	if r.Title != "Fix the SSE parser" || r.Turns != 2 || r.Requests != 12 {
+		t.Errorf("after rename: %+v", r)
 	}
 }
