@@ -90,12 +90,19 @@ export function Traffic({
   days,
   onDays,
   windows,
+  plain = false,
 }: {
   /** The cross-tabs, keyed by dimension, as /admin/usage returns them. */
   cross: Record<string, UsageCell[]> | undefined
   days: number
   onDays?: (d: number) => void
   windows?: readonly number[]
+  /**
+   * Requests by model on a log scale, and none of the controls. For an
+   * account's or a key's page, where the chart sits among other figures and a
+   * second row of tabs inside the card was one too many.
+   */
+  plain?: boolean
 }) {
   const [tab, setTab] = useState<Dimension>('model')
   const [metric, setMetric] = useState<'requests' | 'tokens'>('requests')
@@ -137,6 +144,7 @@ export function Traffic({
 
   return (
     <>
+      {!plain && (
       <SubNav
         label="Break down by"
         value={tab}
@@ -182,6 +190,7 @@ export function Traffic({
           </div>
         }
       />
+      )}
 
       {rows.length === 0 ? (
         <p className="mt-4 mb-0 text-sm text-on-surface-variant">

@@ -71,7 +71,7 @@ export default function AccountPage({ id, onExpired }: { id: string; onExpired: 
           <ScopedUsage
             title={`Usage of ${account.email}`}
             scope={{ account: account.id }}
-            views={['day', 'model', 'key', 'chats']}
+            breakdown="key"
             onExpired={onExpired}
           />
         </>

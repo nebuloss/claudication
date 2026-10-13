@@ -360,7 +360,7 @@ export function KeyPage({ id, onExpired }: { id: string; onExpired: () => void }
           <ScopedUsage
             title={`Usage of ${k.name}`}
             scope={{ key: k.id }}
-            views={['day', 'model', 'account', 'chats']}
+            breakdown="account"
             onExpired={onExpired}
           />
 
