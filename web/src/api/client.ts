@@ -210,6 +210,21 @@ export interface UsageReport {
   cross?: Record<string, UsageCell[]>
 }
 
+/** What a report is narrowed to: one account's page, one key's, or neither. */
+export interface UsageScope {
+  account?: string
+  key?: string
+}
+
+function scopedQuery(days: number | undefined, scope: UsageScope): string {
+  const q = new URLSearchParams()
+  if (days !== undefined) q.set('days', String(days))
+  if (scope.account) q.set('account', scope.account)
+  if (scope.key) q.set('key', scope.key)
+  const s = q.toString()
+  return s === '' ? '' : `?${s}`
+}
+
 export interface Usage {
   enabled: boolean
   days?: number
@@ -767,11 +782,12 @@ export const api = {
 
   deleteKey: (id: string) => request<unknown>('DELETE', `/admin/keys/${encodeURIComponent(id)}`),
 
-  usage: (days?: number) =>
-    request<Usage>('GET', days === undefined ? '/admin/usage' : `/admin/usage?days=${days}`),
+  /** The usage report, gateway-wide or narrowed to one account or one key. */
+  usage: (days?: number, scope: UsageScope = {}) =>
+    request<Usage>('GET', `/admin/usage${scopedQuery(days, scope)}`),
 
-  chats: (days?: number) =>
-    request<Chats>('GET', days === undefined ? '/admin/chats' : `/admin/chats?days=${days}`),
+  chats: (days?: number, scope: UsageScope = {}) =>
+    request<Chats>('GET', `/admin/chats${scopedQuery(days, scope)}`),
 
   /** One conversation's latest requests, oldest first — the drill-down behind a row. */
   chat: (id: string) => request<ChatDetail>('GET', `/admin/chats/${encodeURIComponent(id)}`),

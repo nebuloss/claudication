@@ -183,8 +183,8 @@ func (s *Store) Totals(ctx context.Context, since time.Time) (UsageTotals, error
 		return t, fmt.Errorf("usage totals: %w", err)
 	}
 	if t.Requests > 0 {
-		t.MedianMS = s.durationPercentile(ctx, from, t.Requests, 50)
-		t.P95MS = s.durationPercentile(ctx, from, t.Requests, 95)
+		t.MedianMS = s.durationPercentile(ctx, from, UsageScope{}, t.Requests, 50)
+		t.P95MS = s.durationPercentile(ctx, from, UsageScope{}, t.Requests, 95)
 	}
 	return t, nil
 }
@@ -204,8 +204,38 @@ func (s *Store) Totals(ctx context.Context, since time.Time) (UsageTotals, error
 // duration rather than grouped, and a rewrite to window functions measured no
 // better.
 func (s *Store) Usage(ctx context.Context, since time.Time) (UsageReport, error) {
+	return s.UsageIn(ctx, since, UsageScope{})
+}
+
+// UsageScope narrows a report to one account, one key, or both. The zero
+// value is the whole gateway.
+type UsageScope struct {
+	AccountID string
+	KeyID     string
+}
+
+// where is the scope as extra conditions on usage_events, each led by AND so
+// it appends to a WHERE that already has one.
+func (sc UsageScope) where() (string, []any) {
+	var clause string
+	var args []any
+	if sc.AccountID != "" {
+		clause += " AND account_id = ?"
+		args = append(args, sc.AccountID)
+	}
+	if sc.KeyID != "" {
+		clause += " AND key_id = ?"
+		args = append(args, sc.KeyID)
+	}
+	return clause, args
+}
+
+// UsageIn is Usage over one account's or one key's requests: the same report,
+// so a detail page and the gateway-wide view read alike.
+func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) (UsageReport, error) {
 	from := stamp(since)
 	rep := UsageReport{Since: since.UTC()}
+	narrow, narrowArgs := scope.where()
 
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT substr(at, 1, 10) AS day,
@@ -221,8 +251,9 @@ func (s *Store) Usage(ctx context.Context, since time.Time) (UsageReport, error)
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
 		        COALESCE(SUM(cache_write_tokens), 0)
-		   FROM usage_events WHERE rejected = 0 AND at >= ?
-		  GROUP BY day, model, key_id, key_name, account_id, account_email, status`, from)
+		   FROM usage_events WHERE rejected = 0 AND at >= ?`+narrow+`
+		  GROUP BY day, model, key_id, key_name, account_id, account_email, status`,
+		append([]any{from}, narrowArgs...)...)
 	if err != nil {
 		return rep, fmt.Errorf("usage report: %w", err)
 	}
@@ -280,8 +311,8 @@ func (s *Store) Usage(ctx context.Context, since time.Time) (UsageReport, error)
 	if rep.Totals.Requests > 0 {
 		// Percentiles by offset rather than by any of SQLite's missing window
 		// helpers: exact, and cheap enough on a table this size.
-		rep.Totals.MedianMS = s.durationPercentile(ctx, from, rep.Totals.Requests, 50)
-		rep.Totals.P95MS = s.durationPercentile(ctx, from, rep.Totals.Requests, 95)
+		rep.Totals.MedianMS = s.durationPercentile(ctx, from, scope, rep.Totals.Requests, 50)
+		rep.Totals.P95MS = s.durationPercentile(ctx, from, scope, rep.Totals.Requests, 95)
 	}
 
 	// Days oldest-first so a chart renders left to right; everything else
@@ -396,15 +427,17 @@ func (b *bucketSet) sortedByRequests() []UsageBucket {
 	return out
 }
 
-func (s *Store) durationPercentile(ctx context.Context, from string, n int64, pct int) int64 {
+func (s *Store) durationPercentile(ctx context.Context, from string, scope UsageScope, n int64, pct int) int64 {
 	offset := (n*int64(pct))/100 - 1
 	if offset < 0 {
 		offset = 0
 	}
+	narrow, narrowArgs := scope.where()
+	args := append(append([]any{from}, narrowArgs...), offset)
 	var ms int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT duration_ms FROM usage_events WHERE rejected = 0 AND at >= ?
-		  ORDER BY duration_ms ASC LIMIT 1 OFFSET ?`, from, offset).Scan(&ms)
+		`SELECT duration_ms FROM usage_events WHERE rejected = 0 AND at >= ?`+narrow+`
+		  ORDER BY duration_ms ASC LIMIT 1 OFFSET ?`, args...).Scan(&ms)
 	if err != nil {
 		return 0
 	}
@@ -499,7 +532,9 @@ type RequestFilter struct {
 	// machines, Statuses to these response codes.
 	ConversationIDs []string
 	KeyIDs          []string
-	Models          []string
+	// AccountIDs limits to the subscription accounts that served them.
+	AccountIDs []string
+	Models     []string
 	Clients         []string
 	IPs             []string
 	Statuses        []int
@@ -541,6 +576,7 @@ func (f RequestFilter) where() (string, []any) {
 	}
 	set("conversation_id", f.ConversationIDs)
 	set("key_id", f.KeyIDs)
+	set("account_id", f.AccountIDs)
 	set("model", f.Models)
 	set("client", f.Clients)
 	set("ip", f.IPs)

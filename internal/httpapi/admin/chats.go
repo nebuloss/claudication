@@ -48,7 +48,7 @@ func (s *Admin) handleChats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	report, err := s.store.Chats(r.Context(), time.Now().Add(-window), limit)
+	report, err := s.store.ChatsIn(r.Context(), time.Now().Add(-window), limit, scopeFrom(r.URL.Query()))
 	if err != nil {
 		s.log.Error("chat list", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read chats")

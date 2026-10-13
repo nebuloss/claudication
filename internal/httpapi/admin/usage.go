@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"claudication/internal/api"
@@ -30,7 +31,7 @@ func (s *Admin) handleUsage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	report, err := s.store.Usage(r.Context(), time.Now().Add(-window))
+	report, err := s.store.UsageIn(r.Context(), time.Now().Add(-window), scopeFrom(r.URL.Query()))
 	if err != nil {
 		s.log.Error("usage report", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read usage")
@@ -42,6 +43,15 @@ func (s *Admin) handleUsage(w http.ResponseWriter, r *http.Request) {
 		"retention_days": s.cfg.Usage.RetentionDays,
 		"report":         report,
 	})
+}
+
+// scopeFrom reads ?account= and ?key=, which narrow a report to the page of
+// one account or one key. Absent is the whole gateway.
+func scopeFrom(q url.Values) store.UsageScope {
+	return store.UsageScope{
+		AccountID: strings.TrimSpace(q.Get("account")),
+		KeyID:     strings.TrimSpace(q.Get("key")),
+	}
 }
 
 // RequestJSON is one row of the request log as the admin API reports it.
@@ -172,6 +182,7 @@ func requestFilterFrom(q url.Values) store.RequestFilter {
 	return store.RequestFilter{
 		ConversationIDs: cleanSet(q["chat"]),
 		KeyIDs:          cleanSet(q["key"]),
+		AccountIDs:      cleanSet(q["account"]),
 		Models:          cleanSet(q["model"]),
 		Clients:         cleanSet(q["client"]),
 		IPs:             cleanSet(q["ip"]),

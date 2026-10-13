@@ -91,16 +91,36 @@ type ChatReport struct {
 // it is not usually the most recent. The caller can sort by any column once it
 // has the page.
 func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatReport, error) {
+	return s.ChatsIn(ctx, since, limit, UsageScope{})
+}
+
+// ChatsIn is Chats over the conversations one account served or one key
+// paid for, at least once in the window.
+//
+// A chat in scope is shown whole, not just the requests that matched: a chat
+// the pool moved between accounts part way is still one chat, and its totals
+// are what it cost. Where it went is on the chat itself.
+func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope UsageScope) (ChatReport, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	from := stamp(since)
 
+	// Empty for the whole gateway, so that query is exactly what it was.
+	inScope, scopeArgs := "", []any{}
+	if narrow, narrowArgs := scope.where(); narrow != "" {
+		inScope = ` AND conversation_id IN
+		    (SELECT conversation_id FROM usage_events
+		      WHERE rejected = 0 AND at >= ? AND conversation_id <> ''` + narrow + `)`
+		scopeArgs = append([]any{from}, narrowArgs...)
+	}
+
 	var report ChatReport
 
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(DISTINCT conversation_id) FROM usage_events
-		  WHERE rejected = 0 AND at >= ? AND conversation_id <> ''`, from).Scan(&report.Total); err != nil {
+		  WHERE rejected = 0 AND at >= ? AND conversation_id <> ''`+inScope,
+		append([]any{from}, scopeArgs...)...).Scan(&report.Total); err != nil {
 		return ChatReport{}, fmt.Errorf("count chats: %w", err)
 	}
 
@@ -138,12 +158,13 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 		        (SELECT manual FROM chat_titles t
 		          WHERE t.conversation_id = e.conversation_id)
 		   FROM usage_events e
-		  WHERE rejected = 0 AND at >= ? AND conversation_id <> ''
+		  WHERE rejected = 0 AND at >= ? AND conversation_id <> ''`+inScope+`
 		  GROUP BY conversation_id
 		  ORDER BY SUM(input_tokens + output_tokens
 		               + cache_read_tokens + cache_write_tokens) DESC
 		  LIMIT ?`,
-		from, InternalPath, from, from, InternalPath, from, InternalPath, from, limit)
+		append(append([]any{from, InternalPath, from, from, InternalPath, from, InternalPath, from},
+			scopeArgs...), limit)...)
 	if err != nil {
 		return ChatReport{}, fmt.Errorf("chats: %w", err)
 	}
@@ -175,7 +196,7 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 		report.Chats[i].Context = contexts[report.Chats[i].ID]
 	}
 
-	un, err := s.unattributed(ctx, from)
+	un, err := s.unattributed(ctx, from, scope)
 	if err != nil {
 		return ChatReport{}, err
 	}
@@ -226,7 +247,9 @@ func scanChat(r rowScanner) (Chat, error) {
 // absence, so grouping them further would invent a structure the data does not
 // have. Requests is what matters here — it is the number that tells an
 // operator how much traffic is arriving unlabelled.
-func (s *Store) unattributed(ctx context.Context, from string) (Chat, error) {
+func (s *Store) unattributed(ctx context.Context, from string, scope UsageScope) (Chat, error) {
+	narrow, narrowArgs := scope.where()
+	args := append(append(append([]any{from}, narrowArgs...), from), narrowArgs...)
 	row := s.db.QueryRowContext(ctx,
 		// No client, and not because it is hard to pick one: these rows have
 		// nothing in common but the absence of a conversation id, so naming any
@@ -240,10 +263,10 @@ func (s *Store) unattributed(ctx context.Context, from string) (Chat, error) {
 		        COALESCE(MIN(at), ''), COALESCE(MAX(at), ''),
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events
-		              WHERE rejected = 0 AND conversation_id = '' AND at >= ? AND model <> '')),
+		              WHERE rejected = 0 AND conversation_id = '' AND at >= ? AND model <> ''`+narrow+`)),
 		        '', '', '', 0
-		   FROM usage_events WHERE rejected = 0 AND at >= ? AND conversation_id = ''`,
-		from, from)
+		   FROM usage_events WHERE rejected = 0 AND at >= ? AND conversation_id = ''`+narrow,
+		args...)
 
 	c, err := scanChat(row)
 	if err != nil {
