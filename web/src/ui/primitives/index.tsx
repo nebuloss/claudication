@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { useEscapeKey, useNow } from '../hooks'
+import { navigate } from '../route'
 
 /* Material 3 primitives, shared by every screen. */
 
@@ -1328,6 +1329,38 @@ export function IconLink({
  *
  * The arrow is the part the word cannot say: this leaves the admin UI.
  */
+/**
+ * A link to another screen of this app.
+ *
+ * A real <a> with a real href, so middle-click, "open in new tab" and the
+ * status bar all work; a plain click is routed in place rather than reloading
+ * the app to change a path.
+ */
+export function AppLink({
+  href,
+  children,
+  className = '',
+}: {
+  href: string
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <a
+      href={href}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+        e.preventDefault()
+        navigate(href)
+        window.scrollTo(0, 0)
+      }}
+      className={`underline decoration-dotted underline-offset-2 hover:text-primary ${className}`}
+    >
+      {children}
+    </a>
+  )
+}
+
 export function TextLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a

@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
-import AccountCard from './account-card'
+import { status } from './account-card'
 import AddAccount from './add-account'
+import { accountHref } from './usage'
 import { api, messageOf, type Account } from '../../api/client'
 import { useLoader } from '../hooks'
 import {
+  AppLink,
   Banner,
   Card,
   CardTitle,
+  Chip,
   Empty,
   Freshness,
+  IconButton,
   Spinner,
   TonalButton,
   compact,
@@ -160,7 +164,7 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
             it falls through to the next when one runs out of quota.
           </Empty>
         ) : (
-          <ul className="m-0 flex list-none flex-col gap-4 p-0">
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
             {accounts.map((a, i) => (
               <li
                 key={a.id}
@@ -181,7 +185,7 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
                   dragging === i ? 'opacity-40' : ''
                 } ${over === i && dragging !== null && dragging !== i ? 'ring-2 ring-primary' : ''}`}
               >
-                <AccountCard
+                <AccountRow
                   account={a}
                   rank={i}
                   total={accounts.length}
@@ -190,14 +194,126 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
                   busy={ordering}
                   onMoveUp={() => void move(i, i - 1)}
                   onMoveDown={() => void move(i, i + 1)}
-                  onChanged={() => void reload()}
-                  onRemoved={() => void reload()}
                 />
               </li>
             ))}
           </ul>
         )}
       </Card>
+    </div>
+  )
+}
+
+/** A subscription window's fill, as a short bar and a figure. */
+function Window({ label, util }: { label: string; util: number }) {
+  const pct = Math.max(0, Math.min(100, Math.round(util)))
+  const tone = pct >= 90 ? 'bg-error' : pct >= 70 ? 'bg-warning' : 'bg-success'
+  return (
+    <span className="flex items-center gap-1.5" title={`${label}: ${pct}% used`}>
+      <span className="w-5 text-on-surface-variant">{label}</span>
+      <span className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-high">
+        <span className={`block h-full ${tone}`} style={{ width: `${pct}%` }} />
+      </span>
+      <span className="w-8 text-right">{pct}%</span>
+    </span>
+  )
+}
+
+/**
+ * One account in the priority list: enough to see which is serving and which
+ * is running out, and a way into its page for everything else.
+ *
+ * The full card — tokens, models, test, reconnect, pause, remove — and the
+ * account's own usage are on /accounts/<id>. The list keeps only what is about
+ * the list: the order, and moving an account within it.
+ */
+function AccountRow({
+  account: a,
+  rank,
+  total,
+  windowDays,
+  orderable,
+  busy,
+  onMoveUp,
+  onMoveDown,
+}: {
+  account: Account
+  rank: number
+  total: number
+  windowDays: number
+  orderable: boolean
+  busy: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
+}) {
+  const chip = status(a)
+  const href = accountHref(a.id)
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[var(--radius-md3-l)] px-4 py-3 ${
+        a.serving ? 'bg-secondary-container/40' : 'bg-surface-low'
+      }`}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        {orderable && (
+          <span
+            className="hidden cursor-grab text-on-surface-variant active:cursor-grabbing sm:block"
+            title="Drag to reorder"
+            aria-hidden
+          >
+            <svg viewBox="0 0 24 24" className="size-5 fill-current">
+              <path d="M9 4h2v2H9V4zm4 0h2v2h-2V4zM9 9h2v2H9V9zm4 0h2v2h-2V9zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2z" />
+            </svg>
+          </span>
+        )}
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-high text-xs font-medium text-on-surface-variant">
+          {rank + 1}
+        </span>
+        <div className="min-w-0">
+          <AppLink href={href} className="block truncate font-medium text-on-surface no-underline">
+            {a.email}
+          </AppLink>
+          <span className="text-xs text-on-surface-variant tabular-nums">
+            {compact(a.requests)} requests · {compact(a.tokens)} tokens over {windowDays}d
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1">
+        {a.serving && <Chip tone="ok">serving</Chip>}
+        <Chip tone={chip.tone}>{chip.label}</Chip>
+      </div>
+
+      {a.quota !== undefined && (
+        <div className="flex items-center gap-3 text-xs tabular-nums text-on-surface">
+          <Window label="5h" util={a.quota.five_hour_util} />
+          <Window label="7d" util={a.quota.seven_day_util} />
+        </div>
+      )}
+
+      <div className="flex items-center gap-1">
+        {orderable && (
+          <>
+            <IconButton label="Higher priority" disabled={busy || rank === 0} onClick={onMoveUp}>
+              <path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z" />
+            </IconButton>
+            <IconButton
+              label="Lower priority"
+              disabled={busy || rank === total - 1}
+              onClick={onMoveDown}
+            >
+              <path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z" />
+            </IconButton>
+          </>
+        )}
+        <AppLink href={href} className="no-underline">
+          <span className="state-layer grid size-9 place-items-center rounded-full text-on-surface-variant">
+            <svg viewBox="0 0 24 24" aria-label={`Open ${a.email}`} className="size-5 fill-current">
+              <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
+            </svg>
+          </span>
+        </AppLink>
+      </div>
     </div>
   )
 }

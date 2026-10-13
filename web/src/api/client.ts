@@ -388,6 +388,8 @@ export interface RequestFacets {
   messages: FacetValue[]
   /** Forwarded to the upstream, or refused here. */
   kinds: FacetValue[]
+  /** Account ids, labelled with each one's email. */
+  accounts: FacetValue[]
 }
 
 /**

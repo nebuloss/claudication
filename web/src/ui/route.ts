@@ -1,9 +1,10 @@
 /**
  * Reading a location, as arithmetic.
  *
- * The screen is in the path and the panel within it is in the hash, so
- * `/usage#chats` is a link straight to one sub-tab. These are the pure half of
- * that: string in, choice out, no `window`. Kept apart from the hooks because
+ * The screen is in the path, the account or key it is about in the second
+ * segment, and the panel within it in the hash, so `/accounts/<id>#chats` is a
+ * link straight to one sub-tab. These are the pure half of that: string in,
+ * choice out, no `window`. Kept apart from the hooks because
  * this is the part that is quietly wrong — a stray leading slash, a trailing
  * one from a copied link, an encoded hash — and the part worth testing without
  * standing up a DOM to do it.
@@ -21,6 +22,21 @@ export function tabFromPath<T extends string>(
 ): T {
   const first = pathname.replace(/^\/+/, '').split('/')[0]
   return (tabs as readonly string[]).includes(first) ? (first as T) : fallback
+}
+
+/**
+ * What the screen is about: the second path segment, `<id>` in
+ * `/accounts/<id>`, decoded. Empty on a screen's own list.
+ */
+export function itemFromPath(pathname: string): string {
+  const second = pathname.replace(/^\/+/, '').split('/')[1] ?? ''
+  try {
+    return decodeURIComponent(second)
+  } catch {
+    // A malformed escape names nothing; the list is a better landing than a
+    // throw inside a render.
+    return ''
+  }
 }
 
 /**

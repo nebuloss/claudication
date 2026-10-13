@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
-import Keys from './features/keys'
+import AccountPage from './features/account-page'
+import { ChatsTab } from './features/chats'
+import Keys, { KeyPage } from './features/keys'
 import { KeyConfigs } from './features/key-configs'
 import Overview from './features/overview'
 import Settings from './features/settings'
 import RequestsPanel from './features/requests'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
-import UsagePanel from './features/usage'
-import { usePathTab, useLive, useLoader, useUpdateAvailable } from './hooks'
+import { usePathItem, usePathTab, useLive, useLoader, useUpdateAvailable } from './hooks'
 // OverviewData, because Overview is already the panel above.
 import {
   ApiError,
@@ -41,10 +42,12 @@ type State =
 // password. It is a page of its own now, on its own listener, linked from the
 // header — see the doc icon beside GitHub.
 //
-// Requests sits beside Usage rather than inside it: usage is what was spent
-// and groups by key, model and account, while the log is what arrived —
-// including requests refused before they had a key to group under.
-const TABS = ['overview', 'accounts', 'keys', 'usage', 'requests', 'settings'] as const
+// There is no Usage tab. What was spent is read where it was spent: on the
+// Overview for the whole gateway, and on each account's and each key's own
+// page (/accounts/<id>, /keys/<id>) for that one. Chats is a tab because a
+// conversation spans accounts and is the unit a person thinks in; Requests is
+// what arrived, including requests refused before they had a key.
+const TABS = ['overview', 'accounts', 'keys', 'chats', 'requests', 'settings'] as const
 type Tab = (typeof TABS)[number]
 
 /**
@@ -71,7 +74,7 @@ const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
   accounts: 'Claude accounts',
   keys: 'API keys',
-  usage: 'Usage',
+  chats: 'Chats',
   requests: 'Requests',
   settings: 'Settings',
 }
@@ -87,6 +90,8 @@ const TAB_LABELS: Record<Tab, string> = {
 export default function App() {
   const [state, setState] = useState<State>({ phase: 'probing' })
   const [tab, setTab] = usePathTab<Tab>(TABS, 'overview')
+  // The account or key a page is about, from /accounts/<id> or /keys/<id>.
+  const item = usePathItem()
   // The configuration, loaded once for the whole signed-in app: the header
   // reads the docs link out of it and Settings renders the rest of it. One
   // copy, because a switch on that screen decides whether the header shows a
@@ -245,9 +250,21 @@ export default function App() {
           </Banner>
         )}
         {tab === 'overview' && <Overview onExpired={expired} onGoTo={setTab} docsURL={docsURL} />}
-        {tab === 'accounts' && <Accounts onExpired={expired} />}
-        {tab === 'keys' && <Keys onExpired={expired} onMinted={setMinted} />}
-        {tab === 'usage' && <UsagePanel onExpired={expired} />}
+        {/* Keyed by the item, so moving from one account's page to another's
+            starts clean rather than showing the last one's state. */}
+        {tab === 'accounts' &&
+          (item === '' ? (
+            <Accounts onExpired={expired} />
+          ) : (
+            <AccountPage key={item} id={item} onExpired={expired} />
+          ))}
+        {tab === 'keys' &&
+          (item === '' ? (
+            <Keys onExpired={expired} onMinted={setMinted} />
+          ) : (
+            <KeyPage key={item} id={item} onExpired={expired} />
+          ))}
+        {tab === 'chats' && <ChatsTab onExpired={expired} />}
         {tab === 'requests' && <RequestsPanel onExpired={expired} />}
         {tab === 'settings' && (
           <Settings

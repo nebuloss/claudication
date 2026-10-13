@@ -535,9 +535,9 @@ type RequestFilter struct {
 	// AccountIDs limits to the subscription accounts that served them.
 	AccountIDs []string
 	Models     []string
-	Clients         []string
-	IPs             []string
-	Statuses        []int
+	Clients    []string
+	IPs        []string
+	Statuses   []int
 	// ErrorCodes limits to these outcomes: the class each request was given
 	// when it was recorded, which is the only thing on the row the message
 	// column can be filtered by. The text itself ends in a request_id, so no
@@ -650,6 +650,11 @@ type RequestFacets struct {
 	Chats    []FacetValue `json:"chats"`
 	Messages []FacetValue `json:"messages"`
 	Kinds    []FacetValue `json:"kinds"`
+	// Keys and Accounts are ids labelled with the name each was last recorded
+	// under, so a filter arriving from a key's or an account's page reads as
+	// that key or account rather than as a hex id.
+	Keys     []FacetValue `json:"keys"`
+	Accounts []FacetValue `json:"accounts"`
 }
 
 // RequestFacets lists what every filterable column holds, with counts.
@@ -698,7 +703,42 @@ func (s *Store) RequestFacets(ctx context.Context, limit int) (RequestFacets, er
 	if out.Kinds, err = s.kindFacet(ctx); err != nil {
 		return RequestFacets{}, err
 	}
+	if out.Keys, err = s.namedFacet(ctx, "key_id", "key_name", limit); err != nil {
+		return RequestFacets{}, err
+	}
+	if out.Accounts, err = s.namedFacet(ctx, "account_id", "account_email", limit); err != nil {
+		return RequestFacets{}, err
+	}
 	return out, nil
+}
+
+// namedFacet is an id column's values labelled with the latest name recorded
+// beside each. Both columns are this package's own constants.
+func (s *Store) namedFacet(ctx context.Context, idColumn, nameColumn string, limit int) ([]FacetValue, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+idColumn+`,
+		       (SELECT n.`+nameColumn+` FROM usage_events n
+		         WHERE n.`+idColumn+` = e.`+idColumn+` ORDER BY n.at DESC LIMIT 1),
+		       COUNT(*)
+		FROM usage_events e
+		WHERE `+idColumn+` <> ''
+		GROUP BY `+idColumn+`
+		ORDER BY COUNT(*) DESC, `+idColumn+` ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("facet %s: %w", idColumn, err)
+	}
+	defer rows.Close()
+
+	out := []FacetValue{}
+	for rows.Next() {
+		var v FacetValue
+		if err := rows.Scan(&v.Value, &v.Label, &v.Count); err != nil {
+			return nil, fmt.Errorf("facet %s: %w", idColumn, err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }
 
 // facet counts one column whose value is also its label.

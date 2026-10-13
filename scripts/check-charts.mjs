@@ -19,7 +19,7 @@ const OUT = process.env.OUT ?? new URL('../web/.charts-check', import.meta.url).
 const { niceTicks, LinearScale, LogScale, BandScale, edgeAnchor } =
   await import(`${OUT}/charts/scale.js`)
 const { Stack } = await import(`${OUT}/charts/stack.js`)
-const { tabFromPath, pathForTab, panelFromHash } = await import(`${OUT}/route.js`)
+const { tabFromPath, pathForTab, panelFromHash, itemFromPath } = await import(`${OUT}/route.js`)
 const { Solid, Hatch, Line } = await import(`${OUT}/charts/paint.js`)
 
 let failures = 0
@@ -198,6 +198,15 @@ check('the panel is the first of several hash parts', panel('#model&x=1'), 'mode
 check('an unknown panel falls back', panel('#nonesuch'), 'requests')
 // A malformed escape must not throw inside a render.
 check('a broken escape does not throw', panel('#%E0%A4%A'), 'requests')
+
+// /accounts/<id> and /keys/<id>: the tab is the first segment, the item the
+// second.
+check('an item page names its screen', tab('/accounts/8189e5dc'), 'accounts')
+check('and its item', itemFromPath('/accounts/8189e5dc'), '8189e5dc')
+check('a list has no item', itemFromPath('/accounts'), '')
+check('nor does a trailing slash', itemFromPath('/accounts/'), '')
+check('an item is decoded', itemFromPath('/keys/a%2Fb'), 'a/b')
+check('a broken item escape does not throw', itemFromPath('/keys/%E0%A4%A'), '')
 
 // The client configs handed out are the committed files with their models
 // rewritten from the gateway's live list. Checked against the real committed

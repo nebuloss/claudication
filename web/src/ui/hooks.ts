@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, messageOf } from '../api/client'
-import { panelFromHash, pathForTab, tabFromPath } from './route'
+import { itemFromPath, navigate, panelFromHash, pathForTab, tabFromPath } from './route'
+
+/** The item a screen is showing — `<id>` in `/accounts/<id>` — or empty. */
+export function usePathItem(): string {
+  const [item, setItem] = useState(() => itemFromPath(window.location.pathname))
+  useEffect(() => {
+    const onPop = () => setItem(itemFromPath(window.location.pathname))
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  return item
+}
 
 /** Close on Escape — same contract as the hook in singbox-admin. */
 export function useEscapeKey(handler: () => void, enabled = true) {
@@ -59,7 +70,10 @@ export function usePathTab<T extends string>(tabs: readonly T[], fallback: T) {
       // that is not there.
       const path = pathForTab(t, fallback)
       if (window.location.pathname + window.location.hash !== path) {
-        window.history.pushState(null, '', path)
+        // navigate rather than a bare pushState, so everything reading the
+        // path hears it — leaving /accounts/<id> for the Accounts tab is the
+        // same tab, and only the item on it changes.
+        navigate(path)
       }
       setTab(t)
       // A new screen starts at the top; carrying the scroll position across is

@@ -88,7 +88,7 @@ shutdown:
 # GOMEMLIMIT in the environment overrides it.
 # memory-limit: "512MiB"
 
-# Per-request history, for the Usage tab. The gateway records one row per
+# Per-request history, for the usage reports and the request log. The gateway records one row per
 # proxied request: which key, which account, which model, how many tokens.
 usage:
   # How long rows are kept. 0 turns recording off entirely, for an operator
@@ -108,7 +108,7 @@ usage:
   # on an installed system.
   #
   # Lowering this frees space on the next daily prune. Setting it to 0 turns
-  # per-request history off entirely; the Usage tab then has nothing to show.
+  # per-request history off entirely; the usage reports then have nothing to show.
   retention-days: 30
   # The window the admin UI summarises by default. Clamped to retention.
   report-days: 7

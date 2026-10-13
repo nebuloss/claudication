@@ -8,6 +8,10 @@ export type Rank = {
   value: number
   /** What to show at the right-hand end. Defaults to the value. */
   right?: ReactNode
+  /** Where the label leads — an account's or a key's own page — if anywhere. */
+  href?: string
+  /** Called instead of following href, so the app can route without a reload. */
+  onOpen?: () => void
 }
 
 /**
@@ -111,7 +115,22 @@ function RankedBar({
           3:1 on the card surface, and a visible label is what makes that
           legible rather than colour-alone. */}
       <div className="w-40 shrink-0 truncate text-on-surface" title={row.label}>
-        {row.label}
+        {row.href !== undefined ? (
+          <a
+            href={row.href}
+            onClick={(e) => {
+              if (row.onOpen === undefined) return
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+              e.preventDefault()
+              row.onOpen()
+            }}
+            className="underline decoration-dotted underline-offset-2 hover:text-primary"
+          >
+            {row.label}
+          </a>
+        ) : (
+          row.label
+        )}
       </div>
       <div className="h-5 min-w-0 flex-1 rounded-[var(--radius-md3-s)] bg-surface-high">
         <div

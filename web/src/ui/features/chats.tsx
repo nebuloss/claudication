@@ -1,15 +1,25 @@
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from 'react'
-import { ApiError, api, messageOf, type Chat, type Chats } from '../../api/client'
+import {
+  ApiError,
+  api,
+  messageOf,
+  type Chat,
+  type Chats,
+  type UsageScope,
+} from '../../api/client'
 import { LogScale, Palette } from '../charts'
 import { useLoader } from '../hooks'
 import ChatContextDetail from './chat-context'
 import { requestsHref, type RequestFilter } from './requests'
 import { navigate } from '../route'
 import {
+  Card,
+  CardTitle,
   ContextMenu,
   Empty,
   ErrorState,
   MenuRow,
+  Segmented,
   Spinner,
   Table,
   compact,
@@ -164,15 +174,56 @@ function tokens(c: Chat): number {
   return c.input_tokens + c.output_tokens + c.cache_tokens
 }
 
-export default function ChatsPanel({ days, onExpired }: { days: number; onExpired: () => void }) {
+/** How far back the Chats tab looks. */
+const CHAT_WINDOWS = [1, 7, 30] as const
+
+/**
+ * The Chats tab: every conversation the gateway has seen in the window. An
+ * account's or a key's own page shows the same list narrowed to it.
+ */
+export function ChatsTab({ onExpired }: { onExpired: () => void }) {
+  const [days, setDays] = useState<number>(7)
+  return (
+    <Card>
+      <CardTitle
+        aside={
+          <Segmented
+            label="Reporting window"
+            value={String(days)}
+            onChange={(v) => setDays(Number(v))}
+            options={CHAT_WINDOWS.map((d) => ({
+              id: String(d),
+              label: `${d} days`,
+              content: `${d}d`,
+            }))}
+          />
+        }
+      >
+        Chats
+      </CardTitle>
+      <ChatsPanel days={days} onExpired={onExpired} />
+    </Card>
+  )
+}
+
+export default function ChatsPanel({
+  days,
+  scope = {},
+  onExpired,
+}: {
+  days: number
+  /** One account's or one key's chats, or every chat when empty. */
+  scope?: UsageScope
+  onExpired: () => void
+}) {
   const [sort, setSort] = useState<SortKey>('tokens')
   // The chat whose context curve is open, if any. One at a time: each is a
   // chart that follows its chat while open.
   const [open, setOpen] = useState<string | null>(null)
   const { data, error, loading, reload } = useLoader<Chats>(
-    () => api.chats(days),
+    () => api.chats(days, scope),
     onExpired,
-    [days],
+    [days, scope.account, scope.key],
     // A chat gains requests as it is being held, and this panel is the one an
     // operator watches while using the gateway from another window.
     CHATS_REFRESH_MS,

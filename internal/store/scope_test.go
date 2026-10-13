@@ -68,4 +68,16 @@ func TestUsageAndChatsNarrowToOneAccountOrKey(t *testing.T) {
 	if len(events) != 1 || events[0].AccountID != "a1" {
 		t.Errorf("log for a1: %+v", events)
 	}
+
+	// And its filter menu names them.
+	facets, err := st.RequestFacets(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facets.Accounts) != 2 || facets.Accounts[0].Value != "a2" || facets.Accounts[0].Label != "two@example.com" {
+		t.Errorf("account facet: %+v", facets.Accounts)
+	}
+	if len(facets.Keys) != 2 || facets.Keys[0].Value != "k1" || facets.Keys[0].Label != "laptop" {
+		t.Errorf("key facet: %+v", facets.Keys)
+	}
 }

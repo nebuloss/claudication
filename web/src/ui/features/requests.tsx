@@ -61,7 +61,17 @@ const ACTIVITY_REFRESH_MS = 10_000
  * a real member — a refused request has no model, the gateway's own titling
  * rows carry no client — so `?model=` means the rows with nothing there.
  */
-export const SET_FIELDS = ['chat', 'key', 'model', 'client', 'ip', 'code', 'message', 'kind'] as const
+export const SET_FIELDS = [
+  'chat',
+  'key',
+  'account',
+  'model',
+  'client',
+  'ip',
+  'code',
+  'message',
+  'kind',
+] as const
 export type SetField = (typeof SET_FIELDS)[number]
 
 /** The filters this screen reads off the URL, and writes back to it. */
@@ -76,7 +86,7 @@ export type RequestFilter = Record<SetField, string[]> & {
 
 /** Nothing narrowed. The one place the field list is spelled out. */
 export function emptyFilter(): RequestFilter {
-  return { chat: [], key: [], model: [], client: [], ip: [], code: [], message: [], kind: [], status: '' }
+  return { chat: [], key: [], account: [], model: [], client: [], ip: [], code: [], message: [], kind: [], status: '' }
 }
 
 /** The query string as a filter. Unknown parameters are ignored. */
@@ -227,6 +237,10 @@ function RecentRequests({
         }))
       case 'kind':
         return facets?.kinds ?? []
+      case 'key':
+        return facets?.keys ?? []
+      case 'account':
+        return facets?.accounts ?? []
       default:
         return []
     }

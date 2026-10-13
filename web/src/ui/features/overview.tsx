@@ -1,11 +1,5 @@
-import { useState } from 'react'
-import {
-  api,
-  type MemorySnapshot,
-  type Usage,
-  type Overview as OverviewData,
-} from '../../api/client'
-import { Traffic } from './traffic'
+import { api, type MemorySnapshot, type Overview as OverviewData } from '../../api/client'
+import ScopedUsage from './usage'
 import { useLoader } from '../hooks'
 import {
   Banner,
@@ -28,10 +22,6 @@ import {
  * which the request counters visibly move on a working gateway.
  */
 const REFRESH_MS = 10_000
-
-/** The traffic chart aggregates whole days, so it barely moves minute to minute. */
-const TRAFFIC_REFRESH_MS = 60_000
-
 
 /**
  * The gateway's own memory, against its ceiling.
@@ -100,49 +90,6 @@ function mib(bytes: number): string {
   return v >= 100 ? `${Math.round(v)} MiB` : `${v.toFixed(1)} MiB`
 }
 
-/** How many days of history the chart can show. */
-const WINDOWS = [7, 14, 30] as const
-
-/**
- * What the gateway has been doing, over the chosen window.
- *
- * The chart itself is features/traffic.tsx, shared with the Usage tab — the
- * two screens asked the same question in two shapes before, which meant two
- * places deciding what a colour meant.
- */
-function TrafficCard({
-  usage,
-  days,
-  onDays,
-}: {
-  usage: Usage | null
-  days: number
-  onDays: (d: number) => void
-}) {
-  return (
-    <Card>
-      <CardTitle>Traffic</CardTitle>
-      {usage === null ? (
-        <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
-          <Spinner /> Loading…
-        </p>
-      ) : usage.enabled === false ? (
-        <p className="m-0 text-sm text-on-surface-variant">
-          Per-request history is off — <code>usage.retention-days</code> is 0, so the gateway
-          records nothing to chart.
-        </p>
-      ) : (
-        <Traffic
-          cross={usage.report?.cross}
-          days={days}
-          onDays={onDays}
-          windows={WINDOWS}
-        />
-      )}
-    </Card>
-  )
-}
-
 /**
  * The first screen: is the gateway able to serve a request, and what has it
  * been doing.
@@ -172,16 +119,6 @@ export default function Overview({
     onExpired,
     [],
     REFRESH_MS,
-  )
-  // The traffic series, on its own loader so changing the window does not
-  // re-fetch the status above it, and so a usage table that is off or empty
-  // cannot take the whole screen down with it.
-  const [days, setDays] = useState(14)
-  const { data: usage } = useLoader<Usage>(
-    () => api.usage(days),
-    undefined,
-    [days],
-    TRAFFIC_REFRESH_MS,
   )
 
   if (loading) {
@@ -337,7 +274,11 @@ export default function Overview({
         </Banner>
       )}
 
-      <TrafficCard usage={usage} days={days} onDays={setDays} />
+      {/* The gateway's whole spend. Its own loader inside, so changing the
+          window does not re-fetch the status above, and a usage table that is
+          off or empty cannot take the screen down with it. Each account and
+          key in the breakdowns opens its own page. */}
+      <ScopedUsage views={['day', 'model', 'account', 'key']} onExpired={onExpired} />
     </div>
   )
 }

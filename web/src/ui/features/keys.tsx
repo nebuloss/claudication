@@ -1,13 +1,17 @@
 import { useState } from 'react'
 import { api, messageOf, type ApiKey } from '../../api/client'
 import { useLoader } from '../hooks'
+import { navigate } from '../route'
+import ScopedUsage, { keyHref } from './usage'
 import type { ReactNode } from 'react'
 import {
+  AppLink,
   Banner,
   Card,
   CardTitle,
   Empty,
   Field,
+  KeyValue,
   Modal,
   Freshness,
   Segmented,
@@ -65,34 +69,12 @@ export default function Keys({
    */
   onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
-  const [busy, setBusy] = useState('')
-  const [editing, setEditing] = useState('')
-  const [actionError, setActionError] = useState('')
-
-  // Not while a key is being edited: the dialog is filled from the loaded row,
-  // so a poll landing mid-edit would reset the fields under the cursor.
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     () => api.listKeys(),
     onExpired,
     [],
-    editing === '' && busy === '' ? REFRESH_MS : 0,
+    REFRESH_MS,
   )
-
-  // Resolved from the loaded list rather than held separately, so a reload
-  // cannot leave the dialog editing a key that no longer exists.
-  const edited = data?.keys.find((k) => k.id === editing)
-
-  const act = async (id: string, fn: () => Promise<unknown>) => {
-    setBusy(id)
-    setActionError('')
-    try {
-      await fn()
-      await reload()
-    } catch (err) {
-      setActionError(messageOf(err))
-    }
-    setBusy('')
-  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -130,12 +112,6 @@ export default function Keys({
             {error}
           </Banner>
         )}
-        {actionError !== '' && editing === '' && (
-          <Banner tone="error" className="mb-4">
-            {actionError}
-          </Banner>
-        )}
-
         {loading ? (
           <p className="flex items-center gap-2 text-sm text-on-surface-variant">
             <Spinner /> Loading…
@@ -147,7 +123,9 @@ export default function Keys({
             {data.keys.map((k) => (
               <tr key={k.id} className="border-b border-outline-variant last:border-0">
                 <td className="px-2 py-3">
-                  <div className="text-on-surface">{k.name}</div>
+                  <AppLink href={keyHref(k.id)} className="text-on-surface">
+                    {k.name}
+                  </AppLink>
                   <div className="text-xs text-on-surface-variant">created {ago(k.created_at)}</div>
                 </td>
                 <td className="px-2 py-3 font-mono text-xs text-on-surface-variant">{k.display}</td>
@@ -162,31 +140,14 @@ export default function Keys({
                 <td className="px-2 py-3">
                   <Budget budget={k.token_budget} spent={k.spent_today} />
                 </td>
-                <td className="px-2 py-3">
-                  <div className="flex justify-end gap-2">
-                    {/* A key the gateway issued to itself is not an operator's
-                        to edit or withdraw. Disabled rather than removed, so
-                        the row keeps the shape of every other one and the
-                        absence reads as a rule rather than a rendering bug;
-                        the tooltip says where the control actually is. */}
-                    <span title={k.managed ? MANAGED_HINT : undefined}>
-                      <TextButton
-                        disabled={busy === k.id || k.managed}
-                        onClick={() => setEditing(k.id)}
-                      >
-                        Edit
-                      </TextButton>
+                <td className="px-2 py-3 text-right">
+                  <AppLink href={keyHref(k.id)} className="no-underline">
+                    <span className="state-layer inline-grid size-9 place-items-center rounded-full text-on-surface-variant">
+                      <svg viewBox="0 0 24 24" aria-label={`Open ${k.name}`} className="size-5 fill-current">
+                        <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
+                      </svg>
                     </span>
-                    <span title={k.managed ? MANAGED_HINT : undefined}>
-                      <TextButton
-                        tone="error"
-                        disabled={busy === k.id || k.managed}
-                        onClick={() => void act(k.id, () => api.deleteKey(k.id))}
-                      >
-                        Delete
-                      </TextButton>
-                    </span>
-                  </div>
+                  </AppLink>
                 </td>
               </tr>
             ))}
@@ -194,28 +155,152 @@ export default function Keys({
         )}
 
         <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">
-          Deleting stops a key working immediately and cannot be undone. The Usage tab keeps
-          showing what it spent, under the name it was recorded with.
+          Open a key to change its limits, delete it, or see what it spent and on which accounts.
         </p>
       </Card>
+    </div>
+  )
+}
 
-      {edited !== undefined && (
-        <EditKeyModal
-          apiKey={edited}
-          defaultRpm={data?.defaultRpm ?? 0}
-          busy={busy === edited.id}
-          error={actionError}
-          onClose={() => {
-            setEditing('')
-            setActionError('')
-          }}
-          onSave={(name, rpm, periodS, tokenBudget) =>
-            void act(edited.id, async () => {
-              await api.updateKey(edited.id, name, rpm, periodS, tokenBudget)
-              setEditing('')
-            })
-          }
+/**
+ * One key: its limits and controls on top, and below them what it spent — the
+ * usage report narrowed to this key, broken down by the accounts that served
+ * it.
+ *
+ * Read from the key list rather than an endpoint of its own, for the reason
+ * the account page is: one source, so the page and the list cannot disagree.
+ */
+export function KeyPage({ id, onExpired }: { id: string; onExpired: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState('')
+
+  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
+    () => api.listKeys(),
+    onExpired,
+    [],
+    editing || busy ? 0 : REFRESH_MS,
+  )
+  const k = data?.keys.find((key) => key.id === id)
+
+  const remove = async () => {
+    if (k === undefined) return
+    if (!window.confirm(`Delete ${k.name}? Clients using it stop working immediately.`)) return
+    setBusy(true)
+    setActionError('')
+    try {
+      await api.deleteKey(k.id)
+      navigate('/keys')
+    } catch (err) {
+      setActionError(messageOf(err))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between gap-3">
+        <AppLink href="/keys" className="text-sm text-on-surface-variant">
+          ‹ All keys
+        </AppLink>
+        <Freshness
+          updatedAt={updatedAt}
+          refreshing={refreshing}
+          live={live}
+          onRefresh={() => void reload()}
         />
+      </div>
+
+      {error !== '' && <Banner tone="error">{error}</Banner>}
+
+      {loading && data === null ? (
+        <p className="flex items-center gap-2 text-sm text-on-surface-variant">
+          <Spinner /> Loading…
+        </p>
+      ) : k === undefined ? (
+        <Empty>
+          No such key — it may have been deleted. What it spent is still in the request log, under
+          the name it was recorded with.
+        </Empty>
+      ) : (
+        <>
+          <Card>
+            <CardTitle>{k.name}</CardTitle>
+            <KeyValue
+              items={[
+                ['Key', <span className="font-mono text-xs">{k.display}</span>],
+                ['Created', ago(k.created_at)],
+                ['Last used', ago(k.last_used_at)],
+                [
+                  'Rate limit',
+                  k.rpm_limit > 0
+                    ? `${compact(k.rpm_limit)} / ${periodName(k.rate_period_s)}`
+                    : 'the server default',
+                ],
+                ['Tokens today', <Budget budget={k.token_budget} spent={k.spent_today} />],
+                [
+                  `Over ${data?.windowDays ?? 7}d`,
+                  `${compact(k.requests)} requests · ${compact(k.tokens)} tokens`,
+                ],
+              ]}
+            />
+            {actionError !== '' && !editing && (
+              <Banner tone="error" className="mt-4">
+                {actionError}
+              </Banner>
+            )}
+            {/* A key the gateway issued to itself is not an operator's to edit
+                or withdraw. Disabled rather than removed, so the absence reads
+                as a rule rather than a rendering bug; the tooltip says where
+                the control actually is. */}
+            <div className="mt-5 flex flex-wrap gap-2" title={k.managed ? MANAGED_HINT : undefined}>
+              <TonalButton disabled={busy || k.managed} onClick={() => setEditing(true)}>
+                Edit
+              </TonalButton>
+              <OutlinedButton tone="error" disabled={busy || k.managed} onClick={() => void remove()}>
+                Delete
+              </OutlinedButton>
+            </div>
+            <p className="mt-4 mb-0 text-xs text-on-surface-variant">
+              Deleting stops a key working immediately and cannot be undone. Its usage stays, under
+              the name it was recorded with.
+            </p>
+          </Card>
+
+          <ScopedUsage
+            title={`Usage of ${k.name}`}
+            scope={{ key: k.id }}
+            views={['day', 'model', 'account', 'chats']}
+            onExpired={onExpired}
+          />
+
+          {editing && (
+            <EditKeyModal
+              apiKey={k}
+              defaultRpm={data?.defaultRpm ?? 0}
+              busy={busy}
+              error={actionError}
+              onClose={() => {
+                setEditing(false)
+                setActionError('')
+              }}
+              onSave={(name, rpm, periodS, tokenBudget) =>
+                void (async () => {
+                  setBusy(true)
+                  setActionError('')
+                  try {
+                    await api.updateKey(k.id, name, rpm, periodS, tokenBudget)
+                    await reload()
+                    setEditing(false)
+                  } catch (err) {
+                    setActionError(messageOf(err))
+                  }
+                  setBusy(false)
+                })()
+              }
+            />
+          )}
+        </>
       )}
     </div>
   )

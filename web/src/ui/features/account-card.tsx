@@ -36,7 +36,7 @@ function relative(iso: string): string {
   return delta < 0 ? `${text} ago` : `in ${text}`
 }
 
-function status(a: Account): { tone: ChipTone; label: string } {
+export function status(a: Account): { tone: ChipTone; label: string } {
   if (a.disabled) return { tone: 'error', label: 'disabled' }
   // Terminal, and the only state a human has to act on: nothing the gateway
   // does brings a refused refresh token back.
