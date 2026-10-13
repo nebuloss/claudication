@@ -194,6 +194,8 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
   const [editing, setEditing] = useState<string | null>(null)
   const [pending, setPending] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<Notice | null>(null)
+  // The chat whose refresh is on its way back.
+  const [renaming, setRenaming] = useState<string | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
 
   const failed = (id: string, err: unknown) => {
@@ -206,17 +208,28 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
 
   const refreshTitle = (c: Chat) => {
     setMenu(null)
-    api.retitleChat(c.id).then(
-      () => {
-        setPending((p) => ({ ...p, [c.id]: c.title }))
-        setNotice({
-          id: c.id,
-          text: 'Renamed at its next request: a title is generated from the chat’s own request, so it waits for one.',
-          tone: 'info',
-        })
-      },
-      (err) => failed(c.id, err),
-    )
+    setNotice(null)
+    setRenaming(c.id)
+    api
+      .retitleChat(c.id)
+      .then(
+        (res) => {
+          if (res.pending === true) {
+            // Only after a restart, for a chat that has not spoken since.
+            setPending((p) => ({ ...p, [c.id]: c.title }))
+            setNotice({
+              id: c.id,
+              text: 'The gateway restarted since this chat’s last request, so it has nothing to name it from yet. It will be renamed at that next request.',
+              tone: 'info',
+            })
+            return
+          }
+          setPending((p) => without(p, c.id))
+          void reload()
+        },
+        (err) => failed(c.id, err),
+      )
+      .finally(() => setRenaming(null))
   }
 
   /**
@@ -356,9 +369,12 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
                     }}
                     className="state-layer flex w-full min-w-0 flex-col rounded-[var(--radius-md3-xs)] text-left"
                   >
-                    <span className="truncate font-medium text-on-surface" title={c.title}>
-                      {open === c.id ? '▾ ' : '▸ '}
-                      {c.title || 'Unnamed'}
+                    <span className="flex min-w-0 items-center gap-1.5 font-medium text-on-surface" title={c.title}>
+                      <span className="truncate">
+                        {open === c.id ? '▾ ' : '▸ '}
+                        {c.title || 'Unnamed'}
+                      </span>
+                      {renaming === c.id && <Spinner className="shrink-0" />}
                     </span>
                     <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
                       {shortID(c.id)}

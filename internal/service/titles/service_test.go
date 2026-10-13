@@ -792,39 +792,75 @@ func TestALongChatOutgrowsItsCapturedTitle(t *testing.T) {
 	}
 }
 
-// An operator's refresh renames a chat at its next request whatever the
-// thresholds say, once, and is refused outright while generation is off.
-func TestRefreshRenamesAtTheNextRequest(t *testing.T) {
+// The operator's refresh: refused while generation is off; for a chat the
+// titler has seen, a rename now from what the user typed, sent as a small
+// request of its own; for one it has not (a restart since), a rename at the
+// chat's next request, which then counts as done.
+func TestRefreshNowNamesFromWhatTheUserTyped(t *testing.T) {
+	ctx := context.Background()
 	h := newHarness(t)
-	if err := h.titler.Refresh("chat-1"); !errors.Is(err, ErrGenerateOff) {
-		t.Fatalf("Refresh with generation off: %v, want ErrGenerateOff", err)
+	if _, _, err := h.titler.RefreshNow(ctx, "chat-1"); !errors.Is(err, ErrGenerateOff) {
+		t.Fatalf("RefreshNow with generation off: %v, want ErrGenerateOff", err)
 	}
-	if err := h.titler.Set(context.Background(), SettingGenerate, true); err != nil {
+	if err := h.titler.Set(ctx, SettingGenerate, true); err != nil {
 		t.Fatal(err)
 	}
 	h.st.titles["chat-1"] = "Generate AGENTS.md for codebase"
 	h.st.requests["chat-1"] = 3
 
-	// A failed automatic attempt must not hold the operator's ask back.
+	// Not seen since start: marked, nothing sent yet. A failed automatic
+	// attempt must not hold that back.
 	h.titler.mayRename("chat-1", time.Now())
-	if err := h.titler.Refresh("chat-1"); err != nil {
+	if _, pending, err := h.titler.RefreshNow(ctx, "chat-1"); err != nil || !pending {
+		t.Fatalf("unknown chat: pending=%v err=%v, want pending", pending, err)
+	}
+	if n := h.up.count(); n != 0 {
+		t.Fatalf("an unknown chat was named from nothing; asked %d times", n)
+	}
+	h.titler.run(ctx, h.ev())
+	if n := h.up.count(); n != 1 {
+		t.Fatalf("upstream asked %d times, want the marked rename", n)
+	}
+	h.waitRecorded(t)
+
+	// Seen now: renamed at once, from the excerpt, with its own small request.
+	h.st.titles["chat-1"] = "Something stale"
+	title, pending, err := h.titler.RefreshNow(ctx, "chat-1")
+	if err != nil || pending || title != "Fix the SSE parser" {
+		t.Fatalf("RefreshNow = %q, pending=%v, %v", title, pending, err)
+	}
+	if got, _, _ := h.st.title("chat-1"); got != "Fix the SSE parser" {
+		t.Errorf("stored title %q", got)
+	}
+	h.up.mu.Lock()
+	sent := h.up.bodies[1]
+	h.up.mu.Unlock()
+	var body struct {
+		Model    string            `json:"model"`
+		Stream   *bool             `json:"stream"`
+		Tools    []json.RawMessage `json:"tools"`
+		System   []struct{ Text string }
+		Messages []struct{ Content string }
+	}
+	if err := json.Unmarshal(sent, &body); err != nil {
 		t.Fatal(err)
 	}
-	h.titler.run(context.Background(), h.ev())
-	if n := h.up.count(); n != 1 {
-		t.Fatalf("upstream asked %d times, want the forced rename", n)
+	if body.Model != "claude-sonnet-5" || body.Stream != nil || len(body.Tools) != 0 ||
+		len(body.System) == 0 || !strings.Contains(body.System[len(body.System)-1].Text, "You name conversations") ||
+		len(body.Messages) != 1 || !strings.Contains(body.Messages[0].Content, "fix the parser") {
+		t.Errorf("refresh request is not the excerpt on its own: %s", sent)
 	}
-	if title, _, _ := h.st.title("chat-1"); title != "Fix the SSE parser" {
-		t.Errorf("title = %q", title)
+	if e := h.waitRecorded(t).ev; e.Path != store.InternalPath || e.ConversationID != "chat-1" {
+		t.Errorf("the refresh was not filed like a title: %+v", e)
 	}
 
-	// Done: the next request is an ordinary one again.
+	// The mark was cleared by the first rename: the next request is ordinary.
 	h.titler.mu.Lock()
 	delete(h.titler.renamed, "chat-1")
 	h.titler.mu.Unlock()
-	h.titler.run(context.Background(), h.ev())
-	if n := h.up.count(); n != 1 {
-		t.Errorf("upstream asked %d times; the refresh was not cleared", n)
+	h.titler.run(ctx, h.ev())
+	if n := h.up.count(); n != 2 {
+		t.Errorf("upstream asked %d times; the mark was not cleared", n)
 	}
 }
 
@@ -844,16 +880,17 @@ func TestATypedTitleIsLeftAlone(t *testing.T) {
 		t.Fatalf("a typed title was renamed automatically; asked %d times", n)
 	}
 
-	// Typing a title cancels a refresh asked for before it.
-	_ = h.titler.Refresh("chat-1")
+	// Typing a title cancels a refresh marked before it.
+	h.titler.forced["chat-1"] = true
 	h.titler.Forget("chat-1")
 	h.titler.run(context.Background(), h.ev())
 	if n := h.up.count(); n != 0 {
 		t.Fatalf("a forgotten refresh still renamed; asked %d times", n)
 	}
 
-	_ = h.titler.Refresh("chat-1")
-	h.titler.run(context.Background(), h.ev())
+	if _, _, err := h.titler.RefreshNow(context.Background(), "chat-1"); err != nil {
+		t.Fatal(err)
+	}
 	if n := h.up.count(); n != 1 {
 		t.Fatalf("the operator's refresh did not rename; asked %d times", n)
 	}

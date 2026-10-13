@@ -3,6 +3,7 @@ package titles
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -248,6 +249,51 @@ func TestRenameDue(t *testing.T) {
 		if got := renameDue(c.current, c.requests, c.turns, c.init); got != c.want {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// The opening message and the latest, in order, each cut to its share, with
+// tool results and reminders left out and a marker where the middle went.
+func TestExcerptKeepsTheOpeningAndTheLatest(t *testing.T) {
+	texts := []string{"open the parser", "", strings.Repeat("x", 3000)}
+	for i := 0; i < 20; i++ {
+		texts = append(texts, "middle "+strings.Repeat("m", 1000))
+	}
+	texts = append(texts, "", "now fix ext4 resize")
+
+	got := excerpt(texts)
+	if !strings.HasPrefix(got, "open the parser\n---\n[…]\n---\n") {
+		t.Errorf("does not open with the first message and a gap marker: %.80q", got)
+	}
+	if !strings.HasSuffix(got, "now fix ext4 resize") {
+		t.Errorf("does not end on the latest message: …%q", got[len(got)-40:])
+	}
+	if len(got) > excerptBudget+excerptFirst+128 {
+		t.Errorf("excerpt is %d bytes, over its budget", len(got))
+	}
+	if excerpt([]string{"", ""}) != "" {
+		t.Error("nothing typed should be no excerpt")
+	}
+	if got := excerpt([]string{"a", "b"}); got != "a\n---\nb" {
+		t.Errorf("short chat: %q", got)
+	}
+}
+
+func TestRememberDropsTheStalestChat(t *testing.T) {
+	tl := &Titler{recent: map[string]recentChat{}}
+	t0 := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < recentLimit; i++ {
+		tl.remember(string(rune('a'+i%26))+strconv.Itoa(i), recentChat{excerpt: "x", model: "m", at: t0.Add(time.Duration(i) * time.Second)})
+	}
+	tl.remember("new", recentChat{excerpt: "x", model: "m", at: t0.Add(time.Hour)})
+	if len(tl.recent) != recentLimit {
+		t.Errorf("holds %d chats, want %d", len(tl.recent), recentLimit)
+	}
+	if _, ok := tl.recent["a0"]; ok {
+		t.Error("the stalest chat was kept")
+	}
+	if _, ok := tl.recent["new"]; !ok {
+		t.Error("the newest chat was not remembered")
 	}
 }
 

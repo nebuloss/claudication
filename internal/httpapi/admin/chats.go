@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -112,22 +114,31 @@ func (s *Admin) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRetitleChat marks a chat to be renamed at its next request.
+// handleRetitleChat renames a chat now and answers with the new name.
 //
-// 202 rather than 200: nothing has been renamed yet, and the screen says so
-// rather than implying the new name is on its way back in this response. See
-// titles.Titler.Refresh for why it cannot be now.
+// 202 only when the gateway has restarted since the chat's last request and
+// so has nothing to name it from: it is then renamed at that next request,
+// and the screen says so. See titles.Titler.RefreshNow.
 func (s *Admin) handleRetitleChat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "no conversation id")
 		return
 	}
-	if err := s.titles.Refresh(id); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	title, pending, err := s.titles.RefreshNow(ctx, id)
+	switch {
+	case errors.Is(err, titles.ErrGenerateOff):
 		httpx.WriteError(w, http.StatusConflict, "titles_off", err.Error())
-		return
+	case err != nil:
+		s.log.Warn("could not refresh a chat title", "chat", id, "err", err)
+		httpx.WriteError(w, http.StatusBadGateway, "title_failed", "could not name the chat: "+err.Error())
+	case pending:
+		httpx.WriteJSON(w, http.StatusAccepted, map[string]any{"pending": true})
+	default:
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"title": title, "title_manual": false})
 	}
-	httpx.WriteJSON(w, http.StatusAccepted, map[string]any{"pending": true})
 }
 
 // handleSetChatTitle stores a title the operator typed.

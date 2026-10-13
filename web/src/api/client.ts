@@ -777,11 +777,15 @@ export const api = {
   chat: (id: string) => request<ChatDetail>('GET', `/admin/chats/${encodeURIComponent(id)}`),
 
   /**
-   * Rename a chat at its next request. Not now: a title is the chat's own
-   * request plus one message, and the gateway keeps no request bodies.
+   * Rename a chat now, from what its user typed. `pending` instead of a title
+   * when the gateway restarted since the chat's last request and has nothing
+   * to name it from: it is then renamed at that next request.
    */
   retitleChat: (id: string) =>
-    request<{ pending: boolean }>('POST', `/admin/chats/${encodeURIComponent(id)}/retitle`),
+    request<{ title?: string; pending?: boolean }>(
+      'POST',
+      `/admin/chats/${encodeURIComponent(id)}/retitle`,
+    ),
 
   /** Switch a titled chat between automatic and manual naming, keeping its title. */
   setTitleMode: (id: string, manual: boolean) =>
