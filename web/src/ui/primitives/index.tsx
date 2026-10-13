@@ -893,25 +893,97 @@ function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
   )
 }
 
+/**
+ * A menu opened where the pointer is, on right-click.
+ *
+ * Portalled into fixed coordinates for the reason HeaderMenu is: a capped
+ * table clips anything positioned inside it. Unlike a heading's menu it has no
+ * anchor to follow, so a scroll closes it rather than moving it — the point it
+ * was opened at is somewhere else once the page moves. The first item takes
+ * focus, so the keyboard's own context-menu key leads somewhere usable.
+ */
+export function ContextMenu({
+  at,
+  label,
+  onClose,
+  children,
+}: {
+  at: { x: number; y: number }
+  label: string
+  onClose: () => void
+  children: ReactNode
+}) {
+  const panel = useRef<HTMLDivElement>(null)
+  useEscapeKey(onClose)
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (panel.current !== null && panel.current.contains(e.target as Node)) return
+      onClose()
+    }
+    window.addEventListener('scroll', onClose, true)
+    window.addEventListener('resize', onClose)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('resize', onClose)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [onClose])
+
+  useEffect(() => {
+    panel.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()
+  }, [])
+
+  // Kept on screen, as HeaderMenu is: a right-click near an edge would
+  // otherwise open the menu past it.
+  const width = 232
+  const left = Math.max(8, Math.min(at.x, window.innerWidth - width - 8))
+  const top = Math.max(8, Math.min(at.y, window.innerHeight - 160))
+
+  return createPortal(
+    <div
+      ref={panel}
+      role="menu"
+      aria-label={label}
+      style={{ left, top, width }}
+      className="fixed z-50 rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest py-1 text-sm shadow-lg"
+    >
+      {children}
+    </div>,
+    document.body,
+  )
+}
+
 /** One line of a header menu that does something when clicked. */
 export function MenuRow({
   onClick,
   active = false,
+  checked,
   children,
 }: {
   onClick: () => void
   active?: boolean
+  /** Set to make the row a toggle, drawn with a tick when on. */
+  checked?: boolean
   children: ReactNode
 }) {
+  const toggle = checked !== undefined
   return (
     <button
       type="button"
-      role="menuitem"
+      role={toggle ? 'menuitemcheckbox' : 'menuitem'}
+      aria-checked={toggle ? checked : undefined}
       onClick={onClick}
       className={`state-layer flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-normal tracking-normal ${
         active ? 'text-primary' : 'text-on-surface'
       }`}
     >
+      {toggle && (
+        <span aria-hidden className={`w-3 shrink-0 ${checked ? 'text-primary' : 'opacity-0'}`}>
+          ✓
+        </span>
+      )}
       {children}
     </button>
   )

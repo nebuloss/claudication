@@ -792,6 +792,76 @@ func TestALongChatOutgrowsItsCapturedTitle(t *testing.T) {
 	}
 }
 
+// An operator's refresh renames a chat at its next request whatever the
+// thresholds say, once, and is refused outright while generation is off.
+func TestRefreshRenamesAtTheNextRequest(t *testing.T) {
+	h := newHarness(t)
+	if err := h.titler.Refresh("chat-1"); !errors.Is(err, ErrGenerateOff) {
+		t.Fatalf("Refresh with generation off: %v, want ErrGenerateOff", err)
+	}
+	if err := h.titler.Set(context.Background(), SettingGenerate, true); err != nil {
+		t.Fatal(err)
+	}
+	h.st.titles["chat-1"] = "Generate AGENTS.md for codebase"
+	h.st.requests["chat-1"] = 3
+
+	// A failed automatic attempt must not hold the operator's ask back.
+	h.titler.mayRename("chat-1", time.Now())
+	if err := h.titler.Refresh("chat-1"); err != nil {
+		t.Fatal(err)
+	}
+	h.titler.run(context.Background(), h.ev())
+	if n := h.up.count(); n != 1 {
+		t.Fatalf("upstream asked %d times, want the forced rename", n)
+	}
+	if title, _, _ := h.st.title("chat-1"); title != "Fix the SSE parser" {
+		t.Errorf("title = %q", title)
+	}
+
+	// Done: the next request is an ordinary one again.
+	h.titler.mu.Lock()
+	delete(h.titler.renamed, "chat-1")
+	h.titler.mu.Unlock()
+	h.titler.run(context.Background(), h.ev())
+	if n := h.up.count(); n != 1 {
+		t.Errorf("upstream asked %d times; the refresh was not cleared", n)
+	}
+}
+
+// A title the operator typed is never renamed automatically, however long the
+// chat grows; their refresh is the only thing that hands it back.
+func TestATypedTitleIsLeftAlone(t *testing.T) {
+	h := newHarness(t)
+	if err := h.titler.Set(context.Background(), SettingGenerate, true); err != nil {
+		t.Fatal(err)
+	}
+	h.st.titles["chat-1"] = "ZeeOS installer"
+	h.st.bases["chat-1"] = store.TitleRecord{Manual: true}
+	h.st.requests["chat-1"] = 10 * retitleFirst
+
+	h.titler.run(context.Background(), h.ev())
+	if n := h.up.count(); n != 0 {
+		t.Fatalf("a typed title was renamed automatically; asked %d times", n)
+	}
+
+	// Typing a title cancels a refresh asked for before it.
+	_ = h.titler.Refresh("chat-1")
+	h.titler.Forget("chat-1")
+	h.titler.run(context.Background(), h.ev())
+	if n := h.up.count(); n != 0 {
+		t.Fatalf("a forgotten refresh still renamed; asked %d times", n)
+	}
+
+	_ = h.titler.Refresh("chat-1")
+	h.titler.run(context.Background(), h.ev())
+	if n := h.up.count(); n != 1 {
+		t.Fatalf("the operator's refresh did not rename; asked %d times", n)
+	}
+	if r, _, _ := h.st.TitleRecord(context.Background(), "chat-1"); r.Manual {
+		t.Error("still manual after a generated rename")
+	}
+}
+
 // A chat that opened with an init prompt is renamed at the user's second
 // message, long before the request threshold.
 func TestAnInitChatIsRenamedAtTheSecondMessage(t *testing.T) {

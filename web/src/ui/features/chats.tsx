@@ -1,11 +1,20 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { api, type Chat, type Chats } from '../../api/client'
+import { Fragment, useCallback, useMemo, useState, type ReactNode } from 'react'
+import { ApiError, api, messageOf, type Chat, type Chats } from '../../api/client'
 import { LogScale, Palette } from '../charts'
 import { useLoader } from '../hooks'
 import ChatContextDetail from './chat-context'
 import { requestsHref, type RequestFilter } from './requests'
 import { navigate } from '../route'
-import { Empty, ErrorState, Spinner, Table, compact, type Column } from '../primitives'
+import {
+  ContextMenu,
+  Empty,
+  ErrorState,
+  MenuRow,
+  Spinner,
+  Table,
+  compact,
+  type Column,
+} from '../primitives'
 
 /**
  * Usage, per conversation.
@@ -16,15 +25,63 @@ import { Empty, ErrorState, Spinner, Table, compact, type Column } from '../prim
  * and crush's `ses_…`, Codex's session id — all of them in headers, so nothing
  * on this screen is derived from message content.
  *
- * There is no guessed title, and that is deliberate. The only thing in a
- * request that reads like one is the conversation itself; the working
- * directory is in there too but sits inside the messages rather than a header,
- * so harvesting it would mean parsing content against an undocumented format
- * that moves with every client release. The client already holds the real
- * name — `claude --resume` lists sessions by first message, keyed by this same
- * id — so the useful thing to print is the key you look one up with, not an
- * invented title that would drift from what the client shows.
+ * A title, when there is one, is either the name the client asked a model for,
+ * one the gateway generated (and renames as the chat grows), or one an
+ * operator typed — right-click a chat to rename it or hand it back to
+ * automatic naming. The id stays beneath it either way: it is the key back to
+ * the client's own session list.
  */
+
+function without(p: Record<string, string>, id: string): Record<string, string> {
+  const next = { ...p }
+  delete next[id]
+  return next
+}
+
+/** A message about one row, shown under the table until the next action. */
+type Notice = { id: string; text: string; tone: 'error' | 'info' }
+
+/**
+ * A title edited in place.
+ *
+ * Enter saves and Escape cancels; leaving the field cancels too, because a
+ * rename saved by clicking somewhere else is a rename nobody meant to make.
+ */
+function TitleEditor({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: string
+  onSave: (title: string) => void
+  onCancel: () => void
+}) {
+  const [draft, setDraft] = useState(initial)
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (draft.trim() !== '') onSave(draft)
+      }}
+      className="flex min-w-0 flex-col gap-0.5"
+    >
+      <input
+        autoFocus
+        aria-label="Chat title"
+        value={draft}
+        maxLength={120}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onBlur={onCancel}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onCancel()
+        }}
+        className="w-full rounded-[var(--radius-md3-xs)] border border-primary bg-surface-lowest px-1 py-0.5 font-medium text-on-surface outline-none"
+      />
+      <span className="text-xs text-on-surface-variant">Enter to save · Esc to cancel</span>
+    </form>
+  )
+}
 
 type SortKey = 'tokens' | 'context' | 'requests' | 'last'
 
@@ -130,6 +187,69 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
     CHATS_REFRESH_MS,
   )
 
+  // The right-click menu, the title being edited, and the chats waiting on a
+  // refresh — keyed to the title they had when it was asked for, so the note
+  // goes away by itself once the list shows a different one.
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [pending, setPending] = useState<Record<string, string>>({})
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const closeMenu = useCallback(() => setMenu(null), [])
+
+  const failed = (id: string, err: unknown) => {
+    if (err instanceof ApiError && err.isUnauthenticated) {
+      onExpired()
+      return
+    }
+    setNotice({ id, text: messageOf(err), tone: 'error' })
+  }
+
+  const refreshTitle = (c: Chat) => {
+    setMenu(null)
+    api.retitleChat(c.id).then(
+      () => {
+        setPending((p) => ({ ...p, [c.id]: c.title }))
+        setNotice({
+          id: c.id,
+          text: 'Renamed at its next request: a title is generated from the chat’s own request, so it waits for one.',
+          tone: 'info',
+        })
+      },
+      (err) => failed(c.id, err),
+    )
+  }
+
+  /**
+   * The menu's toggle. Manual on a chat with no title has nothing to keep, so
+   * it goes straight to typing one — saving it is what makes it manual.
+   */
+  const setMode = (c: Chat, manual: boolean) => {
+    setMenu(null)
+    if (manual && c.title === '') {
+      setEditing(c.id)
+      return
+    }
+    api.setTitleMode(c.id, manual).then(
+      () => {
+        if (manual) setPending((p) => without(p, c.id))
+        void reload()
+      },
+      (err) => failed(c.id, err),
+    )
+  }
+
+  const saveTitle = (c: Chat, title: string) => {
+    setEditing(null)
+    api.setChatTitle(c.id, title).then(
+      () => {
+        setPending((p) => without(p, c.id))
+        setNotice(null)
+        void reload()
+      },
+      (err) => failed(c.id, err),
+    )
+  }
+
   const report = data?.report
   const chats = report?.chats ?? []
   const palette = useModelPalette(chats)
@@ -213,23 +333,64 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
                   the client's own session list, which is where the conversation
                   itself can actually be read. */}
               <td className="px-2 py-2">
-                {/* The row's own control: opening the context curve is what a
-                    chat row is clicked for, and a button says so to a keyboard
-                    and a screen reader as well as to a pointer. */}
-                <button
-                  type="button"
-                  aria-expanded={open === c.id}
-                  onClick={() => setOpen(open === c.id ? null : c.id)}
-                  className="state-layer flex w-full min-w-0 flex-col rounded-[var(--radius-md3-xs)] text-left"
-                >
-                  <span className="truncate font-medium text-on-surface" title={c.title}>
-                    {open === c.id ? '▾ ' : '▸ '}
-                    {c.title || 'Unnamed'}
-                  </span>
-                  <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
-                    {shortID(c.id)}
-                  </span>
-                </button>
+                {editing === c.id ? (
+                  <TitleEditor
+                    initial={c.title}
+                    onSave={(title) => saveTitle(c, title)}
+                    onCancel={() => setEditing(null)}
+                  />
+                ) : (
+                  /* The row's own control: opening the context curve is what a
+                     chat row is clicked for, and a button says so to a keyboard
+                     and a screen reader as well as to a pointer. Right-click (or
+                     the keyboard's menu key) is for its name. */
+                  <button
+                    type="button"
+                    aria-expanded={open === c.id}
+                    aria-haspopup="menu"
+                    onClick={() => setOpen(open === c.id ? null : c.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      setNotice(null)
+                      setMenu({ id: c.id, x: e.clientX, y: e.clientY })
+                    }}
+                    className="state-layer flex w-full min-w-0 flex-col rounded-[var(--radius-md3-xs)] text-left"
+                  >
+                    <span className="truncate font-medium text-on-surface" title={c.title}>
+                      {open === c.id ? '▾ ' : '▸ '}
+                      {c.title || 'Unnamed'}
+                    </span>
+                    <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
+                      {shortID(c.id)}
+                      {c.title_manual && ' · named by hand'}
+                      {pending[c.id] !== undefined && pending[c.id] === c.title &&
+                        ' · renaming at next request'}
+                    </span>
+                  </button>
+                )}
+                {menu?.id === c.id && (
+                  <ContextMenu at={menu} label={`Title of ${c.title || c.id}`} onClose={closeMenu}>
+                    {/* One switch, and the action that goes with where it is:
+                        an automatic title can be asked for again, a manual one
+                        is typed. */}
+                    <MenuRow checked={!c.title_manual} onClick={() => setMode(c, !c.title_manual)}>
+                      Automatic naming
+                    </MenuRow>
+                    <div className="my-1 border-t border-outline-variant" />
+                    {c.title_manual ? (
+                      <MenuRow
+                        onClick={() => {
+                          setMenu(null)
+                          setEditing(c.id)
+                        }}
+                      >
+                        Rename…
+                      </MenuRow>
+                    ) : (
+                      <MenuRow onClick={() => refreshTitle(c)}>Refresh title</MenuRow>
+                    )}
+                  </ContextMenu>
+                )}
               </td>
               <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
                 {c.client || '—'}
@@ -349,10 +510,19 @@ export default function ChatsPanel({ days, onExpired }: { days: number; onExpire
         )}
       </Table>
 
+      {notice !== null && (
+        <p
+          role={notice.tone === 'error' ? 'alert' : 'status'}
+          className={`m-0 text-sm ${notice.tone === 'error' ? 'text-error' : 'text-on-surface-variant'}`}
+        >
+          {notice.text}
+        </p>
+      )}
+
       <p className="m-0 text-xs text-on-surface-variant">
         A chat is grouped by the session id its client sends, never by anything read from the
         messages. Context is what its main model is resent each turn; open a chat to see it grow
-        and where its client compacted. {report !== undefined && report.total > sorted.length
+        and where its client compacted. Right-click a chat’s name to rename it. {report !== undefined && report.total > sorted.length
           ? `Showing the ${sorted.length} busiest of ${report.total}.`
           : ''}
       </p>

@@ -485,6 +485,55 @@ func TestRetitleReplacesAndRemembersItsBasis(t *testing.T) {
 	}
 }
 
+// A typed title is marked manual, survives the capture path, shows as manual
+// in the chat list, and is handed back to automatic naming only by a
+// generated rename.
+func TestManualTitleHoldsUntilRetitled(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+	record(t, st, UsageEvent{ConversationID: "c1", Model: "claude-opus-5", Status: 200})
+
+	if _, err := st.SetManualTitle(ctx, "c1", "   "); err == nil {
+		t.Error("an empty manual title was accepted")
+	}
+	if title, err := st.SetManualTitle(ctx, "c1", "  ZeeOS installer  "); err != nil || title != "ZeeOS installer" {
+		t.Fatalf("SetManualTitle = %q, %v", title, err)
+	}
+	if err := st.SetChatTitle(ctx, "c1", "Generate AGENTS.md", "haiku"); err != nil {
+		t.Fatal(err)
+	}
+	r, _, _ := st.TitleRecord(ctx, "c1")
+	if r.Title != "ZeeOS installer" || !r.Manual {
+		t.Errorf("after capture: %+v, want the typed title, still manual", r)
+	}
+	rep, err := st.Chats(ctx, time.Now().Add(-time.Hour), 10)
+	if err != nil || len(rep.Chats) != 1 || !rep.Chats[0].TitleManual || rep.Chats[0].Title != "ZeeOS installer" {
+		t.Fatalf("chat list: %+v, %v", rep.Chats, err)
+	}
+
+	// The mode switches without touching the title, and only a titled chat
+	// has one to switch.
+	if found, err := st.SetTitleManual(ctx, "c1", false); err != nil || !found {
+		t.Fatalf("SetTitleManual(false) = %v, %v", found, err)
+	}
+	if r, _, _ := st.TitleRecord(ctx, "c1"); r.Manual || r.Title != "ZeeOS installer" {
+		t.Errorf("after switching to automatic: %+v", r)
+	}
+	if found, _ := st.SetTitleManual(ctx, "c1", true); !found {
+		t.Error("switching back to manual found no title")
+	}
+	if found, _ := st.SetTitleManual(ctx, "nope", true); found {
+		t.Error("an untitled chat was switched to manual")
+	}
+
+	if err := st.RetitleChat(ctx, "c1", "Installer UI theme", "claude-opus-5", TitleRecord{Requests: 9}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _, _ := st.TitleRecord(ctx, "c1"); r.Manual || r.Title != "Installer UI theme" {
+		t.Errorf("after retitle: %+v, want automatic again", r)
+	}
+}
+
 func TestConversationRequestsCountsOneChat(t *testing.T) {
 	st := usageStore(t)
 	for i := 0; i < 3; i++ {

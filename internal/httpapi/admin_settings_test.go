@@ -156,6 +156,13 @@ func TestRuntimeSwitches(t *testing.T) {
 		t.Error("docs switch did not persist")
 	}
 
+	// Refreshing a title while generation is off is refused, not accepted
+	// and quietly never done.
+	status, body = call(t, base, http.MethodPost, "/admin/chats/c1/retitle", ``, c)
+	if status != http.StatusConflict || errType(t, body) != "titles_off" {
+		t.Errorf("retitle with generation off: %d %s", status, body)
+	}
+
 	// Capture alone, then generation alone: either may be sent without the
 	// other, and sending one leaves the other where it was.
 	status, body = call(t, base, http.MethodPost, "/admin/chat-titles", `{"capture":true}`, c)
@@ -171,6 +178,34 @@ func TestRuntimeSwitches(t *testing.T) {
 	}
 	if stored(titles.SettingGenerate) != "true" || stored(titles.SettingCapture) != "true" {
 		t.Error("chat-title switches did not persist")
+	}
+	status, body = call(t, base, http.MethodPost, "/admin/chats/c1/retitle", ``, c)
+	if status != http.StatusAccepted {
+		t.Errorf("retitle with generation on: %d %s", status, body)
+	}
+
+	status, body = call(t, base, http.MethodPut, "/admin/chats/c1/title", `{"title":"  ZeeOS installer "}`, c)
+	if got := decode[map[string]any](t, body); status != http.StatusOK || got["title"] != "ZeeOS installer" {
+		t.Errorf("manual title: %d %s", status, body)
+	}
+	status, body = call(t, base, http.MethodPut, "/admin/chats/c1/title", `{"title":"  "}`, c)
+	if status != http.StatusBadRequest {
+		t.Errorf("empty manual title: %d %s", status, body)
+	}
+
+	// The menu's toggle: back to automatic keeps the title; manual on a chat
+	// with no title has nothing to keep.
+	status, body = call(t, base, http.MethodPost, "/admin/chats/c1/title-mode", `{"manual":false}`, c)
+	if got := decode[map[string]any](t, body); status != http.StatusOK || got["title_manual"] != false {
+		t.Errorf("title mode automatic: %d %s", status, body)
+	}
+	status, body = call(t, base, http.MethodPost, "/admin/chats/untitled/title-mode", `{"manual":true}`, c)
+	if status != http.StatusConflict || errType(t, body) != "no_title" {
+		t.Errorf("manual on an untitled chat: %d %s", status, body)
+	}
+	status, body = call(t, base, http.MethodPost, "/admin/chats/c1/title-mode", `{}`, c)
+	if status != http.StatusBadRequest {
+		t.Errorf("title mode without a mode: %d %s", status, body)
 	}
 
 	for _, path := range []string{"/admin/fit-images", "/admin/docs", "/admin/chat-titles"} {

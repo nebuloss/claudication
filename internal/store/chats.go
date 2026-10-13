@@ -38,8 +38,11 @@ type Chat struct {
 	// empty when it never did — titling is off, or the chat predates it, or the
 	// request was refused. Empty is common and the UI falls back to the client
 	// and the id, which is why nothing here depends on it.
-	Title  string `json:"title"`
-	Client string `json:"client"`
+	Title string `json:"title"`
+	// TitleManual is set when an operator typed the title, which holds it
+	// against automatic renames.
+	TitleManual bool   `json:"title_manual"`
+	Client      string `json:"client"`
 	// KeyName and AccountEmail are whichever served it most recently. A chat
 	// normally keeps one of each for its whole life; when a key is rotated or
 	// an account rotates under it mid-conversation, the latest is the one an
@@ -131,6 +134,8 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 		            AND e4.path <> ?
 		          ORDER BY e4.at DESC LIMIT 1),
 		        (SELECT title FROM chat_titles t
+		          WHERE t.conversation_id = e.conversation_id),
+		        (SELECT manual FROM chat_titles t
 		          WHERE t.conversation_id = e.conversation_id)
 		   FROM usage_events e
 		  WHERE rejected = 0 AND at >= ? AND conversation_id <> ''
@@ -189,15 +194,17 @@ func scanChat(r rowScanner) (Chat, error) {
 		first, last         string
 		models              *string
 		key, account, title *string
+		manual              *int64
 	)
 	if err := r.Scan(&c.ID, &c.Client, &c.Requests, &c.Errors,
 		&c.InputTokens, &c.OutputTokens, &c.CacheTokens,
-		&first, &last, &models, &key, &account, &title); err != nil {
+		&first, &last, &models, &key, &account, &title, &manual); err != nil {
 		return Chat{}, err
 	}
 	if title != nil {
 		c.Title = *title
 	}
+	c.TitleManual = manual != nil && *manual != 0
 	c.First, _ = time.Parse(time.RFC3339Nano, first)
 	c.Last, _ = time.Parse(time.RFC3339Nano, last)
 	c.Models = []string{}
@@ -234,7 +241,7 @@ func (s *Store) unattributed(ctx context.Context, from string) (Chat, error) {
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events
 		              WHERE rejected = 0 AND conversation_id = '' AND at >= ? AND model <> '')),
-		        '', '', ''
+		        '', '', '', 0
 		   FROM usage_events WHERE rejected = 0 AND at >= ? AND conversation_id = ''`,
 		from, from)
 
@@ -324,14 +331,16 @@ type TitleRecord struct {
 	// when it did not write it: see migration 023.
 	Requests int
 	Turns    int
+	// Manual is set when an operator typed the title: see migration 024.
+	Manual bool
 }
 
 // TitleRecord returns a conversation's title with what it was written from.
 func (s *Store) TitleRecord(ctx context.Context, id string) (TitleRecord, bool, error) {
 	var r TitleRecord
 	err := s.db.QueryRowContext(ctx,
-		`SELECT title, requests, turns FROM chat_titles WHERE conversation_id = ?`, id).
-		Scan(&r.Title, &r.Requests, &r.Turns)
+		`SELECT title, requests, turns, manual FROM chat_titles WHERE conversation_id = ?`, id).
+		Scan(&r.Title, &r.Requests, &r.Turns, &r.Manual)
 	if errors.Is(err, sql.ErrNoRows) {
 		return TitleRecord{}, false, nil
 	}
@@ -382,12 +391,47 @@ func (s *Store) RetitleChat(ctx context.Context, id, title, model string, basis 
 		 ON CONFLICT (conversation_id) DO UPDATE SET
 		   title = excluded.title, model = excluded.model,
 		   created_at = excluded.created_at,
-		   requests = excluded.requests, turns = excluded.turns`,
+		   requests = excluded.requests, turns = excluded.turns, manual = 0`,
 		id, title, model, stamp(time.Now()), basis.Requests, basis.Turns)
 	if err != nil {
 		return fmt.Errorf("retitle chat: %w", err)
 	}
 	return nil
+}
+
+// SetTitleManual switches a titled chat between automatic and manual naming
+// without touching its title. found is false when the chat has no title yet:
+// manual naming means a name the operator chose, so there has to be one.
+func (s *Store) SetTitleManual(ctx context.Context, id string, manual bool) (found bool, err error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE chat_titles SET manual = ? WHERE conversation_id = ?`, manual, id)
+	if err != nil {
+		return false, fmt.Errorf("set title mode: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// SetManualTitle stores a title an operator typed, replacing any there was,
+// and holds it against automatic renames until RetitleChat writes over it —
+// which only an operator's own refresh leads to. No model wrote it, so none
+// is recorded.
+func (s *Store) SetManualTitle(ctx context.Context, id, title string) (string, error) {
+	title = clipTitle(title)
+	if id == "" || title == "" {
+		return "", errors.New("a title cannot be empty")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO chat_titles (conversation_id, title, model, created_at, manual)
+		 VALUES (?, ?, '', ?, 1)
+		 ON CONFLICT (conversation_id) DO UPDATE SET
+		   title = excluded.title, model = '',
+		   created_at = excluded.created_at, manual = 1`,
+		id, title, stamp(time.Now()))
+	if err != nil {
+		return "", fmt.Errorf("set manual title: %w", err)
+	}
+	return title, nil
 }
 
 // SetChatTitle records a title, once.

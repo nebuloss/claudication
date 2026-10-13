@@ -342,6 +342,47 @@ type Titler struct {
 	// retitleBackoff. Entries older than that are swept on insert, so it holds
 	// only the chats being renamed right now.
 	renamed map[string]time.Time
+	// forced holds the chats an operator asked to rename. Cleared once one is
+	// renamed; lost on restart, which loses nothing worth keeping — the button
+	// is still there.
+	forced map[string]bool
+}
+
+// ErrGenerateOff is Refresh's answer while the gateway does not generate
+// titles: marking a chat would do nothing, and silently doing nothing is what
+// makes an operator click again.
+var ErrGenerateOff = errors.New("title generation is off; switch it on in Settings first")
+
+// Refresh asks for a chat to be renamed at its next request.
+//
+// Not now, because now there is nothing to send. A title is the chat's own
+// request with one message appended, so that it reads the prompt cache rather
+// than re-sending the conversation — and the gateway keeps no request bodies,
+// so the only request it can append to is the next one the client makes.
+func (t *Titler) Refresh(id string) error {
+	if !t.On() {
+		return ErrGenerateOff
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.forced[id] = true
+	// An operator's ask is not held back by an automatic attempt that failed.
+	delete(t.renamed, id)
+	return nil
+}
+
+// Forget drops a pending refresh, for when the operator has since typed a
+// title of their own.
+func (t *Titler) Forget(id string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.forced, id)
+}
+
+func (t *Titler) isForced(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.forced[id]
 }
 
 // New returns a titler with both switches off until Load reads them.
@@ -355,6 +396,7 @@ func New(d Deps) *Titler {
 		capture:  settings.NewSwitch(d.Store, SettingCapture, false),
 		inFlight: map[string]bool{},
 		renamed:  map[string]time.Time{},
+		forced:   map[string]bool{},
 	}
 }
 
@@ -591,8 +633,12 @@ func (t *Titler) run(ctx context.Context, ev Request) {
 	}
 	turns := userTurns(ev.Body)
 	if found {
-		if !renameDue(current, requests, turns, opensWithInit(ev.Body)) ||
-			!t.mayRename(ev.Conversation, time.Now()) {
+		// A title an operator typed is never renamed on the gateway's own
+		// initiative; only their own refresh hands the chat back.
+		forced := t.isForced(ev.Conversation)
+		due := forced ||
+			(!current.Manual && renameDue(current, requests, turns, opensWithInit(ev.Body)))
+		if !due || !t.mayRename(ev.Conversation, time.Now()) {
 			return
 		}
 	}
@@ -653,6 +699,9 @@ func (t *Titler) run(ctx context.Context, ev Request) {
 		log.Warn("could not store a chat title", "err", err)
 		return
 	}
+	t.mu.Lock()
+	delete(t.forced, ev.Conversation)
+	t.mu.Unlock()
 
 	// Recorded like any other request, under the gateway's own key and against
 	// the chat it names, so the cost of naming a conversation is part of what

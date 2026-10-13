@@ -232,6 +232,8 @@ export interface Chat {
    * Empty is normal, so the row falls back to the client and the id.
    */
   title: string
+  /** The operator typed it, so the gateway will not rename it on its own. */
+  title_manual: boolean
   client: string
   key_name: string
   account_email: string
@@ -773,6 +775,29 @@ export const api = {
 
   /** One conversation's latest requests, oldest first — the drill-down behind a row. */
   chat: (id: string) => request<ChatDetail>('GET', `/admin/chats/${encodeURIComponent(id)}`),
+
+  /**
+   * Rename a chat at its next request. Not now: a title is the chat's own
+   * request plus one message, and the gateway keeps no request bodies.
+   */
+  retitleChat: (id: string) =>
+    request<{ pending: boolean }>('POST', `/admin/chats/${encodeURIComponent(id)}/retitle`),
+
+  /** Switch a titled chat between automatic and manual naming, keeping its title. */
+  setTitleMode: (id: string, manual: boolean) =>
+    request<{ title_manual: boolean }>(
+      'POST',
+      `/admin/chats/${encodeURIComponent(id)}/title-mode`,
+      { manual },
+    ),
+
+  /** A title typed by hand, held against automatic renames. */
+  setChatTitle: (id: string, title: string) =>
+    request<{ title: string; title_manual: boolean }>(
+      'PUT',
+      `/admin/chats/${encodeURIComponent(id)}/title`,
+      { title },
+    ),
 
   docsInfo: () => request<DocsInfo>('GET', '/api/docs'),
 
