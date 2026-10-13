@@ -303,11 +303,14 @@ func (s *Store) ChatTitle(ctx context.Context, id string) (ChatTitle, bool, erro
 }
 
 // ConversationRequests counts the requests recorded against a conversation.
-// Answered from idx_usage_chat_at without touching the table.
+// Answered from a covering index without touching the table. The redundant
+// "<> ''" is what lets SQLite use 015's partial index; without it the planner
+// cannot prove a bound parameter satisfies the index's WHERE.
 func (s *Store) ConversationRequests(ctx context.Context, id string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM usage_events WHERE conversation_id = ?`, id).Scan(&n)
+		`SELECT COUNT(*) FROM usage_events WHERE conversation_id = ? AND conversation_id <> ''`,
+		id).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("conversation requests: %w", err)
 	}
