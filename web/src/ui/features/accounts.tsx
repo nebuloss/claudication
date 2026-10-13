@@ -15,6 +15,7 @@ import {
   IconButton,
   Spinner,
   TonalButton,
+  openRow,
   compact,
 } from '../primitives'
 
@@ -250,7 +251,8 @@ function AccountRow({
   const href = accountHref(a.id)
   return (
     <div
-      className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[var(--radius-md3-l)] px-4 py-3 ${
+      onClick={openRow(href)}
+      className={`state-layer flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-[var(--radius-md3-l)] px-4 py-3 ${
         a.serving ? 'bg-secondary-container/40' : 'bg-surface-low'
       }`}
     >
@@ -306,13 +308,11 @@ function AccountRow({
             </IconButton>
           </>
         )}
-        <AppLink href={href} className="no-underline">
-          <span className="state-layer grid size-9 place-items-center rounded-full text-on-surface-variant">
-            <svg viewBox="0 0 24 24" aria-label={`Open ${a.email}`} className="size-5 fill-current">
-              <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
-            </svg>
-          </span>
-        </AppLink>
+        <span aria-hidden className="grid size-9 place-items-center text-on-surface-variant">
+          <svg viewBox="0 0 24 24" className="size-5 fill-current">
+            <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
+          </svg>
+        </span>
       </div>
     </div>
   )

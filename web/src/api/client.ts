@@ -159,6 +159,28 @@ export interface ApiKey {
    * editable, and a token budget is how you actually cap it.
    */
   managed: boolean
+  /**
+   * The key's estimated part of the Claude subscription's two windows, as a
+   * percent of every account's capacity together. Absent when usage history
+   * is off or no account has reported its utilisation.
+   */
+  subscription?: SubscriptionShare
+}
+
+/** One key's estimated use of the subscription; see the server's keyshare.go. */
+export interface SubscriptionShare {
+  five_hour: number
+  seven_day: number
+  accounts: {
+    account_id: string
+    email: string
+    /** Percentage points of this account's window. */
+    five_hour: number
+    seven_day: number
+    /** The key's fraction of the gateway's weighted traffic to this account. */
+    five_hour_share: number
+    seven_day_share: number
+  }[]
 }
 
 export interface UsageTotals {

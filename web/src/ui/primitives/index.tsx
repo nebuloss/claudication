@@ -1330,6 +1330,24 @@ export function IconLink({
  * The arrow is the part the word cannot say: this leaves the admin UI.
  */
 /**
+ * A click handler that makes a whole row open a page.
+ *
+ * The row's name stays a real link, which is what a keyboard, a screen reader
+ * and "open in new tab" use; this only widens where a pointer can click. A
+ * click on anything that is a control of its own — a button, a link, a field —
+ * or one that ends a text selection is left alone.
+ */
+export function openRow(href: string) {
+  return (e: { target: EventTarget; button: number; metaKey: boolean; ctrlKey: boolean }) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey) return
+    if ((e.target as Element).closest('a, button, input, select, textarea, label')) return
+    if ((window.getSelection()?.toString() ?? '') !== '') return
+    navigate(href)
+    window.scrollTo(0, 0)
+  }
+}
+
+/**
  * A link to another screen of this app.
  *
  * A real <a> with a real href, so middle-click, "open in new tab" and the

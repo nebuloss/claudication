@@ -32,6 +32,10 @@ type KeyJSON struct {
 	// Traffic over the reporting window, so a key nobody uses is visible.
 	Requests int64 `json:"requests"`
 	Tokens   int64 `json:"tokens"`
+	// Subscription is the key's estimated part of the Claude subscription's
+	// 5-hour and 7-day windows; absent when usage history is off or the
+	// accounts have not reported. See keyshare.go.
+	Subscription *SubscriptionShare `json:"subscription,omitempty"`
 	// Managed marks the key the gateway issued to itself, so the UI can leave
 	// the Delete off that row — deleting it never did what the button implied,
 	// since the next chat needing a name just gets another issued.
@@ -87,11 +91,25 @@ func (s *Admin) handleListKeys(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Each key's estimated part of the subscription. A nicety too: without it
+	// the keys still list, they just do not say.
+	var windows []accountWindows
+	if s.cfg.Usage.Enabled() {
+		if windows, err = s.subscriptionWindows(r.Context()); err != nil {
+			s.log.Warn("subscription shares unavailable", "err", err)
+			windows = nil
+		}
+	}
+
 	out := make([]KeyJSON, 0, len(keys))
 	for _, k := range keys {
 		j := s.toKeyJSON(k, usage[k.ID])
 		if b, ok := spend[k.ID]; ok {
 			j.SpentToday = b.InputTokens + b.OutputTokens + b.CacheTokens
+		}
+		if windows != nil {
+			share := shareOf(k.ID, windows)
+			j.Subscription = &share
 		}
 		out = append(out, j)
 	}

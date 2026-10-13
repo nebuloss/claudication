@@ -118,7 +118,7 @@ export function queryFromFilter(f: RequestFilter): string {
 /** A filter as a path, for a link that carries it. */
 export function searchFromFilter(f: RequestFilter): string {
   const s = queryFromFilter(f)
-  return s === '' ? '/requests' : `/requests?${s}`
+  return s === '' ? '/activity/requests' : `/activity/requests?${s}`
 }
 
 /**

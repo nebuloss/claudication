@@ -958,6 +958,38 @@ func (s *Store) KeyUsage(ctx context.Context, since time.Time) (map[string]Usage
 	return out, nil
 }
 
+// KeyWeights sums what each key sent one account since a time, weighted by
+// what a token of each kind costs, keyed by key id.
+//
+// Weighted rather than counted because a subscription's limits track cost,
+// not tokens, and the kinds differ by two orders of magnitude: Anthropic's
+// price list holds output at 5x input, a cache write at 1.25x and a cache read
+// at 0.1x, for every model. A key that re-reads a cached 160k-token prompt is
+// not spending what one sending 160k fresh tokens is. Model is not weighted:
+// the ratio between models is not a constant the limits are known to follow.
+func (s *Store) KeyWeights(ctx context.Context, accountID string, since time.Time) (map[string]float64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key_id,
+		        SUM(input_tokens + 5.0*output_tokens + 1.25*cache_write_tokens + 0.1*cache_read_tokens)
+		   FROM usage_events
+		  WHERE rejected = 0 AND account_id = ? AND at >= ?
+		  GROUP BY key_id`, accountID, stamp(since))
+	if err != nil {
+		return nil, fmt.Errorf("key weights: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]float64{}
+	for rows.Next() {
+		var id string
+		var w float64
+		if err := rows.Scan(&id, &w); err != nil {
+			return nil, fmt.Errorf("key weights: %w", err)
+		}
+		out[id] = w
+	}
+	return out, rows.Err()
+}
+
 // KeySpend totals what one key has spent since a point in time.
 //
 // The same four columns UsageEvent.Tokens adds up, because all four are

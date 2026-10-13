@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { api, messageOf, type ApiKey } from '../../api/client'
+import { api, messageOf, type ApiKey, type SubscriptionShare } from '../../api/client'
 import { useLoader } from '../hooks'
 import { navigate } from '../route'
-import ScopedUsage, { keyHref } from './usage'
+import ScopedUsage, { accountHref, keyHref } from './usage'
 import type { ReactNode } from 'react'
 import {
   AppLink,
@@ -18,12 +18,14 @@ import {
   FilledButton,
   OutlinedButton,
   Spinner,
+  Stat,
   StepSlider,
   Switch,
   Table,
   TonalButton,
   ago,
   compact,
+  openRow,
 } from '../primitives'
 
 /**
@@ -118,9 +120,25 @@ export default function Keys({
         ) : data === null || data.keys.length === 0 ? (
           <Empty>No API keys yet. Create one above and give it to a client.</Empty>
         ) : (
-          <Table head={['Name', 'Key', 'Requests', 'Tokens', 'Last used', 'Limit', 'Tokens/day', '']}>
+          <Table
+            head={[
+              'Name',
+              'Key',
+              'Requests',
+              'Tokens',
+              'Subscription',
+              'Last used',
+              'Limit',
+              'Tokens/day',
+              '',
+            ]}
+          >
             {data.keys.map((k) => (
-              <tr key={k.id} className="border-b border-outline-variant last:border-0">
+              <tr
+                key={k.id}
+                onClick={openRow(keyHref(k.id))}
+                className="cursor-pointer border-b border-outline-variant last:border-0 hover:bg-surface-container"
+              >
                 <td className="px-2 py-3">
                   <AppLink href={keyHref(k.id)} className="text-on-surface">
                     {k.name}
@@ -130,6 +148,9 @@ export default function Keys({
                 <td className="px-2 py-3 font-mono text-xs text-on-surface-variant">{k.display}</td>
                 <td className="px-2 py-3 tabular-nums">{compact(k.requests)}</td>
                 <td className="px-2 py-3 tabular-nums">{compact(k.tokens)}</td>
+                <td className="px-2 py-3">
+                  <SubscriptionCell share={k.subscription} />
+                </td>
                 <td className="px-2 py-3 text-on-surface-variant">{ago(k.last_used_at)}</td>
                 <td className="px-2 py-3 text-on-surface-variant">
                   {k.rpm_limit > 0
@@ -140,13 +161,11 @@ export default function Keys({
                   <Budget budget={k.token_budget} spent={k.spent_today} />
                 </td>
                 <td className="px-2 py-3 text-right">
-                  <AppLink href={keyHref(k.id)} className="no-underline">
-                    <span className="state-layer inline-grid size-9 place-items-center rounded-full text-on-surface-variant">
-                      <svg viewBox="0 0 24 24" aria-label={`Open ${k.name}`} className="size-5 fill-current">
-                        <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
-                      </svg>
-                    </span>
-                  </AppLink>
+                  <span aria-hidden className="inline-grid size-9 place-items-center text-on-surface-variant">
+                    <svg viewBox="0 0 24 24" className="size-5 fill-current">
+                      <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
+                    </svg>
+                  </span>
                 </td>
               </tr>
             ))}
@@ -154,10 +173,80 @@ export default function Keys({
         )}
 
         <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">
-          Open a key to change its limits, delete it, or see what it spent and on which accounts.
+          Open a key to change its limits, delete it, or see what it spent and on which accounts.{' '}
+          {SUBSCRIPTION_NOTE}
         </p>
       </Card>
     </div>
+  )
+}
+
+/** What the subscription figures are, said once wherever they appear. */
+const SUBSCRIPTION_NOTE =
+  'Subscription is an estimate: each account’s 5-hour and 7-day utilisation, split ' +
+  'between keys by their cost-weighted share of what this gateway sent it, as a share of ' +
+  'every account’s capacity together. Anything else using an account is counted against ' +
+  'the keys that used it here.'
+
+function pct(v: number): string {
+  if (v > 0 && v < 0.1) return '<0.1%'
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)}%`
+}
+
+/** A key's estimated part of the subscription, both windows, for a table cell. */
+function SubscriptionCell({ share }: { share: SubscriptionShare | undefined }) {
+  if (share === undefined) return <span className="text-on-surface-variant">—</span>
+  return (
+    <span className="whitespace-nowrap text-xs tabular-nums text-on-surface">
+      <span className="text-on-surface-variant">5h</span> {pct(share.five_hour)}
+      <span className="mx-1.5 text-on-surface-variant">·</span>
+      <span className="text-on-surface-variant">7d</span> {pct(share.seven_day)}
+    </span>
+  )
+}
+
+/**
+ * The same estimate on a key's page, account by account: how many points of
+ * each account's windows this key accounts for, and its share of what the
+ * gateway sent that account.
+ */
+function SubscriptionCard({ share }: { share: SubscriptionShare }) {
+  return (
+    <Card>
+      <CardTitle>Share of the Claude subscription</CardTitle>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="5-hour" value={pct(share.five_hour)} hint="of all accounts" />
+        <Stat label="7-day" value={pct(share.seven_day)} hint="of all accounts" />
+      </div>
+      {share.accounts.length > 0 && (
+        <div className="mt-4">
+          <Table head={['Account', '5-hour window', '7-day window']}>
+            {share.accounts.map((a) => (
+              <tr key={a.account_id} className="border-b border-outline-variant last:border-0">
+                <td className="px-2 py-2">
+                  <AppLink href={accountHref(a.account_id)} className="text-on-surface">
+                    {a.email}
+                  </AppLink>
+                </td>
+                <td className="px-2 py-2 tabular-nums">
+                  {pct(a.five_hour)}{' '}
+                  <span className="text-xs text-on-surface-variant">
+                    ({Math.round(a.five_hour_share * 100)}% of its traffic here)
+                  </span>
+                </td>
+                <td className="px-2 py-2 tabular-nums">
+                  {pct(a.seven_day)}{' '}
+                  <span className="text-xs text-on-surface-variant">
+                    ({Math.round(a.seven_day_share * 100)}% of its traffic here)
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </div>
+      )}
+      <p className="mt-4 mb-0 text-xs text-on-surface-variant">{SUBSCRIPTION_NOTE}</p>
+    </Card>
   )
 }
 
@@ -265,6 +354,8 @@ export function KeyPage({ id, onExpired }: { id: string; onExpired: () => void }
               the name it was recorded with.
             </p>
           </Card>
+
+          {k.subscription !== undefined && <SubscriptionCard share={k.subscription} />}
 
           <ScopedUsage
             title={`Usage of ${k.name}`}

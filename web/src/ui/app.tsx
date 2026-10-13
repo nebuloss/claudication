@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
 import AccountPage from './features/account-page'
-import { ChatsTab } from './features/chats'
+import Activity from './features/activity'
 import Keys, { KeyPage } from './features/keys'
 import { KeyConfigs } from './features/key-configs'
 import Overview from './features/overview'
 import Settings from './features/settings'
-import RequestsPanel from './features/requests'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import { usePathItem, usePathTab, useLive, useLoader, useUpdateAvailable } from './hooks'
@@ -44,10 +43,24 @@ type State =
 //
 // There is no Usage tab. What was spent is read where it was spent: on the
 // Overview for the whole gateway, and on each account's and each key's own
-// page (/accounts/<id>, /keys/<id>) for that one. Chats is a tab because a
-// conversation spans accounts and is the unit a person thinks in; Requests is
-// what arrived, including requests refused before they had a key.
-const TABS = ['overview', 'accounts', 'keys', 'chats', 'requests', 'settings'] as const
+// page (/accounts/<id>, /keys/<id>) for that one. Activity is the traffic
+// itself across all of them: the chats, and the requests they were made of,
+// including requests refused before they had a key.
+const TABS = ['overview', 'accounts', 'keys', 'activity', 'settings'] as const
+
+// Where the screens used to be, so a bookmark still lands on its screen —
+// filters and all — rather than on the Overview.
+const MOVED: Record<string, string> = {
+  '/chats': '/activity/chats',
+  '/requests': '/activity/requests',
+  '/usage': '/',
+}
+{
+  const to = MOVED[window.location.pathname.replace(/\/+$/, '')]
+  if (to !== undefined) {
+    window.history.replaceState(null, '', to + window.location.search + window.location.hash)
+  }
+}
 type Tab = (typeof TABS)[number]
 
 /**
@@ -74,8 +87,7 @@ const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
   accounts: 'Claude accounts',
   keys: 'API keys',
-  chats: 'Chats',
-  requests: 'Requests',
+  activity: 'Activity',
   settings: 'Settings',
 }
 
@@ -264,8 +276,7 @@ export default function App() {
           ) : (
             <KeyPage key={item} id={item} onExpired={expired} />
           ))}
-        {tab === 'chats' && <ChatsTab onExpired={expired} />}
-        {tab === 'requests' && <RequestsPanel onExpired={expired} />}
+        {tab === 'activity' && <Activity onExpired={expired} />}
         {tab === 'settings' && (
           <Settings
             session={state.session}
