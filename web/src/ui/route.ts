@@ -53,8 +53,8 @@ export const ACCOUNT_SETTINGS = [
 export const KEY_SETTINGS = [
   { id: 'models', label: 'Models' },
   { id: 'aliases', label: 'Aliases' },
-  { id: 'limits', label: 'General' },
-  { id: 'configs', label: 'Clients' },
+  { id: 'general', label: 'General' },
+  { id: 'clients', label: 'Clients' },
   { id: 'advanced', label: 'Advanced' },
 ] as const satisfies readonly Section[]
 
@@ -64,21 +64,30 @@ export const ACTIVITY_PAGES = [
 ] as const satisfies readonly Section[]
 
 export const GATEWAY_SETTINGS = [
-  { id: 'models', label: 'Aliases' },
+  { id: 'aliases', label: 'Aliases' },
   { id: 'apis', label: 'APIs' },
-  { id: 'chats', label: 'Titles' },
+  { id: 'titles', label: 'Titles' },
   { id: 'images', label: 'Images' },
-  { id: 'docs', label: 'Documentation' },
+  { id: 'documentation', label: 'Documentation' },
   { id: 'security', label: 'Security' },
   { id: 'configuration', label: 'Configuration' },
 ] as const satisfies readonly Section[]
 
 /** Where screens used to be, so a bookmark still lands on its screen. */
 const MOVED: Record<string, string> = {
-  models: '/settings/models',
+  models: '/settings/aliases',
   chats: '/activity/chats',
   requests: '/activity/requests',
   usage: '/',
+}
+
+/**
+ * Sections whose path has since been renamed to say what the navigation
+ * calls them, so a link from before still opens the same section.
+ */
+const RENAMED: Record<string, Record<string, string>> = {
+  settings: { models: 'aliases', chats: 'titles', docs: 'documentation' },
+  keys: { limits: 'general', configs: 'clients' },
 }
 
 /** The path's segments, decoded. A malformed escape is kept as it came. */
@@ -122,12 +131,15 @@ export function canonical(pathname: string): string {
       const page = known(ITEM_PAGES, b) ? b! : 'overview'
       if (page !== 'settings') return pathOf(top, a, page)
       const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
-      return pathOf(top, a, 'settings', known(list, c) ? c! : list[0].id)
+      const section = (c !== undefined && RENAMED[top]?.[c]) || c
+      return pathOf(top, a, 'settings', known(list, section) ? section! : list[0].id)
     }
     case 'activity':
       return pathOf('activity', known(ACTIVITY_PAGES, a) ? a! : ACTIVITY_PAGES[0].id)
-    case 'settings':
-      return pathOf('settings', known(GATEWAY_SETTINGS, a) ? a! : GATEWAY_SETTINGS[0].id)
+    case 'settings': {
+      const section = (a !== undefined && RENAMED.settings[a]) || a
+      return pathOf('settings', known(GATEWAY_SETTINGS, section) ? section! : GATEWAY_SETTINGS[0].id)
+    }
   }
   return '/'
 }

@@ -175,7 +175,7 @@ check('the overview lives at the root, not at its own name', canonical('/overvie
 check('a trailing slash is the same page', canonical('/accounts/'), '/accounts')
 check('a doubled slash is forgiven', canonical('//keys'), '/keys')
 // A bookmark to a screen that has since moved lands where it went.
-check('the models screen is a section of Settings now', canonical('/models'), '/settings/models')
+check('the models screen is a section of Settings now', canonical('/models'), '/settings/aliases')
 check('chats moved under Activity', canonical('/chats'), '/activity/chats')
 check('requests too', canonical('/requests'), '/activity/requests')
 check('usage is read on the overview', canonical('/usage'), '/')
@@ -191,8 +191,10 @@ check('settings open on the first section', canonical('/accounts/8189e5dc/settin
 check('a section is a page', canonical('/keys/k1/settings/aliases'), '/keys/k1/settings/aliases')
 check('an unknown section is the first', canonical('/keys/k1/settings/nonesuch'), '/keys/k1/settings/models')
 check('activity opens on chats', canonical('/activity'), '/activity/chats')
-check('the gateway settings on the first section', canonical('/settings'), '/settings/models')
+check('the gateway settings on the first section', canonical('/settings'), '/settings/aliases')
 check('a gateway section is a page', canonical('/settings/apis'), '/settings/apis')
+check('a renamed section keeps its old links', canonical('/settings/docs'), '/settings/documentation')
+check('a key section too', canonical('/keys/k1/settings/configs'), '/keys/k1/settings/clients')
 // Ids are encoded once, whatever they hold.
 check('an id is kept encoded', canonical('/keys/a%2Fb'), '/keys/a%2Fb/overview')
 check('and decoded when read', segments('/keys/a%2Fb/usage'), ['keys', 'a/b', 'usage'])
@@ -224,10 +226,10 @@ check(
     '/accounts/a1/overview', '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests', '/accounts/a1/settings/models',
   ])
   check('and goes back to the list', lvl('/accounts/a1/chats').back, { href: '/accounts', label: 'Accounts' })
-  check('its settings list their sections only', lvl('/keys/k1/settings/limits').items.length, 5)
-  check('and go back to the key, by name', lvl('/keys/k1/settings/limits').back, { href: '/keys/k1/overview', label: 'keys:k1' })
-  check('the open section is current', lvl('/keys/k1/settings/limits').current, '/keys/k1/settings/limits')
-  check('removing is under Advanced, last', lvl('/keys/k1/settings/limits').items.at(-1).href, '/keys/k1/settings/advanced')
+  check('its settings list their sections only', lvl('/keys/k1/settings/general').items.length, 5)
+  check('and go back to the key, by name', lvl('/keys/k1/settings/general').back, { href: '/keys/k1/overview', label: 'keys:k1' })
+  check('the open section is current', lvl('/keys/k1/settings/general').current, '/keys/k1/settings/general')
+  check('removing is under Advanced, last', lvl('/keys/k1/settings/general').items.at(-1).href, '/keys/k1/settings/advanced')
   check('settings go back to the top', lvl('/settings/apis').back.href, '/')
 
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)

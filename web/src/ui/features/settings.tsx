@@ -55,7 +55,7 @@ export default function Settings({
   const reload = onConfigChanged
 
   const page = (() => {
-    if (section === 'models') return <ModelsTab />
+    if (section === 'aliases') return <ModelsTab />
     if (section === 'security') {
       return <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
     }
@@ -78,7 +78,7 @@ export default function Settings({
     switch (section) {
       case 'apis':
         return <Surfaces surfaces={data.surfaces} onChanged={() => void reload()} />
-      case 'chats':
+      case 'titles':
         return (
           <ChatTitles
             enabled={data.chat_titles}
@@ -88,7 +88,7 @@ export default function Settings({
         )
       case 'images':
         return <ImageFit enabled={data.fit_images} onChanged={() => void reload()} />
-      case 'docs':
+      case 'documentation':
         return (
           <PublicDocs
             enabled={data.docs_enabled}

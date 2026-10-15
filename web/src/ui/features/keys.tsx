@@ -388,9 +388,9 @@ export function KeyPage({
                 [
                   'Configs',
                   k.secret_kept ? (
-                    <AppLink href={`${pathOf('keys', k.id)}/settings/configs`}>can be downloaded</AppLink>
+                    <AppLink href={`${pathOf('keys', k.id)}/settings/clients`}>can be downloaded</AppLink>
                   ) : (
-                    <AppLink href={`${pathOf('keys', k.id)}/settings/configs`}>
+                    <AppLink href={`${pathOf('keys', k.id)}/settings/clients`}>
                       need a new secret once
                     </AppLink>
                   ),
@@ -523,7 +523,7 @@ function KeySettings({
             <RolesEditor keyId={k.id} />
           </Card>
         )
-      case 'limits':
+      case 'general':
         return (
           <Card>
             <KeyEditor apiKey={k} defaultRpm={defaultRpm} busy={busy} onSave={save} />
@@ -535,7 +535,7 @@ function KeySettings({
       // The secret is kept sealed beside the account tokens (migration 026),
       // so the configs can be written again at any time. Keys from before
       // that have only a hash, and need a new secret once.
-      case 'configs':
+      case 'clients':
         return (
           <Card>
             {k.secret_kept ? (
