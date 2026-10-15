@@ -3,6 +3,7 @@ import { api, messageOf, type Session } from '../../api/client'
 import {
   Banner,
   Card,
+  CardTitle,
   Field,
   FilledButton,
   OutlinedButton,
@@ -33,11 +34,19 @@ export default function Security({
 
   return (
     <Card>
-      {session.password_updated_at !== undefined && (
-        <p className="mt-0 mb-4 text-xs text-on-surface-variant">
-          Password set {new Date(session.password_updated_at).toLocaleDateString()}
-        </p>
-      )}
+      {/* Titled: it is the Settings page itself, which no entry in the
+          navigation names. */}
+      <CardTitle
+        aside={
+          session.password_updated_at !== undefined ? (
+            <span className="text-sm text-on-surface-variant">
+              Password set {new Date(session.password_updated_at).toLocaleDateString()}
+            </span>
+          ) : undefined
+        }
+      >
+        Admin account
+      </CardTitle>
 
       {open === 'none' && (
         <div className="flex flex-wrap items-center gap-2">

@@ -7,20 +7,47 @@ import { Popover, useAnchoredPanel } from './popover'
  * paragraph is a point with a blue bullet, so a tip reads as a short list of
  * things to know rather than a block to wade through.
  */
-const TIP = [
-  'bg-surface-lowest! px-4 py-3 text-sm leading-relaxed text-on-surface',
+const BULLETS = [
   '[&_p]:relative [&_p]:my-0 [&_p]:pl-4 [&_p+p]:mt-2',
   "[&_p]:before:absolute [&_p]:before:top-[0.6em] [&_p]:before:left-0 [&_p]:before:size-1.5 [&_p]:before:rounded-full [&_p]:before:bg-info [&_p]:before:content-['']",
 ].join(' ')
 
+const TIP = `bg-surface-lowest! px-4 py-3 text-sm leading-relaxed text-on-surface ${BULLETS}`
+
+/**
+ * Help shown where it applies, not behind a mark to hover: each paragraph a
+ * point with a blue bullet, in the body colour. A tip that has to be found
+ * and held open was worse than the paragraph it replaced, on pages with room
+ * to spare. On a card it sits in a white panel; inside a white tile, plain.
+ */
+export function Help({
+  children,
+  plain = false,
+  className = '',
+}: {
+  children: ReactNode
+  plain?: boolean
+  className?: string
+}) {
+  return (
+    <div
+      className={`text-sm leading-relaxed text-on-surface ${BULLETS} ${
+        plain ? '' : 'rounded-[var(--radius-md3-l)] bg-surface-lowest px-4 py-3'
+      } ${className}`}
+    >
+      {children}
+    </div>
+  )
+}
+
 /**
  * A small blue ⓘ holding the explanation of what is beside it.
  *
- * The help used to be paragraphs above every control, read once and then
- * scrolled past on every visit after. It is here instead, a pointer or a tap
- * away: opened by hovering, by focusing it from the keyboard, or by a click,
- * which is what a touch screen has. It is the shared popover, so it is placed,
- * followed and dismissed like every other popup.
+ * For dense lists only, where the explanation of every row shown at once
+ * would bury the rows — the configuration's thirty settings. Anywhere with
+ * room, help is shown where it applies (Help): a mark to find and hover is a
+ * worse way to read it. Opened by hovering, by focus, or by a click, which is
+ * what a touch screen has, and placed and dismissed like every other popup.
  */
 export function InfoTip({ children, label = 'More about this' }: { children: ReactNode; label?: string }) {
   const p = useAnchoredPanel({ width: 340, maxHeight: 420 })

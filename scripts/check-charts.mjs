@@ -176,7 +176,9 @@ check('a trailing slash is the same page', canonical('/accounts/'), '/accounts')
 check('a doubled slash is forgiven', canonical('//keys'), '/keys')
 // A bookmark to a screen that has since moved lands where it went.
 check('the models screen is a section of Settings now', canonical('/models'), '/settings/aliases')
-check('settings is its own overview', canonical('/settings'), '/settings')
+check('settings is its own page', canonical('/settings'), '/settings')
+check('which was its advanced section', canonical('/settings/advanced'), '/settings')
+check('and before that, security', canonical('/settings/security'), '/settings')
 check('an unknown setting lands on it', canonical('/settings/nonesuch'), '/settings')
 check('chats moved under Activity', canonical('/chats'), '/activity/chats')
 check('requests too', canonical('/requests'), '/activity/requests')
@@ -214,7 +216,7 @@ check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts
 check('a moved screen names where it went', tab('/models'), 'settings')
 // Round trip: every canonical path is its own canonical form.
 {
-  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/keys/x/advanced', '/activity/requests', '/settings/advanced']
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/keys/x/advanced', '/activity/requests', '/settings']
   check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
 }
 
@@ -247,7 +249,7 @@ check('a moved screen names where it went', tab('/models'), 'settings')
   // Every trail starts at the root, and no level is named twice.
   check('the overview is the root alone', trail('/'), ['Overview'])
   check('a list', trail('/accounts'), ['Overview', 'Accounts'])
-  check('the settings overview', trail('/settings'), ['Overview', 'Settings'])
+  check('the settings page', trail('/settings'), ['Overview', 'Settings'])
   check('an account is its name, not its name then Overview', trail('/accounts/a1'), ['Overview', 'Accounts', 'accounts:a1'])
   check('a setting of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
   check('a gateway section', trail('/settings/apis'), ['Overview', 'Settings', 'APIs'])

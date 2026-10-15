@@ -22,8 +22,8 @@ export { MenuDivider, Popover, menuItem, menuSurface, useAnchoredPanel } from '.
 export type { Placement } from './popover'
 export { Breadcrumbs, NavRail, follow } from './nav'
 export { AddButton, ListRow, ListToolbar, RowBadge } from './list'
-export { InfoTip, Note } from './info'
-import { InfoTip } from './info'
+export { Help, InfoTip, Note } from './info'
+import { Help } from './info'
 
 /* Material 3 primitives, shared by every screen. */
 
@@ -48,24 +48,15 @@ export function Card({
   className = '',
 }: {
   children: ReactNode
-  /**
-   * What the card is for, behind an ⓘ in its corner rather than as a
-   * paragraph on top of it: read once, then out of the way.
-   */
+  /** What the card is for, as bullets at its top. */
   info?: ReactNode
   className?: string
 }) {
   return (
     <section
-      className={`relative rounded-[var(--radius-md3-xl)] bg-surface-container p-6 [&_p]:max-w-[80ch] ${
-        info !== undefined ? 'pr-12' : ''
-      } ${className}`}
+      className={`rounded-[var(--radius-md3-xl)] bg-surface-container p-6 [&_p]:max-w-[80ch] ${className}`}
     >
-      {info !== undefined && (
-        <span className="absolute top-3.5 right-3.5">
-          <InfoTip>{info}</InfoTip>
-        </span>
-      )}
+      {info !== undefined && <Help className="mb-4">{info}</Help>}
       {children}
     </section>
   )
@@ -78,16 +69,16 @@ export function CardTitle({
 }: {
   children: ReactNode
   aside?: ReactNode
-  /** Help for the card, as an ⓘ after its title. */
+  /** Help for the card, as bullets under its title. */
   info?: ReactNode
 }) {
   return (
-    <div className="mb-4 flex items-center justify-between gap-4">
-      <h2 className="flex items-center gap-1 text-xl leading-7 font-normal text-on-surface">
-        {children}
-        {info !== undefined && <InfoTip>{info}</InfoTip>}
-      </h2>
-      {aside}
+    <div className="mb-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-xl leading-7 font-normal text-on-surface">{children}</h2>
+        {aside}
+      </div>
+      {info !== undefined && <Help>{info}</Help>}
     </div>
   )
 }
@@ -438,15 +429,17 @@ export function Switch({
   onChange: (v: boolean) => void
   label: string
   disabled?: boolean
-  /** What the switch does, behind an ⓘ after its label. */
+  /** What the switch does, as bullets under it, in line with its label. */
   info?: ReactNode
 }) {
-  // The ⓘ sits outside the label, so opening it never flips the switch.
+  // Outside the label, so selecting its text never flips the switch.
   if (info !== undefined) {
     return (
-      <div className="flex items-center gap-1">
+      <div className="flex flex-col gap-2">
         <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} />
-        <InfoTip>{info}</InfoTip>
+        <Help plain className="sm:ml-16">
+          {info}
+        </Help>
       </div>
     )
   }

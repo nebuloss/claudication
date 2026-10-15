@@ -9,8 +9,8 @@
  *   /accounts/<id>/<page>               its traffic and its settings, side by side
  *   /keys … the same shape, for keys
  *   /activity/chats|requests            all traffic
- *   /settings                           the gateway's settings at a glance
- *   /settings/<section>                 one of them
+ *   /settings                           the admin account and its security
+ *   /settings/<section>                 each of the others
  *
  * So a link, a bookmark and Back all land on a page, never on "whatever
  * sub-tab was open last". Each level's overview is the level itself — the
@@ -84,7 +84,6 @@ export const GATEWAY_SETTINGS = [
   { id: 'titles', label: 'Titles' },
   { id: 'images', label: 'Images' },
   { id: 'documentation', label: 'Documentation' },
-  { id: 'advanced', label: 'Advanced' },
   { id: 'configuration', label: 'Configuration' },
 ] as const satisfies readonly Section[]
 
@@ -161,8 +160,8 @@ export function canonical(pathname: string): string {
     case 'activity':
       return pathOf('activity', known(ACTIVITY_PAGES, a) ? a! : ACTIVITY_PAGES[0].id)
     case 'settings': {
-      // Settings has an overview of its own, as an item does: /settings
-      // itself, and where any section that is not one lands.
+      // /settings itself is the admin account — what was its Advanced
+      // section — and where any section that is not one lands.
       const section = (a !== undefined && RENAMED.settings[a]) || a
       return known(GATEWAY_SETTINGS, section) ? pathOf('settings', section!) : pathOf('settings')
     }
