@@ -274,7 +274,13 @@ export default function App() {
           (item === '' ? (
             <Keys onExpired={expired} onMinted={setMinted} />
           ) : (
-            <KeyPage key={item} id={item} section={section} onExpired={expired} />
+            <KeyPage
+              key={item}
+              id={item}
+              section={section}
+              onExpired={expired}
+              onMinted={setMinted}
+            />
           ))}
         {tab === 'activity' && <Activity onExpired={expired} />}
         {tab === 'settings' && (

@@ -266,10 +266,13 @@ export function KeyPage({
   id,
   section: path,
   onExpired,
+  onMinted,
 }: {
   id: string
   section: string
   onExpired: () => void
+  /** Shows a new secret and its client configs, as for a key just created. */
+  onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
   const section = detailSection(path)
   // Not on the settings page: the form is filled from the loaded key, and a
@@ -346,6 +349,7 @@ export function KeyPage({
           apiKey={k}
           defaultRpm={data?.defaultRpm ?? 0}
           onSaved={() => void reload()}
+          onMinted={onMinted}
         />
       ) : (
         <>
@@ -366,10 +370,12 @@ function KeySettings({
   apiKey: k,
   defaultRpm,
   onSaved,
+  onMinted,
 }: {
   apiKey: ApiKey
   defaultRpm: number
   onSaved: () => void
+  onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -391,6 +397,25 @@ function KeySettings({
     try {
       await api.updateKey(k.id, name, rpm, periodS, tokenBudget)
       setSaved(true)
+      onSaved()
+    } catch (err) {
+      setError(messageOf(err))
+    }
+    setBusy(false)
+  }
+
+  const rotate = async () => {
+    if (
+      !window.confirm(
+        `Issue a new secret for ${k.name}? The current one stops working immediately, ` +
+          'so every client using it needs the new config.',
+      )
+    )
+      return
+    setBusy(true)
+    setError('')
+    try {
+      onMinted(await api.rotateKey(k.id))
       onSaved()
     } catch (err) {
       setError(messageOf(err))
@@ -429,6 +454,24 @@ function KeySettings({
         {saved && error === '' && (
           <p className="mt-3 mb-0 text-sm text-on-surface-variant">Saved.</p>
         )}
+      </Card>
+
+      {/* Configs are written with the secret in them, and the secret is the
+          one thing about a key that cannot be read back — only its hash is
+          kept. So a config for an existing key comes with a new secret. */}
+      <Card>
+        <CardTitle>Client configurations</CardTitle>
+        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+          Ready-made configs for Claude Code, Codex, opencode and crush have this key&rsquo;s secret
+          in them, and the secret was shown only once, when the key was made — the gateway keeps
+          a hash, not the key. To download them again, issue a new secret: this key keeps its
+          name, limits, models and history, the old secret stops working at once, and every
+          client&rsquo;s config is offered with the new one.
+        </p>
+        <TonalButton disabled={busy} onClick={() => void rotate()}>
+          {busy && <Spinner />}
+          New secret and configs
+        </TonalButton>
       </Card>
 
       <Card>

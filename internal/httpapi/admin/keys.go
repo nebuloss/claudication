@@ -196,6 +196,36 @@ func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleRotateKey issues a key a new secret and answers it once, in the shape
+// creating a key does, so the admin UI shows it — and the client configs
+// written with it — the same way. The old secret stops working at once.
+//
+// Not for the gateway's own key: nothing holds its secret, and a new one
+// would buy nothing.
+func (s *Admin) handleRotateKey(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if s.titles.IsOwnKey(id) {
+		httpx.WriteError(w, http.StatusConflict, "managed_key",
+			"this is the gateway's own key; nothing holds its secret")
+		return
+	}
+	key, plaintext, err := s.store.RotateKey(r.Context(), id)
+	switch {
+	case errors.Is(err, store.ErrKeyNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		return
+	case err != nil:
+		s.log.Error("rotate api key", "err", err, "id", id)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not issue a new secret")
+		return
+	}
+	s.log.Warn("api key rotated", "id", key.ID, "name", key.Name, "ip", httpx.ClientIP(r.Context()))
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"key":       s.toKeyJSON(key, store.UsageBucket{}),
+		"plaintext": plaintext,
+	})
+}
+
 // handleUpdateKey changes a key's name, rate limit or token budget. The secret
 // is not touched, so nothing that already holds the key has to be told anything.
 func (s *Admin) handleUpdateKey(w http.ResponseWriter, r *http.Request) {

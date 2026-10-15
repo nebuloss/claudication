@@ -805,6 +805,16 @@ export const api = {
       token_budget: tokenBudget,
     }),
 
+  /**
+   * A new secret for an existing key, shown once like a new key's. The old
+   * secret stops working at once; everything else about the key is kept.
+   */
+  rotateKey: (id: string) =>
+    request<{ key: ApiKey; plaintext: string }>(
+      'POST',
+      `/admin/keys/${encodeURIComponent(id)}/rotate`,
+    ),
+
   /** Rename a key or change its limit. The secret is untouched. */
   updateKey: (
     id: string,

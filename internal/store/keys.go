@@ -90,6 +90,48 @@ func hashKey(plaintext string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// newSecret is a fresh credential: its random body, and the plaintext a client
+// holds.
+func newSecret() (body, plaintext string, err error) {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", fmt.Errorf("generate key: %w", err)
+	}
+	body = hex.EncodeToString(raw) // 48 hex chars
+	return body, KeyPrefix + body, nil
+}
+
+// RotateKey gives a key a new secret and returns its plaintext, once, as
+// CreateKey does. Everything else about the key stays — its id, name, limits,
+// model switches and the usage recorded against it — and the old secret stops
+// authenticating as this returns.
+//
+// It exists because the secret is the one thing about a key that cannot be
+// read back: only its hash is stored. A client config can only be written
+// with a plaintext in hand, so writing one for an existing key means issuing
+// a new secret for it, not deleting the key and losing its settings and
+// history with it.
+func (s *Store) RotateKey(ctx context.Context, id string) (APIKey, string, error) {
+	body, plaintext, err := newSecret()
+	if err != nil {
+		return APIKey{}, "", err
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE api_keys SET prefix = ?, hash = ? WHERE id = ?`,
+		body[:prefixLen], hashKey(plaintext), id)
+	if err != nil {
+		return APIKey{}, "", fmt.Errorf("rotate api key: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return APIKey{}, "", ErrKeyNotFound
+	}
+	key, err := s.Key(ctx, id)
+	if err != nil {
+		return APIKey{}, "", err
+	}
+	return key, plaintext, nil
+}
+
 // CreateKey mints a credential and returns the plaintext exactly once. The
 // caller must show it to the operator immediately; it is unrecoverable after.
 func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (APIKey, string, error) {
@@ -101,12 +143,10 @@ func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (A
 		return APIKey{}, "", err
 	}
 
-	raw := make([]byte, 24)
-	if _, err := rand.Read(raw); err != nil {
-		return APIKey{}, "", fmt.Errorf("generate key: %w", err)
+	body, plaintext, err := newSecret()
+	if err != nil {
+		return APIKey{}, "", err
 	}
-	body := hex.EncodeToString(raw) // 48 hex chars
-	plaintext := KeyPrefix + body
 
 	idBytes := make([]byte, 8)
 	if _, err := rand.Read(idBytes); err != nil {

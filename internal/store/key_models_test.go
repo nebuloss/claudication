@@ -6,6 +6,44 @@ import (
 	"testing"
 )
 
+// A new secret replaces the old at once and keeps everything else about the
+// key — id, name, limits, model switches — which is the point of rotating
+// rather than deleting and minting another.
+func TestRotateKeyKeepsTheKeyAndChangesTheSecret(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+	key, old, err := st.CreateKey(ctx, "laptop", KeyLimits{RPMLimit: 7, TokenBudget: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetKeyModel(ctx, key.ID, "claude-opus-5", false); err != nil {
+		t.Fatal(err)
+	}
+
+	rotated, fresh, err := st.RotateKey(ctx, key.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh == old || rotated.Prefix == key.Prefix {
+		t.Fatal("the secret did not change")
+	}
+	if _, err := st.Authenticate(ctx, old); err != ErrKeyNotFound {
+		t.Errorf("old secret: %v, want ErrKeyNotFound", err)
+	}
+	got, err := st.Authenticate(ctx, fresh)
+	if err != nil {
+		t.Fatalf("new secret: %v", err)
+	}
+	if got.ID != key.ID || got.Name != "laptop" || got.RPMLimit != 7 || got.TokenBudget != 1000 ||
+		!slices.Equal(got.ModelsOff, []string{"claude-opus-5"}) {
+		t.Errorf("rotated key lost something: %+v", got)
+	}
+
+	if _, _, err := st.RotateKey(ctx, "nope"); err != ErrKeyNotFound {
+		t.Errorf("unknown key: %v", err)
+	}
+}
+
 // A key's model switches: off under one spelling covers the other, they
 // travel with the key into every request (Authenticate) and the keys screen
 // (ListKeys), and they go with the key.
