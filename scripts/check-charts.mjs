@@ -233,7 +233,7 @@ check(
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
   check('the overview is one step', trail('/'), ['Overview'])
   check('a section of an account', trail('/accounts/a1/settings/connection'), ['Accounts', 'accounts:a1', 'Settings', 'Connection'])
-  check('a gateway section', trail('/settings/apis'), ['Settings', 'API surfaces'])
+  check('a gateway section', trail('/settings/apis'), ['Settings', 'APIs'])
   check('an activity page', trail('/activity/requests'), ['Activity', 'Requests'])
   check('a step links to its page', trailOf('/accounts/a1/settings/connection', name)[2].href, '/accounts/a1/settings/models')
 }

@@ -52,9 +52,9 @@ export const ACCOUNT_SETTINGS = [
 
 export const KEY_SETTINGS = [
   { id: 'models', label: 'Models' },
-  { id: 'aliases', label: 'Model aliases' },
-  { id: 'limits', label: 'Name and limits' },
-  { id: 'configs', label: 'Client configurations' },
+  { id: 'aliases', label: 'Aliases' },
+  { id: 'limits', label: 'General' },
+  { id: 'configs', label: 'Clients' },
   { id: 'advanced', label: 'Advanced' },
 ] as const satisfies readonly Section[]
 
@@ -64,12 +64,12 @@ export const ACTIVITY_PAGES = [
 ] as const satisfies readonly Section[]
 
 export const GATEWAY_SETTINGS = [
-  { id: 'models', label: 'Model aliases' },
-  { id: 'apis', label: 'API surfaces' },
-  { id: 'chats', label: 'Chat names' },
-  { id: 'images', label: 'Oversized images' },
-  { id: 'docs', label: 'Public docs page' },
-  { id: 'security', label: 'Admin account' },
+  { id: 'models', label: 'Aliases' },
+  { id: 'apis', label: 'APIs' },
+  { id: 'chats', label: 'Titles' },
+  { id: 'images', label: 'Images' },
+  { id: 'docs', label: 'Documentation' },
+  { id: 'security', label: 'Security' },
   { id: 'configuration', label: 'Configuration' },
 ] as const satisfies readonly Section[]
 
