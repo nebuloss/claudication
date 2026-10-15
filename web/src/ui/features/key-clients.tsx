@@ -19,14 +19,14 @@ import { EXAMPLE_BASE } from './docs/model'
 import { relayAddress } from './key-configs'
 
 /**
- * A key's Clients page: the key itself, and every client's configuration with
- * it already inside, each file shown and a click from being downloaded.
+ * A key's Clients page: every client's configuration with the key already
+ * inside, each file shown — the key masked — and a click from being
+ * downloaded. The key itself, and regenerating it, are on the overview
+ * (KeySecret).
  *
  * The secret is kept sealed beside the account tokens (migration 026), so it
  * is read whenever this page opens rather than shown once in a dialog and
  * lost: a client set up next month is set up from here, with the same key.
- * Regenerating it is here too, for a key that has leaked — every client
- * then needs the files again, which is what the page is for.
  *
  * The files are the committed ones under configs/clients, as the public docs
  * page shows them, with this gateway's address, this key and the models this
@@ -38,11 +38,9 @@ import { relayAddress } from './key-configs'
 export default function KeyClients({
   apiKey: k,
   config,
-  onChanged,
 }: {
   apiKey: ApiKey
   config: GatewayConfig | null
-  onChanged: () => void
 }) {
   const secret = useLoader(
     () => (k.secret_kept ? api.keySecret(k.id) : Promise.resolve({ plaintext: '' })),
@@ -55,33 +53,9 @@ export default function KeyClients({
   // files are the committed ones, which are complete.
   const offered = useLoader(() => api.keyOfferedModels(k.id), undefined, [k.id], 0)
   const catalog = useMemo(() => new Catalog(offered.data?.data), [offered.data])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
   const address = relayAddress(config)
   const gateway = address !== '' ? address : EXAMPLE_BASE
   const plaintext = secret.data?.plaintext ?? ''
-
-  const regenerate = async () => {
-    if (
-      k.secret_kept &&
-      !window.confirm(
-        `Regenerate the key for ${k.name}? The current one stops working immediately, ` +
-          'so every client using it needs its configuration again.',
-      )
-    )
-      return
-    setBusy(true)
-    setError('')
-    try {
-      await api.rotateKey(k.id)
-      onChanged()
-      await secret.reload()
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy(false)
-  }
 
   if (secret.error !== '') {
     return <ErrorState message={secret.error} onRetry={() => void secret.reload()} busy={secret.loading} />
@@ -89,46 +63,17 @@ export default function KeyClients({
 
   return (
     <>
-      <Card>
-        <CardTitle>Key</CardTitle>
-        {!k.secret_kept ? (
-          // Keys from before secrets were kept are reissued at startup
-          // (store.ReissueUnkeptKeys), so this is only a database restored
-          // from before that ran.
-          <Note tone="warn" className="mb-4">
-            This key&rsquo;s secret is not stored, so it cannot be shown. Regenerate it to get one.
-          </Note>
-        ) : secret.loading && plaintext === '' ? (
-          <p className="m-0 mb-4 flex items-center gap-2 text-sm text-on-surface-variant">
-            <Spinner /> Reading the key…
-          </p>
-        ) : (
-          <div className="mb-4">
-            <CopyField label="API key" value={plaintext} />
-          </div>
-        )}
-        <div className="flex flex-wrap items-center gap-3">
-          {k.secret_kept ? (
-            <OutlinedButton tone="error" disabled={busy} onClick={() => void regenerate()}>
-              {busy && <Spinner />}
-              Regenerate key
-            </OutlinedButton>
-          ) : (
-            <FilledButton type="button" disabled={busy} onClick={() => void regenerate()}>
-              {busy && <Spinner />}
-              Regenerate key
-            </FilledButton>
-          )}
-          <span className="text-sm text-on-surface-variant">
-            For a key that has leaked: the current one stops working at once.
-          </span>
-        </div>
-        {error !== '' && (
-          <Banner tone="error" className="mt-4">
-            {error}
-          </Banner>
-        )}
-      </Card>
+      {!k.secret_kept && (
+        <Note tone="warn">
+          This key&rsquo;s secret is not stored, so no configuration can be written with it.
+          Regenerate it on its overview page.
+        </Note>
+      )}
+      {k.secret_kept && secret.loading && plaintext === '' && (
+        <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
+          <Spinner /> Reading the key…
+        </p>
+      )}
 
       {plaintext !== '' && (
         <>
@@ -170,6 +115,7 @@ export default function KeyClients({
                       filename={f.filename}
                       lang={f.lang}
                       value={f.body}
+                      conceal={plaintext}
                     />
                   ))}
                 </div>
@@ -179,5 +125,87 @@ export default function KeyClients({
         </>
       )}
     </>
+  )
+}
+
+/**
+ * A key's secret, on its overview: hidden until the eye is pressed, copyable
+ * either way, and regenerated here for a key that has leaked — the old one
+ * stops at once, and its clients fetch new configurations from the Clients
+ * page.
+ */
+export function KeySecret({ apiKey: k, onChanged }: { apiKey: ApiKey; onChanged: () => void }) {
+  const secret = useLoader(
+    () => (k.secret_kept ? api.keySecret(k.id) : Promise.resolve({ plaintext: '' })),
+    undefined,
+    [k.id, k.secret_kept, k.display],
+    0,
+  )
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const plaintext = secret.data?.plaintext ?? ''
+
+  const regenerate = async () => {
+    if (
+      k.secret_kept &&
+      !window.confirm(
+        `Regenerate the key for ${k.name}? The current one stops working immediately, ` +
+          'so every client using it needs its configuration again.',
+      )
+    )
+      return
+    setBusy(true)
+    setError('')
+    try {
+      await api.rotateKey(k.id)
+      onChanged()
+      await secret.reload()
+    } catch (err) {
+      setError(messageOf(err))
+    }
+    setBusy(false)
+  }
+
+  return (
+    <Card>
+      {!k.secret_kept ? (
+        <Note tone="warn" className="mb-4">
+          This key&rsquo;s secret is not stored, so it cannot be shown. Regenerate it to get one.
+        </Note>
+      ) : secret.error !== '' ? (
+        <Banner tone="error" className="mb-4">
+          {secret.error}
+        </Banner>
+      ) : secret.loading && plaintext === '' ? (
+        <p className="mt-0 mb-4 flex items-center gap-2 text-sm text-on-surface-variant">
+          <Spinner /> Reading the key…
+        </p>
+      ) : (
+        <div className="mb-4">
+          <CopyField label="API key" value={plaintext} secret />
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-3">
+        {k.secret_kept ? (
+          <OutlinedButton tone="error" disabled={busy} onClick={() => void regenerate()}>
+            {busy && <Spinner />}
+            Regenerate key
+          </OutlinedButton>
+        ) : (
+          <FilledButton type="button" disabled={busy} onClick={() => void regenerate()}>
+            {busy && <Spinner />}
+            Regenerate key
+          </FilledButton>
+        )}
+        <span className="text-sm text-on-surface-variant">
+          For a key that has leaked: the current one stops working at once.
+        </span>
+      </div>
+      {error !== '' && (
+        <Banner tone="error" className="mt-4">
+          {error}
+        </Banner>
+      )}
+    </Card>
   )
 }

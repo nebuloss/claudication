@@ -651,9 +651,36 @@ export async function copyText(text: string): Promise<boolean> {
  * A whole config file goes to CodeViewer instead, which bounds its height,
  * numbers the lines and highlights them — see primitives/code.tsx.
  */
-export function CopyField({ label, value }: { label: string; value: string }) {
+/**
+ * How a secret is drawn until asked for: blurred past reading. Hidden by
+ * default because a key on screen is a key in every screenshot and screen
+ * share. A blur rather than dots, so the text is still there to select and
+ * copy by hand.
+ */
+export const BLUR = 'blur-[5px] transition-[filter] duration-150'
+
+/** Show or hide a secret: an eye, struck through while it is shown. */
+export function RevealButton({ shown, onToggle }: { shown: boolean; onToggle: () => void }) {
+  return (
+    <IconButton label={shown ? 'Hide' : 'Show'} onClick={onToggle}>
+      <path d={shown ? 'M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46A11.8 11.8 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78 3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z' : 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'} />
+    </IconButton>
+  )
+}
+
+export function CopyField({
+  label,
+  value,
+  secret = false,
+}: {
+  label: string
+  value: string
+  /** Dots until the eye is pressed. Copy copies the value either way. */
+  secret?: boolean
+}) {
   const [copied, setCopied] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [shown, setShown] = useState(!secret)
 
   const copy = async () => {
     if (await copyText(value)) {
@@ -669,12 +696,13 @@ export function CopyField({ label, value }: { label: string; value: string }) {
       <div className="mb-1 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
         {label}
       </div>
-      <div className="flex items-stretch gap-2">
+      <div className="flex items-center gap-2">
         {/* Solid rather than translucent: at 60% the fill landed between two
             near-identical surfaces and the block had no edge at all. */}
         <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--radius-md3-m)] bg-surface-lowest px-3 py-2 font-mono text-xs leading-6 whitespace-pre text-on-surface">
-          {value}
+          <span className={shown ? '' : BLUR}>{value}</span>
         </code>
+        {secret && <RevealButton shown={shown} onToggle={() => setShown(!shown)} />}
         <TonalButton onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</TonalButton>
       </div>
 

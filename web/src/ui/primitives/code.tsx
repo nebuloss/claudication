@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { TonalButton, copyText, ErrorModal, saveAs } from './index'
+import { TonalButton, copyText, ErrorModal, saveAs, RevealButton, BLUR } from './index'
 
 /**
  * A bounded, scrollable, highlighted view of a config file.
@@ -87,6 +87,23 @@ const COMPILED: Record<Lang, RegExp> = Object.fromEntries(
  * languages has a string that spans lines in the files this shows, so no state
  * carries between them and a line can be rendered on its own.
  */
+/**
+ * A line with a secret in it: the secret drawn blurred, the rest highlighted
+ * as usual. Still the text itself, not dots, so it can be selected and copied
+ * from the file like any other line — the blur only keeps it out of a
+ * screenshot or a glance over the shoulder.
+ */
+function concealed(line: string, secret: string, lang: Lang): ReactNode {
+  if (!line.includes(secret)) return highlight(line, lang)
+  const parts = line.split(secret)
+  return parts.map((part, i) => (
+    <Fragment key={i}>
+      {part !== '' && highlight(part, lang)}
+      {i < parts.length - 1 && <span className={BLUR}>{secret}</span>}
+    </Fragment>
+  ))
+}
+
 function highlight(line: string, lang: Lang): ReactNode {
   const re = COMPILED[lang]
   const rules = RULES[lang]
@@ -135,14 +152,21 @@ export function CodeViewer({
   filename,
   lang,
   value,
+  conceal = '',
 }: {
   label: string
   filename: string
   lang: Lang
   value: string
+  /**
+   * A secret in the file, shown as dots until the eye is pressed. Copy and
+   * Download give the file as it is, secret and all.
+   */
+  conceal?: string
 }) {
   const [copied, setCopied] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [shown, setShown] = useState(false)
 
   const [expanded, setExpanded] = useState(false)
 
@@ -163,8 +187,11 @@ export function CodeViewer({
   // Copy and Download are unaffected either way: both work from the string,
   // not from what has been drawn.
   const lines = useMemo(
-    () => (expanded || !long ? raw : raw.slice(0, MAX_LINES)).map((l) => highlight(l, lang)),
-    [raw, expanded, long, lang],
+    () =>
+      (expanded || !long ? raw : raw.slice(0, MAX_LINES)).map((l) =>
+        conceal !== '' && !shown ? concealed(l, conceal, lang) : highlight(l, lang),
+      ),
+    [raw, expanded, long, lang, conceal, shown],
   )
   const scrolls = expanded && long
   const gutter = String(raw.length).length
@@ -185,7 +212,8 @@ export function CodeViewer({
         <span className="text-[11px] text-on-surface-variant">
           {LANG_LABEL[lang]} · {raw.length} lines
         </span>
-        <span className="ml-auto flex gap-2">
+        <span className="ml-auto flex items-center gap-2">
+          {conceal !== '' && <RevealButton shown={shown} onToggle={() => setShown(!shown)} />}
           <TonalButton onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</TonalButton>
           <TonalButton onClick={() => saveAs(filename, value)}>Download</TonalButton>
         </span>

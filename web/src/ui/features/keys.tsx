@@ -12,7 +12,7 @@ import ScopedUsage, { accountHref, keyHref } from './usage'
 import { DetailHeader } from './detail'
 import { ChatsPage } from './chats'
 import RequestsPanel from './requests'
-import KeyClients from './key-clients'
+import KeyClients, { KeySecret } from './key-clients'
 import { KeyModels } from './account-models'
 import { RolesEditor } from './model-roles'
 import type { ReactNode } from 'react'
@@ -113,7 +113,7 @@ export default function Keys({
       {created !== null && (
         <Modal title={`${created.key.name} is ready`} onClose={() => setCreated(null)}>
           <div className="flex flex-col gap-4">
-            <CopyField label="API key" value={created.plaintext} />
+            <CopyField label="API key" value={created.plaintext} secret />
             <Note>
               Every client&rsquo;s configuration, with this key already inside, is on its Clients
               page — and stays there, so it can be fetched again whenever a client is set up.
@@ -400,6 +400,7 @@ export function KeyPage({
       {page === 'requests' && <RequestsPanel scope={{ key: k.id }} onExpired={onExpired} />}
       {page === '' && (
         <>
+          {!k.managed && <KeySecret apiKey={k} onChanged={() => void reload()} />}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Requests" value={compact(k.requests)} hint={`over ${data?.windowDays ?? 7}d`} />
             <Stat label="Tokens" value={compact(k.tokens)} hint={`over ${data?.windowDays ?? 7}d`} />
@@ -419,7 +420,6 @@ export function KeyPage({
           <Card>
             <KeyValue
               items={[
-                ['Key', <code className="font-mono text-xs">{k.display}</code>],
                 [
                   'Configs',
                   k.secret_kept ? (
@@ -546,7 +546,7 @@ function KeySettings({
       // so the configs can be written again at any time. Keys from before
       // that have only a hash, and need a new secret once.
       case 'clients':
-        return <KeyClients apiKey={k} config={config} onChanged={onSaved} />
+        return <KeyClients apiKey={k} config={config} />
       default:
         return (
           <Card>
