@@ -92,10 +92,11 @@ export default function KeyClients({
       <Card>
         <CardTitle>Key</CardTitle>
         {!k.secret_kept ? (
+          // Keys from before secrets were kept are reissued at startup
+          // (store.ReissueUnkeptKeys), so this is only a database restored
+          // from before that ran.
           <Note tone="warn" className="mb-4">
-            This key was made before the gateway kept keys, so only a fingerprint of it exists and
-            it cannot be shown. Regenerate it once — it keeps its name, limits, models and history;
-            the current secret stops working — and from then on it and its configurations are here.
+            This key&rsquo;s secret is not stored, so it cannot be shown. Regenerate it to get one.
           </Note>
         ) : secret.loading && plaintext === '' ? (
           <p className="m-0 mb-4 flex items-center gap-2 text-sm text-on-surface-variant">

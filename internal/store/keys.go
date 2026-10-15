@@ -136,6 +136,62 @@ func (s *Store) KeySecret(ctx context.Context, sealer *secret.Sealer, id string)
 	return plaintext, nil
 }
 
+// ReissueUnkeptKeys gives every key whose secret was never kept a new one,
+// sealed, and returns the names of those it reissued. The keys in skip are left
+// alone.
+//
+// A key from before migration 026 had only its hash stored, so its Clients
+// page could not show it or write a configuration with it; the operator had
+// to regenerate it by hand, and the page carried a second shape for it. Run
+// once at startup, this retires that case: every key the gateway holds can be
+// shown. It breaks the clients holding those old secrets, deliberately — they
+// fetch their configurations again from the key's Clients page — and only
+// those: a key whose secret is kept is not touched.
+//
+// skip is for the gateway's own key, which nothing authenticates with and
+// whose secret is thrown away by design (see the titles service).
+func (s *Store) ReissueUnkeptKeys(ctx context.Context, sealer *secret.Sealer, skip map[string]bool) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name FROM api_keys WHERE sealed_secret IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("list unkept api keys: %w", err)
+	}
+	type unkept struct{ id, name string }
+	var todo []unkept
+	for rows.Next() {
+		var u unkept
+		if err := rows.Scan(&u.id, &u.name); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan unkept api key: %w", err)
+		}
+		if !skip[u.id] {
+			todo = append(todo, u)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list unkept api keys: %w", err)
+	}
+
+	var names []string
+	for _, u := range todo {
+		body, plaintext, err := newSecret()
+		if err != nil {
+			return names, err
+		}
+		sealed, err := sealer.Seal(plaintext)
+		if err != nil {
+			return names, fmt.Errorf("seal api key: %w", err)
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE api_keys SET prefix = ?, hash = ?, sealed_secret = ? WHERE id = ? AND sealed_secret IS NULL`,
+			body[:prefixLen], hashKey(plaintext), sealed, u.id); err != nil {
+			return names, fmt.Errorf("reissue api key %s: %w", u.name, err)
+		}
+		names = append(names, u.name)
+	}
+	return names, nil
+}
+
 // newSecret is a fresh credential: its random body, and the plaintext a client
 // holds.
 func newSecret() (body, plaintext string, err error) {

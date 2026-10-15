@@ -152,3 +152,58 @@ func TestKeyModelSwitches(t *testing.T) {
 		t.Errorf("switches left behind: %d, %v", n, err)
 	}
 }
+
+// On upgrade, a key whose secret was never kept is reissued with one that is:
+// its old secret stops authenticating, the new one is kept and works, the
+// skipped key is left alone, and a key already kept is not touched.
+func TestReissueUnkeptKeys(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+	sealer := testSealer(t)
+
+	legacy, legacySecret, err := st.CreateKey(ctx, "legacy", KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, _, err := st.CreateKey(ctx, "gateway (internal)", KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, keptSecret, err := st.CreateKey(ctx, "kept", KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StoreKeySecret(ctx, sealer, kept.ID, keptSecret); err != nil {
+		t.Fatal(err)
+	}
+
+	names, err := st.ReissueUnkeptKeys(ctx, sealer, map[string]bool{own.ID: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(names, []string{"legacy"}) {
+		t.Fatalf("reissued %v, want only the legacy key", names)
+	}
+
+	if _, err := st.Authenticate(ctx, legacySecret); err == nil {
+		t.Error("the legacy key's old secret still authenticates")
+	}
+	fresh, err := st.KeySecret(ctx, sealer, legacy.ID)
+	if err != nil {
+		t.Fatalf("the reissued secret is not kept: %v", err)
+	}
+	if k, err := st.Authenticate(ctx, fresh); err != nil || k.ID != legacy.ID {
+		t.Errorf("the reissued secret does not authenticate as its key: %v", err)
+	}
+	if _, err := st.KeySecret(ctx, sealer, own.ID); err != ErrSecretNotKept {
+		t.Errorf("the skipped key was given a secret: %v", err)
+	}
+	if k, err := st.Authenticate(ctx, keptSecret); err != nil || k.ID != kept.ID {
+		t.Errorf("a key already kept stopped authenticating: %v", err)
+	}
+
+	// Run again, nothing is left to do.
+	if again, err := st.ReissueUnkeptKeys(ctx, sealer, map[string]bool{own.ID: true}); err != nil || len(again) != 0 {
+		t.Errorf("second run reissued %v (%v)", again, err)
+	}
+}

@@ -219,6 +219,10 @@ const SettingCapture = "chat.titles.capture"
 // titleKeySetting remembers which API key the gateway issued itself.
 const titleKeySetting = "chat.titles.key"
 
+// KeySetting is the setting holding the id of the gateway's own key, for
+// startup steps that must leave that key alone.
+const KeySetting = titleKeySetting
+
 // internalKeyName is what that key is called in the keys list.
 //
 // It is a real key rather than a bypass so that what the gateway spends on its

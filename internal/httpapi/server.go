@@ -279,6 +279,20 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	// that spends the operator's subscription on the gateway's own behalf and
 	// doing that by accident is not a state worth reaching.
 	s.titles = titles.New(titles.Deps{Store: st, Relay: s.relay, Record: s.recorder.Record, Log: log})
+	// Keys from before secrets were kept get one, so every key's Clients page
+	// can show it. Breaks the clients holding those old secrets, by design;
+	// each is named in the log so its owner knows to fetch new configs.
+	{
+		own, _, _ := st.Setting(loadCtx, titles.KeySetting)
+		reissued, err := st.ReissueUnkeptKeys(loadCtx, sealer, map[string]bool{own: true})
+		if err != nil {
+			log.Error("reissue unkept api keys", "err", err)
+		}
+		for _, name := range reissued {
+			log.Warn("api key reissued: its old secret no longer works; fetch its clients' configs from its Clients page",
+				"key", name)
+		}
+	}
 	if err := s.titles.Load(loadCtx); err != nil {
 		log.Warn("could not read the chat-title switch; leaving it off", "err", err)
 	}
