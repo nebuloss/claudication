@@ -56,7 +56,7 @@ export default function Settings({
 
   const page = (() => {
     if (section === 'aliases') return <ModelsTab />
-    if (section === 'security') {
+    if (section === 'advanced') {
       return <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
     }
     if (loading && data === null) {

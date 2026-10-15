@@ -69,7 +69,7 @@ export const GATEWAY_SETTINGS = [
   { id: 'titles', label: 'Titles' },
   { id: 'images', label: 'Images' },
   { id: 'documentation', label: 'Documentation' },
-  { id: 'security', label: 'Security' },
+  { id: 'advanced', label: 'Advanced' },
   { id: 'configuration', label: 'Configuration' },
 ] as const satisfies readonly Section[]
 
@@ -86,7 +86,12 @@ const MOVED: Record<string, string> = {
  * calls them, so a link from before still opens the same section.
  */
 const RENAMED: Record<string, Record<string, string>> = {
-  settings: { models: 'aliases', chats: 'titles', docs: 'documentation' },
+  settings: {
+    models: 'aliases',
+    chats: 'titles',
+    docs: 'documentation',
+    security: 'advanced',
+  },
   keys: { limits: 'general', configs: 'clients' },
 }
 

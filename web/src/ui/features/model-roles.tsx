@@ -241,19 +241,24 @@ function NewAlias({
 export default function ModelsTab() {
   return (
     <div className="flex flex-col gap-5">
-      <Card>
-        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-          Every client config this gateway hands out asks for these names instead of a real model,
-          so moving every client to a new model is one change here. Each list starts with the newest
-          model of the alias&rsquo;s family, which is what the alias serves until you choose. A key
-          can choose differently in its own settings.
-        </p>
+      <Card
+        info={
+          <>
+            <p>
+              Every client config this gateway hands out asks for these names instead of a real
+              model, so moving every client to a new model is one change here. Each list starts with
+              the newest model of the alias&rsquo;s family, which is what the alias serves until you
+              choose. A key can choose differently in its own settings.
+            </p>
+            <p>
+              Clients size their requests from the model an alias served when their config was
+              written. Moving one to a model with a smaller context window means downloading the
+              configs again from each key&rsquo;s settings.
+            </p>
+          </>
+        }
+      >
         <RolesEditor />
-        <p className="mt-4 mb-0 text-xs text-on-surface-variant">
-          Clients size their requests from the model an alias served when their config was
-          written. Moving one to a model with a smaller context window means downloading the
-          configs again from each key&rsquo;s settings.
-        </p>
       </Card>
     </div>
   )

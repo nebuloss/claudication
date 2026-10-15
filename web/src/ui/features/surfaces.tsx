@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, type Surface } from '../../api/client'
-import { Banner, Card, Switch } from '../primitives'
+import { Banner, Card, Switch, tile } from '../primitives'
 
 /**
  * The switches for the client-facing APIs.
@@ -42,13 +42,14 @@ export default function Surfaces({
   const allOff = surfaces.length > 0 && surfaces.every((s) => !s.enabled)
 
   return (
-    <Card>
-
-      <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-        Which APIs this gateway answers on. A change takes effect on the next request — nothing
-        restarts, and requests already in flight are left alone.
-      </p>
-
+    <Card
+      info={
+        <p>
+          Which APIs this gateway answers on. A change takes effect on the next request — nothing
+          restarts, and requests already in flight are left alone.
+        </p>
+      }
+    >
       {error !== '' && (
         <Banner tone="error" className="mb-4">
           {error}
@@ -64,10 +65,7 @@ export default function Surfaces({
 
       <div className="flex flex-col gap-3">
         {surfaces.map((s) => (
-          <div
-            key={s.id}
-            className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3"
-          >
+          <div key={s.id} className={`${tile} px-4 py-3`}>
             <Switch
               checked={s.enabled}
               disabled={busy !== ''}

@@ -138,6 +138,12 @@ export default function AccountPage({
           </div>
           <Card>
             <CardTitle
+              info={
+                <p>
+                  As Anthropic reports it, counting every client on this account — not only this
+                  gateway.
+                </p>
+              }
               aside={
                 <SmallButton
                   disabled={reading}
@@ -160,10 +166,6 @@ export default function AccountPage({
               Subscription
             </CardTitle>
             <QuotaMeter quota={account.quota} pending={reading} />
-            <p className="mt-3 mb-0 text-xs text-on-surface-variant">
-              As Anthropic reports it, counting every client on this account — not only this
-              gateway.
-            </p>
           </Card>
           <Card>
             <KeyValue

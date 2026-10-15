@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { Banner, Card, Switch } from '../primitives'
+import { Banner, Card, Switch, tile } from '../primitives'
 
 /**
  * The switch for the public docs page.
@@ -45,39 +45,42 @@ export default function PublicDocs({
   }
 
   return (
-    <Card>
-
-      <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-        The instructions for pointing a client at this gateway &mdash; the config files with its
-        own address already in them. Served at the relay&rsquo;s root, where someone who has the
-        address is already looking, and with no sign-in, so reading the instructions does not need
-        the password that can add Claude accounts and mint keys.
-      </p>
-
+    <Card
+      info={
+        <p>
+          The instructions for pointing a client at this gateway &mdash; the config files with its
+          own address already in them. Served at the relay&rsquo;s root, where someone who has the
+          address is already looking, and with no sign-in, so reading the instructions does not need
+          the password that can add Claude accounts and mint keys.
+        </p>
+      }
+    >
       {error !== '' && (
         <Banner tone="error" className="mb-4">
           {error}
         </Banner>
       )}
 
-      <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
+      <div className={`${tile} px-4 py-3`}>
         <Switch
           checked={shown}
           disabled={busy}
           onChange={(v) => void toggle(v)}
           label="Serve the docs page"
+          info={
+            <p>
+              Off, that address answers 404 to everything again.{' '}
+              <strong className="font-medium text-on-surface">
+                On, it tells anyone who asks that a claudication gateway is here
+              </strong>{' '}
+              and how to configure a client for it. Nothing on it is a secret and nothing on it can
+              be changed &mdash; the relay&rsquo;s address, which APIs are on, whether an account is
+              connected, and the model list &mdash; but a request still needs a key, and this page
+              does not hand one out.
+            </p>
+          }
         />
         <div className="mt-2 sm:ml-16">
-          <p className="mt-0 mb-2 text-xs text-on-surface-variant">
-            Off, that address answers 404 to everything again, as it does today.{' '}
-            <strong className="font-medium text-on-surface">
-              On, it tells anyone who asks that a claudication gateway is here
-            </strong>{' '}
-            and how to configure a client for it. Nothing on it is a secret and nothing on it can
-            be changed &mdash; the relay&rsquo;s address, which APIs are on, whether an account is
-            connected, and the model list &mdash; but a request still needs a key, and this page
-            does not hand one out.
-          </p>
           {url !== '' && (
             <p className="m-0 text-xs text-on-surface-variant">
               At{' '}

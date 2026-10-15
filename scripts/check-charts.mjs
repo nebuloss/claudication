@@ -206,9 +206,9 @@ check('a moved screen names where it went', tab('/models'), 'settings')
 // Round trip: every canonical path is its own canonical form.
 check(
   'canonical paths are fixed points',
-  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/security']
+  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/advanced']
     .map((p) => canonical(p)),
-  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/security'],
+  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/advanced'],
 )
 
 // The rail lists only the level a page is on, with the way up; the trail

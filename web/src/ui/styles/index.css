@@ -54,6 +54,10 @@
   --color-warning-container: #ffdeb0;
   --color-on-warning-container: #2b1700;
 
+  /* The help marker: a plain blue, so "there is more to read here" is not
+     mistaken for the accent, a warning or a link. */
+  --color-info: #2a6fdb;
+
   --color-surface: #faf9f7;
   --color-on-surface: #1c1b19;
   --color-surface-variant: #e8e5e1;
@@ -146,6 +150,7 @@
     --color-on-warning: #472a00;
     --color-warning-container: #663d00;
     --color-on-warning-container: #ffdeb0;
+    --color-info: #a8c7fa;
 
     --color-surface: #141312;
     --color-on-surface: #e9e5e1;
@@ -213,6 +218,7 @@ color-scheme: dark;
   --color-on-warning: #472a00;
   --color-warning-container: #663d00;
   --color-on-warning-container: #ffdeb0;
+  --color-info: #a8c7fa;
 
   --color-surface: #141312;
   --color-on-surface: #e9e5e1;

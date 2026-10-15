@@ -31,7 +31,6 @@ export default function ConfigTable({ config }: { config: GatewayConfig }) {
 
   return (
     <Card>
-
       <p className="mt-0 mb-4 text-sm text-on-surface-variant">
         {config.path === '' ? (
           <>

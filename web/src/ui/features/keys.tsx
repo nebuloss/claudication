@@ -32,6 +32,7 @@ import {
   Switch,
   Table,
   TonalButton,
+  tile,
   ago,
   compact,
 } from '../primitives'
@@ -115,7 +116,17 @@ export default function Keys({
         />
       )}
 
-      <Card>
+      <Card
+        info={
+          <>
+            <p>
+              Open a key to change its limits, delete it, or see what it spent and on which
+              accounts.
+            </p>
+            <p>{SUBSCRIPTION_NOTE}</p>
+          </>
+        }
+      >
         {error !== '' && (
           <Banner tone="error" className="mb-4">
             {error}
@@ -180,10 +191,6 @@ export default function Keys({
           </ul>
         )}
 
-        <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">
-          Open a key to change its limits, delete it, or see what it spent and on which accounts.{' '}
-          {SUBSCRIPTION_NOTE}
-        </p>
       </Card>
     </div>
   )
@@ -221,7 +228,7 @@ function SubscriptionCell({ share }: { share: SubscriptionShare | undefined }) {
 function SubscriptionCard({ share }: { share: SubscriptionShare }) {
   return (
     <Card>
-      <CardTitle>Share of the Claude subscription</CardTitle>
+      <CardTitle info={<p>{SUBSCRIPTION_NOTE}</p>}>Share of the Claude subscription</CardTitle>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="5-hour" value={pct(share.five_hour)} hint="of all accounts" />
         <Stat label="7-day" value={pct(share.seven_day)} hint="of all accounts" />
@@ -253,7 +260,6 @@ function SubscriptionCard({ share }: { share: SubscriptionShare }) {
           </Table>
         </div>
       )}
-      <p className="mt-4 mb-0 text-xs text-on-surface-variant">{SUBSCRIPTION_NOTE}</p>
     </Card>
   )
 }
@@ -537,13 +543,22 @@ function KeySettings({
       // that have only a hash, and need a new secret once.
       case 'clients':
         return (
-          <Card>
-            {k.secret_kept ? (
+          <Card
+            info={
               <>
-                <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+                <p>
                   The key, and ready-made configs for Claude Code, Codex, opencode and crush with it
                   inside. Nothing changes for the clients already using it.
                 </p>
+                <p>
+                  A new secret is for a key that has leaked: the current one stops working at once,
+                  and every client needs the new config.
+                </p>
+              </>
+            }
+          >
+            {k.secret_kept ? (
+              <>
                 <div className="flex flex-wrap gap-2">
                   <FilledButton type="button" disabled={busy} onClick={() => void show()}>
                     {busy && <Spinner />}
@@ -553,10 +568,6 @@ function KeySettings({
                     Issue a new secret
                   </OutlinedButton>
                 </div>
-                <p className="mt-3 mb-0 text-xs text-on-surface-variant">
-                  A new secret is for a key that has leaked: the current one stops working at once,
-                  and every client needs the new config.
-                </p>
               </>
             ) : (
               <>
@@ -853,7 +864,7 @@ function KeyEditor({
           setBudget={setBudget}
         />
 
-        <div className="rounded-[var(--radius-md3-m)] border border-outline-variant bg-surface-low px-4 py-3">
+        <div className={`${tile} px-4 py-3`}>
           <div className="mb-1 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
             Key
           </div>

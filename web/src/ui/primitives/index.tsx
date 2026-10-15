@@ -22,6 +22,8 @@ export { MenuDivider, Popover, menuItem, menuSurface, useAnchoredPanel } from '.
 export type { Placement } from './popover'
 export { Breadcrumbs, NavRail, follow } from './nav'
 export { AddButton, ListRow, ListToolbar, RowBadge } from './list'
+export { InfoTip } from './info'
+import { InfoTip } from './info'
 
 /* Material 3 primitives, shared by every screen. */
 
@@ -40,20 +42,51 @@ export { AddButton, ListRow, ListToolbar, RowBadge } from './list'
  * lets both be true, and it is one rule here instead of a class on every
  * paragraph in the app.
  */
-export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
+export function Card({
+  children,
+  info,
+  className = '',
+}: {
+  children: ReactNode
+  /**
+   * What the card is for, behind an ⓘ in its corner rather than as a
+   * paragraph on top of it: read once, then out of the way.
+   */
+  info?: ReactNode
+  className?: string
+}) {
   return (
     <section
-      className={`rounded-[var(--radius-md3-xl)] border border-outline bg-surface-container p-6 [&_p]:max-w-[80ch] ${className}`}
+      className={`relative rounded-[var(--radius-md3-xl)] bg-surface-container p-6 [&_p]:max-w-[80ch] ${
+        info !== undefined ? 'pr-12' : ''
+      } ${className}`}
     >
+      {info !== undefined && (
+        <span className="absolute top-3.5 right-3.5">
+          <InfoTip>{info}</InfoTip>
+        </span>
+      )}
       {children}
     </section>
   )
 }
 
-export function CardTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
+export function CardTitle({
+  children,
+  aside,
+  info,
+}: {
+  children: ReactNode
+  aside?: ReactNode
+  /** Help for the card, as an ⓘ after its title. */
+  info?: ReactNode
+}) {
   return (
     <div className="mb-4 flex items-center justify-between gap-4">
-      <h2 className="text-xl leading-7 font-normal text-on-surface">{children}</h2>
+      <h2 className="flex items-center gap-1 text-xl leading-7 font-normal text-on-surface">
+        {children}
+        {info !== undefined && <InfoTip>{info}</InfoTip>}
+      </h2>
       {aside}
     </div>
   )
@@ -71,6 +104,14 @@ export function outlinedField(focused = false): string {
     : 'border border-outline px-4 hover:border-on-surface focus:border-2 focus:border-primary focus:px-[15px] focus-visible:border-2 focus-visible:border-primary focus-visible:px-[15px]'
   return `h-14 w-full rounded-[var(--radius-md3-m)] bg-transparent pt-4 text-on-surface outline-none transition-colors ${edge}`
 }
+
+/**
+ * A box inside a card: white on the card's tone, rounded, no outline. Every
+ * container in the UI is told apart by its fill, never by a line round it;
+ * outlines are for controls — fields and outlined buttons — that need an edge
+ * to be found.
+ */
+export const tile = 'rounded-[var(--radius-md3-l)] bg-surface-lowest'
 
 /** MD3 outlined text field, with the label riding up out of the way. */
 export function Field({
@@ -391,12 +432,24 @@ export function Switch({
   onChange,
   label,
   disabled,
+  info,
 }: {
   checked: boolean
   onChange: (v: boolean) => void
   label: string
   disabled?: boolean
+  /** What the switch does, behind an ⓘ after its label. */
+  info?: ReactNode
 }) {
+  // The ⓘ sits outside the label, so opening it never flips the switch.
+  if (info !== undefined) {
+    return (
+      <div className="flex items-center gap-1">
+        <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} />
+        <InfoTip>{info}</InfoTip>
+      </div>
+    )
+  }
   return (
     <label className="flex cursor-pointer items-center gap-3 select-none">
       <button
@@ -508,7 +561,7 @@ export function KeyValue({ items }: { items: [string, ReactNode][] }) {
  */
 export function Verbatim({ children }: { children: string }) {
   return (
-    <pre className="m-0 max-h-56 overflow-auto rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-on-surface">
+    <pre className="m-0 max-h-56 overflow-auto rounded-[var(--radius-md3-m)] bg-surface-lowest p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-on-surface">
       {children}
     </pre>
   )
@@ -544,7 +597,7 @@ export function Stat({
   const colour =
     tone === 'ok' ? 'text-success' : tone === 'error' ? 'text-error' : 'text-on-surface'
   return (
-    <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
+    <div className={`${tile} px-4 py-3`}>
       <div className="text-xs font-medium tracking-wide text-on-surface-variant uppercase">
         {label}
       </div>
@@ -620,7 +673,7 @@ export function CopyField({ label, value }: { label: string; value: string }) {
       <div className="flex items-stretch gap-2">
         {/* Solid rather than translucent: at 60% the fill landed between two
             near-identical surfaces and the block had no edge at all. */}
-        <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest px-3 py-2 font-mono text-xs leading-6 whitespace-pre text-on-surface">
+        <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--radius-md3-m)] bg-surface-lowest px-3 py-2 font-mono text-xs leading-6 whitespace-pre text-on-surface">
           {value}
         </code>
         <TonalButton onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</TonalButton>
@@ -1648,7 +1701,7 @@ export function Modal({
         onKeyDown={trap}
         className={`relative my-auto w-full ${
           size === 'lg' ? 'max-w-xl' : 'max-w-md'
-        } rounded-[var(--radius-md3-xl)] border border-outline bg-surface-high p-6 shadow-xl outline-none`}
+        } rounded-[var(--radius-md3-xl)] bg-surface-high p-6 shadow-xl outline-none`}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 id={titleId} className="m-0 text-xl leading-7 font-normal text-on-surface">

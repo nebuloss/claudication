@@ -220,7 +220,7 @@ export function Popover({
 }: {
   panelRef: RefObject<HTMLDivElement>
   at: Placement
-  role: 'menu' | 'listbox' | 'dialog'
+  role: 'menu' | 'listbox' | 'dialog' | 'tooltip'
   label: string
   id?: string
   className?: string

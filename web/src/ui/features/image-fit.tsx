@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { Banner, Card, Switch } from '../primitives'
+import { Banner, Card, Switch, tile } from '../primitives'
 
 /**
  * The switch for capping oversized images.
@@ -48,45 +48,48 @@ export default function ImageFit({
   }
 
   return (
-    <Card>
-
-      <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-        A request carrying more than 20 images is held to a stricter limit: every image in it must
-        be 2000&nbsp;px or less on a side. Images from earlier turns count, so a conversation that
-        has been fine for hours starts being refused over a screenshot already in its history.
-      </p>
-
+    <Card
+      info={
+        <p>
+          A request carrying more than 20 images is held to a stricter limit: every image in it must
+          be 2000&nbsp;px or less on a side. Images from earlier turns count, so a conversation that
+          has been fine for hours starts being refused over a screenshot already in its history.
+        </p>
+      }
+    >
       {error !== '' && (
         <Banner tone="error" className="mb-4">
           {error}
         </Banner>
       )}
 
-      <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
+      <div className={`${tile} px-4 py-3`}>
         <Switch
           checked={shown}
           disabled={busy}
           onChange={(v) => void toggle(v)}
           label="Shrink images that would be refused"
+          info={
+            <>
+              <p>
+                Only when a request carries more than 20 images, and only the ones over the limit —
+                everything else is relayed untouched, byte for byte.{' '}
+                <strong className="font-medium text-on-surface">
+                  This is the one thing the gateway changes about what the model is shown
+                </strong>
+                , rather than about the shape of the request, which is why it is off until you ask
+                for it.
+              </p>
+              <p>
+                What it costs is bounded: Claude already downscales to a 2576&nbsp;px long edge on
+                4.7 and later, and to 1568&nbsp;px before that — so capping at 2000 loses at most
+                the band between the two, and on an older model loses nothing. The rescale happens
+                once per image and is remembered, so a conversation that resends its history does
+                not pay for it again.
+              </p>
+            </>
+          }
         />
-        <div className="mt-2 sm:ml-16">
-          <p className="mt-0 mb-2 text-xs text-on-surface-variant">
-            Only when a request carries more than 20 images, and only the ones over the limit —
-            everything else is relayed untouched, byte for byte.{' '}
-            <strong className="font-medium text-on-surface">
-              This is the one thing the gateway changes about what the model is shown
-            </strong>
-            , rather than about the shape of the request, which is why it is off until you ask for
-            it.
-          </p>
-          <p className="m-0 text-xs text-on-surface-variant">
-            What it costs is bounded: Claude already downscales to a 2576&nbsp;px long edge on 4.7
-            and later, and to 1568&nbsp;px before that — so capping at 2000 loses at most the band
-            between the two, and on an older model loses nothing. The rescale happens once per
-            image and is remembered, so a conversation that resends its history does not pay for it
-            again.
-          </p>
-        </div>
       </div>
     </Card>
   )

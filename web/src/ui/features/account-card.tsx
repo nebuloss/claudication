@@ -12,6 +12,7 @@ import {
   Spinner,
   TonalButton,
   Verbatim,
+  tile,
   type ChipTone,
 } from '../primitives'
 
@@ -148,7 +149,7 @@ export default function AccountSettings({
         )}
 
         {reconnecting && (
-          <div className="mt-5 rounded-[var(--radius-md3-m)] border border-outline bg-surface-high p-4">
+          <div className={`mt-5 ${tile} p-4`}>
             <ConsentFlow
               account={account}
               onDone={() => {
@@ -205,12 +206,14 @@ export default function AccountSettings({
 
   if (section === 'availability') {
     return (
-      <Card>
-        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-          {account.disabled
-            ? 'Paused: this account serves nothing, and keeps its credentials for when it is resumed.'
-            : 'Serving, in its place in the priority order. Pausing takes it out of rotation without signing it out.'}
-        </p>
+      <Card
+        info={
+          <p>
+            Pausing takes an account out of rotation without signing it out: it serves nothing, and
+            keeps its credentials for when it is resumed in its place in the priority order.
+          </p>
+        }
+      >
         <OutlinedButton
           onClick={() =>
             void run('disable', () => api.setAccountDisabled(account.id, !account.disabled))

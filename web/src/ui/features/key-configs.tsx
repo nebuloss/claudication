@@ -76,7 +76,7 @@ export function KeyConfigs({
         </Banner>
       )}
 
-      <ul className="m-0 flex list-none flex-col divide-y divide-outline-variant rounded-[var(--radius-md3-m)] border border-outline-variant p-0">
+      <ul className="m-0 flex list-none flex-col divide-y divide-outline-variant overflow-hidden rounded-[var(--radius-md3-l)] bg-surface-lowest p-0">
         {CLIENTS.map((client) => {
           const missing = client.missingSurfaces(config?.surfaces ?? [])
           return (

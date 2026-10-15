@@ -148,7 +148,14 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
 
       {notice !== '' && <Banner>{notice}</Banner>}
 
-      <Card>
+      <Card
+        info={
+          <p>
+            Accounts are served top-down: the next one takes over when the one above is out of room.
+            Drag a row, or use its arrows, to change the order.
+          </p>
+        }
+      >
         {error !== '' && (
           <Banner tone="error" className="mb-4">
             {error}
@@ -216,12 +223,6 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
               )
             })}
           </div>
-        )}
-        {accounts.length > 1 && (
-          <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">
-            Served top-down — the next one takes over when the one above is out of room. Drag or
-            use the arrows to change the order.
-          </p>
         )}
       </Card>
     </div>

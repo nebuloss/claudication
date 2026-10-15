@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { Banner, Card, Switch } from '../primitives'
+import { Banner, Card, Switch, tile } from '../primitives'
 
 /**
  * The switches for naming conversations.
@@ -58,13 +58,14 @@ export default function ChatTitles({
   }
 
   return (
-    <Card>
-
-      <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-        Conversations are grouped by the session id their client sends, which is always just an
-        identifier. These decide whether they also get a readable name.
-      </p>
-
+    <Card
+      info={
+        <p>
+          Conversations are grouped by the session id their client sends, which is always just an
+          identifier. These decide whether they also get a readable name.
+        </p>
+      }
+    >
       {error !== '' && (
         <Banner tone="error" className="mb-4">
           {error}
@@ -72,47 +73,55 @@ export default function ChatTitles({
       )}
 
       <div className="flex flex-col gap-3">
-        <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
+        <div className={`${tile} px-4 py-3`}>
           <Switch
             checked={shown.capture}
             disabled={busy !== ''}
             onChange={(v) => void toggle('capture', v)}
             label="Read names clients generate"
+            info={
+              <p>
+                opencode and crush name their own conversations by asking a model, and that request
+                comes through here carrying the same session id. Its answer is the name they
+                display, so this reads it rather than guessing one. Costs nothing — the request was
+                theirs and the answer was going to them anyway.
+              </p>
+            }
           />
-          <p className="mt-2 mb-0 text-xs text-on-surface-variant sm:ml-16">
-            opencode and crush name their own conversations by asking a model, and that request
-            comes through here carrying the same session id. Its answer is the name they display,
-            so this reads it rather than guessing one. Costs nothing — the request was theirs and
-            the answer was going to them anyway.
-          </p>
         </div>
 
-        <div className="rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
+        <div className={`${tile} px-4 py-3`}>
           <Switch
             checked={shown.enabled}
             disabled={busy !== ''}
             onChange={(v) => void toggle('enabled', v)}
             label="Ask for a name when the client does not"
+            info={
+              <>
+                <p>
+                  Claude Code never asks a model to name its conversations, so there is nothing to
+                  read. With this on the gateway asks for one itself, once per conversation.{' '}
+                  <strong className="font-medium text-on-surface">
+                    This spends your subscription
+                  </strong>{' '}
+                  rather than relaying someone else&rsquo;s request — one short call, made on that
+                  chat&rsquo;s own model and account so it reads the prompt cache that is already
+                  warm instead of re-sending the conversation.
+                </p>
+                <p>
+                  Billed to an API key the gateway issues itself, called{' '}
+                  <code className="font-mono">gateway (internal)</code>, so the cost shows up in
+                  Usage like anything else alongside the chat it named. That key is the
+                  gateway&rsquo;s, not yours to edit or withdraw — this switch is the control, and
+                  turning it off is what stops it.
+                </p>
+              </>
+            }
           />
-          <div className="mt-2 sm:ml-16">
-            <p className="mt-0 mb-2 text-xs text-on-surface-variant">
-              Claude Code never asks a model to name its conversations, so there is nothing to
-              read. With this on the gateway asks for one itself, once per conversation.{' '}
-              <strong className="font-medium text-on-surface">
-                This spends your subscription
-              </strong>{' '}
-              rather than relaying someone else&rsquo;s request — one short call, made on that
-              chat&rsquo;s own model and account so it reads the prompt cache that is already warm
-              instead of re-sending the conversation.
-            </p>
-            <p className="m-0 text-xs text-on-surface-variant">
-              Billed to an API key the gateway issues itself, called{' '}
-              <code className="font-mono">gateway (internal)</code>, so the cost shows up in Usage
-              like anything else alongside the chat it named. That key is the gateway&rsquo;s, not
-              yours to edit or withdraw — this switch is the control, and turning it off is what
-              stops it.
-            </p>
-          </div>
+          <p className="mt-2 mb-0 text-xs text-on-surface-variant sm:ml-16">
+            <strong className="font-medium text-on-surface">Spends your subscription</strong>: one
+            short call per conversation.
+          </p>
         </div>
       </div>
     </Card>

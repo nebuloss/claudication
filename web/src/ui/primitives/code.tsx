@@ -179,7 +179,7 @@ export function CodeViewer({
   }
 
   return (
-    <div className="overflow-hidden rounded-[var(--radius-md3-m)] border border-outline-variant">
+    <div className="overflow-hidden rounded-[var(--radius-md3-l)] bg-surface-lowest">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-outline-variant bg-surface-high px-3 py-2">
         <span className="font-mono text-xs text-on-surface">{label}</span>
         <span className="text-[11px] text-on-surface-variant">
