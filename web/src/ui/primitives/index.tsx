@@ -1345,7 +1345,7 @@ export function IconLink({
       // noreferrer as well as noopener: the opened page has no business
       // knowing which gateway sent it.
       rel="noopener noreferrer"
-      className="state-layer grid size-9 shrink-0 place-items-center rounded-[var(--radius-md3-full)] border border-outline text-on-surface-variant"
+      className="state-layer grid size-10 shrink-0 place-items-center rounded-[var(--radius-md3-full)] border border-outline text-on-surface-variant"
     >
       <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
         {children}
@@ -1422,7 +1422,7 @@ export function TextLink({ href, children }: { href: string; children: ReactNode
       // noreferrer as well as noopener: the opened page has no business
       // knowing which gateway sent it.
       rel="noopener noreferrer"
-      className="state-layer inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[var(--radius-md3-full)] border border-outline px-3 text-sm font-medium text-on-surface-variant"
+      className="state-layer inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[var(--radius-md3-full)] border border-outline px-4 text-sm font-medium text-on-surface-variant"
     >
       {children}
       <svg viewBox="0 0 24 24" aria-hidden className="size-3.5 shrink-0 fill-current">
@@ -1474,11 +1474,14 @@ export function Segmented<T extends string>({
   value,
   onChange,
   label,
+  size = 'sm',
 }: {
   options: { id: T; label: string; content: ReactNode }[]
   value: T
   onChange: (id: T) => void
   label: string
+  /** md is the app bar's 40px, beside its other controls. */
+  size?: 'sm' | 'md'
 }) {
   return (
     <div
@@ -1494,7 +1497,7 @@ export function Segmented<T extends string>({
           aria-checked={value === o.id}
           title={o.label}
           onClick={() => onChange(o.id)}
-          className={`state-layer grid h-8 min-w-8 place-items-center px-3 text-xs font-medium ${
+          className={`state-layer grid ${size === 'md' ? 'h-10 min-w-10' : 'h-8 min-w-8'} place-items-center px-3 text-xs font-medium ${
             i > 0 ? 'border-l border-outline' : ''
           } ${
             value === o.id

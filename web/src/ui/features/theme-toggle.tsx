@@ -25,6 +25,7 @@ export default function ThemeToggle() {
   return (
     <Segmented
       label="Colour theme"
+      size="md"
       value={mode}
       onChange={setMode}
       options={OPTIONS.map((o) => ({

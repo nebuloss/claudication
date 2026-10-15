@@ -183,15 +183,14 @@ export default function App() {
         <div
           className={`mx-auto flex ${measure} items-center justify-between gap-4 px-4 pt-4 sm:px-6`}
         >
-          <div className="flex items-center gap-3">
+          {/* One line, the height of the controls beside it: the name, and the
+              running build, which is asked for right after a deploy. */}
+          <div className="flex min-w-0 items-center gap-3">
             <Mark />
-            <div>
-              <h1 className="m-0 text-xl leading-6 font-normal text-on-surface">claudication</h1>
-              <p className="mt-0.5 mb-0 text-xs text-on-surface-variant">
-                Claude API gateway
-                <Version />
-              </p>
-            </div>
+            <h1 className="m-0 flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
+              claudication gateway
+              <Version />
+            </h1>
           </div>
           <div className="flex items-center gap-2">
             {docsURL !== '' && (
@@ -312,10 +311,7 @@ function Version() {
   const { data } = useLoader<OverviewData>(() => api.overview())
   if (data === null) return null
   return (
-    <>
-      {' · '}
-      <span className="font-mono">{data.version}</span>
-    </>
+    <span className="truncate font-mono text-xs text-on-surface-variant">{data.version}</span>
   )
 }
 
