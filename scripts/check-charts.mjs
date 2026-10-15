@@ -182,10 +182,11 @@ check('usage is read on the overview', canonical('/usage'), '/')
 check('an unknown screen falls back', canonical('/nonesuch'), '/')
 
 // A path naming a branch is completed to the branch's first page.
-check('an account is its usage page', canonical('/accounts/8189e5dc'), '/accounts/8189e5dc/usage')
+check('an account opens on its overview', canonical('/accounts/8189e5dc'), '/accounts/8189e5dc/overview')
 check('its chats are a page', canonical('/accounts/8189e5dc/chats'), '/accounts/8189e5dc/chats')
 check('its requests too', canonical('/keys/k1/requests'), '/keys/k1/requests')
-check('an unknown page is its usage', canonical('/keys/k1/nonesuch'), '/keys/k1/usage')
+check('an unknown page is its overview', canonical('/keys/k1/nonesuch'), '/keys/k1/overview')
+check('its usage is a page', canonical('/keys/k1/usage'), '/keys/k1/usage')
 check('settings open on the first section', canonical('/accounts/8189e5dc/settings'), '/accounts/8189e5dc/settings/models')
 check('a section is a page', canonical('/keys/k1/settings/aliases'), '/keys/k1/settings/aliases')
 check('an unknown section is the first', canonical('/keys/k1/settings/nonesuch'), '/keys/k1/settings/models')
@@ -193,7 +194,7 @@ check('activity opens on chats', canonical('/activity'), '/activity/chats')
 check('the gateway settings on the first section', canonical('/settings'), '/settings/models')
 check('a gateway section is a page', canonical('/settings/apis'), '/settings/apis')
 // Ids are encoded once, whatever they hold.
-check('an id is kept encoded', canonical('/keys/a%2Fb'), '/keys/a%2Fb/usage')
+check('an id is kept encoded', canonical('/keys/a%2Fb'), '/keys/a%2Fb/overview')
 check('and decoded when read', segments('/keys/a%2Fb/usage'), ['keys', 'a/b', 'usage'])
 check('a broken escape does not throw', segments('/keys/%E0%A4%A'), ['keys', '%E0%A4%A'])
 check('a path is built encoded', pathOf('accounts', 'a b', 'chats'), '/accounts/a%20b/chats')
@@ -220,11 +221,11 @@ check(
   check('a list is on the top level', lvl('/accounts').current, '/accounts')
   check('each screen opens on its first page', hrefs(lvl('/'))[3], '/activity/chats')
   check('an account lists its pages', hrefs(lvl('/accounts/a1/chats')), [
-    '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests', '/accounts/a1/settings/models',
+    '/accounts/a1/overview', '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests', '/accounts/a1/settings/models',
   ])
   check('and goes back to the list', lvl('/accounts/a1/chats').back, { href: '/accounts', label: 'Accounts' })
   check('its settings list their sections only', lvl('/keys/k1/settings/limits').items.length, 5)
-  check('and go back to the key, by name', lvl('/keys/k1/settings/limits').back, { href: '/keys/k1/usage', label: 'keys:k1' })
+  check('and go back to the key, by name', lvl('/keys/k1/settings/limits').back, { href: '/keys/k1/overview', label: 'keys:k1' })
   check('the open section is current', lvl('/keys/k1/settings/limits').current, '/keys/k1/settings/limits')
   check('removing is under Advanced, last', lvl('/keys/k1/settings/limits').items.at(-1).href, '/keys/k1/settings/advanced')
   check('settings go back to the top', lvl('/settings/apis').back.href, '/')

@@ -27,8 +27,8 @@ const REPORT_REFRESH_MS = 30_000
 const TOP = 5
 
 /** Where an account's or a key's own page lives. */
-export const accountHref = (id: string) => pathOf('accounts', id, 'usage')
-export const keyHref = (id: string) => pathOf('keys', id, 'usage')
+export const accountHref = (id: string) => pathOf('accounts', id, 'overview')
+export const keyHref = (id: string) => pathOf('keys', id, 'overview')
 
 /** A breakdown row that opens the page of what it counts, when it has one. */
 function linked(b: UsageBucket, href: ((id: string) => string) | undefined) {

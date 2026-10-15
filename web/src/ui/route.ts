@@ -5,7 +5,7 @@
  *
  *   /                                   overview
  *   /accounts                           the accounts
- *   /accounts/<id>/usage|chats|requests one account's traffic
+ *   /accounts/<id>/overview|usage|chats|requests  one account
  *   /accounts/<id>/settings/<section>   one of its settings
  *   /keys … the same shape, for keys
  *   /activity/chats|requests            all traffic
@@ -36,6 +36,7 @@ export type Tab = (typeof TABS)[number]['id']
 
 /** An account's or a key's pages, under /accounts/<id> and /keys/<id>. */
 export const ITEM_PAGES = [
+  { id: 'overview', label: 'Overview' },
   { id: 'usage', label: 'Usage' },
   { id: 'chats', label: 'Chats' },
   { id: 'requests', label: 'Requests' },
@@ -118,7 +119,7 @@ export function canonical(pathname: string): string {
     case 'accounts':
     case 'keys': {
       if (a === undefined) return pathOf(top)
-      const page = known(ITEM_PAGES, b) ? b! : 'usage'
+      const page = known(ITEM_PAGES, b) ? b! : 'overview'
       if (page !== 'settings') return pathOf(top, a, page)
       const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
       return pathOf(top, a, 'settings', known(list, c) ? c! : list[0].id)
@@ -171,7 +172,7 @@ export function navLevel(pathname: string, name: Namer): NavLevel {
     if (page === 'settings') {
       const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
       return {
-        back: { href: `${base}/usage`, label: name(top, id) },
+        back: { href: `${base}/overview`, label: name(top, id) },
         items: links(`${base}/settings`, list),
         current: `${base}/settings/${section}`,
       }
@@ -211,7 +212,7 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
   if ((top === 'accounts' || top === 'keys') && id !== undefined) {
     const base = pathOf(top, id)
     out[0] = { href: pathOf(top), label: tab.label }
-    out.push({ href: `${base}/usage`, label: name(top, id) })
+    out.push({ href: `${base}/overview`, label: name(top, id) })
     out.push({ href: canonical(`${base}/${page}`), label: label(ITEM_PAGES, page) })
     if (page === 'settings') {
       const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import AccountSettings, { status } from './account-card'
+import AccountSettings, { formatDate, relative, status } from './account-card'
 import { Window } from './accounts'
 import { ChatsPage } from './chats'
 import { DetailHeader } from './detail'
@@ -8,8 +8,21 @@ import RequestsPanel from './requests'
 import ScopedUsage from './usage'
 import { api } from '../../api/client'
 import { useLoader } from '../hooks'
-import { navigate } from '../route'
-import { Banner, Card, CardTitle, Chip, Empty, SmallButton, Spinner } from '../primitives'
+import { navigate, pathOf } from '../route'
+import { providerLabel } from '../providers'
+import {
+  AppLink,
+  Banner,
+  Card,
+  CardTitle,
+  Chip,
+  Empty,
+  KeyValue,
+  SmallButton,
+  Spinner,
+  Stat,
+  compact,
+} from '../primitives'
 
 /** As on the list: the server says how often it re-reads the quota. */
 const REFRESH_MS = 20_000
@@ -107,8 +120,22 @@ export default function AccountPage({
       )}
       {page === 'chats' && <ChatsPage scope={{ account: account.id }} onExpired={onExpired} />}
       {page === 'requests' && <RequestsPanel scope={{ account: account.id }} onExpired={onExpired} />}
-      {page === 'usage' && (
+      {page === 'overview' && (
         <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat label="Requests" value={compact(account.requests)} hint={`over ${data?.windowDays ?? 7}d`} />
+            <Stat label="Tokens" value={compact(account.tokens)} hint={`over ${data?.windowDays ?? 7}d`} />
+            <Stat
+              label="5-hour window"
+              value={account.quota !== undefined ? `${Math.round(account.quota.five_hour_util)}%` : '—'}
+              hint="used"
+            />
+            <Stat
+              label="7-day window"
+              value={account.quota !== undefined ? `${Math.round(account.quota.seven_day_util)}%` : '—'}
+              hint="used"
+            />
+          </div>
           <Card>
             <CardTitle
               aside={
@@ -138,8 +165,32 @@ export default function AccountPage({
               gateway.
             </p>
           </Card>
-          <ScopedUsage scope={{ account: account.id }} breakdown="key" onExpired={onExpired} />
+          <Card>
+            <KeyValue
+              items={[
+                ['Provider', providerLabel(account.provider)],
+                ['Priority', `${rank + 1} of ${accounts.length}`],
+                ['Serving', account.disabled ? 'paused' : account.serving ? 'yes, now' : 'when its turn comes'],
+                [
+                  'Models',
+                  (account.models_off ?? []).length === 0 ? (
+                    'all on'
+                  ) : (
+                    <AppLink href={`${pathOf('accounts', account.id)}/settings/models`}>
+                      {(account.models_off ?? []).length} switched off
+                    </AppLink>
+                  ),
+                ],
+                ['Token expires', relative(account.expires_at)],
+                ['Last used', formatDate(account.last_used_at)],
+                ['Connected', formatDate(account.created_at)],
+              ]}
+            />
+          </Card>
         </>
+      )}
+      {page === 'usage' && (
+          <ScopedUsage scope={{ account: account.id }} breakdown="key" onExpired={onExpired} />
       )}
     </div>
   )

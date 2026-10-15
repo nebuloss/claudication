@@ -17,14 +17,14 @@ import {
 
 type Busy = '' | 'test' | 'refresh' | 'disable' | 'delete'
 
-function formatDate(iso?: string): string {
+export function formatDate(iso?: string): string {
   if (!iso) return 'never'
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
 }
 
 /** "in 7h", "12m ago" — enough to judge a token at a glance. */
-function relative(iso: string): string {
+export function relative(iso: string): string {
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) return 'unknown'
   const delta = then - Date.now()

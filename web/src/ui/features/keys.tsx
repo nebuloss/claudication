@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api, messageOf, type ApiKey, type SubscriptionShare } from '../../api/client'
 import { useLoader } from '../hooks'
-import { navigate } from '../route'
+import { navigate, pathOf } from '../route'
 import ScopedUsage, { accountHref, keyHref } from './usage'
 import { DetailHeader } from './detail'
 import { ChatsPage } from './chats'
@@ -24,6 +24,7 @@ import {
   FilledButton,
   OutlinedButton,
   Spinner,
+  KeyValue,
   Stat,
   StepSlider,
   Switch,
@@ -348,11 +349,57 @@ export function KeyPage({
       )}
       {page === 'chats' && <ChatsPage scope={{ key: k.id }} onExpired={onExpired} />}
       {page === 'requests' && <RequestsPanel scope={{ key: k.id }} onExpired={onExpired} />}
-      {page === 'usage' && (
+      {page === 'overview' && (
         <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat label="Requests" value={compact(k.requests)} hint={`over ${data?.windowDays ?? 7}d`} />
+            <Stat label="Tokens" value={compact(k.tokens)} hint={`over ${data?.windowDays ?? 7}d`} />
+            <Stat
+              label="Today"
+              value={compact(k.spent_today)}
+              hint={k.token_budget > 0 ? `of ${compact(k.token_budget)} tokens` : 'tokens, no daily cap'}
+              tone={k.token_budget > 0 && k.spent_today >= k.token_budget ? 'error' : undefined}
+            />
+            <Stat
+              label="Rate"
+              value={k.rpm_limit > 0 ? compact(k.rpm_limit) : 'default'}
+              hint={k.rpm_limit > 0 ? `requests a ${periodName(k.rate_period_s)}` : 'the gateway’s limit'}
+            />
+          </div>
           {k.subscription !== undefined && <SubscriptionCard share={k.subscription} />}
-          <ScopedUsage scope={{ key: k.id }} breakdown="account" onExpired={onExpired} />
+          <Card>
+            <KeyValue
+              items={[
+                ['Key', <code className="font-mono text-xs">{k.display}</code>],
+                [
+                  'Configs',
+                  k.secret_kept ? (
+                    <AppLink href={`${pathOf('keys', k.id)}/settings/configs`}>can be downloaded</AppLink>
+                  ) : (
+                    <AppLink href={`${pathOf('keys', k.id)}/settings/configs`}>
+                      need a new secret once
+                    </AppLink>
+                  ),
+                ],
+                [
+                  'Models',
+                  k.models_off.length === 0 ? (
+                    'all on'
+                  ) : (
+                    <AppLink href={`${pathOf('keys', k.id)}/settings/models`}>
+                      {k.models_off.length} switched off
+                    </AppLink>
+                  ),
+                ],
+                ['Last used', ago(k.last_used_at)],
+                ['Created', ago(k.created_at)],
+              ]}
+            />
+          </Card>
         </>
+      )}
+      {page === 'usage' && (
+        <ScopedUsage scope={{ key: k.id }} breakdown="account" onExpired={onExpired} />
       )}
     </div>
   )
