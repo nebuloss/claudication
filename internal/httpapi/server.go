@@ -550,13 +550,6 @@ func (s *Server) Run(ctx context.Context) error {
 	s.addr = ln.Addr().String()
 	s.mu.Unlock()
 
-	go s.keyLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
-	go s.anonLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
-	go s.budgets.RunSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
-	go s.recorder.RunPruner(s.stopSweeper, 24*time.Hour)
-	go s.poller.Run(ctx, s.stopSweeper, accountsvc.Tick)
-	go s.trimmer.Run(s.stopSweeper, 5*time.Second)
-
 	// The admin listener binds before anything is served, so a port clash is a
 	// startup failure rather than a gateway that comes up with no way in.
 	var adminLn net.Listener
@@ -583,6 +576,19 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("listen on %s: %w", s.cfg.DocsListen, err)
 		}
 	}
+
+	// The background work starts only once every listener is bound. Started
+	// before, a port clash on the admin or docs address returned with the
+	// sweepers, the pruner and the poller still running against the database —
+	// harmless in a process about to exit, and a test's state directory being
+	// written to while it was removed (TestRunFailsOnAListenerClash, about one
+	// run in five under load).
+	go s.keyLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
+	go s.anonLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
+	go s.budgets.RunSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
+	go s.recorder.RunPruner(s.stopSweeper, 24*time.Hour)
+	go s.poller.Run(ctx, s.stopSweeper, accountsvc.Tick)
+	go s.trimmer.Run(s.stopSweeper, 5*time.Second)
 
 	// Buffered for every listener, so no goroutine blocks on a send once
 	// another has already reported and the select has moved on.
