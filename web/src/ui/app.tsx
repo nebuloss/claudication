@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
 import AccountPage from './features/account-page'
 import Activity from './features/activity'
-import ModelsTab from './features/virtual-models'
+import ModelsTab from './features/model-roles'
 import Keys, { KeyPage } from './features/keys'
 import { KeyConfigs } from './features/key-configs'
 import Overview from './features/overview'
@@ -282,7 +282,7 @@ export default function App() {
               onMinted={setMinted}
             />
           ))}
-        {tab === 'models' && <ModelsTab onExpired={expired} />}
+        {tab === 'models' && <ModelsTab />}
         {tab === 'activity' && <Activity onExpired={expired} />}
         {tab === 'settings' && (
           <Settings

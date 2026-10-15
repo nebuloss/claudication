@@ -77,8 +77,11 @@ func TestKeyModelSwitchesOverTheAPI(t *testing.T) {
 		}
 		defer resp.Body.Close()
 		var l struct {
-			Data    []struct{ ID string } `json:"data"`
-			HasMore *bool                 `json:"has_more"`
+			Data []struct {
+				ID      string `json:"id"`
+				Virtual bool   `json:"virtual"`
+			} `json:"data"`
+			HasMore *bool `json:"has_more"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&l); err != nil {
 			t.Fatal(err)
@@ -86,9 +89,12 @@ func TestKeyModelSwitchesOverTheAPI(t *testing.T) {
 		if l.HasMore == nil {
 			t.Error("filtering dropped the list's other fields")
 		}
+		// The real models: the model roles that lead the list are another test's.
 		ids := []string{}
 		for _, m := range l.Data {
-			ids = append(ids, m.ID)
+			if !m.Virtual {
+				ids = append(ids, m.ID)
+			}
 		}
 		return ids
 	}

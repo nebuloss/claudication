@@ -300,11 +300,17 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: trusted, StartedAt: time.Now(),
 		Models: s.gateway.FetchModels, AccountModels: s.gateway.FetchModelsFor,
-		KeyModels: s.gateway.ModelsFor,
+		KeyModels: s.gateway.ModelsFor, RoleTarget: s.gateway.RoleTarget,
 	})
 	s.web = web.New(web.Deps{
 		Config: s.cfg, Log: log, Store: st, Docs: s.docs, Surfaces: s.surfaces,
-		Models: s.gateway.FetchModels, Files: webdist,
+		// The model list with the gateway's model roles first, as a key that
+		// binds neither sees it: the docs page writes its configs from this,
+		// and they should ask for the roles as every other config does.
+		Models: func(ctx context.Context) ([]byte, error) {
+			return s.gateway.ModelsFor(ctx, store.APIKey{})
+		},
+		Files: webdist,
 	})
 
 	// With admin-listen set, this one drops the admin API and the UI; they

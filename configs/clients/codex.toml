@@ -8,9 +8,11 @@
 # env_key names an environment variable, not a key.
 # model must name a Claude model — Codex asks for gpt-5-codex by default, which
 # means nothing upstream, and the gateway then substitutes its own default.
+# claude-large is the gateway's model role for real work: which model answers
+# it is set in the gateway, on its Models tab, not here.
 
 model_provider = "claudication"
-model = "claude-opus-5-5"
+model = "claude-large"
 
 # Fixes Codex guessing a conservative context window for a model it has never
 # heard of, which makes it compact the conversation far too early.

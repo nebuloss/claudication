@@ -58,7 +58,7 @@ evidence is per dialect.
 The relay's rule is that the caller's bytes go upstream unchanged. There are
 seven exceptions, each named in `internal/relay/passes`, each because the
 request cannot otherwise succeed — six repairs in the default pipeline, and the
-virtual-model rewrite the gateway applies when a request names one. Do not add
+model-role rewrite the gateway applies when a request names one. Do not add
 an eighth on a hunch — see below.
 
 ## When a request fails for no visible reason

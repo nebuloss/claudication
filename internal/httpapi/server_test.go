@@ -208,12 +208,20 @@ func TestModelDiscovery(t *testing.T) {
 			t.Fatalf("status = %d, want 200", status)
 		}
 		var parsed struct {
-			Object string `json:"object"`
-			Data   []any  `json:"data"`
+			Object string           `json:"object"`
+			Data   []map[string]any `json:"data"`
 		}
 		if err := json.Unmarshal(body, &parsed); err != nil {
 			t.Fatal(err)
 		}
+		// Less the gateway's model roles, which lead the list.
+		real := parsed.Data[:0]
+		for _, m := range parsed.Data {
+			if m["virtual"] != true {
+				real = append(real, m)
+			}
+		}
+		parsed.Data = real
 		if len(parsed.Data) != 1 {
 			t.Errorf("data = %v, want the upstream's own entry relayed", parsed.Data)
 		}

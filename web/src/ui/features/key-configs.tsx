@@ -31,14 +31,6 @@ export function relayAddress(config: GatewayConfig | null): string {
  * and that app's models swapped in — so what is downloaded here and what the
  * docs describe cannot drift apart.
  */
-/** Each client here as the gateway tells it apart, for its own model list. */
-const APP_OF: Record<string, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  opencode: 'opencode',
-  crush: 'crush',
-}
-
 export function KeyConfigs({
   plaintext,
   config,
@@ -51,37 +43,13 @@ export function KeyConfigs({
   const address = relayAddress(config)
   const gateway = address !== '' ? address : EXAMPLE_BASE
 
-  // Each app's own model list for this key — what /v1/models answers that app
-  // — read once when the dialog opens, so a file lists the virtual models that
-  // app is mapped to and defaults to them. A failure is not an error worth
+  // What this key is offered — /v1/models as it sees it, claude-large and
+  // claude-small first, each with the facts of the model it serves for this
+  // key — read once when the dialog opens. A failure is not an error worth
   // showing over the key: the files fall back to the committed ones, which
   // are complete, and the line below says so.
-  const { data: lists, loading } = useLoader(
-    async () => {
-      const entries = await Promise.all(
-        CLIENTS.map(async (c) => {
-          const app = APP_OF[c.id] ?? ''
-          try {
-            const res = await api.keyClientModels(keyId, app)
-            return [c.id, res.data] as const
-          } catch {
-            return [c.id, null] as const
-          }
-        }),
-      )
-      return Object.fromEntries(entries)
-    },
-    undefined,
-    [keyId],
-    0,
-  )
-  const catalogs = useMemo(() => {
-    const out: Record<string, Catalog> = {}
-    for (const c of CLIENTS) out[c.id] = new Catalog(lists?.[c.id])
-    return out
-  }, [lists])
-  const models = lists
-  const catalog = catalogs[CLIENTS[0].id] ?? new Catalog(null)
+  const { data: models, loading } = useLoader(() => api.keyOfferedModels(keyId), undefined, [keyId], 0)
+  const catalog = useMemo(() => new Catalog(models?.data), [models])
 
   return (
     <section className="mt-6">
@@ -94,7 +62,7 @@ export function KeyConfigs({
             <Spinner className="size-3" /> Reading the model list…
           </span>
         ) : catalog.known ? (
-          'Models: what each app is offered with this key — its virtual models first — read just now.'
+          `Models: every app asks for claude-large (now ${catalog.large === 'claude-large' ? catalog.servingOf('claude-large') : catalog.large}) and claude-small (now ${catalog.small === 'claude-small' ? catalog.servingOf('claude-small') : catalog.small}), so a change on the Models tab or in this key's settings reaches them without a new file.`
         ) : (
           'Models: the list shipped with this release, because the live one could not be read.'
         )}
@@ -126,7 +94,7 @@ export function KeyConfigs({
                 )}
               </div>
               <span className="flex flex-wrap gap-2">
-                {client.files(gateway, plaintext, catalogs[client.id] ?? catalog).map((f) => (
+                {client.files(gateway, plaintext, catalog).map((f) => (
                   <TonalButton
                     key={f.filename}
                     onClick={() => saveAs(f.filename, f.body)}

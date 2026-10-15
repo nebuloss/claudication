@@ -287,11 +287,33 @@ console.log('\n— model catalog: the configs are written from the live list —
   check('and nothing else in it moves', toml.replace('claude-opus-5-5', 'X'), committed('codex.toml').replace(/^model = "[^"]*"/m, 'model = "X"'))
 
   const sh = tailorClaudeCode(committed('claude-code.sh'), catalog)
-  check('Claude Code gets both defaults', [/^export ANTHROPIC_MODEL=claude-opus-5-5$/m.test(sh), /^export ANTHROPIC_SMALL_FAST_MODEL=claude-haiku-5-5$/m.test(sh)], [true, true])
+  check('Claude Code gets both defaults', [/^export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5-5$/m.test(sh), /^export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-5-5$/m.test(sh)], [true, true])
 
   const oc = tailorOpencode(committed('opencode.jsonc'), catalog)
   check('opencode gets both defaults, quotes intact', [oc.includes('"model": "anthropic/claude-opus-5-5"'), oc.includes('"small_model": "anthropic/claude-haiku-5-5"')], [true, true])
   check('opencode keeps its comments', oc.includes('// opencode, pointed at a claudication gateway.'), true)
+
+  // With the gateway's model roles in the list — first, each carrying the
+  // facts of the model it serves — every config asks for the roles, and says
+  // what each behaves like.
+  const roles = new Catalog([
+    { ...live[1], id: 'claude-large', display_name: 'Claude (large)', virtual: true, role: 'large', serving: 'claude-opus-5-5' },
+    { ...live[2], id: 'claude-small', display_name: 'Claude (small)', virtual: true, role: 'small', serving: 'claude-opus-4-5-20251101' },
+    ...live,
+  ])
+  check('the roles are the defaults', [roles.large, roles.small], ['claude-large', 'claude-small'])
+  const rsh = tailorClaudeCode(committed('claude-code.sh'), roles)
+  check('Claude Code asks for the roles', [/^export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-large$/m.test(rsh), /^export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-small$/m.test(rsh)], [true, true])
+  check('and is told what each behaves like', [rsh.includes('{"model":"claude-large","behavesAs":"claude-opus-5-5"}'), rsh.includes('{"model":"claude-small","behavesAs":"claude-opus-4-5-20251101"}')], [true, true])
+  const roc = tailorOpencode(committed('opencode.jsonc'), roles)
+  check('opencode asks for the roles', [roc.includes('"model": "anthropic/claude-large"'), roc.includes('"small_model": "anthropic/claude-small"')], [true, true])
+  const smallAt = roc.slice(roc.indexOf('"claude-small": {'))
+  check('opencode declares each role with its model\'s limits',
+    [smallAt.match(/"context": (\d+)/)?.[1], smallAt.match(/"output": (\d+)/)?.[1]], ['200000', '64000'])
+  const rcrush = JSON.parse(tailorCrush(committed('crush.json'), roles))
+  check('crush asks for the roles, listed first', [rcrush.models.large.model, rcrush.models.small.model, Object.values(rcrush.providers)[0].models[0].id],
+    ['claude-large', 'claude-small', 'claude-large'])
+  check('codex.toml asks for the large role', /^model = "claude-large"$/m.test(tailorCodexConfig(committed('codex.toml'), roles)), true)
 }
 
 console.log('\n— every axis covers its data —')

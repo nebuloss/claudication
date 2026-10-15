@@ -370,10 +370,10 @@ func (s *Store) DeleteKey(ctx context.Context, id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrKeyNotFound
 	}
-	// Its virtual-model mappings, which have no foreign key to go with it:
-	// see migration 027.
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM virtual_models WHERE key_id = ?`, id); err != nil {
-		return fmt.Errorf("delete api key's virtual models: %w", err)
+	// Its model-role bindings, which have no foreign key to go with it, since
+	// the gateway's own rows belong to no key: see migration 028.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM model_roles WHERE key_id = ?`, id); err != nil {
+		return fmt.Errorf("delete api key's model roles: %w", err)
 	}
 	return nil
 }

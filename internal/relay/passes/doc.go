@@ -20,11 +20,11 @@
 //  6. [ShrinkImages] — an image over 2000 px on a side in a request carrying
 //     more than twenty of them, which the upstream refuses by name.
 //
-// The seventh is [SetModel]: a request naming a virtual model the operator
-// created has the real model it maps to put in its model field, and
-// [ModelRenamer] says the virtual name back in the answer. It is not in
-// Default, because it needs a decision only the gateway can make — which of
-// the virtual model's targets serves — and it runs only when one is named.
+// The seventh is [SetModel]: a request naming a model role (claude-large,
+// claude-small) has the real model it is bound to put in its model field, and
+// [ModelRenamer] says the role back in the answer. It is not in Default,
+// because it needs a decision only the gateway can make — which real model
+// the role is bound to for this key — and it runs only when one is named.
 // See model.go.
 //
 // The sixth is Default's only optional pass, and its only one off by default.

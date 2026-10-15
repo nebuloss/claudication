@@ -8,24 +8,24 @@ import (
 	"claudication/internal/request"
 )
 
-// Virtual models: the seventh exception.
+// Model roles: the seventh exception.
 //
-// A client may be configured with a name the operator maps, in the gateway,
-// to a real model (store.VirtualModel) — so moving every client from one model
+// Every client config the gateway writes asks for claude-large and
+// claude-small, two roles the operator binds to real models in the gateway
+// (store.RoleLarge, store.RoleSmall) — so moving every client from one model
 // to the next is one edit here rather than one per client. The upstream knows
-// only real ids, so a request naming a virtual model cannot succeed as sent:
-// the model field has to say the real one.
+// only real ids, so a request naming a role cannot succeed as sent: the model
+// field has to say the real one.
 //
 // Unlike the six in Default it is not a repair of a shape the upstream
 // rejects, and it does not run on every request. It runs only when a request
-// names a virtual model the operator created, it changes exactly one value —
-// the model — and the gateway has decided which real model that is before it
-// runs (the first of the virtual model's targets an account serves and the
-// key may use). So it is a function the gateway calls with that decision,
-// not a step in the pipeline.
+// names a role, it changes exactly one value — the model — and the gateway
+// has decided which real model that is before it runs (the key's binding,
+// else the gateway's, else the newest of the role's family). So it is a
+// function the gateway calls with that decision, not a step in the pipeline.
 //
-// The answer says the virtual name back: the client asked for claude-smart,
-// and an answer naming claude-opus-5-5 is a name it was never configured with.
+// The answer says the role back: the client asked for claude-large, and an
+// answer naming claude-opus-5-5 is a name it was never configured with.
 // ModelRenamer does that on the way out. The request log keeps both.
 
 // SetModel puts model where body's model field is. ok is false when the body

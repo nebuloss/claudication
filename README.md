@@ -200,24 +200,33 @@ precisely the one that disappears.
 `usage.retention-days` bounds it (30 by default; 0 records nothing) and a daily
 prune enforces it, returning the freed pages to the filesystem.
 
-## Virtual models
+## Model roles
 
-A virtual model is a name clients are configured with — `claude-smart`, say —
-that the gateway maps to real models, in order: a request gets the first one
-an account has on and the key may use. Moving every client to a new model is
-then one edit on the **Models** tab rather than one per config file. The client
-is answered in the name it asked for; the request log records both.
+Every client has a slot for the model doing the work and one for titles and
+summaries. The configs this gateway hands out fill both with two names of its
+own, `claude-large` and `claude-small`, and the gateway decides which real model
+answers each:
 
-A key's settings can map a name differently for that key, or for one of its
-client apps (Claude Code, Codex, opencode, crush — told apart by User-Agent).
-The most specific mapping wins: that app on that key, then that key, then the
-gateway. `/v1/models` lists each app's virtual models first, and the configs a
-key's settings hand out default to them.
+| Client | `claude-large` | `claude-small` |
+|---|---|---|
+| Claude Code | `ANTHROPIC_DEFAULT_OPUS_MODEL` — main model, sub-agents | `ANTHROPIC_DEFAULT_HAIKU_MODEL` — titles, summaries |
+| Codex | `model` | — |
+| opencode | `model` | `small_model` |
+| crush | `models.large` | `models.small` |
 
-Claude Code's model picker shows only names containing "claude", so a name
-meant for it should start `claude-`. Rewriting the model is the relay's seventh
-exception to sending the caller's bytes as they are; see
-`go doc ./internal/relay/passes`.
+On the **Models** tab each role is automatic — the newest Opus, the newest
+Haiku your accounts list — or bound to a model you choose; a key can bind
+either differently in its own settings. Moving every client to a new model is
+then one change here, with no config to edit. The client is answered in the
+role's name; the request log records both.
+
+Each config also carries what the role's model can do — Claude Code's
+`behavesAs`, opencode's declared limits, the crush and Codex model lists —
+because a client sizes its requests from those. Binding a role to a model with a
+smaller window means downloading that key's configs again.
+
+Rewriting the model is the relay's seventh exception to sending the caller's
+bytes as they are; see `go doc ./internal/relay/passes`.
 
 ## Configuration
 

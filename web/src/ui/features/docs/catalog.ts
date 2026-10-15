@@ -40,9 +40,10 @@ export type CatalogModel = {
   max_input_tokens?: number
   max_tokens?: number
   lifecycle?: string
-  /** A gateway virtual model; its other fields are the serving model's. */
+  /** A gateway model role; its other fields are the serving model's. */
   virtual?: boolean
   serving?: string
+  role?: 'large' | 'small'
   capabilities?: {
     effort?: Capability & Record<string, Capability | boolean | undefined>
     image_input?: Capability
@@ -87,15 +88,31 @@ export class Catalog {
     return (this.models.find((m) => lineOf(m) === line) ?? this.models[0]).id
   }
 
-  /** The default for real work: the newest Opus. */
+  /** The model role of this name, when the gateway lists it. */
+  private role(name: 'large' | 'small'): CatalogModel | undefined {
+    return this.models.find((m) => m.virtual === true && m.role === name)
+  }
+
+  /** The default for real work: the gateway's claude-large role, so which
+   *  model answers is the gateway's to change; else the newest Opus. */
   get large(): string {
-    return this.newest('opus')
+    return this.role('large')?.id ?? this.newest('opus')
   }
 
   /** The default for titles and summaries, run many times a session: the
-   *  newest Haiku. */
+   *  gateway's claude-small role; else the newest Haiku. */
   get small(): string {
-    return this.newest('haiku')
+    return this.role('small')?.id ?? this.newest('haiku')
+  }
+
+  /** The real model a name stands for: a role's serving model, else itself. */
+  servingOf(id: string): string {
+    return this.models.find((m) => m.id === id)?.serving ?? id
+  }
+
+  /** A model's entry, for its facts. */
+  entry(id: string): CatalogModel | undefined {
+    return this.models.find((m) => m.id === id)
   }
 
   /** The effort levels a model accepts, in picker order; empty when it has
@@ -184,15 +201,56 @@ export function tailorCodexConfig(body: string, catalog: Catalog): string {
   return setting(body, /^(model = )(")[^"]*"/m, catalog.large)
 }
 
-/** Claude Code's environment: the two model variables. */
+/**
+ * Claude Code: its opus and haiku tiers, which every model it picks goes
+ * through, and what each name behaves like.
+ *
+ * behavesAs is how Claude Code is told a name it does not know is handled as
+ * a real model — window, output limit, prompt profile; without it a name like
+ * claude-large is capped at a 200k window. So each role is described as the
+ * model it serves for this key now.
+ */
 export function tailorClaudeCode(body: string, catalog: Catalog): string {
-  body = setting(body, /^(export ANTHROPIC_MODEL=)()\S+/m, catalog.large)
-  return setting(body, /^(export ANTHROPIC_SMALL_FAST_MODEL=)()\S+/m, catalog.small)
+  const large = catalog.large
+  const small = catalog.small
+  body = setting(body, /^(export ANTHROPIC_DEFAULT_OPUS_MODEL=)()\S+/m, large)
+  body = setting(body, /^(export ANTHROPIC_DEFAULT_HAIKU_MODEL=)()\S+/m, small)
+  body = body.replace(
+    /("model":")claude-large(","behavesAs":")[^"]*"/,
+    (_, a: string, b: string) => `${a}${large}${b}${catalog.servingOf(large)}"`,
+  )
+  return body.replace(
+    /("model":")claude-small(","behavesAs":")[^"]*"/,
+    (_, a: string, b: string) => `${a}${small}${b}${catalog.servingOf(small)}"`,
+  )
 }
 
-/** opencode: the two defaults. Its model list is opencode's own catalog of
- *  the Anthropic provider, which this file overrides only the address of. */
+/** Replaces a number field the first time it follows `after` in body. */
+function numberAfter(body: string, after: string, field: string, value: number): string {
+  const at = body.indexOf(after)
+  if (at < 0) return body
+  const rest = body.slice(at).replace(new RegExp(`("${field}": )\\d+`), `$1${value}`)
+  return body.slice(0, at) + rest
+}
+
+/**
+ * opencode: the two defaults, and the two roles declared on its Anthropic
+ * provider with the limits of the models they serve.
+ *
+ * opencode refuses a model its catalog does not have, and takes a declared
+ * one's limits only from what is declared here — an undeclared limit is 0,
+ * which turns auto-compaction off. Its thinking modes are declared in the
+ * committed file, because a name without a version falls back to a budgeted
+ * thinking the current models no longer take.
+ */
 export function tailorOpencode(body: string, catalog: Catalog): string {
   body = setting(body, /^(\s*"model": )(")anthropic\/[^"]*"/m, `anthropic/${catalog.large}`)
-  return setting(body, /^(\s*"small_model": )(")anthropic\/[^"]*"/m, `anthropic/${catalog.small}`)
+  body = setting(body, /^(\s*"small_model": )(")anthropic\/[^"]*"/m, `anthropic/${catalog.small}`)
+  for (const role of ['claude-large', 'claude-small']) {
+    const real = catalog.entry(role)
+    if (real === undefined) continue
+    if (real.max_input_tokens) body = numberAfter(body, `"${role}": {`, 'context', real.max_input_tokens)
+    if (real.max_tokens) body = numberAfter(body, `"${role}": {`, 'output', real.max_tokens)
+  }
+  return body
 }

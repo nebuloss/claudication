@@ -3,17 +3,48 @@
   // Copy to ~/.config/opencode/opencode.jsonc and change baseURL.
   //
   // WITH /v1. This overrides the built-in Anthropic provider rather than
-  // declaring a new one, so every model the gateway serves is available
-  // without listing any of them.
+  // declaring a new one, so every model the gateway serves is available.
   "$schema": "https://opencode.ai/config.json",
   "provider": {
     "anthropic": {
       "options": {
         "baseURL": "https://claudication.example.com/v1",
         "apiKey": "clc_..."
+      },
+      // The gateway's two model roles. Which real model answers each is set
+      // in the gateway, on its Models tab. opencode knows neither name, so
+      // each is declared here with the limits of the model it serves; the
+      // thinking modes are the adaptive ones current models take.
+      "models": {
+        "claude-large": {
+          "name": "Claude (large)",
+          "family": "claude-opus",
+          "limit": { "context": 1000000, "output": 128000 },
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "temperature": false,
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": {
+            "low": { "thinking": { "type": "adaptive" }, "effort": "low" },
+            "medium": { "thinking": { "type": "adaptive" }, "effort": "medium" },
+            "high": { "thinking": { "type": "adaptive" }, "effort": "high" },
+            "max": { "thinking": { "type": "adaptive" }, "effort": "max" }
+          }
+        },
+        "claude-small": {
+          "name": "Claude (small)",
+          "family": "claude-haiku",
+          "limit": { "context": 200000, "output": 64000 },
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "temperature": false,
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        }
       }
     }
   },
-  "model": "anthropic/claude-opus-5-5",
-  "small_model": "anthropic/claude-haiku-5-5"
+  "model": "anthropic/claude-large",
+  "small_model": "anthropic/claude-small"
 }

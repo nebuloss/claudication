@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -86,27 +85,26 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 			return
 		}
 
-		// A virtual model becomes the real one that serves it — the first of
-		// its targets an account has on and this key may use, by the mapping
-		// for this key and client app, else this key, else the gateway's — and
-		// the answer is renamed back on its way out. See passes.SetModel.
+		// A model role — claude-large, claude-small — becomes the real model
+		// it is bound to for this key, else for the gateway, else the newest
+		// of its family; the answer is renamed back on its way out. One model,
+		// no fallback: when it cannot serve, the request is refused saying
+		// which one to change. See passes.SetModel.
 		virtual := ""
 		rewrote := false
 		key, _ := httpx.APIKey(r.Context())
-		if vm, err := s.store.ResolveVirtualModel(r.Context(), key.ID,
-			api.ClientName(r.UserAgent()), model); err == nil {
-			target := s.virtualTarget(r.Context(), vm, key)
-			if target == "" {
+		if store.IsRole(model) {
+			role := store.ModelKey(model)
+			target, why := s.RoleTarget(r.Context(), key, role)
+			if why != "" {
 				s.recorder.Record(store.UsageEvent{
-					At: time.Now(), KeyID: key.ID, KeyName: key.Name, Model: model,
-					VirtualModel: vm.Name, Path: route, Status: http.StatusNotFound,
+					At: time.Now(), KeyID: key.ID, KeyName: key.Name, Model: target,
+					VirtualModel: role, Path: route, Status: http.StatusNotFound,
 					Client: api.ClientName(r.UserAgent()), IP: httpx.ClientIP(r.Context()),
-					Rejected: true, Error: "no model this virtual model points to is available",
+					Rejected: true, Error: why,
 				}, 0)
 				p.WriteError(w, http.StatusNotFound, "not_found_error",
-					"virtual model "+vm.Name+" points to "+strings.Join(vm.Targets, ", ")+
-						", and none is available to this key on any account; "+
-						"an administrator can change it under Models")
+					why+"; an administrator can change "+role+" under Models")
 				return
 			}
 			replaced, ok := passes.SetModel(outbound, target)
@@ -114,9 +112,8 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 				p.WriteError(w, http.StatusBadRequest, "invalid_request", "the request names no model to map")
 				return
 			}
-			outbound, virtual, model, rewrote = replaced, vm.Name, target, true
-			// Named here as the rewrites are, so the log line shows it.
-			s.log.Debug("virtual model", "asked", virtual, "serving", target,
+			outbound, virtual, model, rewrote = replaced, role, target, true
+			s.log.Debug("model role", "role", role, "serving", target,
 				"request_id", httpx.RequestID(r.Context()))
 		}
 
@@ -293,18 +290,6 @@ func firstNonEmpty(vs ...string) string {
 	for _, v := range vs {
 		if v != "" {
 			return v
-		}
-	}
-	return ""
-}
-
-// virtualTarget is the real model a virtual one is served by: the first of
-// its targets this key may use and an account has on. Empty when there is
-// none, and the request is refused rather than sent somewhere it will fail.
-func (s *Gateway) virtualTarget(ctx context.Context, vm store.VirtualModel, key store.APIKey) string {
-	for _, t := range vm.Targets {
-		if key.Allows(t) && s.pool.Offers(ctx, "anthropic", t) {
-			return t
 		}
 	}
 	return ""

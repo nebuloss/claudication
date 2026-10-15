@@ -10,6 +10,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"claudication/internal/api"
@@ -45,6 +47,12 @@ type Gateway struct {
 	surfaces    *surfaces.Surfaces
 	protocols   api.Registry
 	httpClient  *http.Client
+
+	// The newest model of each family, for automatic model roles; see
+	// newestOf.
+	rolesMu  sync.Mutex
+	newest   map[string]string
+	newestAt time.Time
 }
 
 // Deps is what a Gateway is built from. Every field is required.
@@ -133,7 +141,7 @@ func (s *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	key, _ := httpx.APIKey(r.Context())
-	body, err := s.ModelsFor(ctx, key, api.ClientName(r.UserAgent()))
+	body, err := s.ModelsFor(ctx, key)
 	if err != nil {
 		s.log.Warn("model discovery failed; answering 502 so the client keeps its cached list",
 			"err", err, "request_id", httpx.RequestID(r.Context()))
@@ -144,37 +152,28 @@ func (s *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-// ModelsFor is the model list one key's client app is offered: the real
-// models, with the virtual ones that key and app can ask for first, less what
-// the key may not use. The /v1/models answer, and what the admin UI writes
-// into that app's config for that key, so the two cannot disagree.
+// ModelsFor is the model list one key is offered: the two model roles first,
+// each carrying the facts of the model it serves for that key, then the real
+// models, less what the key may not use. The /v1/models answer, and what the
+// admin UI writes that key's configs from, so the two cannot disagree.
 //
-// A virtual model is listed only while one of its targets can serve it, and a
-// virtual name that is also a real id takes the real one's place: a client
-// asking for it gets the mapping, so that is what it should be shown.
-func (s *Gateway) ModelsFor(ctx context.Context, key store.APIKey, client string) ([]byte, error) {
+// A role is listed only while it can serve.
+func (s *Gateway) ModelsFor(ctx context.Context, key store.APIKey) ([]byte, error) {
 	body, err := s.FetchModels(ctx)
 	if err != nil {
 		return nil, err
 	}
-	vms, err := s.store.EffectiveVirtualModels(ctx, key.ID, client)
-	if err != nil {
-		return nil, err
-	}
+	s.rememberNewest(body)
 	var entries []virtualEntry
-	for _, vm := range vms {
-		target := s.virtualTarget(ctx, vm, key)
-		if target == "" {
+	for _, role := range store.Roles {
+		target, why := s.RoleTarget(ctx, key, role)
+		if why != "" {
 			continue
 		}
-		display := vm.DisplayName
-		if display == "" {
-			display = vm.Name
-		}
 		entries = append(entries, virtualEntry{
-			ID: vm.Name, DisplayName: display,
-			CreatedAt: vm.UpdatedAt.UTC().Format(time.RFC3339),
-			Serving:   target,
+			ID: role, DisplayName: roleLabel(role),
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			Serving:   target, Role: strings.TrimPrefix(role, "claude-"),
 		})
 	}
 	if len(entries) > 0 {
@@ -199,6 +198,91 @@ type virtualEntry struct {
 	DisplayName string
 	CreatedAt   string
 	Serving     string
+	// Role is "large" or "small", for the config writer.
+	Role string
+}
+
+func roleLabel(role string) string {
+	if role == store.RoleSmall {
+		return "Claude (small)"
+	}
+	return "Claude (large)"
+}
+
+// newestTTL is how long the newest model of each family is remembered for an
+// automatic role. The list comes from the upstream, once per account, and a
+// new model is released every few months; a request should not wait on it.
+const newestTTL = 10 * time.Minute
+
+// rememberNewest notes the newest model of each family in a model list, which
+// lists newest first.
+func (s *Gateway) rememberNewest(list []byte) {
+	var l struct {
+		Data []struct {
+			ID      string `json:"id"`
+			Virtual bool   `json:"virtual"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(list, &l) != nil {
+		return
+	}
+	newest := map[string]string{}
+	for _, m := range l.Data {
+		if m.Virtual {
+			continue
+		}
+		for _, family := range []string{"opus", "haiku"} {
+			if _, seen := newest[family]; !seen && strings.HasPrefix(m.ID, "claude-"+family+"-") {
+				newest[family] = m.ID
+			}
+		}
+	}
+	s.rolesMu.Lock()
+	s.newest, s.newestAt = newest, time.Now()
+	s.rolesMu.Unlock()
+}
+
+// newestOf is the newest model of a family, reading the model list again
+// when what was remembered is stale.
+func (s *Gateway) newestOf(ctx context.Context, family string) string {
+	s.rolesMu.Lock()
+	id, fresh := s.newest[family], time.Since(s.newestAt) < newestTTL
+	s.rolesMu.Unlock()
+	if fresh && id != "" {
+		return id
+	}
+	if body, err := s.FetchModels(ctx); err == nil {
+		s.rememberNewest(body)
+	}
+	s.rolesMu.Lock()
+	defer s.rolesMu.Unlock()
+	return s.newest[family]
+}
+
+// RoleTarget is the real model a role serves for a key: the key's binding,
+// else the gateway's, else the newest of the role's family. why is non-empty
+// when it cannot serve — the key may not use it, or no account has it on —
+// and says so, naming the model.
+func (s *Gateway) RoleTarget(ctx context.Context, key store.APIKey, role string) (target, why string) {
+	bound, err := s.store.RoleBinding(ctx, key.ID, role)
+	if err != nil {
+		return "", "could not read the model roles"
+	}
+	target = bound
+	if target == "" {
+		target = s.newestOf(ctx, store.RoleFamily(role))
+		if target == "" {
+			return "", role + " follows the newest " + store.RoleFamily(role) +
+				" model, and no account lists one"
+		}
+	}
+	if !key.Allows(target) {
+		return target, role + " is " + target + ", which this API key may not use"
+	}
+	if !s.pool.Offers(ctx, "anthropic", target) {
+		return target, role + " is " + target + ", which no connected account has on"
+	}
+	return target, ""
 }
 
 // withVirtual puts the virtual models at the top of a model list, dropping a
@@ -234,6 +318,7 @@ func withVirtual(body []byte, entries []virtualEntry) []byte {
 		fields["created_at"] = e.CreatedAt
 		fields["virtual"] = true
 		fields["serving"] = e.Serving
+		fields["role"] = e.Role
 		raw, err := json.Marshal(fields)
 		if err != nil {
 			return body

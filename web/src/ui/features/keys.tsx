@@ -5,7 +5,7 @@ import { navigate } from '../route'
 import ScopedUsage, { accountHref, keyHref } from './usage'
 import { DetailHeader, detailSection } from './detail'
 import { KeyModels } from './account-models'
-import { KeyVirtualModels } from './virtual-models'
+import { RolesEditor } from './model-roles'
 import type { ReactNode } from 'react'
 import {
   AppLink,
@@ -452,8 +452,8 @@ function KeySettings({
       </Card>
 
       <Card>
-        <CardTitle>Virtual models by app</CardTitle>
-        <KeyVirtualModels apiKey={k} />
+        <CardTitle>Model roles</CardTitle>
+        <RolesEditor keyId={k.id} />
       </Card>
 
       <Card>

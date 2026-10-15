@@ -617,10 +617,9 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodPatch, "/admin/keys/x"},
 		{http.MethodGet, "/admin/keys/x/models"},
 		{http.MethodPost, "/admin/keys/x/rotate"},
-		{http.MethodGet, "/admin/keys/x/client-models"},
-		{http.MethodGet, "/admin/virtual-models"},
-		{http.MethodPut, "/admin/virtual-models"},
-		{http.MethodDelete, "/admin/virtual-models"},
+		{http.MethodGet, "/admin/keys/x/offered-models"},
+		{http.MethodGet, "/admin/model-roles"},
+		{http.MethodPut, "/admin/model-roles"},
 		{http.MethodGet, "/admin/keys/x/secret"},
 		{http.MethodPost, "/admin/keys/x/models"},
 	} {

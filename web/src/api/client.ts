@@ -471,26 +471,25 @@ export interface Model {
   max_tokens?: number
   lifecycle?: string
   capabilities?: Record<string, unknown>
-  /** A gateway virtual model, and the real one it is served by now. */
+  /** A gateway model role, the real model it serves now, and which role. */
   virtual?: boolean
   serving?: string
+  role?: 'large' | 'small'
 }
 
-/** A virtual model in one scope: gateway-wide, one key, or one app on a key. */
-export interface VirtualModel {
-  key_id: string
-  client: string
-  name: string
-  display_name: string
-  /** Real models, most preferred first. */
-  targets: string[]
-  /** The target a request gets now, or empty when none is available. */
+/** A model role — claude-large, claude-small — for the gateway or one key. */
+export interface ModelRole {
+  role: string
+  /**
+   * What this scope binds it to. For the gateway, empty is automatic (the
+   * newest of family); for a key, empty is "follow the gateway".
+   */
+  model: string
+  family: string
+  /** What a request for the role gets now, and why not when it cannot. */
   serving: string
-  updated_at: string
+  problem?: string
 }
-
-/** The client apps a key's mappings can name, as the gateway tells them apart. */
-export const CLIENT_APPS = ['Claude Code', 'Codex', 'opencode', 'crush'] as const
 
 export interface GatewayConfig {
   /** The file it was read from, empty when there was none. */
@@ -785,28 +784,27 @@ export const api = {
 
   models: () => request<{ data: Model[] | null }>('GET', '/admin/models'),
 
-  /** What one key's client app is offered, virtual models included. */
-  keyClientModels: (keyId: string, client: string) =>
+  /** What one key is offered — /v1/models as it sees it, the roles first. */
+  keyOfferedModels: (keyId: string) =>
     request<{ data: Model[] | null }>(
       'GET',
-      `/admin/keys/${encodeURIComponent(keyId)}/client-models?client=${encodeURIComponent(client)}`,
+      `/admin/keys/${encodeURIComponent(keyId)}/offered-models`,
     ),
 
-  virtualModels: () => request<{ models: VirtualModel[] }>('GET', '/admin/virtual-models'),
-
-  putVirtualModel: (v: {
-    key_id: string
-    client: string
-    name: string
-    display_name: string
-    targets: string[]
-  }) => request<VirtualModel>('PUT', '/admin/virtual-models', v),
-
-  deleteVirtualModel: (keyId: string, client: string, name: string) =>
-    request<void>(
-      'DELETE',
-      `/admin/virtual-models?${new URLSearchParams({ key_id: keyId, client, name })}`,
+  /** The model roles for the gateway, or for one key. */
+  modelRoles: (keyId = '') =>
+    request<{ roles: ModelRole[] }>(
+      'GET',
+      keyId === '' ? '/admin/model-roles' : `/admin/model-roles?key=${encodeURIComponent(keyId)}`,
     ),
+
+  /**
+   * Bind a role. An empty model is automatic for the gateway, and "follow the
+   * gateway" for a key.
+   */
+  setModelRole: (keyId: string, role: string, model: string) =>
+    request<void>('PUT', '/admin/model-roles', { key_id: keyId, role, model }),
+
   setSurface: (id: string, enabled: boolean) =>
     request<{ surfaces: Surface[] }>('POST', `/admin/surfaces/${encodeURIComponent(id)}`, {
       enabled,

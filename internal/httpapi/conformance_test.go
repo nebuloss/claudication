@@ -118,10 +118,18 @@ func TestContractModelDiscoveryNeitherRedirectsNorDawdles(t *testing.T) {
 		Data []struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"display_name"`
+			Virtual     bool   `json:"virtual"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("response is not the documented shape: %v", err)
+	}
+	// The gateway's model roles lead the list; the upstream's entries follow.
+	for len(body.Data) > 0 && body.Data[0].Virtual {
+		if body.Data[0].DisplayName == "" {
+			t.Errorf("role %s has no display_name", body.Data[0].ID)
+		}
+		body.Data = body.Data[1:]
 	}
 	if len(body.Data) != 1 || body.Data[0].ID != "claude-opus-5" {
 		t.Errorf("data = %+v, want the upstream's entry relayed", body.Data)
