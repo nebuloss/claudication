@@ -17,7 +17,7 @@ var envVars = []string{
 	"CLAUDICATION_LOG_LEVEL", "CLAUDICATION_LOG_FORMAT",
 	"CLAUDICATION_CLAUDE_CODE_ATTRIBUTION", "CLAUDICATION_OPENAI_MODEL",
 	"CLAUDICATION_OPENAI_MAX_TOKENS", "CLAUDICATION_REQUESTS_PER_MINUTE",
-	"CLAUDICATION_TRUSTED_PROXIES",
+	"CLAUDICATION_TRUSTED_PROXIES", "CLAUDICATION_MODELS_CATALOG",
 }
 
 func cleanEnv(t *testing.T) {
@@ -59,6 +59,7 @@ func TestEveryEnvironmentOverride(t *testing.T) {
 		"CLAUDICATION_OPENAI_MAX_TOKENS":       "1234",
 		"CLAUDICATION_REQUESTS_PER_MINUTE":     "7",
 		"CLAUDICATION_TRUSTED_PROXIES":         " 10.0.0.0/8, ,192.168.0.0/16 ,",
+		"CLAUDICATION_MODELS_CATALOG":          "off",
 	} {
 		t.Setenv(k, v)
 	}
@@ -80,6 +81,7 @@ func TestEveryEnvironmentOverride(t *testing.T) {
 		"openai.model": {cfg.OpenAI.Model, "claude-opus-5"},
 		"max-tokens":   {cfg.OpenAI.MaxTokens, 1234},
 		"rpm":          {cfg.Limits.RequestsPerMinute, 7},
+		"catalog":      {cfg.ModelsCatalog, "off"},
 		// Blank entries between commas are dropped, not kept as an empty
 		// CIDR that validate would then refuse.
 		"proxies": {cfg.TrustedProxies, []string{"10.0.0.0/8", "192.168.0.0/16"}},

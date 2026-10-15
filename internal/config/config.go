@@ -98,6 +98,12 @@ type Config struct {
 	// Proxmox LXC among them. Empty detects it from the cgroup where that is
 	// visible, and otherwise sets none. See internal/memlimit.
 	MemoryLimit string `yaml:"memory-limit"`
+	// ModelsCatalog is where a public list of models is read from — models.dev
+	// by default. Anthropic's /v1/models answers 401 to a caller with no
+	// account token, so without it a gateway with no account readable lists
+	// nothing, offers no aliases and writes no configs. Its figures also fill
+	// in what an account's list leaves out. "off" or empty never asks.
+	ModelsCatalog string `yaml:"models-catalog"`
 
 	// Path is the file this was read from, empty when there was none. Reported
 	// by the admin UI so "where do I change this" has an answer on screen.
@@ -247,7 +253,8 @@ func Defaults() Config {
 			PollIdle:      Duration(5 * time.Minute),
 			PollWatched:   Duration(20 * time.Second),
 		},
-		Shutdown: ShutdownConfig{Grace: Duration(120 * time.Second)},
+		Shutdown:      ShutdownConfig{Grace: Duration(120 * time.Second)},
+		ModelsCatalog: "https://models.dev/api.json",
 	}
 }
 
@@ -375,6 +382,10 @@ func applyEnv(cfg *Config) map[string]bool {
 			took["trusted-proxies"] = true
 		}
 	}
+	if v := os.Getenv("CLAUDICATION_MODELS_CATALOG"); v != "" {
+		cfg.ModelsCatalog = v
+		took["models-catalog"] = true
+	}
 	return took
 }
 
@@ -411,6 +422,10 @@ func (c Config) validate() error {
 		return fmt.Errorf("memory-limit: %w", err)
 	} else if n != 0 && n < 64<<20 {
 		return errors.New("memory-limit below 64MiB leaves nothing to serve a request with")
+	}
+	if u := c.ModelsCatalog; u != "" && u != "off" &&
+		!strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+		return errors.New(`models-catalog must be an http(s) URL, or "off"`)
 	}
 	if st := c.Passthrough.StallTimeout.D(); st != 0 && st < MinStallTimeout {
 		return fmt.Errorf("passthrough.stall-timeout must be 0 (off) or at least %s", MinStallTimeout)

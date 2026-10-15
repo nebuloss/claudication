@@ -88,6 +88,14 @@ shutdown:
 # GOMEMLIMIT in the environment overrides it.
 # memory-limit: "512MiB"
 
+# A public catalogue of models, read every few hours. Anthropic's own model
+# list needs a connected account, so without this a gateway with no account
+# yet has no models to show, no aliases and no client configs to hand out;
+# with it, it has all three, and a model whose account entry lacks its context
+# window or release date gets them from here. The accounts still decide what
+# is served. "off" never asks.
+# models-catalog: "https://models.dev/api.json"
+
 # Per-request history, for the usage reports and the request log. The gateway records one row per
 # proxied request: which key, which account, which model, how many tokens.
 usage:

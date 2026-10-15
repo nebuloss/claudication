@@ -29,6 +29,8 @@ func newTestServer(t *testing.T) (*Server, *store.Store, config.Config) {
 	cfg.StateDir = dir
 	cfg.Listen = "127.0.0.1:0"
 	cfg.Shutdown.Grace = config.Duration(2 * time.Second)
+	// The tests need no network; one that wants the catalogue serves its own.
+	cfg.ModelsCatalog = "off"
 
 	sealer, err := secret.Load(dir)
 	if err != nil {

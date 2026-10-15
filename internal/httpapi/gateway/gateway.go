@@ -56,6 +56,9 @@ type Gateway struct {
 	newest   map[string]string
 	families []string
 	newestAt time.Time
+
+	// The public model catalogue; see catalog.go.
+	catalog catalog
 }
 
 // Deps is what a Gateway is built from. Every field is required.
@@ -162,7 +165,7 @@ func (s *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 //
 // A role is listed only while it can serve.
 func (s *Gateway) ModelsFor(ctx context.Context, key store.APIKey) ([]byte, error) {
-	body, err := s.FetchModels(ctx)
+	body, fromCatalog, err := s.fetchModels(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +176,13 @@ func (s *Gateway) ModelsFor(ctx context.Context, key store.APIKey) ([]byte, erro
 	}
 	var entries []virtualEntry
 	for _, a := range aliases {
+		// Listed from the catalogue, no account can serve anything yet, and
+		// an alias is shown as it will serve once one is connected — the
+		// configs written now are the ones that will be used then.
 		target, why := s.RoleTarget(ctx, key, a.Name)
+		if fromCatalog && target != "" && key.Allows(target) {
+			why = ""
+		}
 		if why != "" {
 			continue
 		}
@@ -500,9 +509,16 @@ func modelsAllowedFor(body []byte, key store.APIKey) []byte {
 // could follow, so the answer is always all of it. An account whose list cannot
 // be read is skipped; only when none can is it an error.
 func (s *Gateway) FetchModels(ctx context.Context) ([]byte, error) {
+	body, _, err := s.fetchModels(ctx)
+	return body, err
+}
+
+// fetchModels is FetchModels, saying whether the list is the catalogue's
+// because no account's could be read.
+func (s *Gateway) fetchModels(ctx context.Context) (body []byte, fromCatalog bool, err error) {
 	accounts, err := s.store.ListAccounts(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var (
 		lists   [][]byte
@@ -522,12 +538,18 @@ func (s *Gateway) FetchModels(ctx context.Context) ([]byte, error) {
 		serving = append(serving, a)
 	}
 	if len(lists) == 0 {
+		// No account to ask: the public catalogue, so the aliases, the
+		// configs and the docs page have models to name before one is
+		// connected. Nothing can be served until then either way.
+		if models := s.catalogModels(ctx); models != nil {
+			return catalogList(models), true, nil
+		}
 		if lastErr == nil {
 			lastErr = pool.ErrNoAccounts
 		}
-		return nil, lastErr
+		return nil, false, lastErr
 	}
-	return mergeModels(lists, serving), nil
+	return mergeModels(lists, serving), false, nil
 }
 
 // FetchModelsFor is the model list as one account sees it, unfiltered: the
@@ -538,7 +560,13 @@ func (s *Gateway) FetchModelsFor(ctx context.Context, accountID, rawQuery string
 	if err != nil {
 		return nil, err
 	}
-	return s.listModels(ctx, token, rawQuery)
+	body, err := s.listModels(ctx, token, rawQuery)
+	if err != nil {
+		return nil, err
+	}
+	// Which models is the account's to say; their context windows and
+	// release dates, where it leaves them out, the catalogue's.
+	return s.withCatalog(ctx, body), nil
 }
 
 // listModels asks the upstream for its models with one account's token.

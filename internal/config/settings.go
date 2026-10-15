@@ -115,6 +115,9 @@ var definitions = []struct {
 	{"memory-limit", "",
 		"Memory this process may use, e.g. 512MiB. Needed where the container cannot see its own limit; empty detects it where it can.",
 		func(c Config) string { return c.MemoryLimit }},
+	{"models-catalog", "CLAUDICATION_MODELS_CATALOG",
+		"A public model list, read every few hours: what the gateway lists before any account's own list can be read, and context windows an account's list leaves out. off never asks.",
+		func(c Config) string { return c.ModelsCatalog }},
 
 	{"shutdown.grace", "",
 		"How long in-flight requests may finish after a signal. Streams are long-lived, so this is generous.",
