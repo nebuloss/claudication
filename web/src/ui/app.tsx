@@ -237,16 +237,17 @@ export default function App() {
       {/* One navigation for every page: the trail above, and beside the page
           the choices of its own level with the way up. A row above the page
           on a narrow screen. */}
-      <div className={`mx-auto ${measure} px-4 sm:px-6 md:flex md:gap-8`}>
-        <aside className="hidden w-52 shrink-0 md:block">
-          <div className="sticky top-32 pt-6">
-            <NavRail level={level} />
-          </div>
+      {/* The top padding is the row's, once, and both sides start at the
+          row's top: padded separately, the rail's panel sat 6px below the
+          page's first card. */}
+      <div className={`mx-auto ${measure} px-4 sm:px-6 md:flex md:items-start md:gap-8 md:pt-6`}>
+        <aside className="hidden w-52 shrink-0 md:sticky md:top-32 md:block">
+          <NavRail level={level} />
         </aside>
         <div className="pt-4 md:hidden">
           <NavRail level={level} row />
         </div>
-        <main className="min-w-0 flex-1 pt-6 pb-16">
+        <main className="min-w-0 flex-1 pt-6 pb-16 md:pt-0">
           {tab === 'overview' && <Overview onExpired={expired} docsURL={docsURL} />}
           {/* Keyed by the item, so moving from one account's page to another's
               starts clean rather than showing the last one's state. */}
