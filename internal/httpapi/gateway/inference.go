@@ -81,7 +81,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 			}, 0)
 			p.WriteError(w, http.StatusForbidden, "permission_error",
 				"this API key may not use model "+model+
-					"; an administrator can allow it in the key's settings")
+					"; an administrator can allow it on the key's Models page")
 			return
 		}
 

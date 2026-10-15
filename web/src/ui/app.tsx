@@ -3,7 +3,6 @@ import Accounts from './features/accounts'
 import AccountPage from './features/account-page'
 import Activity from './features/activity'
 import Keys, { KeyPage } from './features/keys'
-import { KeyConfigs } from './features/key-configs'
 import Overview from './features/overview'
 import Settings from './features/settings'
 import SignIn from './features/sign-in'
@@ -15,20 +14,15 @@ import { navLevel, pathOf, reloadOnNextNavigation, tabOf, trailOf } from './rout
 import {
   ApiError,
   api,
-  type ApiKey,
   type GatewayConfig,
   type Overview as OverviewData,
   type Session,
 } from '../api/client'
 import {
-  Banner,
   BrandMark,
   Breadcrumbs,
   NavRail,
-  CopyField,
-  FilledButton,
   IconLink,
-  Modal,
   Spinner,
   TextButton,
   TextLink,
@@ -104,10 +98,6 @@ export default function App() {
   // Settings then rendered "Could not read the configuration" at a signed-in
   // operator forever.
   const config = useLoader<GatewayConfig>(() => api.config(), undefined, [state.phase])
-  // A key being shown — new, re-issued, or asked for again — lives here, not in
-  // the panel that asked: panels unmount on a tab change and on Back, and the
-  // dialog should outlive both.
-  const [minted, setMinted] = useState<{ key: ApiKey; plaintext: string } | null>(null)
   // A deploy since this tab loaded is taken without asking, at the first
   // moment it loses nothing: at once when nothing is being typed or shown, or
   // else on the next move to another page, or when the tab is left with
@@ -118,7 +108,6 @@ export default function App() {
     if (!updated) return
     reloadOnNextNavigation()
     const safe = () =>
-      minted === null &&
       document.querySelector('form, [role="dialog"], [aria-modal="true"]') === null
     if (safe()) {
       window.location.reload()
@@ -129,7 +118,7 @@ export default function App() {
     }
     document.addEventListener('visibilitychange', onHide)
     return () => document.removeEventListener('visibilitychange', onHide)
-  }, [updated, minted])
+  }, [updated])
 
   const probe = useCallback(async () => {
     try {
@@ -276,14 +265,14 @@ export default function App() {
             ))}
           {tab === 'keys' &&
             (item === '' ? (
-              <Keys onExpired={expired} onMinted={setMinted} />
+              <Keys onExpired={expired} />
             ) : (
               <KeyPage
                 key={item}
                 id={item}
                 page={page}
+                config={config.data}
                 onExpired={expired}
-                onMinted={setMinted}
               />
             ))}
           {tab === 'activity' && <Activity page={item} onExpired={expired} />}
@@ -299,22 +288,6 @@ export default function App() {
         </main>
       </div>
 
-      {minted !== null && (
-        <Modal title={minted.key.name} size="lg" onClose={() => setMinted(null)}>
-          <Banner className="mb-4">
-            Copy the key, or download a client&rsquo;s config with it inside. It is kept sealed
-            with the gateway&rsquo;s state, so its settings page can show it and its configs again
-            later.
-          </Banner>
-          <CopyField label="API key" value={minted.plaintext} />
-          <KeyConfigs plaintext={minted.plaintext} config={config.data} keyId={minted.key.id} />
-          <div className="mt-6 flex justify-end">
-            <FilledButton type="button" onClick={() => setMinted(null)}>
-              Done
-            </FilledButton>
-          </div>
-        </Modal>
-      )}
     </div>
   )
 }

@@ -1,11 +1,18 @@
 import { useState } from 'react'
-import { api, messageOf, type ApiKey, type SubscriptionShare } from '../../api/client'
+import {
+  api,
+  messageOf,
+  type ApiKey,
+  type GatewayConfig,
+  type SubscriptionShare,
+} from '../../api/client'
 import { useLoader } from '../hooks'
 import { navigate, pathOf } from '../route'
 import ScopedUsage, { accountHref, keyHref } from './usage'
 import { DetailHeader } from './detail'
 import { ChatsPage } from './chats'
 import RequestsPanel from './requests'
+import KeyClients from './key-clients'
 import { KeyModels } from './account-models'
 import { RolesEditor } from './model-roles'
 import type { ReactNode } from 'react'
@@ -17,6 +24,8 @@ import {
   RowBadge,
   Banner,
   Note,
+  CopyField,
+  Modal,
   Card,
   CardTitle,
   Chip,
@@ -32,7 +41,6 @@ import {
   StepSlider,
   Switch,
   Table,
-  TonalButton,
   tile,
   ago,
   compact,
@@ -61,21 +69,18 @@ const MANAGED_HINT =
  * Client API keys — the credential you hand to Claude Code.
  *
  * A key authenticates by its hash, and is kept sealed beside it (migration
- * 026) so its settings page can show it and its configs again. Keys from
+ * 026) so its Clients page can show it and its configs again. Keys from
  * before that have only the hash, and say so there.
  */
 export default function Keys({
   onExpired,
-  onMinted,
 }: {
   onExpired: () => void
-  /**
-   * Hands a freshly created key up to the app shell, whose dialog outlives
-   * this panel unmounting on a tab change or Back.
-   */
-  onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
   const [creating, setCreating] = useState(false)
+  // The key just made, shown once over the list: its secret, and the way to
+  // its Clients page, where its configurations are.
+  const [created, setCreated] = useState<{ key: ApiKey; plaintext: string } | null>(null)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     () => api.listKeys(),
     onExpired,
@@ -105,13 +110,38 @@ export default function Keys({
         />
       </ListToolbar>
 
+      {created !== null && (
+        <Modal title={`${created.key.name} is ready`} onClose={() => setCreated(null)}>
+          <div className="flex flex-col gap-4">
+            <CopyField label="API key" value={created.plaintext} />
+            <Note>
+              Every client&rsquo;s configuration, with this key already inside, is on its Clients
+              page — and stays there, so it can be fetched again whenever a client is set up.
+            </Note>
+            <div className="flex flex-wrap justify-end gap-2">
+              <OutlinedButton onClick={() => setCreated(null)}>Done</OutlinedButton>
+              <FilledButton
+                type="button"
+                onClick={() => {
+                  const to = `${pathOf('keys', created.key.id)}/clients`
+                  setCreated(null)
+                  navigate(to)
+                }}
+              >
+                Open its clients
+              </FilledButton>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {creating && (
         <NewKey
           defaultRpm={data?.defaultRpm ?? 0}
           onClose={() => setCreating(false)}
           onCreated={(m) => {
             setCreating(false)
-            onMinted(m)
+            setCreated(m)
             void reload()
           }}
         />
@@ -279,15 +309,15 @@ function SubscriptionCard({ share }: { share: SubscriptionShare }) {
 export function KeyPage({
   id,
   page,
+  config,
   onExpired,
-  onMinted,
 }: {
   id: string
   /** An id from KEY_PAGES, or empty for the key's overview. */
   page: string
+  /** The gateway's configuration, for the address and APIs its client files name. */
+  config: GatewayConfig | null
   onExpired: () => void
-  /** Shows a new secret and its client configs, as for a key just created. */
-  onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
   // Not on the settings page: the form is filled from the loaded key, and a
   // poll landing mid-edit would reset the fields under the cursor.
@@ -362,8 +392,8 @@ export function KeyPage({
           apiKey={k}
           section={page}
           defaultRpm={data?.defaultRpm ?? 0}
+          config={config}
           onSaved={() => void reload()}
-          onMinted={onMinted}
         />
       )}
       {page === 'chats' && <ChatsPage scope={{ key: k.id }} onExpired={onExpired} />}
@@ -437,15 +467,15 @@ function KeySettings({
   apiKey: k,
   section,
   defaultRpm,
+  config,
   onSaved,
-  onMinted,
 }: {
   apiKey: ApiKey
   /** Which of the key's settings pages this is. */
   section: string
   defaultRpm: number
+  config: GatewayConfig | null
   onSaved: () => void
-  onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -466,37 +496,6 @@ function KeySettings({
     try {
       await api.updateKey(k.id, name, rpm, periodS, tokenBudget)
       setSaved(true)
-      onSaved()
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy(false)
-  }
-
-  const show = async () => {
-    setBusy(true)
-    setError('')
-    try {
-      const { plaintext } = await api.keySecret(k.id)
-      onMinted({ key: k, plaintext })
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy(false)
-  }
-
-  const rotate = async () => {
-    if (
-      !window.confirm(
-        `Issue a new secret for ${k.name}? The current one stops working immediately, ` +
-          'so every client using it needs the new config.',
-      )
-    )
-      return
-    setBusy(true)
-    setError('')
-    try {
-      onMinted(await api.rotateKey(k.id))
       onSaved()
     } catch (err) {
       setError(messageOf(err))
@@ -547,49 +546,7 @@ function KeySettings({
       // so the configs can be written again at any time. Keys from before
       // that have only a hash, and need a new secret once.
       case 'clients':
-        return (
-          <Card
-            info={
-              <>
-                <p>
-                  The key, and ready-made configs for Claude Code, Codex, opencode and crush with it
-                  inside. Nothing changes for the clients already using it.
-                </p>
-                <p>
-                  A new secret is for a key that has leaked: the current one stops working at once,
-                  and every client needs the new config.
-                </p>
-              </>
-            }
-          >
-            {k.secret_kept ? (
-              <>
-                <div className="flex flex-wrap gap-2">
-                  <FilledButton type="button" disabled={busy} onClick={() => void show()}>
-                    {busy && <Spinner />}
-                    Show key and configs
-                  </FilledButton>
-                  <OutlinedButton disabled={busy} onClick={() => void rotate()}>
-                    Issue a new secret
-                  </OutlinedButton>
-                </div>
-              </>
-            ) : (
-              <>
-                <Note tone="warn" className="mb-4">
-                  This key was made before the gateway kept keys, so only a fingerprint of it exists
-                  and it cannot be shown. Issue it a new secret once — it keeps its name, limits,
-                  models and history; the current secret stops working — and from then on its
-                  configs can be downloaded here at any time.
-                </Note>
-                <TonalButton disabled={busy} onClick={() => void rotate()}>
-                  {busy && <Spinner />}
-                  New secret and configs
-                </TonalButton>
-              </>
-            )}
-          </Card>
-        )
+        return <KeyClients apiKey={k} config={config} onChanged={onSaved} />
       default:
         return (
           <Card>
