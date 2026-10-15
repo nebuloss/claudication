@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { AppLink, FilledButton, openRow } from './index'
+import { FilledButton, openRow } from './index'
+import { follow } from './nav'
 
 /**
  * One item of a list that opens a page per item: an account, an API key.
@@ -43,9 +44,11 @@ export function ListRow({
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {leading}
         <div className="min-w-0">
-          <AppLink href={href} className="block truncate font-medium text-on-surface no-underline">
+          {/* A link for the keyboard and for opening in a new tab, drawn as a
+              title: the whole row already says it opens. */}
+          <a href={href} onClick={follow(href)} className="block truncate font-medium text-on-surface">
             {title}
-          </AppLink>
+          </a>
           {subtitle !== undefined && (
             <span className="block truncate text-xs text-on-surface-variant tabular-nums">{subtitle}</span>
           )}

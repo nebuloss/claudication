@@ -279,14 +279,12 @@ function SubscriptionCard({ share }: { share: SubscriptionShare }) {
 export function KeyPage({
   id,
   page,
-  section,
   onExpired,
   onMinted,
 }: {
   id: string
-  /** An id from KEY_PAGES, and under settings an id from KEY_SETTINGS. */
+  /** An id from KEY_PAGES, or empty for the key's overview. */
   page: string
-  section: string
   onExpired: () => void
   /** Shows a new secret and its client configs, as for a key just created. */
   onMinted: (m: { key: ApiKey; plaintext: string }) => void
@@ -297,7 +295,7 @@ export function KeyPage({
     () => api.listKeys(),
     onExpired,
     [],
-    page === 'settings' ? 0 : REFRESH_MS,
+    SETTINGS_PAGES.has(page) ? 0 : REFRESH_MS,
   )
   const k = data?.keys.find((key) => key.id === id)
 
@@ -358,11 +356,11 @@ export function KeyPage({
 
       {error !== '' && <Banner tone="error">{error}</Banner>}
 
-      {(page === 'settings' || page === 'clients') && (
+      {SETTINGS_PAGES.has(page) && (
         <KeySettings
-          key={page === 'clients' ? page : section}
+          key={page}
           apiKey={k}
-          section={page === 'clients' ? page : section}
+          section={page}
           defaultRpm={data?.defaultRpm ?? 0}
           onSaved={() => void reload()}
           onMinted={onMinted}
@@ -407,7 +405,7 @@ export function KeyPage({
                   k.models_off.length === 0 ? (
                     'all on'
                   ) : (
-                    <AppLink href={`${pathOf('keys', k.id)}/settings/models`}>
+                    <AppLink href={`${pathOf('keys', k.id)}/models`}>
                       {k.models_off.length} switched off
                     </AppLink>
                   ),
@@ -426,8 +424,11 @@ export function KeyPage({
   )
 }
 
+/** The key's pages that change it, rather than report on it. */
+const SETTINGS_PAGES = new Set(['clients', 'models', 'general', 'advanced'])
+
 /**
- * A key's settings, a page per section (/keys/<id>/settings/<section>): the
+ * A key's settings, a page each (/keys/<id>/clients, /models, /general, /advanced): the
  * models it may ask for, what its aliases serve, its name and limits, its
  * client configs, and deleting it on a page of its own, where it cannot be
  * hit while saving a limit.
@@ -440,7 +441,7 @@ function KeySettings({
   onMinted,
 }: {
   apiKey: ApiKey
-  /** Which section's page this is: an id from KEY_SETTINGS. */
+  /** Which of the key's settings pages this is. */
   section: string
   defaultRpm: number
   onSaved: () => void

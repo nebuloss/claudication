@@ -80,11 +80,11 @@ const MEASURE = 'max-w-[110rem]'
  */
 export default function App() {
   const [state, setState] = useState<State>({ phase: 'probing' })
-  // Where we are, completed to a page: [tab, item or page, page, section].
+  // Where we are, completed to a page: [tab, item or page, page].
   const path = usePath()
   const here = pathOf(...path)
   const tab = tabOf(here)
-  const [, item = '', page = '', section = ''] = path
+  const [, item = '', page = ''] = path
   // The trail and the rail name an account or a key once its page has said
   // what it is called.
   useNames()
@@ -188,7 +188,7 @@ export default function App() {
   // in which case the header links out to it. Allowed to fail silently: a
   // missing link is a missing link, not a reason to fail the shell.
   const docsURL = config.data?.docs_enabled === true ? (config.data.docs_url ?? '') : ''
-  const level = navLevel(here, nameOf)
+  const level = navLevel(here)
   const trail = trailOf(here, nameOf)
 
   return (
@@ -255,7 +255,7 @@ export default function App() {
             (item === '' ? (
               <Accounts onExpired={expired} />
             ) : (
-              <AccountPage key={item} id={item} page={page} section={section} onExpired={expired} />
+              <AccountPage key={item} id={item} page={page} onExpired={expired} />
             ))}
           {tab === 'keys' &&
             (item === '' ? (
@@ -265,7 +265,6 @@ export default function App() {
                 key={item}
                 id={item}
                 page={page}
-                section={section}
                 onExpired={expired}
                 onMinted={setMinted}
               />

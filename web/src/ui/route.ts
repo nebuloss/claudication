@@ -6,11 +6,11 @@
  *   /                                   the gateway's overview
  *   /accounts                           the accounts
  *   /accounts/<id>                      one account's overview
- *   /accounts/<id>/usage|chats|requests its traffic
- *   /accounts/<id>/settings/<section>   one of its settings
+ *   /accounts/<id>/<page>               its traffic and its settings, side by side
  *   /keys … the same shape, for keys
  *   /activity/chats|requests            all traffic
- *   /settings/<section>                 the gateway's settings
+ *   /settings                           the gateway's settings at a glance
+ *   /settings/<section>                 one of them
  *
  * So a link, a bookmark and Back all land on a page, never on "whatever
  * sub-tab was open last". Each level's overview is the level itself — the
@@ -38,47 +38,40 @@ export const TABS = [
 export type Tab = (typeof TABS)[number]['id']
 
 /**
- * An account's pages under /accounts/<id>. Its overview is that path itself,
- * not one of these.
+ * An account's pages under /accounts/<id>, its overview being that path
+ * itself. Its traffic first, then its settings — on the same level, not a
+ * Settings page with sections under it: three levels of navigation for three
+ * settings was a click and a Back more than they are worth.
  */
 export const ACCOUNT_PAGES = [
   { id: 'usage', label: 'Usage' },
   { id: 'chats', label: 'Chats' },
   { id: 'requests', label: 'Requests' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'models', label: 'Models' },
+  { id: 'connection', label: 'Connection' },
+  // Pausing and removing: the two ways out of use.
+  { id: 'advanced', label: 'Advanced' },
 ] as const satisfies readonly Section[]
 
 /**
- * A key's pages under /keys/<id>. Clients is a page of its own rather than a
- * setting: handing a key to a client is what a key is for, and it was the
- * fourth of five sections under Settings.
+ * A key's pages under /keys/<id>, the same way. Clients comes first of its
+ * settings: handing the key to a client is what a key is for. The models it
+ * may use and what its aliases serve are one page.
  */
 export const KEY_PAGES = [
   { id: 'usage', label: 'Usage' },
   { id: 'chats', label: 'Chats' },
   { id: 'requests', label: 'Requests' },
   { id: 'clients', label: 'Clients' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'models', label: 'Models' },
+  { id: 'general', label: 'General' },
+  { id: 'advanced', label: 'Advanced' },
 ] as const satisfies readonly Section[]
 
 /** The pages of one kind of item. */
 export function pagesOf(kind: 'accounts' | 'keys'): readonly Section[] {
   return kind === 'accounts' ? ACCOUNT_PAGES : KEY_PAGES
 }
-
-/** Pausing is under Advanced, beside removing: both take the account out of use. */
-export const ACCOUNT_SETTINGS = [
-  { id: 'models', label: 'Models' },
-  { id: 'connection', label: 'Connection' },
-  { id: 'advanced', label: 'Advanced' },
-] as const satisfies readonly Section[]
-
-/** The models a key may use and what its aliases serve are one page. */
-export const KEY_SETTINGS = [
-  { id: 'models', label: 'Models' },
-  { id: 'general', label: 'General' },
-  { id: 'advanced', label: 'Advanced' },
-] as const satisfies readonly Section[]
 
 export const ACTIVITY_PAGES = [
   { id: 'chats', label: 'Chats' },
@@ -115,7 +108,7 @@ const RENAMED: Record<string, Record<string, string>> = {
     security: 'advanced',
   },
   accounts: { availability: 'advanced' },
-  keys: { limits: 'general', aliases: 'models' },
+  keys: { limits: 'general', aliases: 'models', configs: 'clients' },
 }
 
 /** The path's segments, decoded. A malformed escape is kept as it came. */
@@ -156,22 +149,22 @@ export function canonical(pathname: string): string {
     case 'accounts':
     case 'keys': {
       if (a === undefined) return pathOf(top)
+      // Settings were a level of their own: /settings/<section> is the
+      // section's page now, and /settings alone the first of them.
+      const raw = b === 'settings' ? (c ?? 'models') : b
+      const page = (raw !== undefined && RENAMED[top]?.[raw]) || raw
       // The item's overview is its own path; /overview under it, and any
       // page that is not one, land there.
-      if (!known(pagesOf(top), b)) return pathOf(top, a)
-      const page = b!
-      if (page !== 'settings') return pathOf(top, a, page)
-      // A key's clients were a settings section before they were a page.
-      if (top === 'keys' && (c === 'clients' || c === 'configs')) return pathOf(top, a, 'clients')
-      const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
-      const section = (c !== undefined && RENAMED[top]?.[c]) || c
-      return pathOf(top, a, 'settings', known(list, section) ? section! : list[0].id)
+      if (!known(pagesOf(top), page)) return pathOf(top, a)
+      return pathOf(top, a, page!)
     }
     case 'activity':
       return pathOf('activity', known(ACTIVITY_PAGES, a) ? a! : ACTIVITY_PAGES[0].id)
     case 'settings': {
+      // Settings has an overview of its own, as an item does: /settings
+      // itself, and where any section that is not one lands.
       const section = (a !== undefined && RENAMED.settings[a]) || a
-      return pathOf('settings', known(GATEWAY_SETTINGS, section) ? section! : GATEWAY_SETTINGS[0].id)
+      return known(GATEWAY_SETTINGS, section) ? pathOf('settings', section!) : pathOf('settings')
     }
   }
   return '/'
@@ -191,8 +184,8 @@ export type NavLink = { href: string; label: string }
  * this page, and the way up a level.
  *
  * Only the last level is listed, so the rail stays a handful of short entries
- * however deep the page is — an account's settings show its four sections,
- * not the whole tree above them. The level above is one Back away, and the
+ * however deep the page is — an account shows its pages, not the whole tree
+ * above them. The level above is one Back away, and the
  * breadcrumb (trailOf) shows every level at once.
  */
 export type NavLevel = { back?: NavLink; items: NavLink[]; current: string }
@@ -215,26 +208,14 @@ const HOME: NavLink = { href: '/', label: 'Main menu' }
 export const ROOT_CRUMB: NavLink = { href: '/', label: 'Overview' }
 
 /** The navigation level of a canonical path. */
-export function navLevel(pathname: string, name: Namer): NavLevel {
-  const [top, id, page, section] = segments(pathname)
+export function navLevel(pathname: string): NavLevel {
+  const [top, id, page] = segments(pathname)
   if ((top === 'accounts' || top === 'keys') && id !== undefined) {
     const base = pathOf(top, id)
-    if (page === 'settings') {
-      const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
-      return {
-        back: { href: base, label: name(top, id) },
-        items: links(`${base}/settings`, list),
-        current: `${base}/settings/${section}`,
-      }
-    }
     const list = TABS.find((t) => t.id === top)!
     return {
       back: { href: pathOf(top), label: list.label },
-      // Settings opens on its first section; its link says so, so it is the
-      // same href the page will end up at and Back history stays clean.
-      items: links(base, pagesOf(top)).map((l) =>
-        l.href === `${base}/settings` ? { ...l, href: canonical(l.href) } : l,
-      ),
+      items: links(base, pagesOf(top)),
       // On the item's overview, no entry: the overview is the item itself.
       current: page === undefined ? base : `${base}/${page}`,
     }
@@ -243,7 +224,11 @@ export function navLevel(pathname: string, name: Namer): NavLevel {
     return { back: HOME, items: links('/activity', ACTIVITY_PAGES), current: pathOf(top, id ?? '') }
   }
   if (top === 'settings') {
-    return { back: HOME, items: links('/settings', GATEWAY_SETTINGS), current: pathOf(top, id ?? '') }
+    return {
+      back: HOME,
+      items: links('/settings', GATEWAY_SETTINGS),
+      current: id === undefined ? pathOf(top) : pathOf(top, id),
+    }
   }
   // The root's own level: the screens, each opening on its first page.
   return {
@@ -258,7 +243,7 @@ export function navLevel(pathname: string, name: Namer): NavLevel {
  * item's step is its overview, so no level is named twice.
  */
 export function trailOf(pathname: string, name: Namer): NavLink[] {
-  const [top, id, page, section] = segments(pathname)
+  const [top, id, page] = segments(pathname)
   const out: NavLink[] = [ROOT_CRUMB]
   const tab = TABS.find((t) => t.id === tabOf(pathname))!
   if (tab.id === 'overview') return out
@@ -268,13 +253,7 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
     const base = pathOf(top, id)
     out.push({ href: pathOf(top), label: tab.label })
     out.push({ href: base, label: name(top, id) })
-    if (page !== undefined) {
-      out.push({ href: canonical(`${base}/${page}`), label: label(pagesOf(top), page) })
-    }
-    if (page === 'settings') {
-      const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
-      out.push({ href: pathOf(top, id, 'settings', section ?? ''), label: label(list, section) })
-    }
+    if (page !== undefined) out.push({ href: `${base}/${page}`, label: label(pagesOf(top), page) })
     return out
   }
   out.push({ href: canonical(pathOf(tab.id)), label: tab.label })

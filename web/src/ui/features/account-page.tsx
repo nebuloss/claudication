@@ -34,7 +34,7 @@ const REFRESH_MS = 20_000
  *                            reports them, and what this gateway sent it
  *   /accounts/<id>/chats     the conversations it served
  *   /accounts/<id>/requests  the request log, narrowed to it
- *   /accounts/<id>/settings/<section>  a page per setting
+ *   /accounts/<id>/models, /connection, /advanced  its settings, a page each
  *
  * Read from the account list rather than an endpoint of its own: the list is
  * a handful of rows and already carries everything shown here, and one source
@@ -43,13 +43,11 @@ const REFRESH_MS = 20_000
 export default function AccountPage({
   id,
   page,
-  section,
   onExpired,
 }: {
   id: string
-  /** An id from ACCOUNT_PAGES, and under settings an id from ACCOUNT_SETTINGS. */
+  /** An id from ACCOUNT_PAGES, or empty for the account's overview. */
   page: string
-  section: string
   onExpired: () => void
 }) {
   const [reading, setReading] = useState(false)
@@ -109,11 +107,11 @@ export default function AccountPage({
 
       {error !== '' && <Banner tone="error">{error}</Banner>}
 
-      {page === 'settings' && (
+      {(page === 'models' || page === 'connection' || page === 'advanced') && (
         <AccountSettings
-          key={section}
+          key={page}
           account={account}
-          section={section}
+          section={page}
           onChanged={() => void reload()}
           onRemoved={() => navigate('/accounts')}
         />
@@ -178,7 +176,7 @@ export default function AccountPage({
                   (account.models_off ?? []).length === 0 ? (
                     'all on'
                   ) : (
-                    <AppLink href={`${pathOf('accounts', account.id)}/settings/models`}>
+                    <AppLink href={`${pathOf('accounts', account.id)}/models`}>
                       {(account.models_off ?? []).length} switched off
                     </AppLink>
                   ),

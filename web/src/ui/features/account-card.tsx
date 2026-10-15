@@ -76,7 +76,7 @@ export default function AccountSettings({
   onRemoved,
 }: {
   account: Account
-  /** Which section's page this is: an id from ACCOUNT_SETTINGS. */
+  /** Which of the account's settings pages this is: models, connection or advanced. */
   section: string
   onChanged: () => void
   onRemoved: () => void

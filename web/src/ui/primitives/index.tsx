@@ -349,7 +349,7 @@ export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone
     ok: 'bg-success-container text-on-success-container',
     warn: 'bg-warning-container text-on-warning-container',
     error: 'bg-error-container text-on-error-container',
-    neutral: 'border border-outline text-on-surface-variant',
+    neutral: 'bg-surface-high text-on-surface-variant',
   }
   return (
     <span

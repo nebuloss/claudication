@@ -176,52 +176,53 @@ check('a trailing slash is the same page', canonical('/accounts/'), '/accounts')
 check('a doubled slash is forgiven', canonical('//keys'), '/keys')
 // A bookmark to a screen that has since moved lands where it went.
 check('the models screen is a section of Settings now', canonical('/models'), '/settings/aliases')
+check('settings is its own overview', canonical('/settings'), '/settings')
+check('an unknown setting lands on it', canonical('/settings/nonesuch'), '/settings')
 check('chats moved under Activity', canonical('/chats'), '/activity/chats')
 check('requests too', canonical('/requests'), '/activity/requests')
 check('usage is read on the overview', canonical('/usage'), '/')
 check('an unknown screen falls back', canonical('/nonesuch'), '/')
 
-// A path naming a branch is completed to the branch's first page.
+// An item is its own overview, with its traffic and its settings as pages
+// under it: two levels, never a third.
 check('an account is its own overview', canonical('/accounts/8189e5dc'), '/accounts/8189e5dc')
 check('an old overview link lands on it', canonical('/accounts/8189e5dc/overview'), '/accounts/8189e5dc')
 check('its chats are a page', canonical('/accounts/8189e5dc/chats'), '/accounts/8189e5dc/chats')
-check('its requests too', canonical('/keys/k1/requests'), '/keys/k1/requests')
-check('an unknown page is its overview', canonical('/keys/k1/nonesuch'), '/keys/k1')
-check('its usage is a page', canonical('/keys/k1/usage'), '/keys/k1/usage')
-check('settings open on the first section', canonical('/accounts/8189e5dc/settings'), '/accounts/8189e5dc/settings/models')
-check('a section is a page', canonical('/keys/k1/settings/general'), '/keys/k1/settings/general')
-check('aliases are part of models', canonical('/keys/k1/settings/aliases'), '/keys/k1/settings/models')
+check('so is a setting', canonical('/accounts/a1/connection'), '/accounts/a1/connection')
 check('a key has a clients page', canonical('/keys/k1/clients'), '/keys/k1/clients')
 check('an account does not', canonical('/accounts/a1/clients'), '/accounts/a1')
-check('pausing is under advanced', canonical('/accounts/a1/settings/availability'), '/accounts/a1/settings/advanced')
-check('an unknown section is the first', canonical('/keys/k1/settings/nonesuch'), '/keys/k1/settings/models')
+check('an unknown page is its overview', canonical('/keys/k1/nonesuch'), '/keys/k1')
+// Links from when settings were a level of their own.
+check('a settings section is its page now', canonical('/accounts/a1/settings/connection'), '/accounts/a1/connection')
+check('settings alone open the first setting', canonical('/accounts/a1/settings'), '/accounts/a1/models')
+check('pausing is under advanced', canonical('/accounts/a1/settings/availability'), '/accounts/a1/advanced')
+check('aliases are part of models', canonical('/keys/k1/settings/aliases'), '/keys/k1/models')
+check('limits are general', canonical('/keys/k1/settings/limits'), '/keys/k1/general')
+check('configs are clients', canonical('/keys/k1/settings/configs'), '/keys/k1/clients')
+check('and so is the clients section', canonical('/keys/k1/settings/clients'), '/keys/k1/clients')
+
 check('activity opens on chats', canonical('/activity'), '/activity/chats')
-check('the gateway settings on the first section', canonical('/settings'), '/settings/aliases')
 check('a gateway section is a page', canonical('/settings/apis'), '/settings/apis')
 check('a renamed section keeps its old links', canonical('/settings/docs'), '/settings/documentation')
-check('clients moved out of settings', canonical('/keys/k1/settings/configs'), '/keys/k1/clients')
-check('under either name', canonical('/keys/k1/settings/clients'), '/keys/k1/clients')
 // Ids are encoded once, whatever they hold.
 check('an id is kept encoded', canonical('/keys/a%2Fb'), '/keys/a%2Fb')
 check('and decoded when read', segments('/keys/a%2Fb/usage'), ['keys', 'a/b', 'usage'])
 check('a broken escape does not throw', segments('/keys/%E0%A4%A'), ['keys', '%E0%A4%A'])
 check('a path is built encoded', pathOf('accounts', 'a b', 'chats'), '/accounts/a%20b/chats')
 
-check('a page names its screen', tab('/accounts/8189e5dc/settings/connection'), 'accounts')
+check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts')
 check('a moved screen names where it went', tab('/models'), 'settings')
 // Round trip: every canonical path is its own canonical form.
-check(
-  'canonical paths are fixed points',
-  ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/advanced']
-    .map((p) => canonical(p)),
-  ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/advanced'],
-)
+{
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/keys/x/advanced', '/activity/requests', '/settings/advanced']
+  check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
+}
 
 // The rail lists only the level a page is on, with the way up; the trail
 // lists every level. Names come from the pages, by id.
 {
   const name = (kind, id) => `${kind}:${id}`
-  const lvl = (p) => navLevel(canonical(p), name)
+  const lvl = (p) => navLevel(canonical(p))
   const hrefs = (l) => l.items.map((i) => i.href)
 
   check('the top level has no way up', lvl('/').back, undefined)
@@ -229,32 +230,30 @@ check(
   check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'API keys', 'Activity', 'Settings'])
   check('a list is on the top level', lvl('/accounts').current, '/accounts')
   check('each screen opens on its first page', hrefs(lvl('/'))[2], '/activity/chats')
-  check('an account lists its pages', hrefs(lvl('/accounts/a1/chats')), [
-    '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests', '/accounts/a1/settings/models',
+  check('an account lists its traffic and its settings', hrefs(lvl('/accounts/a1/chats')), [
+    '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests',
+    '/accounts/a1/models', '/accounts/a1/connection', '/accounts/a1/advanced',
+  ])
+  check('a key too, with its clients', hrefs(lvl('/keys/k1/usage')), [
+    '/keys/k1/usage', '/keys/k1/chats', '/keys/k1/requests',
+    '/keys/k1/clients', '/keys/k1/models', '/keys/k1/general', '/keys/k1/advanced',
   ])
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
-  check('a key lists its clients page too', hrefs(lvl('/keys/k1/usage')), [
-    '/keys/k1/usage', '/keys/k1/chats', '/keys/k1/requests', '/keys/k1/clients', '/keys/k1/settings/models',
-  ])
-  check('and goes back to the list', lvl('/accounts/a1/chats').back, { href: '/accounts', label: 'Accounts' })
-  check('its settings list their sections only', lvl('/keys/k1/settings/general').items.length, 3)
-  check('and go back to the key, by name', lvl('/keys/k1/settings/general').back, { href: '/keys/k1', label: 'keys:k1' })
-  check('the open section is current', lvl('/keys/k1/settings/general').current, '/keys/k1/settings/general')
-  check('removing is under Advanced, last', lvl('/keys/k1/settings/general').items.at(-1).href, '/keys/k1/settings/advanced')
+  check('a setting is current like any page', lvl('/keys/k1/general').current, '/keys/k1/general')
+  check('and goes back to the list', lvl('/keys/k1/general').back, { href: '/keys', label: 'API keys' })
   check('settings go back to the top', lvl('/settings/apis').back.href, '/')
 
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
   // Every trail starts at the root, and no level is named twice.
   check('the overview is the root alone', trail('/'), ['Overview'])
   check('a list', trail('/accounts'), ['Overview', 'Accounts'])
+  check('the settings overview', trail('/settings'), ['Overview', 'Settings'])
   check('an account is its name, not its name then Overview', trail('/accounts/a1'), ['Overview', 'Accounts', 'accounts:a1'])
-  check('a section of an account', trail('/accounts/a1/settings/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Settings', 'Connection'])
+  check('a setting of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
   check('a gateway section', trail('/settings/apis'), ['Overview', 'Settings', 'APIs'])
   check('an activity page', trail('/activity/requests'), ['Overview', 'Activity', 'Requests'])
   check('the item step is its overview', trailOf('/accounts/a1/usage', name)[2].href, '/accounts/a1')
-  check('a step links to its page', trailOf('/accounts/a1/settings/connection', name)[3].href, '/accounts/a1/settings/models')
 }
-
 
 // The client configs handed out are the committed files with their models
 // rewritten from the gateway's live list. Checked against the real committed
