@@ -98,11 +98,10 @@ type Config struct {
 	// Proxmox LXC among them. Empty detects it from the cgroup where that is
 	// visible, and otherwise sets none. See internal/memlimit.
 	MemoryLimit string `yaml:"memory-limit"`
-	// ModelsCatalog is where a public list of models is read from — models.dev
-	// by default. Anthropic's /v1/models answers 401 to a caller with no
-	// account token, so without it a gateway with no account readable lists
-	// nothing, offers no aliases and writes no configs. Its figures also fill
-	// in what an account's list leaves out. "off" or empty never asks.
+	// ModelsCatalog is where the model catalogue is read from — models.dev by
+	// default: every provider's models, which the gateway's model list is
+	// matched from against what the accounts serve. See the gateway's
+	// catalog.go. "off" or empty never asks; the list is the accounts' own.
 	ModelsCatalog string `yaml:"models-catalog"`
 
 	// Path is the file this was read from, empty when there was none. Reported

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -102,31 +103,55 @@ func TestModelCatalogue(t *testing.T) {
 		t.Errorf("catalogue read %d times for two lists", n)
 	}
 
-	// An account connected: its list, filled in, and nothing the catalogue
-	// has that the account does not.
+	// An account connected: the catalogue's models that account lists, in
+	// the catalogue's order and words and under the account's ids; one the
+	// catalogue does not know yet after them; and nothing the account does
+	// not list.
 	srv.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		rec := httptest.NewRecorder()
 		if r.URL.Path == "/v1/models" {
-			_, _ = io.WriteString(rec, upstreamModels)
+			_, _ = io.WriteString(rec, `{"data":[
+				{"type":"model","id":"claude-mystery-1","display_name":"Released this morning"},
+				{"type":"model","id":"claude-haiku-4-5-20251001","display_name":"haiku"},
+				{"type":"model","id":"claude-opus-5-5","display_name":"opus","max_input_tokens":200000}],
+				"has_more":false}`)
 		} else {
 			rec.WriteHeader(http.StatusNotFound)
 		}
 		return rec.Result(), nil
 	})
 	addAccount(t, srv, st, "first@example.com", "first-access", "r1", time.Now().Add(time.Hour))
-	byID := map[string]entry{}
-	for _, e := range list() {
-		byID[e.ID] = e
+	body, err := srv.gateway.FetchModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := byID["claude-haiku-4-5"]; ok {
-		t.Error("a model only the catalogue has is listed beside an account's list")
+	var matched struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+			MaxInput    int    `json:"max_input_tokens"`
+			CreatedAt   string `json:"created_at"`
+		} `json:"data"`
+		FirstID string `json:"first_id"`
 	}
-	// The account's own figure stands; a missing one is filled, by the
-	// undated id for a dated one.
-	if e := byID["claude-opus-5"]; e.MaxInput != 1000000 || e.MaxOutput != 128000 {
-		t.Errorf("claude-opus-5 not filled in: %+v", e)
+	if err := json.Unmarshal(body, &matched); err != nil {
+		t.Fatal(err)
 	}
-	if e := byID["claude-haiku-4-5-20251001"]; e.MaxInput != 200000 || e.CreatedAt != "2025-10-01T00:00:00Z" {
-		t.Errorf("dated id not filled in: %+v", e)
+	ids = ids[:0]
+	for _, e := range matched.Data {
+		ids = append(ids, e.ID)
+	}
+	if strings.Join(ids, ",") != "claude-opus-5-5,claude-haiku-4-5-20251001,claude-mystery-1" ||
+		matched.FirstID != "claude-opus-5-5" {
+		t.Fatalf("matched list = %v (first_id %q)", ids, matched.FirstID)
+	}
+	if e := matched.Data[0]; e.DisplayName != "Claude Opus 5.5" || e.MaxInput != 1000000 {
+		t.Errorf("not described by the catalogue: %+v", e)
+	}
+	if e := matched.Data[1]; e.CreatedAt != "2025-10-01T00:00:00Z" || e.MaxInput != 200000 {
+		t.Errorf("dated id not matched to its catalogue entry: %+v", e)
+	}
+	if e := matched.Data[2]; e.DisplayName != "Released this morning" {
+		t.Errorf("a model the catalogue lacks lost the account's description: %+v", e)
 	}
 }

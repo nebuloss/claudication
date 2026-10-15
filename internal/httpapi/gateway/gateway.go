@@ -541,7 +541,7 @@ func (s *Gateway) fetchModels(ctx context.Context) (body []byte, fromCatalog boo
 		// No account to ask: the public catalogue, so the aliases, the
 		// configs and the docs page have models to name before one is
 		// connected. Nothing can be served until then either way.
-		if models := s.catalogModels(ctx); models != nil {
+		if models := s.catalogModels(ctx, "anthropic"); models != nil {
 			return catalogList(models), true, nil
 		}
 		if lastErr == nil {
@@ -549,7 +549,9 @@ func (s *Gateway) fetchModels(ctx context.Context) (body []byte, fromCatalog boo
 		}
 		return nil, false, lastErr
 	}
-	return mergeModels(lists, serving), false, nil
+	// Matched again over the union: each account's list was matched on its
+	// own, and the union runs first account first.
+	return s.matchCatalog(ctx, "anthropic", mergeModels(lists, serving)), false, nil
 }
 
 // FetchModelsFor is the model list as one account sees it, unfiltered: the
@@ -564,9 +566,9 @@ func (s *Gateway) FetchModelsFor(ctx context.Context, accountID, rawQuery string
 	if err != nil {
 		return nil, err
 	}
-	// Which models is the account's to say; their context windows and
-	// release dates, where it leaves them out, the catalogue's.
-	return s.withCatalog(ctx, body), nil
+	// Which models is the account's to say; what they are, the catalogue's.
+	// The relay's wire is Anthropic's, and so is every account it reads.
+	return s.matchCatalog(ctx, "anthropic", body), nil
 }
 
 // listModels asks the upstream for its models with one account's token.

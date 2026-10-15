@@ -116,7 +116,7 @@ var definitions = []struct {
 		"Memory this process may use, e.g. 512MiB. Needed where the container cannot see its own limit; empty detects it where it can.",
 		func(c Config) string { return c.MemoryLimit }},
 	{"models-catalog", "CLAUDICATION_MODELS_CATALOG",
-		"A public model list, read every few hours: what the gateway lists before any account's own list can be read, and context windows an account's list leaves out. off never asks.",
+		"The model catalogue, read every few hours: names, dates and context windows of every model, matched against what the accounts list. Listed as it stands until an account can be asked. off uses the accounts' lists alone.",
 		func(c Config) string { return c.ModelsCatalog }},
 
 	{"shutdown.grace", "",

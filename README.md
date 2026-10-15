@@ -221,12 +221,14 @@ models, and the gateway decides which real model answers each. Built in:
 Claude Code's tiers (`/model opus`, a sub-agent's `haiku`) go to the family
 aliases. Every config lists all of them.
 
-Anthropic's model list needs an account's token, so until one is connected the
-gateway lists the models from [models.dev](https://models.dev) instead — enough
-to set up the aliases and hand out configs before the first login. The same
-catalogue fills in a context window or release date an account's list leaves
-out. The accounts still decide what is served; `models-catalog: off` never
-asks.
+What the gateway knows about models comes from [models.dev](https://models.dev),
+every provider's: names, release dates, context windows, output limits. Its
+model list is that catalogue matched against what the connected accounts list,
+less what each account's switches turn off. A model an account lists that the
+catalogue does not know yet is listed anyway, after the rest. Until an account
+can be asked, the gateway lists the catalogue's Anthropic models as they stand —
+enough to set up the aliases and hand out configs before the first login.
+`models-catalog: off` never asks, and the list is then the accounts' own.
 
 On the **Models** tab each built-in alias follows the newest model of its
 family, by release date, until you choose another; a key can choose
