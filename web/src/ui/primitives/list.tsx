@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AppLink, openRow } from './index'
+import { AppLink, FilledButton, openRow } from './index'
 
 /**
  * One item of a list that opens a page per item: an account, an API key.
@@ -64,6 +64,40 @@ export function ListRow({
         </span>
       </div>
     </div>
+  )
+}
+
+/**
+ * The row above a list: its add action first, where the eye starts, and the
+ * list's own figures and freshness at the far end. Above the list's card
+ * rather than inside it, so the card starts with the list.
+ */
+export function ListToolbar({ action, children }: { action?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {action}
+      <div className="ml-auto flex items-center gap-3">{children}</div>
+    </div>
+  )
+}
+
+/** A list's add action: filled, with a plus, so it reads as the way to grow the list. */
+export function AddButton({
+  onClick,
+  disabled = false,
+  children,
+}: {
+  onClick: () => void
+  disabled?: boolean
+  children: ReactNode
+}) {
+  return (
+    <FilledButton type="button" onClick={onClick} disabled={disabled} className="pl-4">
+      <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
+        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+      </svg>
+      {children}
+    </FilledButton>
   )
 }
 

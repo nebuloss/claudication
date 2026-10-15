@@ -10,7 +10,9 @@ import { KeyModels } from './account-models'
 import { RolesEditor } from './model-roles'
 import type { ReactNode } from 'react'
 import {
+  AddButton,
   AppLink,
+  ListToolbar,
   ListRow,
   RowBadge,
   Banner,
@@ -71,6 +73,7 @@ export default function Keys({
    */
   onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
+  const [creating, setCreating] = useState(false)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     () => api.listKeys(),
     onExpired,
@@ -80,15 +83,13 @@ export default function Keys({
 
   return (
     <div className="flex flex-col gap-5">
-      <NewKey
-        defaultRpm={data?.defaultRpm ?? 0}
-        onCreated={(m) => {
-          onMinted(m)
-          void reload()
-        }}
-      />
-
-      <div className="-mb-3 flex items-center justify-end gap-3">
+      <ListToolbar
+        action={
+          <AddButton disabled={creating} onClick={() => setCreating(true)}>
+            New API key
+          </AddButton>
+        }
+      >
         {data !== null && data.keys.length > 0 && (
           <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
             traffic over {data.windowDays}d
@@ -100,7 +101,20 @@ export default function Keys({
           live={live}
           onRefresh={() => void reload()}
         />
-      </div>
+      </ListToolbar>
+
+      {creating && (
+        <NewKey
+          defaultRpm={data?.defaultRpm ?? 0}
+          onClose={() => setCreating(false)}
+          onCreated={(m) => {
+            setCreating(false)
+            onMinted(m)
+            void reload()
+          }}
+        />
+      )}
+
       <Card>
         {error !== '' && (
           <Banner tone="error" className="mb-4">
@@ -876,26 +890,19 @@ function KeyEditor({
 
 function NewKey({
   onCreated,
+  onClose,
   defaultRpm,
 }: {
   onCreated: (m: { key: ApiKey; plaintext: string }) => void
+  onClose: () => void
   defaultRpm: number
 }) {
-  const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [rpm, setRpm] = useState(0)
   const [periodS, setPeriodS] = useState(DEFAULT_PERIOD_S)
   const [budget, setBudget] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-
-  if (!open) {
-    return (
-      <div>
-        <TonalButton onClick={() => setOpen(true)}>New API key</TonalButton>
-      </div>
-    )
-  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -907,11 +914,6 @@ function NewKey({
     setError('')
     try {
       onCreated(await api.createKey(name.trim(), rpm, periodS, budget))
-      setOpen(false)
-      setName('')
-      setRpm(0)
-      setPeriodS(DEFAULT_PERIOD_S)
-      setBudget(0)
     } catch (err) {
       setError(messageOf(err))
     }
@@ -938,7 +940,7 @@ function NewKey({
             {busy && <Spinner />}
             {busy ? 'Creating…' : 'Create key'}
           </FilledButton>
-          <OutlinedButton onClick={() => setOpen(false)} disabled={busy}>
+          <OutlinedButton onClick={onClose} disabled={busy}>
             Cancel
           </OutlinedButton>
         </div>

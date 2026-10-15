@@ -226,6 +226,13 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
   return out
 }
 
+let reloadOnNavigate = false
+
+/** From now on, the next navigation loads the page afresh: a newer UI is out. */
+export function reloadOnNextNavigation() {
+  reloadOnNavigate = true
+}
+
 /**
  * Go somewhere, query string and all, without reloading the app.
  *
@@ -235,6 +242,12 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
  * screen is already listening in.
  */
 export function navigate(url: string) {
+  // A newer UI has been deployed since this one loaded: moving to another page
+  // is the moment nothing is lost by loading it, so go there by a real load.
+  if (reloadOnNavigate) {
+    window.location.assign(url)
+    return
+  }
   window.history.pushState(null, '', url)
   window.dispatchEvent(new PopStateEvent('popstate'))
 }

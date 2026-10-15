@@ -10,7 +10,7 @@ import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import { usePath, useLive, useLoader, useUpdateAvailable } from './hooks'
 import { nameOf, useNames } from './names'
-import { navLevel, pathOf, tabOf, trailOf } from './route'
+import { navLevel, pathOf, reloadOnNextNavigation, tabOf, trailOf } from './route'
 // OverviewData, because Overview is already the panel above.
 import {
   ApiError,
@@ -107,9 +107,28 @@ export default function App() {
   // the panel that asked: panels unmount on a tab change and on Back, and the
   // dialog should outlive both.
   const [minted, setMinted] = useState<{ key: ApiKey; plaintext: string } | null>(null)
-  // A deploy since this tab loaded. Offered, never done for the operator: a
-  // reload throws away whatever is on screen, including a key being copied.
+  // A deploy since this tab loaded is taken without asking, at the first
+  // moment it loses nothing: at once when nothing is being typed or shown, or
+  // else on the next move to another page, or when the tab is left with
+  // nothing open. What it must never throw away is a form half filled in or a
+  // key on screen being copied.
   const updated = useUpdateAvailable()
+  useEffect(() => {
+    if (!updated) return
+    reloadOnNextNavigation()
+    const safe = () =>
+      minted === null &&
+      document.querySelector('form, [role="dialog"], [aria-modal="true"]') === null
+    if (safe()) {
+      window.location.reload()
+      return
+    }
+    const onHide = () => {
+      if (document.visibilityState === 'hidden' && safe()) window.location.reload()
+    }
+    document.addEventListener('visibilitychange', onHide)
+    return () => document.removeEventListener('visibilitychange', onHide)
+  }, [updated, minted])
 
   const probe = useCallback(async () => {
     try {
@@ -228,17 +247,6 @@ export default function App() {
           <NavRail level={level} row />
         </div>
         <main className="min-w-0 flex-1 pt-6 pb-16">
-          {updated && (
-            <Banner className="mb-5">
-              <span className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  claudication has been updated since this page was opened. Reload to use the new
-                  version.
-                </span>
-                <TextButton onClick={() => window.location.reload()}>Reload</TextButton>
-              </span>
-            </Banner>
-          )}
           {tab === 'overview' && <Overview onExpired={expired} docsURL={docsURL} />}
           {/* Keyed by the item, so moving from one account's page to another's
               starts clean rather than showing the last one's state. */}

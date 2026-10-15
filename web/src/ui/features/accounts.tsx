@@ -12,10 +12,11 @@ import {
   Empty,
   Freshness,
   IconButton,
+  AddButton,
+  ListToolbar,
   ListRow,
   RowBadge,
   Spinner,
-  TonalButton,
   compact,
 } from '../primitives'
 
@@ -99,7 +100,33 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
 
   return (
     <div className="flex flex-col gap-5">
-      {adding ? (
+      <ListToolbar
+        action={
+          <AddButton
+            disabled={adding}
+            onClick={() => {
+              setNotice('')
+              setAdding(true)
+            }}
+          >
+            Add account
+          </AddButton>
+        }
+      >
+        {accounts.length > 0 && (
+          <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
+            {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over {windowDays}d
+          </span>
+        )}
+        <Freshness
+          updatedAt={updatedAt}
+          refreshing={refreshing}
+          live={live}
+          onRefresh={() => void reload()}
+        />
+      </ListToolbar>
+
+      {adding && (
         <AddAccount
           onAdded={({ account, renewed }) => {
             setAdding(false)
@@ -117,40 +144,10 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
           }}
           onCancel={() => setAdding(false)}
         />
-      ) : (
-        <div className="flex flex-wrap items-center gap-3">
-          <TonalButton
-            onClick={() => {
-              setNotice('')
-              setAdding(true)
-            }}
-          >
-            Add account
-          </TonalButton>
-          {accounts.length > 1 && (
-            <span className="text-sm text-on-surface-variant">
-              Served top-down — the next one takes over when Anthropic says the one above is out.
-            </span>
-          )}
-        </div>
       )}
 
       {notice !== '' && <Banner>{notice}</Banner>}
 
-      <div className="-mb-3 flex items-center justify-end gap-3">
-        {accounts.length > 0 && (
-          <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
-            {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over{' '}
-            {windowDays}d
-          </span>
-        )}
-        <Freshness
-          updatedAt={updatedAt}
-          refreshing={refreshing}
-          live={live}
-          onRefresh={() => void reload()}
-        />
-      </div>
       <Card>
         {error !== '' && (
           <Banner tone="error" className="mb-4">
@@ -219,6 +216,12 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
               )
             })}
           </div>
+        )}
+        {accounts.length > 1 && (
+          <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">
+            Served top-down — the next one takes over when the one above is out of room. Drag or
+            use the arrows to change the order.
+          </p>
         )}
       </Card>
     </div>

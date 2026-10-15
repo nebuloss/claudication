@@ -21,7 +21,7 @@ import {
 export { MenuDivider, Popover, menuItem, menuSurface, useAnchoredPanel } from './popover'
 export type { Placement } from './popover'
 export { Breadcrumbs, NavRail, follow } from './nav'
-export { ListRow, RowBadge } from './list'
+export { AddButton, ListRow, ListToolbar, RowBadge } from './list'
 
 /* Material 3 primitives, shared by every screen. */
 
