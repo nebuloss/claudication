@@ -16,6 +16,7 @@ import {
   ListRow,
   RowBadge,
   Banner,
+  Note,
   Card,
   CardTitle,
   Chip,
@@ -283,7 +284,7 @@ export function KeyPage({
   onMinted,
 }: {
   id: string
-  /** An id from ITEM_PAGES, and under settings an id from KEY_SETTINGS. */
+  /** An id from KEY_PAGES, and under settings an id from KEY_SETTINGS. */
   page: string
   section: string
   onExpired: () => void
@@ -357,11 +358,11 @@ export function KeyPage({
 
       {error !== '' && <Banner tone="error">{error}</Banner>}
 
-      {page === 'settings' && (
+      {(page === 'settings' || page === 'clients') && (
         <KeySettings
-          key={section}
+          key={page === 'clients' ? page : section}
           apiKey={k}
-          section={section}
+          section={page === 'clients' ? page : section}
           defaultRpm={data?.defaultRpm ?? 0}
           onSaved={() => void reload()}
           onMinted={onMinted}
@@ -394,9 +395,9 @@ export function KeyPage({
                 [
                   'Configs',
                   k.secret_kept ? (
-                    <AppLink href={`${pathOf('keys', k.id)}/settings/clients`}>can be downloaded</AppLink>
+                    <AppLink href={`${pathOf('keys', k.id)}/clients`}>can be downloaded</AppLink>
                   ) : (
-                    <AppLink href={`${pathOf('keys', k.id)}/settings/clients`}>
+                    <AppLink href={`${pathOf('keys', k.id)}/clients`}>
                       need a new secret once
                     </AppLink>
                   ),
@@ -517,17 +518,20 @@ function KeySettings({
 
   const card = (() => {
     switch (section) {
+      // Which models the key may ask for, and what its aliases serve: one
+      // question, so one page, a card for each half.
       case 'models':
         return (
-          <Card>
-            <KeyModels apiKey={k} onChanged={onSaved} />
-          </Card>
-        )
-      case 'aliases':
-        return (
-          <Card>
-            <RolesEditor keyId={k.id} />
-          </Card>
+          <>
+            <Card>
+              <CardTitle>Allowed models</CardTitle>
+              <KeyModels apiKey={k} onChanged={onSaved} />
+            </Card>
+            <Card>
+              <CardTitle>Aliases</CardTitle>
+              <RolesEditor keyId={k.id} />
+            </Card>
+          </>
         )
       case 'general':
         return (
@@ -571,12 +575,12 @@ function KeySettings({
               </>
             ) : (
               <>
-                <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+                <Note tone="warn" className="mb-4">
                   This key was made before the gateway kept keys, so only a fingerprint of it exists
                   and it cannot be shown. Issue it a new secret once — it keeps its name, limits,
-                  models and history; the current secret stops working — and from then on its configs
-                  can be downloaded here at any time.
-                </p>
+                  models and history; the current secret stops working — and from then on its
+                  configs can be downloaded here at any time.
+                </Note>
                 <TonalButton disabled={busy} onClick={() => void rotate()}>
                   {busy && <Spinner />}
                   New secret and configs
@@ -589,10 +593,10 @@ function KeySettings({
         return (
           <Card>
             <CardTitle>Delete this key</CardTitle>
-            <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+            <Note tone="error" className="mb-4">
               Clients holding it stop working immediately, and it cannot be undone. Its usage stays,
               under the name it was recorded with.
-            </p>
+            </Note>
             <OutlinedButton tone="error" disabled={busy} onClick={() => void remove()}>
               Delete {k.name}
             </OutlinedButton>

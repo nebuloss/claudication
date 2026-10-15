@@ -2,6 +2,18 @@ import { useId, type ReactNode } from 'react'
 import { Popover, useAnchoredPanel } from './popover'
 
 /**
+ * The bubble: white with the body colour, where it was the card's grey with
+ * the muted one — the help was the lowest-contrast text on the page. Each
+ * paragraph is a point with a blue bullet, so a tip reads as a short list of
+ * things to know rather than a block to wade through.
+ */
+const TIP = [
+  'bg-surface-lowest! px-4 py-3 text-sm leading-relaxed text-on-surface',
+  '[&_p]:relative [&_p]:my-0 [&_p]:pl-4 [&_p+p]:mt-2',
+  "[&_p]:before:absolute [&_p]:before:top-[0.6em] [&_p]:before:left-0 [&_p]:before:size-1.5 [&_p]:before:rounded-full [&_p]:before:bg-info [&_p]:before:content-['']",
+].join(' ')
+
+/**
  * A small blue ⓘ holding the explanation of what is beside it.
  *
  * The help used to be paragraphs above every control, read once and then
@@ -41,11 +53,54 @@ export function InfoTip({ children, label = 'More about this' }: { children: Rea
           role="tooltip"
           label={label}
           id={id}
-          className="px-4 py-3 leading-relaxed text-on-surface-variant [&_p]:my-0 [&_p+p]:mt-2"
+          className={TIP}
         >
           {children}
         </Popover>
       )}
     </>
+  )
+}
+
+const NOTE_TONES = {
+  info: {
+    box: 'bg-info-container text-on-info-container',
+    icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
+  },
+  warn: {
+    box: 'bg-warning-container text-on-warning-container',
+    icon: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
+  },
+  error: {
+    box: 'bg-error-container text-on-error-container',
+    icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z',
+  },
+}
+
+/**
+ * A line of help that has to stay on the page, as a tinted box with an icon
+ * rather than small grey text: a cost, a consequence, where something is. In
+ * the info, warning or error container colour, so it is read rather than
+ * skimmed past.
+ */
+export function Note({
+  tone = 'info',
+  children,
+  className = '',
+}: {
+  tone?: keyof typeof NOTE_TONES
+  children: ReactNode
+  className?: string
+}) {
+  const t = NOTE_TONES[tone]
+  return (
+    <div
+      className={`flex items-start gap-2.5 rounded-[var(--radius-md3-m)] px-3 py-2.5 text-sm leading-relaxed ${t.box} ${className}`}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden className="mt-0.5 size-[18px] shrink-0 fill-current">
+        <path d={t.icon} />
+      </svg>
+      <div className="min-w-0 [&_p]:m-0 [&_p+p]:mt-1.5">{children}</div>
+    </div>
   )
 }

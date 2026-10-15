@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { api, messageOf, type Account, type AccountModel, type ApiKey } from '../../api/client'
 import { useLoader } from '../hooks'
-import { Banner, ErrorState, SmallButton, Spinner, Switch, compact } from '../primitives'
+import { Banner, ErrorState, SmallButton, Spinner, Switch, compact, tile } from '../primitives'
 
 function released(at?: string): string {
   if (at === undefined) return ''
@@ -98,7 +98,12 @@ function ModelSwitches({
         </div>
       </div>
       {failure !== '' && <Banner tone="error">{failure}</Banner>}
-      <ul className="m-0 flex list-none flex-col divide-y divide-outline-variant p-0">
+      {/* Scrolls in its own box: an account lists a model per release, and a
+          page that grows with them puts All on and All off a long scroll above
+          the switch being looked for. */}
+      <ul
+        className={`${tile} m-0 flex max-h-[min(28rem,60vh)] list-none flex-col divide-y divide-outline-variant overflow-y-auto overscroll-contain px-4 py-1`}
+      >
         {data.models.map((m) => (
           <li key={m.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
             <Switch

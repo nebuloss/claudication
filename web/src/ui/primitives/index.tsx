@@ -22,7 +22,7 @@ export { MenuDivider, Popover, menuItem, menuSurface, useAnchoredPanel } from '.
 export type { Placement } from './popover'
 export { Breadcrumbs, NavRail, follow } from './nav'
 export { AddButton, ListRow, ListToolbar, RowBadge } from './list'
-export { InfoTip } from './info'
+export { InfoTip, Note } from './info'
 import { InfoTip } from './info'
 
 /* Material 3 primitives, shared by every screen. */

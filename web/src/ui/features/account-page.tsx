@@ -47,7 +47,7 @@ export default function AccountPage({
   onExpired,
 }: {
   id: string
-  /** An id from ITEM_PAGES, and under settings an id from ACCOUNT_SETTINGS. */
+  /** An id from ACCOUNT_PAGES, and under settings an id from ACCOUNT_SETTINGS. */
   page: string
   section: string
   onExpired: () => void

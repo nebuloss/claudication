@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, type Surface } from '../../api/client'
-import { Banner, Card, Switch, tile } from '../primitives'
+import { Banner, Card, Note, Switch, tile } from '../primitives'
 
 /**
  * The switches for the client-facing APIs.
@@ -80,10 +80,10 @@ export default function Surfaces({
               ))}
             </div>
             {!s.enabled && (
-              <p className="mt-2 mb-0 text-xs text-on-surface-variant sm:ml-16">
+              <Note className="mt-3">
                 Requests to these paths are answered 404, in this API&rsquo;s own error format, so a
                 client reports it and stops rather than retrying against a wall.
-              </p>
+              </Note>
             )}
           </div>
         ))}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { Banner, Card, Switch, tile } from '../primitives'
+import { Banner, Card, Note, Switch, tile } from '../primitives'
 
 /**
  * The switches for naming conversations.
@@ -118,10 +118,9 @@ export default function ChatTitles({
               </>
             }
           />
-          <p className="mt-2 mb-0 text-xs text-on-surface-variant sm:ml-16">
-            <strong className="font-medium text-on-surface">Spends your subscription</strong>: one
-            short call per conversation.
-          </p>
+          <Note tone="warn" className="mt-3">
+            Spends your subscription: one short call per conversation.
+          </Note>
         </div>
       </div>
     </Card>

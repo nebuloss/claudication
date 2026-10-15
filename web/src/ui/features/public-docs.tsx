@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { Banner, Card, Switch, tile } from '../primitives'
+import { Banner, Card, Note, Switch, tile } from '../primitives'
 
 /**
  * The switch for the public docs page.
@@ -80,24 +80,22 @@ export default function PublicDocs({
             </p>
           }
         />
-        <div className="mt-2 sm:ml-16">
-          {url !== '' && (
-            <p className="m-0 text-xs text-on-surface-variant">
-              At{' '}
-              <a
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary underline underline-offset-2"
-              >
-                {url}
-              </a>
-              . Set <code className="font-mono">docs-listen</code> to put it on an address of its
-              own instead, for a deployment that wants the instructions somewhere{' '}
-              <code className="font-mono">/v1</code> is not.
-            </p>
-          )}
-        </div>
+        {url !== '' && (
+          <Note className="mt-3">
+            At{' '}
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium underline underline-offset-2"
+            >
+              {url}
+            </a>
+            . Set <code className="font-mono">docs-listen</code> to put it on an address of its own
+            instead, for a deployment that wants the instructions somewhere{' '}
+            <code className="font-mono">/v1</code> is not.
+          </Note>
+        )}
       </div>
     </Card>
   )

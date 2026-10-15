@@ -3,6 +3,7 @@ import { api, messageOf, type Model, type ModelRole } from '../../api/client'
 import { useLoader } from '../hooks'
 import {
   Banner,
+  Note,
   Card,
   ErrorState,
   Field,
@@ -228,10 +229,10 @@ function NewAlias({
         Add
       </TonalButton>
       {name !== '' && !name.includes('claude') && (
-        <p className="m-0 w-full text-xs text-warning">
+        <Note tone="warn" className="w-full">
           Claude Code&rsquo;s model picker lists only names containing &ldquo;claude&rdquo;, and
           opencode treats other names as non-Claude models.
-        </p>
+        </Note>
       )}
     </div>
   )

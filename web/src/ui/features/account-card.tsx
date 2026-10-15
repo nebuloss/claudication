@@ -4,6 +4,7 @@ import AccountModels from './account-models'
 import { api, messageOf, type Account, type ProbeResult } from '../../api/client'
 import {
   Banner,
+  Note,
   Card,
   CardTitle,
   FilledButton,
@@ -60,8 +61,9 @@ export function status(a: Account): { tone: ChipTone; label: string } {
  *
  * Models first, because which models an account may serve is the setting an
  * operator comes here for most. Then the connection — its token, testing it,
- * reconnecting — then whether it serves at all, and removing it last, on a
- * page of its own where it cannot be hit on the way to anything else.
+ * reconnecting — and last, under Advanced, pausing it and removing it: the
+ * two ways out of use, on a page of their own where neither can be hit on the
+ * way to anything else.
  *
  * Every action asks the page to reload rather than patching a local copy:
  * the account list is the one source, and a copy that drifted from it once
@@ -204,8 +206,9 @@ export default function AccountSettings({
     )
   }
 
-  if (section === 'availability') {
-    return (
+  // Advanced: taking the account out of use, for a while or for good.
+  return (
+    <>
       <Card
         info={
           <p>
@@ -214,6 +217,7 @@ export default function AccountSettings({
           </p>
         }
       >
+        <CardTitle>{account.disabled ? 'Resume this account' : 'Pause this account'}</CardTitle>
         <OutlinedButton
           onClick={() =>
             void run('disable', () => api.setAccountDisabled(account.id, !account.disabled))
@@ -223,35 +227,23 @@ export default function AccountSettings({
           {busy === 'disable' && <Spinner />}
           {account.disabled ? 'Resume' : 'Pause'}
         </OutlinedButton>
-        {error !== '' && (
-          <Banner tone="error" className="mt-4">
-            {error}
-          </Banner>
-        )}
       </Card>
-    )
-  }
 
-  return (
-    <>
       {/* Removing destroys the credentials and revokes the token upstream, so
           getting the account back means the browser consent flow again. */}
       <Card>
         <CardTitle>Remove this account</CardTitle>
-        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+        <Note tone="error" className="mb-4">
           The stored credentials are destroyed and the token is revoked with Anthropic. Its usage
           stays in the history, under its email.
-        </p>
+        </Note>
         <OutlinedButton onClick={() => void runDelete()} disabled={busy !== ''} tone="error">
           {busy === 'delete' && <Spinner />}
           Remove {account.email}
         </OutlinedButton>
-        {error !== '' && (
-          <Banner tone="error" className="mt-4">
-            {error}
-          </Banner>
-        )}
       </Card>
+
+      {error !== '' && <Banner tone="error">{error}</Banner>}
     </>
   )
 }
