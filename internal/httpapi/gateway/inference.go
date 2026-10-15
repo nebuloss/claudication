@@ -104,7 +104,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 					Rejected: true, Error: why,
 				}, 0)
 				p.WriteError(w, http.StatusNotFound, "not_found_error",
-					why+"; an administrator can change "+role+" under Models")
+					why+"; an administrator can change "+role+" in Settings › Aliases")
 				return
 			}
 			replaced, ok := passes.SetModel(outbound, target)

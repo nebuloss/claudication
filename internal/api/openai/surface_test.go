@@ -15,7 +15,7 @@ import (
 // The ID is a stored settings key; renaming it would silently reset the
 // operator's switch for this surface.
 func TestSurfaceIdentity(t *testing.T) {
-	var p api.Protocol = New("claude-sonnet-5", 1000)
+	var p api.Protocol = New("claude-large")
 	if p.ID() != "openai" {
 		t.Errorf("ID = %q, want the stored key \"openai\"", p.ID())
 	}
@@ -27,16 +27,16 @@ func TestSurfaceIdentity(t *testing.T) {
 	}
 }
 
-// Decode is where a Codex model name is swapped for a Claude one and the
+// Decode is where a Codex model name is swapped for the large alias and the
 // required max_tokens is filled in; an exchange that skipped either would be
 // refused upstream for every default Codex install.
 func TestDecodeAppliesTheSurfaceDefaults(t *testing.T) {
-	ex, err := New("claude-sonnet-5", 1234).Decode([]byte(
+	ex, err := New("claude-large").Decode([]byte(
 		`{"model":"gpt-5-codex","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ex.Model() != "claude-sonnet-5" || !ex.Streaming() {
+	if ex.Model() != "claude-large" || !ex.Streaming() {
 		t.Errorf("model/stream = %q/%v", ex.Model(), ex.Streaming())
 	}
 	body := ex.Request()
@@ -48,7 +48,7 @@ func TestDecodeAppliesTheSurfaceDefaults(t *testing.T) {
 	if err := json.Unmarshal(body, &sent); err != nil {
 		t.Fatal(err)
 	}
-	if sent.Model != "claude-sonnet-5" || sent.MaxTokens != 1234 || !sent.Stream {
+	if sent.Model != "claude-large" || sent.MaxTokens != 32000 || !sent.Stream {
 		t.Errorf("sent = %+v", sent)
 	}
 	// The exchange outlives the request by the length of the stream; keeping
@@ -57,10 +57,10 @@ func TestDecodeAppliesTheSurfaceDefaults(t *testing.T) {
 		t.Errorf("second Request() = %d bytes, want nil: the body is handed over once", len(again))
 	}
 
-	if _, err := New("", 0).Decode([]byte(`{"input":[]}`)); err == nil {
+	if _, err := New("").Decode([]byte(`{"input":[]}`)); err == nil {
 		t.Error("no model anywhere was accepted; the upstream would refuse it anyway")
 	}
-	if _, err := New("m", 0).Decode([]byte(`not json`)); err == nil {
+	if _, err := New("m").Decode([]byte(`not json`)); err == nil {
 		t.Error("an unparseable body was accepted")
 	}
 }
@@ -69,7 +69,7 @@ func TestDecodeAppliesTheSurfaceDefaults(t *testing.T) {
 // gateway's own refusals must be in OpenAI's envelope.
 func TestWriteErrorIsOpenAIShaped(t *testing.T) {
 	rec := httptest.NewRecorder()
-	New("m", 0).WriteError(rec, http.StatusNotFound, "not_found", "the OpenAI surface is switched off")
+	New("m").WriteError(rec, http.StatusNotFound, "not_found", "the OpenAI surface is switched off")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d", rec.Code)
 	}
@@ -90,7 +90,7 @@ func TestWriteErrorIsOpenAIShaped(t *testing.T) {
 // session_id is sent on every request, conversation_id only once the thread
 // exists; taking session_id first keeps a chat's first request in its group.
 func TestConversationIDPrefersSessionID(t *testing.T) {
-	p := New("m", 0)
+	p := New("m")
 	h := http.Header{}
 	h.Set("Conversation_id", "conv-1")
 	if got := p.ConversationID(h, nil); got != "conv-1" {
@@ -109,7 +109,7 @@ func TestConversationIDPrefersSessionID(t *testing.T) {
 // request that looks like nothing else is the kind that gets refused. Every
 // other header must survive: auth and tracing are the caller's.
 func TestHeadersDropOnlyTheDialect(t *testing.T) {
-	ex, err := New("m", 0).Decode([]byte(`{"model":"claude-x","input":[]}`))
+	ex, err := New("m").Decode([]byte(`{"model":"claude-x","input":[]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestHeadersDropOnlyTheDialect(t *testing.T) {
 
 func exchangeFor(t *testing.T, body string) api.Exchange {
 	t.Helper()
-	ex, err := New("claude-sonnet-5", 100).Decode([]byte(body))
+	ex, err := New("claude-large").Decode([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}

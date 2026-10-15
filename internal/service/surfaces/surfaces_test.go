@@ -33,7 +33,7 @@ func (m *memStore) SetSetting(_ context.Context, key, value string) error {
 }
 
 func registry() api.Registry {
-	return api.Registry{anthropicapi.New(), openai.New("claude-sonnet-5", 1024)}
+	return api.Registry{anthropicapi.New(), openai.New("claude-large")}
 }
 
 // Every surface serves until someone says otherwise, and the report says so

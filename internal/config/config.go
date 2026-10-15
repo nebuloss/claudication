@@ -90,7 +90,6 @@ type Config struct {
 	Log            LogConfig         `yaml:"log"`
 	Limits         LimitsConfig      `yaml:"limits"`
 	Passthrough    PassthroughConfig `yaml:"passthrough"`
-	OpenAI         OpenAIConfig      `yaml:"openai"`
 	Usage          UsageConfig       `yaml:"usage"`
 	Shutdown       ShutdownConfig    `yaml:"shutdown"`
 	// MemoryLimit is the memory this process may use, like "512MiB": the
@@ -150,24 +149,6 @@ type PassthroughConfig struct {
 // MinStallTimeout keeps the stall check clear of an ordinary slow start: a
 // long prompt can legitimately take tens of seconds to its first token.
 const MinStallTimeout = 30 * time.Second
-
-// OpenAIConfig tunes the OpenAI Responses surface, which is what Codex CLI
-// speaks. It says nothing about whether that surface is served at all: that is
-// a runtime switch kept in the database, because turning an API off is
-// something an operator does at three in the morning and not something that
-// should need a config edit and a restart.
-type OpenAIConfig struct {
-	// Model is the Claude model a Responses request runs on when it names one
-	// the upstream has never heard of, which a default Codex install always
-	// does — it asks for gpt-5-codex. A request that already names a Claude
-	// model keeps it, so configuring Codex with `model = "claude-opus-5"`
-	// still decides what runs.
-	Model string `yaml:"model"`
-	// MaxTokens is the ceiling to ask for when the caller names none. Codex
-	// never sends max_output_tokens and Anthropic requires max_tokens, so
-	// there has to be a figure here or every request is refused outright.
-	MaxTokens int `yaml:"max-tokens"`
-}
 
 type UsageConfig struct {
 	// RetentionDays bounds the per-request history. 0 disables recording
@@ -242,10 +223,6 @@ func Defaults() Config {
 			// stream, with room for the retry to answer inside them.
 			StallTimeout: Duration(90 * time.Second),
 		},
-		// Sonnet rather than opus: a Codex session is a long series of tool
-		// calls, and pointing that at the most expensive model by default
-		// spends a subscription's weekly allowance on shell commands.
-		OpenAI: OpenAIConfig{Model: "claude-sonnet-5", MaxTokens: 32000},
 		Usage: UsageConfig{
 			RetentionDays: 30,
 			ReportDays:    7,
@@ -345,16 +322,6 @@ func applyEnv(cfg *Config) map[string]bool {
 		cfg.Passthrough.ClaudeCodeAttribution = v != "0" && !strings.EqualFold(v, "false")
 		took["passthrough.claude-code-attribution"] = true
 	}
-	if v := os.Getenv("CLAUDICATION_OPENAI_MODEL"); v != "" {
-		cfg.OpenAI.Model = v
-		took["openai.model"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_OPENAI_MAX_TOKENS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.OpenAI.MaxTokens = n
-			took["openai.max-tokens"] = true
-		}
-	}
 	if v := os.Getenv("CLAUDICATION_REQUESTS_PER_MINUTE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Limits.RequestsPerMinute = n
@@ -407,9 +374,6 @@ func (c Config) validate() error {
 	}
 	if c.Limits.MaxBodyBytes <= 0 {
 		return errors.New("limits.max-body-bytes must be positive")
-	}
-	if c.OpenAI.MaxTokens <= 0 {
-		return errors.New("openai.max-tokens must be positive")
 	}
 	if c.Usage.PollIdle.D() < MinUsagePoll || c.Usage.PollWatched.D() < MinUsagePoll {
 		return fmt.Errorf("usage.poll-idle and usage.poll-watched must be at least %s", MinUsagePoll)

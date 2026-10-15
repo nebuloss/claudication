@@ -92,13 +92,6 @@ var definitions = []struct {
 		"How long a streaming answer may produce nothing before it is sent again, before the client has seen any of it. 0 is off.",
 		func(c Config) string { return c.Passthrough.StallTimeout.D().String() }},
 
-	{"openai.model", "CLAUDICATION_OPENAI_MODEL",
-		"Which Claude model a Responses request runs on when it asks for something else — a default Codex install asks for gpt-5-codex. A request naming a Claude model keeps it.",
-		func(c Config) string { return c.OpenAI.Model }},
-	{"openai.max-tokens", "CLAUDICATION_OPENAI_MAX_TOKENS",
-		"Answer ceiling for a Responses request, which never carries one of its own. Anthropic requires the field, so there has to be a figure here.",
-		func(c Config) string { return strconv.Itoa(c.OpenAI.MaxTokens) }},
-
 	{"usage.retention-days", "",
 		"How long per-request history is kept. 0 records nothing at all.",
 		func(c Config) string { return strconv.Itoa(c.Usage.RetentionDays) }},

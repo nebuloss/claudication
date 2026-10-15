@@ -28,8 +28,9 @@ where each value came from.
 Neither surface filters them. `/v1/models` is proxied from the upstream, the
 relay forwards whatever model a caller names, and the only model-name logic in
 the tree is one prefix test in `internal/api/openai/request.go`: a Responses
-request asking for something that is not a `claude-` model gets `openai.model`
-substituted, because the name it sent means nothing upstream.
+request asking for something that is not a `claude-` model is sent as
+`claude-large`, because the name it sent means nothing upstream; the alias
+then serves whatever Settings › Aliases has it serve.
 
 So every model an account serves works on both APIs, and a new one works the
 day it appears. The Setup tab reads the live list through `GET /admin/models`
@@ -76,10 +77,11 @@ Codex has. `chat_completions` appears nowhere in its binary, while `/responses`
 appears 41 times.
 
 The `model` line is worth setting. Codex asks for `gpt-5-codex` by default,
-which means nothing upstream, so the gateway substitutes `openai.model` from
-its config. Naming a Claude model in Codex's own config keeps the choice where
-you can see it — a request that already asks for a `claude-` model is passed
-through untouched.
+which means nothing upstream, so the gateway sends it as `claude-large` — the
+alias every client's main model is, chosen in Settings › Aliases. Naming a
+Claude model or alias in Codex's own config keeps the choice where you can see
+it: a request that already asks for a `claude-` model is passed through
+untouched.
 
 ## What the translation does, and what it refuses to do
 
@@ -91,7 +93,8 @@ recover it would cost a day.
 The parts that surprise people:
 
 - **Anthropic requires `max_tokens`; Codex never sends one.** The gateway
-  supplies `openai.max-tokens`. Without it every request would be refused.
+  asks for 32,000 — one long answer, not a budget; the account's own limits are
+  the budget. Without a figure every request would be refused.
 - **`developer` is a role Anthropic does not have.** Those turns fold into the
   system prompt — they are instruction, not conversation, and making them user
   turns would put them in the transcript as something the user said.

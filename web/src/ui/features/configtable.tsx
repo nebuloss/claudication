@@ -19,7 +19,6 @@ const GROUPS: Record<string, string> = {
   log: 'Logging',
   limits: 'Limits',
   passthrough: 'Relay',
-  openai: 'OpenAI Responses',
   usage: 'Usage history',
   shutdown: 'Shutdown',
 }

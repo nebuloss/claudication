@@ -27,17 +27,16 @@ const ID = "openai"
 // the measurements behind both.
 type API struct {
 	// model stands in when the caller names something the upstream has never
-	// heard of, which is every default Codex install.
+	// heard of, which is every default Codex install: the gateway's large
+	// alias, which it resolves as it would for any client, so what Codex runs
+	// on is chosen where every other client's is.
 	model string
-	// maxTokens is the ceiling to request when the caller names none. Codex
-	// never sends max_output_tokens and Anthropic requires max_tokens, so
-	// without this every request is refused.
-	maxTokens int
 }
 
-// New returns the surface configured for this gateway.
-func New(model string, maxTokens int) API {
-	return API{model: model, maxTokens: maxTokens}
+// New returns the surface, sending model when a request names no Claude
+// model of its own.
+func New(model string) API {
+	return API{model: model}
 }
 
 func (API) ID() string       { return ID }
@@ -45,10 +44,7 @@ func (API) Title() string    { return "OpenAI Responses API" }
 func (API) Routes() []string { return []string{"/v1/responses"} }
 
 func (a API) Decode(body []byte) (api.Exchange, error) {
-	req, err := ResponsesToAnthropic(body, Options{
-		Model:     a.model,
-		MaxTokens: a.maxTokens,
-	})
+	req, err := ResponsesToAnthropic(body, Options{Model: a.model})
 	if err != nil {
 		return nil, err
 	}

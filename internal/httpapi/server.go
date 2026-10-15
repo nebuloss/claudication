@@ -185,7 +185,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	// Order is what the admin UI lists.
 	s.protocols = api.Registry{
 		anthropicapi.New(),
-		openai.New(cfg.OpenAI.Model, cfg.OpenAI.MaxTokens),
+		openai.New(store.RoleLarge),
 	}
 	s.surfaces = surfaces.New(s.protocols, st)
 	// Read once here rather than per request. A failure is worth saying out

@@ -52,6 +52,12 @@ func relayTo(t *testing.T, srv *Server, st *store.Store, upstream http.Handler) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A Codex request naming no Claude model runs on claude-large, which
+	// follows the newest opus model an account lists — and this upstream lists
+	// none. Bound, as an operator would bind it, it serves without a list.
+	if err := st.SetModelRole(context.Background(), "", store.RoleLarge, "claude-sonnet-5"); err != nil {
+		t.Fatal(err)
+	}
 	return base, key
 }
 

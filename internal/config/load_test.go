@@ -15,8 +15,7 @@ var envVars = []string{
 	"CLAUDICATION_LISTEN", "CLAUDICATION_ADMIN_LISTEN", "CLAUDICATION_DOCS_LISTEN",
 	"CLAUDICATION_DOCS_URL", "CLAUDICATION_PUBLIC_URL", "CLAUDICATION_STATE_DIR",
 	"CLAUDICATION_LOG_LEVEL", "CLAUDICATION_LOG_FORMAT",
-	"CLAUDICATION_CLAUDE_CODE_ATTRIBUTION", "CLAUDICATION_OPENAI_MODEL",
-	"CLAUDICATION_OPENAI_MAX_TOKENS", "CLAUDICATION_REQUESTS_PER_MINUTE",
+	"CLAUDICATION_CLAUDE_CODE_ATTRIBUTION", "CLAUDICATION_REQUESTS_PER_MINUTE",
 	"CLAUDICATION_TRUSTED_PROXIES", "CLAUDICATION_MODELS_CATALOG",
 }
 
@@ -55,8 +54,6 @@ func TestEveryEnvironmentOverride(t *testing.T) {
 		"CLAUDICATION_LOG_LEVEL":               "debug",
 		"CLAUDICATION_LOG_FORMAT":              "text",
 		"CLAUDICATION_CLAUDE_CODE_ATTRIBUTION": "false",
-		"CLAUDICATION_OPENAI_MODEL":            "claude-opus-5",
-		"CLAUDICATION_OPENAI_MAX_TOKENS":       "1234",
 		"CLAUDICATION_REQUESTS_PER_MINUTE":     "7",
 		"CLAUDICATION_TRUSTED_PROXIES":         " 10.0.0.0/8, ,192.168.0.0/16 ,",
 		"CLAUDICATION_MODELS_CATALOG":          "off",
@@ -78,8 +75,6 @@ func TestEveryEnvironmentOverride(t *testing.T) {
 		"log.level":    {cfg.Log.Level, "debug"},
 		"log.format":   {cfg.Log.Format, "text"},
 		"attribution":  {cfg.Passthrough.ClaudeCodeAttribution, false},
-		"openai.model": {cfg.OpenAI.Model, "claude-opus-5"},
-		"max-tokens":   {cfg.OpenAI.MaxTokens, 1234},
 		"rpm":          {cfg.Limits.RequestsPerMinute, 7},
 		"catalog":      {cfg.ModelsCatalog, "off"},
 		// Blank entries between commas are dropped, not kept as an empty
@@ -123,18 +118,17 @@ func TestAttributionEnvValues(t *testing.T) {
 func TestUnparseableNumericEnvIsIgnored(t *testing.T) {
 	cleanEnv(t)
 	t.Setenv("CLAUDICATION_STATE_DIR", t.TempDir())
-	t.Setenv("CLAUDICATION_OPENAI_MAX_TOKENS", "lots")
 	t.Setenv("CLAUDICATION_REQUESTS_PER_MINUTE", "many")
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := Defaults()
-	if cfg.OpenAI.MaxTokens != d.OpenAI.MaxTokens || cfg.Limits.RequestsPerMinute != d.Limits.RequestsPerMinute {
-		t.Errorf("unparseable numbers changed the config: %d, %d", cfg.OpenAI.MaxTokens, cfg.Limits.RequestsPerMinute)
+	if cfg.Limits.RequestsPerMinute != d.Limits.RequestsPerMinute {
+		t.Errorf("an unparseable number changed the config: %d", cfg.Limits.RequestsPerMinute)
 	}
 	for _, s := range cfg.Settings() {
-		if (s.Key == "openai.max-tokens" || s.Key == "limits.requests-per-minute") && s.Origin != FromDefault {
+		if s.Key == "limits.requests-per-minute" && s.Origin != FromDefault {
 			t.Errorf("%s reports origin %q for an ignored override", s.Key, s.Origin)
 		}
 	}
@@ -150,7 +144,6 @@ func TestValidationErrors(t *testing.T) {
 		"docs same as relay":  {"listen: \"a:1\"\ndocs-listen: \"a:1\"\n", "docs-listen"},
 		"docs same as admin":  {"admin-listen: \"a:2\"\ndocs-listen: \"a:2\"\n", "docs-listen"},
 		"zero body cap":       {"limits:\n  max-body-bytes: 0\n", "max-body-bytes"},
-		"zero max tokens":     {"openai:\n  max-tokens: 0\n", "max-tokens"},
 		"bad memory limit":    {"memory-limit: \"lots\"\n", "memory-limit"},
 		"tiny memory limit":   {"memory-limit: \"32MiB\"\n", "memory-limit"},
 		"short stall timeout": {"passthrough:\n  stall-timeout: \"5s\"\n", "stall-timeout"},
