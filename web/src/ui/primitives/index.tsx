@@ -89,11 +89,15 @@ export function CardTitle({
  * primary and 2px when focused (or, for a select, open) — with the padding
  * a pixel less, so the text does not move when the border thickens.
  */
-export function outlinedField(focused = false): string {
+export function outlinedField(focused = false, top: 'label' | 'dots' = 'label'): string {
   const edge = focused
     ? 'border-2 border-primary px-[15px]'
     : 'border border-outline px-4 hover:border-on-surface focus:border-2 focus:border-primary focus:px-[15px] focus-visible:border-2 focus-visible:border-primary focus-visible:px-[15px]'
-  return `h-14 w-full rounded-[var(--radius-md3-m)] bg-transparent pt-4 text-on-surface outline-none transition-colors ${edge}`
+  // Room above the text for the label riding up. A password's dots sit on the
+  // x-height, well below the middle of the line, and with the same room they
+  // rode at the bottom of the field: they take less, which centres them.
+  const pad = top === 'dots' ? 'pt-1' : 'pt-4'
+  return `h-14 w-full rounded-[var(--radius-md3-m)] bg-transparent ${pad} text-on-surface outline-none transition-colors ${edge}`
 }
 
 /**
@@ -136,7 +140,9 @@ export function Field({
           spellCheck={false}
           autoComplete={autoComplete}
           onChange={(e) => onChange(e.target.value)}
-          className={`peer ${outlinedField()} text-base ${mono ? 'font-mono text-sm' : ''}`}
+          className={`peer ${outlinedField(false, type === 'password' ? 'dots' : 'label')} text-base ${
+            mono ? 'font-mono text-sm' : ''
+          } ${type === 'password' ? 'tracking-[0.15em]' : ''}`}
         />
         <span className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-base text-on-surface-variant transition-all peer-focus:top-2.5 peer-focus:text-xs peer-focus:text-primary peer-[:not(:placeholder-shown)]:top-2.5 peer-[:not(:placeholder-shown)]:text-xs">
           {label}

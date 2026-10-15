@@ -585,6 +585,8 @@ export interface MemorySnapshot {
 export interface SetupStatus {
   needs_setup: boolean
   min_password_len: number
+  /** The public docs page, when it is published; empty otherwise. */
+  docs_url?: string
 }
 
 /** An error carrying the status and machine-readable type from the server. */

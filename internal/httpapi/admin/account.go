@@ -27,9 +27,18 @@ func (s *Admin) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the account")
 		return
 	}
+	// Where the docs page is, when it is published: the sign-in screen links to
+	// it, for whoever reached the admin address wanting to configure a client
+	// rather than run the gateway. Nothing more than the page itself says — it
+	// is public by being switched on — and empty while it is off.
+	docsURL := ""
+	if s.docs.On() {
+		docsURL = s.cfg.DocsPageURL()
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"needs_setup":      !exists,
 		"min_password_len": store.MinPasswordLength,
+		"docs_url":         docsURL,
 	})
 }
 
