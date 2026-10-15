@@ -211,7 +211,7 @@ export default function App() {
 
         {/* Where this page is: every level above it a link. The tabs that
             used to be here are the rail's top level now. */}
-        <div className={`mx-auto ${measure} border-b border-outline-variant px-4 py-2 sm:px-6`}>
+        <div className={`mx-auto ${measure} px-4 pt-3 pb-3 sm:px-6`}>
           <Breadcrumbs trail={trail} />
         </div>
       </header>
@@ -221,7 +221,7 @@ export default function App() {
           on a narrow screen. */}
       <div className={`mx-auto ${measure} px-4 sm:px-6 md:flex md:gap-8`}>
         <aside className="hidden w-52 shrink-0 md:block">
-          <div className="sticky top-28 pt-6">
+          <div className="sticky top-32 pt-6">
             <NavRail level={level} />
           </div>
         </aside>

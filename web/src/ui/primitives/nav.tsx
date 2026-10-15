@@ -20,29 +20,42 @@ export function follow(href: string) {
 
 const chevron = 'M9.3 6.7 10.7 5.3 17.4 12l-6.7 6.7-1.4-1.4 5.3-5.3z'
 
-/** Where this page sits in the tree: every level above it a link, itself not. */
+/**
+ * Where this page sits in the tree: every level above it a link, itself not.
+ *
+ * A filled, fully rounded bar in the primary container colour, with the page
+ * itself as a filled chip — Material You's tonal emphasis. Drawn as plain text
+ * it sat under the app's name in the same weight and colour and read as a
+ * subtitle; filled, it reads as the control it is.
+ */
 export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
   return (
-    <nav aria-label="Breadcrumb" className="min-w-0 overflow-x-auto">
+    <nav
+      aria-label="Breadcrumb"
+      className="min-w-0 overflow-x-auto rounded-[var(--radius-md3-full)] bg-primary-container p-1 text-on-primary-container"
+    >
       <ol className="m-0 flex min-w-max list-none items-center gap-0.5 p-0 text-sm">
         {trail.map((c, i) => {
           const last = i === trail.length - 1
           return (
             <li key={c.href + i} className="flex items-center gap-0.5">
               {i > 0 && (
-                <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-on-surface-variant/60">
+                <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current opacity-60">
                   <path d={chevron} />
                 </svg>
               )}
               {last ? (
-                <span aria-current="page" className="max-w-[24ch] truncate px-2 py-1 font-medium text-on-surface">
+                <span
+                  aria-current="page"
+                  className="block max-w-[28ch] truncate rounded-[var(--radius-md3-full)] bg-surface-lowest px-3 py-1.5 font-medium text-on-surface shadow-sm"
+                >
                   {c.label}
                 </span>
               ) : (
                 <a
                   href={c.href}
                   onClick={follow(c.href)}
-                  className="state-layer max-w-[24ch] truncate rounded-[var(--radius-md3-full)] px-2 py-1 text-on-surface-variant hover:text-on-surface"
+                  className="state-layer block max-w-[24ch] truncate rounded-[var(--radius-md3-full)] px-3 py-1.5 font-medium"
                 >
                   {c.label}
                 </a>
