@@ -56,29 +56,22 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
                   <path d={chevron} />
                 </svg>
               )}
-              {last ? (
-                <span
-                  aria-current="page"
-                  aria-label={i === 0 ? c.label : undefined}
-                  className={`block max-w-[28ch] truncate rounded-[var(--radius-md3-full)] bg-surface-lowest py-1.5 font-medium text-on-surface shadow-sm ${
-                    i === 0 ? 'px-2' : 'px-3'
-                  }`}
-                >
-                  {i === 0 ? <HomeMark /> : c.label}
-                </span>
-              ) : (
-                <a
-                  href={c.href}
-                  onClick={follow(c.href)}
-                  aria-label={i === 0 ? c.label : undefined}
-                  title={i === 0 ? c.label : undefined}
-                  className={`state-layer block max-w-[24ch] truncate rounded-[var(--radius-md3-full)] py-1.5 font-medium ${
-                    i === 0 ? 'px-2' : 'px-3'
-                  }`}
-                >
-                  {i === 0 ? <HomeMark /> : c.label}
-                </a>
-              )}
+              {/* Every step a link, the current one too: drawn as the page
+                  you are on, and clicked like the others — it opens that
+                  page from its top, which is also how to get back to the top
+                  of a long one. */}
+              <a
+                href={c.href}
+                onClick={follow(c.href)}
+                aria-current={last ? 'page' : undefined}
+                aria-label={i === 0 ? c.label : undefined}
+                title={i === 0 ? c.label : undefined}
+                className={`state-layer block truncate rounded-[var(--radius-md3-full)] py-1.5 font-medium ${
+                  i === 0 ? 'px-2' : 'px-3'
+                } ${last ? 'max-w-[28ch] bg-surface-lowest text-on-surface shadow-sm' : 'max-w-[24ch]'}`}
+              >
+                {i === 0 ? <HomeMark /> : c.label}
+              </a>
             </li>
           )
         })}
