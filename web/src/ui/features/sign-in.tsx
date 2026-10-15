@@ -22,6 +22,7 @@ export default function SignIn({
   mode,
   minLength = 8,
   docsURL = '',
+  version = '',
   onSignedIn,
 }: {
   mode: 'setup' | 'sign-in'
@@ -29,6 +30,8 @@ export default function SignIn({
   minLength?: number
   /** The public docs page, linked when it is published. */
   docsURL?: string
+  /** The running build, shown after the name as the app's header shows it. */
+  version?: string
   onSignedIn: () => void
 }) {
   const setup = mode === 'setup'
@@ -72,8 +75,11 @@ export default function SignIn({
       <header className="mx-auto flex w-full max-w-[110rem] items-center justify-between gap-4 px-4 pt-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <BrandMark />
-          <h1 className="m-0 truncate text-lg leading-10 font-normal text-on-surface">
+          <h1 className="m-0 flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
             claudication gateway
+            {version !== '' && (
+              <span className="truncate font-mono text-xs text-on-surface-variant">{version}</span>
+            )}
           </h1>
         </div>
         <div className="flex items-center gap-2">

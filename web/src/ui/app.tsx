@@ -36,8 +36,8 @@ import {
 
 type State =
   | { phase: 'probing' }
-  | { phase: 'setup'; minLength: number; docsURL: string }
-  | { phase: 'out'; docsURL: string }
+  | { phase: 'setup'; minLength: number; docsURL: string; version: string }
+  | { phase: 'out'; docsURL: string; version: string }
   | { phase: 'in'; session: Session }
 
 // Setup is not here any more. Every tab is something you administer; setup was
@@ -145,13 +145,18 @@ export default function App() {
       const status = await api.setupStatus()
       setState(
         status.needs_setup
-          ? { phase: 'setup', minLength: status.min_password_len, docsURL: status.docs_url ?? '' }
-          : { phase: 'out', docsURL: status.docs_url ?? '' },
+          ? {
+              phase: 'setup',
+              minLength: status.min_password_len,
+              docsURL: status.docs_url ?? '',
+              version: status.version ?? '',
+            }
+          : { phase: 'out', docsURL: status.docs_url ?? '', version: status.version ?? '' },
       )
     } catch (err) {
       // If even that is unreachable, sign-in is the screen that can report it.
       console.warn('setup probe failed:', err)
-      setState({ phase: 'out', docsURL: '' })
+      setState({ phase: 'out', docsURL: '', version: '' })
     }
   }, [])
 
@@ -171,11 +176,17 @@ export default function App() {
         mode="setup"
         minLength={state.minLength}
         docsURL={state.docsURL}
+        version={state.version}
         onSignedIn={() => void probe()}
       />
   }
   if (state.phase === 'out') {
-    return <SignIn mode="sign-in" docsURL={state.docsURL} onSignedIn={() => void probe()} />
+    return <SignIn
+        mode="sign-in"
+        docsURL={state.docsURL}
+        version={state.version}
+        onSignedIn={() => void probe()}
+      />
   }
 
   const signOut = async () => {

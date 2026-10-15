@@ -587,6 +587,8 @@ export interface SetupStatus {
   min_password_len: number
   /** The public docs page, when it is published; empty otherwise. */
   docs_url?: string
+  /** The running build, for the header. */
+  version?: string
 }
 
 /** An error carrying the status and machine-readable type from the server. */

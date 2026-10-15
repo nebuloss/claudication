@@ -8,6 +8,7 @@ import (
 
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/store"
+	"claudication/internal/version"
 )
 
 // The admin account is a single password, following singbox-admin: this is one
@@ -39,6 +40,11 @@ func (s *Admin) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 		"needs_setup":      !exists,
 		"min_password_len": store.MinPasswordLength,
 		"docs_url":         docsURL,
+		// The build, for the header the sign-in screen shares with the app:
+		// "is this the version I just deployed" is asked of whichever screen
+		// is open, and right after a deploy that is often this one. The same
+		// string /health answers to anyone.
+		"version": version.Version,
 	})
 }
 
