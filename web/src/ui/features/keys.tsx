@@ -369,7 +369,7 @@ export function KeyPage({
       )}
       {page === 'chats' && <ChatsPage scope={{ key: k.id }} onExpired={onExpired} />}
       {page === 'requests' && <RequestsPanel scope={{ key: k.id }} onExpired={onExpired} />}
-      {page === 'overview' && (
+      {page === '' && (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Requests" value={compact(k.requests)} hint={`over ${data?.windowDays ?? 7}d`} />

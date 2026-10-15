@@ -21,6 +21,18 @@ export function follow(href: string) {
 const chevron = 'M9.3 6.7 10.7 5.3 17.4 12l-6.7 6.7-1.4-1.4 5.3-5.3z'
 
 /**
+ * The trail's first step, the gateway's overview, drawn as a house: it is the
+ * root every path starts from, not one more page called Overview.
+ */
+function HomeMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className="block size-5 fill-current">
+      <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
+    </svg>
+  )
+}
+
+/**
  * Where this page sits in the tree: every level above it a link, itself not.
  *
  * A filled, fully rounded bar in the primary container colour, with the page
@@ -47,17 +59,24 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
               {last ? (
                 <span
                   aria-current="page"
-                  className="block max-w-[28ch] truncate rounded-[var(--radius-md3-full)] bg-surface-lowest px-3 py-1.5 font-medium text-on-surface shadow-sm"
+                  aria-label={i === 0 ? c.label : undefined}
+                  className={`block max-w-[28ch] truncate rounded-[var(--radius-md3-full)] bg-surface-lowest py-1.5 font-medium text-on-surface shadow-sm ${
+                    i === 0 ? 'px-2' : 'px-3'
+                  }`}
                 >
-                  {c.label}
+                  {i === 0 ? <HomeMark /> : c.label}
                 </span>
               ) : (
                 <a
                   href={c.href}
                   onClick={follow(c.href)}
-                  className="state-layer block max-w-[24ch] truncate rounded-[var(--radius-md3-full)] px-3 py-1.5 font-medium"
+                  aria-label={i === 0 ? c.label : undefined}
+                  title={i === 0 ? c.label : undefined}
+                  className={`state-layer block max-w-[24ch] truncate rounded-[var(--radius-md3-full)] py-1.5 font-medium ${
+                    i === 0 ? 'px-2' : 'px-3'
+                  }`}
                 >
-                  {c.label}
+                  {i === 0 ? <HomeMark /> : c.label}
                 </a>
               )}
             </li>

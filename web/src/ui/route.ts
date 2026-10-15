@@ -3,18 +3,21 @@
  *
  * Every page has a path of its own, and the path is the tree:
  *
- *   /                                   overview
+ *   /                                   the gateway's overview
  *   /accounts                           the accounts
- *   /accounts/<id>/overview|usage|chats|requests  one account
+ *   /accounts/<id>                      one account's overview
+ *   /accounts/<id>/usage|chats|requests its traffic
  *   /accounts/<id>/settings/<section>   one of its settings
  *   /keys … the same shape, for keys
  *   /activity/chats|requests            all traffic
  *   /settings/<section>                 the gateway's settings
  *
  * So a link, a bookmark and Back all land on a page, never on "whatever
- * sub-tab was open last". A path that names a branch rather than a page —
- * /accounts/<id>, /settings — is completed to the branch's first page by
- * canonical(), and old paths are moved to where their screen went.
+ * sub-tab was open last". Each level's overview is the level itself — the
+ * root, an account's own path — rather than a page named Overview under it,
+ * so the trail never says Overview twice over. A path that names a branch
+ * with no page of its own — /settings, /activity — is completed to its first
+ * page by canonical(), and old paths are moved to where their screen went.
  *
  * Pure: string in, string out, no window. Kept apart from the hooks because
  * this is the part that is quietly wrong — a trailing slash from a copied
@@ -34,9 +37,11 @@ export const TABS = [
 ] as const satisfies readonly Section[]
 export type Tab = (typeof TABS)[number]['id']
 
-/** An account's or a key's pages, under /accounts/<id> and /keys/<id>. */
+/**
+ * An account's or a key's pages under /accounts/<id> and /keys/<id>. Its
+ * overview is that path itself, not one of these.
+ */
 export const ITEM_PAGES = [
-  { id: 'overview', label: 'Overview' },
   { id: 'usage', label: 'Usage' },
   { id: 'chats', label: 'Chats' },
   { id: 'requests', label: 'Requests' },
@@ -133,7 +138,10 @@ export function canonical(pathname: string): string {
     case 'accounts':
     case 'keys': {
       if (a === undefined) return pathOf(top)
-      const page = known(ITEM_PAGES, b) ? b! : 'overview'
+      // The item's overview is its own path; /overview under it, and any
+      // page that is not one, land there.
+      if (!known(ITEM_PAGES, b)) return pathOf(top, a)
+      const page = b!
       if (page !== 'settings') return pathOf(top, a, page)
       const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
       const section = (c !== undefined && RENAMED[top]?.[c]) || c
@@ -175,11 +183,16 @@ export type Namer = (kind: 'accounts' | 'keys', id: string) => string
 const links = (base: string, list: readonly Section[]): NavLink[] =>
   list.map((s) => ({ href: `${base}/${s.id}`, label: s.label }))
 
-const ROOT: NavLink[] = TABS.map((t) => ({
-  href: t.id === 'overview' ? '/' : `/${t.id}`,
+// The overview is the root itself, reached by the trail's home step, so it
+// is not one of the root's entries.
+const ROOT: NavLink[] = TABS.filter((t) => t.id !== 'overview').map((t) => ({
+  href: `/${t.id}`,
   label: t.label,
 }))
 const HOME: NavLink = { href: '/', label: 'Main menu' }
+
+/** The first step of every trail: the gateway's overview, at the root. */
+export const ROOT_CRUMB: NavLink = { href: '/', label: 'Overview' }
 
 /** The navigation level of a canonical path. */
 export function navLevel(pathname: string, name: Namer): NavLevel {
@@ -189,7 +202,7 @@ export function navLevel(pathname: string, name: Namer): NavLevel {
     if (page === 'settings') {
       const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
       return {
-        back: { href: `${base}/overview`, label: name(top, id) },
+        back: { href: base, label: name(top, id) },
         items: links(`${base}/settings`, list),
         current: `${base}/settings/${section}`,
       }
@@ -202,7 +215,8 @@ export function navLevel(pathname: string, name: Namer): NavLevel {
       items: links(base, ITEM_PAGES).map((l) =>
         l.href === `${base}/settings` ? { ...l, href: canonical(l.href) } : l,
       ),
-      current: `${base}/${page}`,
+      // On the item's overview, no entry: the overview is the item itself.
+      current: page === undefined ? base : `${base}/${page}`,
     }
   }
   if (top === 'activity') {
@@ -218,24 +232,33 @@ export function navLevel(pathname: string, name: Namer): NavLevel {
   }
 }
 
-/** Every level from the top down to this page, each but the last a link. */
+/**
+ * Every level from the root down to this page, each but the last a link. It
+ * starts at the root — the gateway's overview, drawn as a home mark — and an
+ * item's step is its overview, so no level is named twice.
+ */
 export function trailOf(pathname: string, name: Namer): NavLink[] {
   const [top, id, page, section] = segments(pathname)
+  const out: NavLink[] = [ROOT_CRUMB]
   const tab = TABS.find((t) => t.id === tabOf(pathname))!
-  const tabHref = canonical(tab.id === 'overview' ? '/' : pathOf(tab.id))
-  const out: NavLink[] = [{ href: tabHref, label: tab.label }]
+  if (tab.id === 'overview') return out
   const label = (list: readonly Section[], x: string | undefined) =>
     list.find((s) => s.id === x)?.label ?? x ?? ''
   if ((top === 'accounts' || top === 'keys') && id !== undefined) {
     const base = pathOf(top, id)
-    out[0] = { href: pathOf(top), label: tab.label }
-    out.push({ href: `${base}/overview`, label: name(top, id) })
-    out.push({ href: canonical(`${base}/${page}`), label: label(ITEM_PAGES, page) })
+    out.push({ href: pathOf(top), label: tab.label })
+    out.push({ href: base, label: name(top, id) })
+    if (page !== undefined) {
+      out.push({ href: canonical(`${base}/${page}`), label: label(ITEM_PAGES, page) })
+    }
     if (page === 'settings') {
       const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
       out.push({ href: pathOf(top, id, 'settings', section ?? ''), label: label(list, section) })
     }
-  } else if (top === 'activity' && id !== undefined) {
+    return out
+  }
+  out.push({ href: canonical(pathOf(tab.id)), label: tab.label })
+  if (top === 'activity' && id !== undefined) {
     out.push({ href: pathOf(top, id), label: label(ACTIVITY_PAGES, id) })
   } else if (top === 'settings' && id !== undefined) {
     out.push({ href: pathOf(top, id), label: label(GATEWAY_SETTINGS, id) })

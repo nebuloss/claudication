@@ -120,7 +120,7 @@ export default function AccountPage({
       )}
       {page === 'chats' && <ChatsPage scope={{ account: account.id }} onExpired={onExpired} />}
       {page === 'requests' && <RequestsPanel scope={{ account: account.id }} onExpired={onExpired} />}
-      {page === 'overview' && (
+      {page === '' && (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Requests" value={compact(account.requests)} hint={`over ${data?.windowDays ?? 7}d`} />

@@ -182,10 +182,11 @@ check('usage is read on the overview', canonical('/usage'), '/')
 check('an unknown screen falls back', canonical('/nonesuch'), '/')
 
 // A path naming a branch is completed to the branch's first page.
-check('an account opens on its overview', canonical('/accounts/8189e5dc'), '/accounts/8189e5dc/overview')
+check('an account is its own overview', canonical('/accounts/8189e5dc'), '/accounts/8189e5dc')
+check('an old overview link lands on it', canonical('/accounts/8189e5dc/overview'), '/accounts/8189e5dc')
 check('its chats are a page', canonical('/accounts/8189e5dc/chats'), '/accounts/8189e5dc/chats')
 check('its requests too', canonical('/keys/k1/requests'), '/keys/k1/requests')
-check('an unknown page is its overview', canonical('/keys/k1/nonesuch'), '/keys/k1/overview')
+check('an unknown page is its overview', canonical('/keys/k1/nonesuch'), '/keys/k1')
 check('its usage is a page', canonical('/keys/k1/usage'), '/keys/k1/usage')
 check('settings open on the first section', canonical('/accounts/8189e5dc/settings'), '/accounts/8189e5dc/settings/models')
 check('a section is a page', canonical('/keys/k1/settings/aliases'), '/keys/k1/settings/aliases')
@@ -196,7 +197,7 @@ check('a gateway section is a page', canonical('/settings/apis'), '/settings/api
 check('a renamed section keeps its old links', canonical('/settings/docs'), '/settings/documentation')
 check('a key section too', canonical('/keys/k1/settings/configs'), '/keys/k1/settings/clients')
 // Ids are encoded once, whatever they hold.
-check('an id is kept encoded', canonical('/keys/a%2Fb'), '/keys/a%2Fb/overview')
+check('an id is kept encoded', canonical('/keys/a%2Fb'), '/keys/a%2Fb')
 check('and decoded when read', segments('/keys/a%2Fb/usage'), ['keys', 'a/b', 'usage'])
 check('a broken escape does not throw', segments('/keys/%E0%A4%A'), ['keys', '%E0%A4%A'])
 check('a path is built encoded', pathOf('accounts', 'a b', 'chats'), '/accounts/a%20b/chats')
@@ -206,9 +207,9 @@ check('a moved screen names where it went', tab('/models'), 'settings')
 // Round trip: every canonical path is its own canonical form.
 check(
   'canonical paths are fixed points',
-  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/advanced']
+  ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/advanced']
     .map((p) => canonical(p)),
-  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/advanced'],
+  ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/advanced'],
 )
 
 // The rail lists only the level a page is on, with the way up; the trail
@@ -219,25 +220,31 @@ check(
   const hrefs = (l) => l.items.map((i) => i.href)
 
   check('the top level has no way up', lvl('/').back, undefined)
-  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Overview', 'Accounts', 'API keys', 'Activity', 'Settings'])
+  // The overview is the root itself, reached by the trail's first step.
+  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'API keys', 'Activity', 'Settings'])
   check('a list is on the top level', lvl('/accounts').current, '/accounts')
-  check('each screen opens on its first page', hrefs(lvl('/'))[3], '/activity/chats')
+  check('each screen opens on its first page', hrefs(lvl('/'))[2], '/activity/chats')
   check('an account lists its pages', hrefs(lvl('/accounts/a1/chats')), [
-    '/accounts/a1/overview', '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests', '/accounts/a1/settings/models',
+    '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests', '/accounts/a1/settings/models',
   ])
+  check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
   check('and goes back to the list', lvl('/accounts/a1/chats').back, { href: '/accounts', label: 'Accounts' })
   check('its settings list their sections only', lvl('/keys/k1/settings/general').items.length, 5)
-  check('and go back to the key, by name', lvl('/keys/k1/settings/general').back, { href: '/keys/k1/overview', label: 'keys:k1' })
+  check('and go back to the key, by name', lvl('/keys/k1/settings/general').back, { href: '/keys/k1', label: 'keys:k1' })
   check('the open section is current', lvl('/keys/k1/settings/general').current, '/keys/k1/settings/general')
   check('removing is under Advanced, last', lvl('/keys/k1/settings/general').items.at(-1).href, '/keys/k1/settings/advanced')
   check('settings go back to the top', lvl('/settings/apis').back.href, '/')
 
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
-  check('the overview is one step', trail('/'), ['Overview'])
-  check('a section of an account', trail('/accounts/a1/settings/connection'), ['Accounts', 'accounts:a1', 'Settings', 'Connection'])
-  check('a gateway section', trail('/settings/apis'), ['Settings', 'APIs'])
-  check('an activity page', trail('/activity/requests'), ['Activity', 'Requests'])
-  check('a step links to its page', trailOf('/accounts/a1/settings/connection', name)[2].href, '/accounts/a1/settings/models')
+  // Every trail starts at the root, and no level is named twice.
+  check('the overview is the root alone', trail('/'), ['Overview'])
+  check('a list', trail('/accounts'), ['Overview', 'Accounts'])
+  check('an account is its name, not its name then Overview', trail('/accounts/a1'), ['Overview', 'Accounts', 'accounts:a1'])
+  check('a section of an account', trail('/accounts/a1/settings/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Settings', 'Connection'])
+  check('a gateway section', trail('/settings/apis'), ['Overview', 'Settings', 'APIs'])
+  check('an activity page', trail('/activity/requests'), ['Overview', 'Activity', 'Requests'])
+  check('the item step is its overview', trailOf('/accounts/a1/usage', name)[2].href, '/accounts/a1')
+  check('a step links to its page', trailOf('/accounts/a1/settings/connection', name)[3].href, '/accounts/a1/settings/models')
 }
 
 
