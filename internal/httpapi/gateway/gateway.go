@@ -24,6 +24,7 @@ import (
 	"claudication/internal/memlimit"
 	"claudication/internal/pool"
 	"claudication/internal/relay"
+	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	"claudication/internal/service/surfaces"
 	"claudication/internal/service/titles"
@@ -49,6 +50,7 @@ type Gateway struct {
 	surfaces    *surfaces.Surfaces
 	protocols   api.Registry
 	httpClient  *http.Client
+	install     *install.Links
 
 	// The newest model of each family, for automatic model roles; see
 	// newestOf.
@@ -78,6 +80,8 @@ type Deps struct {
 	Protocols   api.Registry
 	// HTTPClient makes the gateway's own small upstream calls: the model list.
 	HTTPClient *http.Client
+	// Install keeps the one-time install bundles /install serves.
+	Install *install.Links
 }
 
 // New builds a Gateway.
@@ -87,7 +91,7 @@ func New(d Deps) *Gateway {
 		keyLimiter: d.KeyLimiter, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		recorder: d.Recorder, pool: d.Pool, relay: d.Relay, titles: d.Titles,
 		trimmer: d.Trimmer, surfaces: d.Surfaces, protocols: d.Protocols,
-		httpClient: d.HTTPClient,
+		httpClient: d.HTTPClient, install: d.Install,
 	}
 }
 
@@ -107,6 +111,11 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 	// is a path both APIs define with different answers, and Codex never
 	// asks — it is configured with a model name — so there is nothing to
 	// gain by guessing which dialect a caller meant.
+	// The one-line installer's script. On the relay, because the address a
+	// client is configured with is the one its machine can already reach, and
+	// outside any API's switch: it is not one. See install.go.
+	mux.HandleFunc("GET /install", s.handleInstall)
+
 	mux.Handle("GET /v1/models",
 		s.surface(messages, s.requireAPIKey(http.HandlerFunc(s.handleModels))))
 	mux.Handle("POST /v1/messages",

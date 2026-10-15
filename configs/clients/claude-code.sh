@@ -1,4 +1,4 @@
-# Claude Code, pointed at a claudication gateway. Source it, or paste it.
+# Claude Code, pointed at a claudication gateway. Source it from your shell profile.
 #
 # No /v1 on the base URL — Claude Code appends the path itself.
 # ANTHROPIC_AUTH_TOKEN rather than ANTHROPIC_API_KEY: the token form is the one
@@ -22,4 +22,9 @@ export ANTHROPIC_DEFAULT_FABLE_MODEL=claude-fable
 # Claude Code does not know these names, so it is told which real models they
 # behave like — their context window, output limit and prompt handling.
 # Without this it treats them as unknown and caps them at a 200k window.
-claude --settings '{"modelPicker":{"options":[{"model":"claude-large","behavesAs":"claude-opus-5-5"},{"model":"claude-small","behavesAs":"claude-haiku-5-5"},{"model":"claude-opus","behavesAs":"claude-opus-5-5"},{"model":"claude-sonnet","behavesAs":"claude-sonnet-5-5"},{"model":"claude-haiku","behavesAs":"claude-haiku-5-5"},{"model":"claude-fable","behavesAs":"claude-fable-5-1"}]}}' "$@"
+# A function rather than a command, so sourcing this file — from a shell
+# profile, as the one-line installer does — sets things up rather than
+# starting Claude Code.
+claude() {
+  command claude --settings '{"modelPicker":{"options":[{"model":"claude-large","behavesAs":"claude-opus-5-5"},{"model":"claude-small","behavesAs":"claude-haiku-5-5"},{"model":"claude-opus","behavesAs":"claude-opus-5-5"},{"model":"claude-sonnet","behavesAs":"claude-sonnet-5-5"},{"model":"claude-haiku","behavesAs":"claude-haiku-5-5"},{"model":"claude-fable","behavesAs":"claude-fable-5-1"}]}}' "$@"
+}

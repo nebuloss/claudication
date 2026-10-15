@@ -582,6 +582,16 @@ export interface MemorySnapshot {
   gc_cycles: number
 }
 
+/** One file the installer writes; see internal/service/install. */
+export interface InstallFile {
+  client_id: string
+  client: string
+  path: string
+  windows_path?: string
+  env?: boolean
+  body: string
+}
+
 export interface SetupStatus {
   needs_setup: boolean
   min_password_len: number
@@ -870,6 +880,13 @@ export const api = {
    * A new secret for an existing key. The old secret stops working at once;
    * everything else about the key is kept.
    */
+  /** Keeps a key's client files for the one-line installer; the token fetches them. */
+  createInstall: (id: string, files: InstallFile[]) =>
+    request<{ token: string; expires_at: string }>(
+      'POST',
+      `/admin/keys/${encodeURIComponent(id)}/install`,
+      { files },
+    ),
   rotateKey: (id: string) =>
     request<{ key: ApiKey; plaintext: string }>(
       'POST',

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useRef,
@@ -652,12 +653,14 @@ export async function copyText(text: string): Promise<boolean> {
  * numbers the lines and highlights them — see primitives/code.tsx.
  */
 /**
- * How a secret is drawn until asked for: blurred past reading. Hidden by
- * default because a key on screen is a key in every screenshot and screen
- * share. A blur rather than dots, so the text is still there to select and
- * copy by hand.
+ * How a secret is drawn until asked for: as password dots. Hidden by default
+ * because a key on screen is a key in every screenshot and screen share.
+ *
+ * Drawn as dots by the browser rather than replaced by them, so the text is
+ * still there: it can be selected and copied by hand, out of a config file as
+ * much as out of the field, and the dots are exactly as many as it has.
  */
-export const BLUR = 'blur-[5px] transition-[filter] duration-150'
+export const CONCEAL = '[-webkit-text-security:disc] [text-security:disc]'
 
 /** Show or hide a secret: an eye, struck through while it is shown. */
 export function RevealButton({ shown, onToggle }: { shown: boolean; onToggle: () => void }) {
@@ -672,15 +675,22 @@ export function CopyField({
   label,
   value,
   secret = false,
+  conceal = '',
 }: {
   label: string
   value: string
   /** Dots until the eye is pressed. Copy copies the value either way. */
   secret?: boolean
+  /**
+   * Only this part of the value as dots — a token inside a command, so the
+   * command can be read and the token cannot.
+   */
+  conceal?: string
 }) {
   const [copied, setCopied] = useState(false)
   const [failed, setFailed] = useState(false)
-  const [shown, setShown] = useState(!secret)
+  const hides = secret || conceal !== ''
+  const [shown, setShown] = useState(!hides)
 
   const copy = async () => {
     if (await copyText(value)) {
@@ -700,9 +710,20 @@ export function CopyField({
         {/* Solid rather than translucent: at 60% the fill landed between two
             near-identical surfaces and the block had no edge at all. */}
         <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--radius-md3-m)] bg-surface-lowest px-3 py-2 font-mono text-xs leading-6 whitespace-pre text-on-surface">
-          <span className={shown ? '' : BLUR}>{value}</span>
+          {shown ? (
+            value
+          ) : conceal !== '' ? (
+            value.split(conceal).map((part, i, parts) => (
+              <Fragment key={i}>
+                {part}
+                {i < parts.length - 1 && <span className={CONCEAL}>{conceal}</span>}
+              </Fragment>
+            ))
+          ) : (
+            <span className={CONCEAL}>{value}</span>
+          )}
         </code>
-        {secret && <RevealButton shown={shown} onToggle={() => setShown(!shown)} />}
+        {hides && <RevealButton shown={shown} onToggle={() => setShown(!shown)} />}
         <TonalButton onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</TonalButton>
       </div>
 

@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { TonalButton, copyText, ErrorModal, saveAs, RevealButton, BLUR } from './index'
+import { TonalButton, copyText, ErrorModal, saveAs, RevealButton, CONCEAL } from './index'
 
 /**
  * A bounded, scrollable, highlighted view of a config file.
@@ -88,10 +88,10 @@ const COMPILED: Record<Lang, RegExp> = Object.fromEntries(
  * carries between them and a line can be rendered on its own.
  */
 /**
- * A line with a secret in it: the secret drawn blurred, the rest highlighted
- * as usual. Still the text itself, not dots, so it can be selected and copied
- * from the file like any other line — the blur only keeps it out of a
- * screenshot or a glance over the shoulder.
+ * A line with a secret in it: the secret drawn as password dots, the rest
+ * highlighted as usual. Still the text itself underneath, so it can be
+ * selected and copied from the file like any other line — the dots only keep
+ * it out of a screenshot or a glance over the shoulder.
  */
 function concealed(line: string, secret: string, lang: Lang): ReactNode {
   if (!line.includes(secret)) return highlight(line, lang)
@@ -99,7 +99,7 @@ function concealed(line: string, secret: string, lang: Lang): ReactNode {
   return parts.map((part, i) => (
     <Fragment key={i}>
       {part !== '' && highlight(part, lang)}
-      {i < parts.length - 1 && <span className={BLUR}>{secret}</span>}
+      {i < parts.length - 1 && <span className={CONCEAL}>{secret}</span>}
     </Fragment>
   ))
 }

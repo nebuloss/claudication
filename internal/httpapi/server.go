@@ -41,6 +41,7 @@ import (
 	"claudication/internal/relay/passes"
 	"claudication/internal/secret"
 	accountsvc "claudication/internal/service/accounts"
+	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	"claudication/internal/service/settings"
 	"claudication/internal/service/surfaces"
@@ -299,12 +300,15 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 
 	// The handler sets. Each is handed what it uses and nothing else; what one
 	// needs from another — the model list — crosses here as a function.
+	// Install links live a quarter of an hour: long enough to copy a command
+	// to another machine, short enough that one never run is soon gone.
+	installs := install.New(15 * time.Minute)
 	s.gateway = gateway.New(gateway.Deps{
 		Config: s.cfg, Log: log, Store: st,
 		KeyLimiter: s.keyLimiter, AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		Recorder: s.recorder, Pool: s.pool, Relay: s.relay, Titles: s.titles,
 		Trimmer: s.trimmer, Surfaces: s.surfaces, Protocols: s.protocols,
-		HTTPClient: s.httpClient,
+		HTTPClient: s.httpClient, Install: installs,
 	})
 	s.admin = admin.New(admin.Deps{
 		Config: s.cfg, Log: log, Store: st, Sealer: sealer, Pool: s.pool,
@@ -315,6 +319,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		TrustedProxies: trusted, StartedAt: time.Now(),
 		Models: s.gateway.FetchModels, AccountModels: s.gateway.FetchModelsFor,
 		KeyModels: s.gateway.ModelsFor, RoleTarget: s.gateway.RoleTarget, Aliases: s.gateway.Aliases,
+		Install: installs,
 	})
 	s.web = web.New(web.Deps{
 		Config: s.cfg, Log: log, Store: st, Docs: s.docs, Surfaces: s.surfaces,

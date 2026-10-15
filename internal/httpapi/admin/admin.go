@@ -23,6 +23,7 @@ import (
 	"claudication/internal/provider/anthropic"
 	"claudication/internal/secret"
 	accountsvc "claudication/internal/service/accounts"
+	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	"claudication/internal/service/settings"
 	"claudication/internal/service/surfaces"
@@ -56,6 +57,7 @@ type Admin struct {
 	keyModels      func(ctx context.Context, key store.APIKey) ([]byte, error)
 	roleTarget     func(ctx context.Context, key store.APIKey, role string) (string, string)
 	aliases        func(ctx context.Context) ([]store.Alias, error)
+	install        *install.Links
 }
 
 // Deps is what an Admin is built from. Every field is required.
@@ -89,6 +91,8 @@ type Deps struct {
 	RoleTarget func(ctx context.Context, key store.APIKey, role string) (string, string)
 	// Aliases is every model alias the gateway answers to now.
 	Aliases func(ctx context.Context) ([]store.Alias, error)
+	// Install keeps the one-time install bundles the relay serves.
+	Install *install.Links
 }
 
 // New builds an Admin with no session open.
@@ -101,6 +105,7 @@ func New(d Deps) *Admin {
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), fetchModels: d.Models, accountModels: d.AccountModels,
 		keyModels: d.KeyModels, roleTarget: d.RoleTarget, aliases: d.Aliases,
+		install: d.Install,
 	}
 }
 
@@ -141,6 +146,7 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("PATCH /admin/keys/{id}", admin(s.handleUpdateKey))
 	mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
 	mux.Handle("POST /admin/keys/{id}/rotate", admin(s.handleRotateKey))
+	mux.Handle("POST /admin/keys/{id}/install", admin(s.handleKeyInstall))
 	mux.Handle("GET /admin/keys/{id}/secret", admin(s.handleKeySecret))
 	mux.Handle("GET /admin/keys/{id}/models", admin(s.handleKeyModels))
 	mux.Handle("GET /admin/keys/{id}/offered-models", admin(s.handleKeyOfferedModels))

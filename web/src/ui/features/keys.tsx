@@ -36,7 +36,6 @@ import {
   FilledButton,
   OutlinedButton,
   Spinner,
-  KeyValue,
   Stat,
   StepSlider,
   Switch,
@@ -354,12 +353,6 @@ export function KeyPage({
         kind="keys"
         id={k.id}
         title={k.name}
-        subtitle={
-          <>
-            <code className="font-mono text-xs">{k.display}</code> · created {ago(k.created_at)} ·
-            last used {ago(k.last_used_at)}
-          </>
-        }
         aside={
           <span className="flex flex-wrap items-center gap-3 text-xs text-on-surface">
             {k.managed && <Chip tone="neutral">gateway&rsquo;s own</Chip>}
@@ -401,7 +394,9 @@ export function KeyPage({
       {page === '' && (
         <>
           {!k.managed && <KeySecret apiKey={k} onChanged={() => void reload()} />}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {/* The key at a glance, every figure a tile: what it did, what it
+              may do, and when it was last used. The rest is a page away. */}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
             <Stat label="Requests" value={compact(k.requests)} hint={`over ${data?.windowDays ?? 7}d`} />
             <Stat label="Tokens" value={compact(k.tokens)} hint={`over ${data?.windowDays ?? 7}d`} />
             <Stat
@@ -415,36 +410,19 @@ export function KeyPage({
               value={k.rpm_limit > 0 ? compact(k.rpm_limit) : 'default'}
               hint={k.rpm_limit > 0 ? `requests a ${periodName(k.rate_period_s)}` : 'the gateway’s limit'}
             />
+            <Stat label="Last used" value={ago(k.last_used_at)} hint={`created ${ago(k.created_at)}`} />
+            <Stat
+              label="Models"
+              value={k.models_off.length === 0 ? 'all' : `${k.models_off.length} off`}
+              hint={
+                <AppLink href={`${pathOf('keys', k.id)}/models`}>
+                  {k.models_off.length === 0 ? 'every model allowed' : 'see which'}
+                </AppLink>
+              }
+              tone={k.models_off.length > 0 ? 'error' : undefined}
+            />
           </div>
           {k.subscription !== undefined && <SubscriptionCard share={k.subscription} />}
-          <Card>
-            <KeyValue
-              items={[
-                [
-                  'Configs',
-                  k.secret_kept ? (
-                    <AppLink href={`${pathOf('keys', k.id)}/clients`}>can be downloaded</AppLink>
-                  ) : (
-                    <AppLink href={`${pathOf('keys', k.id)}/clients`}>
-                      need a new secret once
-                    </AppLink>
-                  ),
-                ],
-                [
-                  'Models',
-                  k.models_off.length === 0 ? (
-                    'all on'
-                  ) : (
-                    <AppLink href={`${pathOf('keys', k.id)}/models`}>
-                      {k.models_off.length} switched off
-                    </AppLink>
-                  ),
-                ],
-                ['Last used', ago(k.last_used_at)],
-                ['Created', ago(k.created_at)],
-              ]}
-            />
-          </Card>
         </>
       )}
       {page === 'usage' && (

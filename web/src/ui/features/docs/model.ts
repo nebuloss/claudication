@@ -37,6 +37,23 @@ export type ConfigFile = {
    * on a file that names no model. See catalog.ts.
    */
   tailor?: (body: string, catalog: Catalog) => string
+  /** Where the one-line installer puts it. */
+  install: InstallTarget
+}
+
+/**
+ * Where a file goes on a client's machine, relative to the home directory, as
+ * the installer (internal/service/install) writes it.
+ */
+export type InstallTarget = {
+  path: string
+  /** Where it goes on Windows, when that is somewhere else. */
+  windowsPath?: string
+  /**
+   * A file of shell exports meant to be in every shell: sourced from the
+   * profile on Linux and macOS, set as user variables on Windows.
+   */
+  env?: boolean
 }
 
 /** What a client needs, before any of it is resolved against a gateway. */

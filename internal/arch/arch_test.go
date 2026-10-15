@@ -24,6 +24,7 @@ var layers = map[string]int{
 	"internal/service":          0, // the package comment for the services
 	"internal/service/limits":   0,
 	"internal/service/settings": 0,
+	"internal/service/install":  0,
 	"internal/testenv":          0,
 	"internal/arch":             0,
 

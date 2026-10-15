@@ -5,7 +5,8 @@
 // Lowest first:
 //
 //	0  leaves         version logging memlimit secret oauth request
-//	                  provider api service/limits service/settings testenv
+//	                  provider api service/limits service/settings
+//	                  service/install testenv
 //	1  records        store config relay/passes api/anthropic api/openai
 //	2  accounts       pool provider/anthropic service/accounts service/usage
 //	                  service/surfaces

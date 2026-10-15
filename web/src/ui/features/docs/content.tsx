@@ -42,6 +42,7 @@ export const CLIENTS: ClientRecipe[] = [
         lang: 'sh',
         body: claudeCodeSh,
         tailor: tailorClaudeCode,
+        install: { path: '.config/claudication/claude-code.sh', env: true },
       },
     ],
   }),
@@ -64,6 +65,7 @@ export const CLIENTS: ClientRecipe[] = [
         lang: 'toml',
         body: codexToml,
         tailor: tailorCodexConfig,
+        install: { path: '.codex/config.toml' },
       },
       {
         label: '~/.codex/claude-models.json',
@@ -71,6 +73,7 @@ export const CLIENTS: ClientRecipe[] = [
         lang: 'json',
         body: codexModels,
         tailor: tailorCodexCatalog,
+        install: { path: '.codex/claude-models.json' },
       },
     ],
     notes: [
@@ -106,6 +109,7 @@ export const CLIENTS: ClientRecipe[] = [
         lang: 'jsonc',
         body: opencodeJsonc,
         tailor: tailorOpencode,
+        install: { path: '.config/opencode/opencode.jsonc' },
       },
     ],
   }),
@@ -129,6 +133,8 @@ export const CLIENTS: ClientRecipe[] = [
         lang: 'json',
         body: crushJson,
         tailor: tailorCrush,
+        // crush reads %LOCALAPPDATA%\crush on Windows, not ~/.config.
+        install: { path: '.config/crush/crush.json', windowsPath: 'AppData/Local/crush/crush.json' },
       },
     ],
   }),

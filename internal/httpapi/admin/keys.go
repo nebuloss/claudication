@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"claudication/internal/httpapi/httpx"
+	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	"claudication/internal/store"
 )
@@ -321,4 +322,38 @@ func (s *Admin) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	s.budgets.Forget(id)
 	s.log.Info("api key deleted", "id", id, "ip", httpx.ClientIP(r.Context()))
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// handleKeyInstall keeps a key's client files for the install address, and
+// answers the token that fetches them and when it stops working.
+//
+// The files are the ones the Clients page built — the key, the address and
+// the models already in them — so nothing here writes a configuration; it
+// only checks the key is real and the paths stay under a home directory.
+func (s *Admin) handleKeyInstall(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	key, err := s.store.Key(r.Context(), id)
+	if errors.Is(err, store.ErrKeyNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		return
+	}
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	var body struct {
+		Files []install.File `json:"files"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	token, expires, err := s.install.Create(install.Bundle{Key: key.Name, Files: body.Files})
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"token":      token,
+		"expires_at": expires.UTC().Format(time.RFC3339),
+	})
 }

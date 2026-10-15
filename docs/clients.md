@@ -27,9 +27,21 @@ Mint one in **Settings → API keys**, or from a shell:
 claudication keys add -name laptop
 ```
 
-Keys look like `clc_…`. A key's Clients page in the admin UI shows it, and every
-client's config with it inside, whenever it is needed again — and regenerates it
-when one has leaked.
+Keys look like `clc_…`. A key's overview in the admin UI shows it, and regenerates
+it when one has leaked; its Clients page has every client's config with it
+inside, whenever it is needed again.
+
+**One command instead of files.** The Clients page also makes a command that
+writes the configs into place on the client's machine:
+
+    curl -fsSL '<public url>/install?token=…&shell=sh&client=crush' | sh
+    irm '<public url>/install?token=…&shell=ps1' | iex
+
+`client=` picks one client or a comma-separated few; without it, all of them.
+The token lasts fifteen minutes and works on as many machines as it is run on.
+Every file it replaces is kept beside it as `.bak.<time>`, so a newer command is
+an update. On Linux and macOS, Claude Code's file is sourced from `~/.bashrc` and
+`~/.zshrc`; on Windows its variables are set for the user.
 
 **One key format, both APIs.** A Codex key is not a different kind of key, and
 nothing has to look like `sk-…`: the same `clc_…` works on `/v1/messages` and

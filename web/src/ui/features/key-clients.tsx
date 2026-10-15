@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { api, messageOf, type ApiKey, type GatewayConfig } from '../../api/client'
+import { api, messageOf, type ApiKey, type GatewayConfig, type InstallFile } from '../../api/client'
 import { useLoader } from '../hooks'
 import {
   Banner,
@@ -10,7 +10,9 @@ import {
   FilledButton,
   Note,
   OutlinedButton,
+  Segmented,
   Spinner,
+  TextButton,
 } from '../primitives'
 import { CodeViewer } from '../primitives/code'
 import { Catalog } from './docs/catalog'
@@ -92,6 +94,22 @@ export default function KeyClients({
               Replace it with the relay&rsquo;s address before using them.
             </Note>
           )}
+          <InstallCommand
+            keyId={k.id}
+            gateway={gateway}
+            files={() =>
+              CLIENTS.flatMap((client) =>
+                client.files(gateway, plaintext, catalog).map((f) => ({
+                  client_id: client.id,
+                  client: client.label,
+                  path: f.install.path,
+                  windows_path: f.install.windowsPath,
+                  env: f.install.env,
+                  body: f.body,
+                })),
+              )
+            }
+          />
           {CLIENTS.map((client) => {
             const missing = client.missingSurfaces(config?.surfaces ?? [])
             return (
@@ -201,6 +219,111 @@ export function KeySecret({ apiKey: k, onChanged }: { apiKey: ApiKey; onChanged:
           For a key that has leaked: the current one stops working at once.
         </span>
       </div>
+      {error !== '' && (
+        <Banner tone="error" className="mt-4">
+          {error}
+        </Banner>
+      )}
+    </Card>
+  )
+}
+
+type System = 'unix' | 'windows'
+
+/**
+ * One command that writes a client's configuration into place: a token for
+ * every client's files, kept a quarter of an hour, and the address that
+ * fetches them with the shell and the client chosen here.
+ *
+ * The token is made once, on asking, and covers every client; choosing a
+ * system or a client after that only rewrites the command around it, so the
+ * same token sets up Codex on one machine and Claude Code on another.
+ */
+function InstallCommand({
+  keyId,
+  gateway,
+  files,
+}: {
+  keyId: string
+  gateway: string
+  files: () => InstallFile[]
+}) {
+  const [system, setSystem] = useState<System>(() =>
+    /windows/i.test(navigator.userAgent) ? 'windows' : 'unix',
+  )
+  const [client, setClient] = useState('all')
+  const [link, setLink] = useState<{ token: string; expires: Date } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const create = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const made = await api.createInstall(keyId, files())
+      setLink({ token: made.token, expires: new Date(made.expires_at) })
+    } catch (err) {
+      setError(messageOf(err))
+    }
+    setBusy(false)
+  }
+
+  const url =
+    link === null
+      ? ''
+      : `${gateway}/install?token=${link.token}&shell=${system === 'windows' ? 'ps1' : 'sh'}` +
+        (client === 'all' ? '' : `&client=${client}`)
+  const command =
+    system === 'windows' ? `irm '${url}' | iex` : `curl -fsSL '${url}' | sh`
+
+  return (
+    <Card>
+      <CardTitle>Install with one command</CardTitle>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Segmented
+          label="System"
+          value={system}
+          onChange={setSystem}
+          options={[
+            { id: 'unix', label: 'Linux and macOS', content: 'Linux & macOS' },
+            { id: 'windows', label: 'Windows', content: 'Windows' },
+          ]}
+        />
+        <Segmented
+          label="Client"
+          value={client}
+          onChange={setClient}
+          options={[
+            { id: 'all', label: 'Every client', content: 'All' },
+            ...CLIENTS.map((c) => ({ id: c.id, label: c.label, content: c.label })),
+          ]}
+        />
+      </div>
+      {link === null ? (
+        <FilledButton type="button" disabled={busy} onClick={() => void create()}>
+          {busy && <Spinner />}
+          Create command
+        </FilledButton>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <CopyField
+            label={system === 'windows' ? 'PowerShell' : 'Terminal'}
+            value={command}
+            conceal={link.token}
+          />
+          <Note>
+            Works until {link.expires.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })},
+            on as many machines as it is run on. It writes each file in place and keeps whatever was
+            there beside it as a .bak, so running a newer command is an update.
+            {system === 'windows'
+              ? ' Claude Code gets its settings as user environment variables, for new terminals.'
+              : ' Claude Code\u2019s file is sourced from your shell profile, for new shells.'}
+          </Note>
+          <div>
+            <TextButton onClick={() => void create()}>New command</TextButton>
+          </div>
+        </div>
+      )}
       {error !== '' && (
         <Banner tone="error" className="mt-4">
           {error}
