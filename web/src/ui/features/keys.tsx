@@ -11,6 +11,8 @@ import { RolesEditor } from './model-roles'
 import type { ReactNode } from 'react'
 import {
   AppLink,
+  ListRow,
+  RowBadge,
   Banner,
   Card,
   CardTitle,
@@ -29,7 +31,6 @@ import {
   TonalButton,
   ago,
   compact,
-  openRow,
 } from '../primitives'
 
 /**
@@ -112,56 +113,56 @@ export default function Keys({
         ) : data === null || data.keys.length === 0 ? (
           <Empty>No API keys yet. Create one above and give it to a client.</Empty>
         ) : (
-          <Table
-            head={[
-              'Name',
-              'Key',
-              'Requests',
-              'Tokens',
-              'Subscription',
-              'Last used',
-              'Limit',
-              'Tokens/day',
-              '',
-            ]}
-          >
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
             {data.keys.map((k) => (
-              <tr
-                key={k.id}
-                onClick={openRow(keyHref(k.id))}
-                className="cursor-pointer border-b border-outline-variant last:border-0 hover:bg-surface-container"
-              >
-                <td className="px-2 py-3">
-                  <AppLink href={keyHref(k.id)} className="text-on-surface">
-                    {k.name}
-                  </AppLink>
-                  <div className="text-xs text-on-surface-variant">created {ago(k.created_at)}</div>
-                </td>
-                <td className="px-2 py-3 font-mono text-xs text-on-surface-variant">{k.display}</td>
-                <td className="px-2 py-3 tabular-nums">{compact(k.requests)}</td>
-                <td className="px-2 py-3 tabular-nums">{compact(k.tokens)}</td>
-                <td className="px-2 py-3">
-                  <SubscriptionCell share={k.subscription} />
-                </td>
-                <td className="px-2 py-3 text-on-surface-variant">{ago(k.last_used_at)}</td>
-                <td className="px-2 py-3 text-on-surface-variant">
-                  {k.rpm_limit > 0
-                    ? `${compact(k.rpm_limit)} / ${periodName(k.rate_period_s)}`
-                    : 'default'}
-                </td>
-                <td className="px-2 py-3">
-                  <Budget budget={k.token_budget} spent={k.spent_today} />
-                </td>
-                <td className="px-2 py-3 text-right">
-                  <span aria-hidden className="inline-grid size-9 place-items-center text-on-surface-variant">
-                    <svg viewBox="0 0 24 24" className="size-5 fill-current">
-                      <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
-                    </svg>
-                  </span>
-                </td>
-              </tr>
+              <li key={k.id}>
+                <ListRow
+                  href={keyHref(k.id)}
+                  leading={
+                    <RowBadge>
+                      <svg viewBox="0 0 24 24" aria-hidden className="size-4 fill-current">
+                        <path d="M12.65 10A6 6 0 1 0 12.65 14H17v4h4v-4h2v-4H12.65zM7 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
+                      </svg>
+                    </RowBadge>
+                  }
+                  title={k.name}
+                  subtitle={
+                    <>
+                      <span className="font-mono">{k.display}</span> · {compact(k.requests)} requests ·{' '}
+                      {compact(k.tokens)} tokens over {data.windowDays}d · used {ago(k.last_used_at)}
+                    </>
+                  }
+                  chips={
+                    k.managed || k.models_off.length > 0 ? (
+                      <>
+                        {k.managed && <Chip tone="neutral">gateway&rsquo;s own</Chip>}
+                        {k.models_off.length > 0 && (
+                          <Chip tone="warn">
+                            {k.models_off.length} model{k.models_off.length === 1 ? '' : 's'} off
+                          </Chip>
+                        )}
+                      </>
+                    ) : undefined
+                  }
+                  meters={
+                    <>
+                      <span>
+                        <span className="text-on-surface-variant">Rate</span>{' '}
+                        {k.rpm_limit > 0
+                          ? `${compact(k.rpm_limit)} / ${periodName(k.rate_period_s)}`
+                          : 'default'}
+                      </span>
+                      <span>
+                        <span className="text-on-surface-variant">Today</span>{' '}
+                        <Budget budget={k.token_budget} spent={k.spent_today} />
+                      </span>
+                      <SubscriptionCell share={k.subscription} />
+                    </>
+                  }
+                />
+              </li>
             ))}
-          </Table>
+          </ul>
         )}
 
         <p className="mt-4 mb-0 border-t border-outline-variant pt-4 text-xs text-on-surface-variant">

@@ -6,16 +6,16 @@ import { byProvider, providerLabel } from '../providers'
 import { api, messageOf, type Account } from '../../api/client'
 import { useLoader } from '../hooks'
 import {
-  AppLink,
   Banner,
   Card,
   Chip,
   Empty,
   Freshness,
   IconButton,
+  ListRow,
+  RowBadge,
   Spinner,
   TonalButton,
-  openRow,
   compact,
 } from '../primitives'
 
@@ -268,53 +268,44 @@ function AccountRow({
   onMoveDown: () => void
 }) {
   const chip = status(a)
-  const href = accountHref(a.id)
   return (
-    <div
-      onClick={openRow(href)}
-      className={`state-layer flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-[var(--radius-md3-l)] px-4 py-3 ${
-        a.serving ? 'bg-secondary-container/40' : 'bg-surface-low'
-      }`}
-    >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        {orderable && (
-          <span
-            className="hidden cursor-grab text-on-surface-variant active:cursor-grabbing sm:block"
-            title="Drag to reorder"
-            aria-hidden
-          >
-            <svg viewBox="0 0 24 24" className="size-5 fill-current">
-              <path d="M9 4h2v2H9V4zm4 0h2v2h-2V4zM9 9h2v2H9V9zm4 0h2v2h-2V9zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2z" />
-            </svg>
-          </span>
-        )}
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-high text-xs font-medium text-on-surface-variant">
-          {rank + 1}
-        </span>
-        <div className="min-w-0">
-          <AppLink href={href} className="block truncate font-medium text-on-surface no-underline">
-            {a.email}
-          </AppLink>
-          <span className="text-xs text-on-surface-variant tabular-nums">
-            {compact(a.requests)} requests · {compact(a.tokens)} tokens over {windowDays}d
-          </span>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-1">
-        {a.serving && <Chip tone="ok">serving</Chip>}
-        <Chip tone={chip.tone}>{chip.label}</Chip>
-      </div>
-
-      {a.quota !== undefined && (
-        <div className="flex items-center gap-3 text-xs tabular-nums text-on-surface">
-          <Window label="5h" util={a.quota.five_hour_util} />
-          <Window label="7d" util={a.quota.seven_day_util} />
-        </div>
-      )}
-
-      <div className="flex items-center gap-1">
-        {orderable && (
+    <ListRow
+      href={accountHref(a.id)}
+      highlight={a.serving}
+      leading={
+        <>
+          {orderable && (
+            <span
+              className="hidden cursor-grab text-on-surface-variant active:cursor-grabbing sm:block"
+              title="Drag to reorder"
+              aria-hidden
+            >
+              <svg viewBox="0 0 24 24" className="size-5 fill-current">
+                <path d="M9 4h2v2H9V4zm4 0h2v2h-2V4zM9 9h2v2H9V9zm4 0h2v2h-2V9zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2z" />
+              </svg>
+            </span>
+          )}
+          <RowBadge>{rank + 1}</RowBadge>
+        </>
+      }
+      title={a.email}
+      subtitle={`${compact(a.requests)} requests · ${compact(a.tokens)} tokens over ${windowDays}d`}
+      chips={
+        <>
+          {a.serving && <Chip tone="ok">serving</Chip>}
+          <Chip tone={chip.tone}>{chip.label}</Chip>
+        </>
+      }
+      meters={
+        a.quota !== undefined ? (
+          <>
+            <Window label="5h" util={a.quota.five_hour_util} />
+            <Window label="7d" util={a.quota.seven_day_util} />
+          </>
+        ) : undefined
+      }
+      actions={
+        orderable ? (
           <>
             <IconButton label="Higher priority" disabled={busy || rank === 0} onClick={onMoveUp}>
               <path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z" />
@@ -327,14 +318,9 @@ function AccountRow({
               <path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z" />
             </IconButton>
           </>
-        )}
-        <span aria-hidden className="grid size-9 place-items-center text-on-surface-variant">
-          <svg viewBox="0 0 24 24" className="size-5 fill-current">
-            <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
-          </svg>
-        </span>
-      </div>
-    </div>
+        ) : undefined
+      }
+    />
   )
 }
 
