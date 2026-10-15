@@ -75,27 +75,35 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
  * its settings their sections — so the rail is always a handful of short
  * entries. Vertical beside the page on a wide screen; a row that scrolls
  * sideways above it on a narrow one.
+ *
+ * A filled panel with the page open in the primary container colour, the
+ * path bar's: the two navigations read as one, and the rail stands off the
+ * page. Back is a raised chip, the way out rather than one more entry.
  */
 export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean }) {
   const item = (on: boolean) =>
     `state-layer flex h-10 shrink-0 items-center rounded-[var(--radius-md3-full)] px-4 text-sm font-medium whitespace-nowrap ${
       on
-        ? 'bg-secondary-container text-on-secondary-container'
+        ? 'bg-primary-container text-on-primary-container'
         : 'text-on-surface-variant hover:text-on-surface'
     }`
   return (
     <nav
       aria-label="Navigation"
-      className={row ? '-mx-1 overflow-x-auto px-1' : 'flex flex-col gap-1'}
+      className={`bg-surface-container ${
+        row
+          ? 'overflow-x-auto rounded-[var(--radius-md3-full)] p-1'
+          : 'flex flex-col gap-1 rounded-[var(--radius-md3-xl)] p-2'
+      }`}
     >
       <ul className={`m-0 flex list-none gap-1 p-0 ${row ? 'min-w-max items-center' : 'flex-col'}`}>
         {level.back !== undefined && (
-          <li className={row ? '' : 'mb-1 border-b border-outline-variant pb-2'}>
+          <li className={row ? '' : 'mb-1 border-b border-outline-variant/60 pb-2'}>
             <a
               href={level.back.href}
               onClick={follow(level.back.href)}
               title={`Back to ${level.back.label}`}
-              className="state-layer flex h-10 min-w-0 items-center gap-2 rounded-[var(--radius-md3-full)] pr-4 pl-2 text-sm text-on-surface-variant hover:text-on-surface"
+              className="state-layer flex h-10 min-w-0 items-center gap-2 rounded-[var(--radius-md3-full)] bg-surface-lowest pr-4 pl-2 text-sm font-medium text-on-surface"
             >
               <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
                 <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
