@@ -339,6 +339,8 @@ export interface RequestRow {
   key_name?: string
   account_email?: string
   model?: string
+  /** What the client asked for, when that was a virtual model. */
+  virtual_model?: string
   path: string
   status: number
   streaming: boolean
@@ -469,7 +471,26 @@ export interface Model {
   max_tokens?: number
   lifecycle?: string
   capabilities?: Record<string, unknown>
+  /** A gateway virtual model, and the real one it is served by now. */
+  virtual?: boolean
+  serving?: string
 }
+
+/** A virtual model in one scope: gateway-wide, one key, or one app on a key. */
+export interface VirtualModel {
+  key_id: string
+  client: string
+  name: string
+  display_name: string
+  /** Real models, most preferred first. */
+  targets: string[]
+  /** The target a request gets now, or empty when none is available. */
+  serving: string
+  updated_at: string
+}
+
+/** The client apps a key's mappings can name, as the gateway tells them apart. */
+export const CLIENT_APPS = ['Claude Code', 'Codex', 'opencode', 'crush'] as const
 
 export interface GatewayConfig {
   /** The file it was read from, empty when there was none. */
@@ -763,6 +784,29 @@ export const api = {
   config: () => request<GatewayConfig>('GET', '/admin/config'),
 
   models: () => request<{ data: Model[] | null }>('GET', '/admin/models'),
+
+  /** What one key's client app is offered, virtual models included. */
+  keyClientModels: (keyId: string, client: string) =>
+    request<{ data: Model[] | null }>(
+      'GET',
+      `/admin/keys/${encodeURIComponent(keyId)}/client-models?client=${encodeURIComponent(client)}`,
+    ),
+
+  virtualModels: () => request<{ models: VirtualModel[] }>('GET', '/admin/virtual-models'),
+
+  putVirtualModel: (v: {
+    key_id: string
+    client: string
+    name: string
+    display_name: string
+    targets: string[]
+  }) => request<VirtualModel>('PUT', '/admin/virtual-models', v),
+
+  deleteVirtualModel: (keyId: string, client: string, name: string) =>
+    request<void>(
+      'DELETE',
+      `/admin/virtual-models?${new URLSearchParams({ key_id: keyId, client, name })}`,
+    ),
   setSurface: (id: string, enabled: boolean) =>
     request<{ surfaces: Surface[] }>('POST', `/admin/surfaces/${encodeURIComponent(id)}`, {
       enabled,

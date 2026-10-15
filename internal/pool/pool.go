@@ -220,6 +220,18 @@ func candidatesFor(accounts []store.Account, provider, model string, exclude map
 	return out
 }
 
+// Offers reports whether any usable account has model on — whether a request
+// for it could be served at all, cooling aside. It is how a virtual model
+// chooses among its targets: by the same candidates Acquire would pick from,
+// so the two cannot disagree about a model being available.
+func (p *Pool) Offers(ctx context.Context, provider, model string) bool {
+	accounts, err := p.store.ListAccounts(ctx)
+	if err != nil {
+		return false
+	}
+	return len(candidatesFor(accounts, provider, model, nil, p.now())) > 0
+}
+
 // Acquire picks an account that has model on, refreshing its token first if
 // it has expired. An empty model is served by any account.
 //

@@ -21,8 +21,8 @@ func TestSchemaAfterAllMigrations(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 26 {
-		t.Errorf("schema version = %d, want 26", version)
+	if version != 27 {
+		t.Errorf("schema version = %d, want 27", version)
 	}
 
 	// Time to first token goes in and comes back out, on both reads.

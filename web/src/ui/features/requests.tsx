@@ -765,7 +765,10 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
             // matched against an upstream request_id or somebody else's log.
             ['Timestamp', <span className="tabular-nums">{row.at}</span>],
             ['Outcome', messageLabel(row.error_code) === '—' ? 'no error' : messageLabel(row.error_code)],
-            ['Model', dash(row.model)],
+            [
+      'Model',
+      row.virtual_model ? `${row.virtual_model} → ${dash(row.model)}` : dash(row.model),
+    ],
             ['Chat', <Mono>{dash(row.conversation_id)}</Mono>],
             ['Client', dash(row.client)],
             ['Key', dash(row.key_name)],

@@ -40,6 +40,9 @@ export type CatalogModel = {
   max_input_tokens?: number
   max_tokens?: number
   lifecycle?: string
+  /** A gateway virtual model; its other fields are the serving model's. */
+  virtual?: boolean
+  serving?: string
   capabilities?: {
     effort?: Capability & Record<string, Capability | boolean | undefined>
     image_input?: Capability
@@ -64,9 +67,13 @@ export class Catalog {
   constructor(models: readonly { id: string }[] | null | undefined) {
     // Retired and deprecated models still answer for a while, but a config
     // written today has no business offering one.
+    // A virtual model is listed whatever its name: it is one the operator
+    // made for this client, and it comes first, so a virtual model serving
+    // an Opus is what the config's large default becomes.
     this.models = ((models ?? []) as CatalogModel[]).filter(
       (m) =>
-        m.id.startsWith('claude-') && (m.lifecycle === undefined || m.lifecycle === 'active'),
+        m.virtual === true ||
+        (m.id.startsWith('claude-') && (m.lifecycle === undefined || m.lifecycle === 'active')),
     )
   }
 

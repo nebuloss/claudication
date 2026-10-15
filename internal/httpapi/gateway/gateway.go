@@ -132,21 +132,141 @@ func (s *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	body, err := s.FetchModels(ctx)
+	key, _ := httpx.APIKey(r.Context())
+	body, err := s.ModelsFor(ctx, key, api.ClientName(r.UserAgent()))
 	if err != nil {
 		s.log.Warn("model discovery failed; answering 502 so the client keeps its cached list",
 			"err", err, "request_id", httpx.RequestID(r.Context()))
 		httpx.WriteError(w, http.StatusBadGateway, "api_error", "could not reach the upstream model list")
 		return
 	}
-	// Less what the calling key may not use, for the reason the switched-off
-	// models are left out: a client builds its menu from this, and a model on
-	// the menu that is refused when picked is worse than one not offered.
-	if key, ok := httpx.APIKey(r.Context()); ok && len(key.ModelsOff) > 0 {
-		body = modelsAllowedFor(body, key)
-	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
+}
+
+// ModelsFor is the model list one key's client app is offered: the real
+// models, with the virtual ones that key and app can ask for first, less what
+// the key may not use. The /v1/models answer, and what the admin UI writes
+// into that app's config for that key, so the two cannot disagree.
+//
+// A virtual model is listed only while one of its targets can serve it, and a
+// virtual name that is also a real id takes the real one's place: a client
+// asking for it gets the mapping, so that is what it should be shown.
+func (s *Gateway) ModelsFor(ctx context.Context, key store.APIKey, client string) ([]byte, error) {
+	body, err := s.FetchModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	vms, err := s.store.EffectiveVirtualModels(ctx, key.ID, client)
+	if err != nil {
+		return nil, err
+	}
+	var entries []virtualEntry
+	for _, vm := range vms {
+		target := s.virtualTarget(ctx, vm, key)
+		if target == "" {
+			continue
+		}
+		display := vm.DisplayName
+		if display == "" {
+			display = vm.Name
+		}
+		entries = append(entries, virtualEntry{
+			ID: vm.Name, DisplayName: display,
+			CreatedAt: vm.UpdatedAt.UTC().Format(time.RFC3339),
+			Serving:   target,
+		})
+	}
+	if len(entries) > 0 {
+		body = withVirtual(body, entries)
+	}
+	// Less what the key may not use, for the reason the switched-off models
+	// are left out: a client builds its menu from this, and a model on the
+	// menu that is refused when picked is worse than one not offered.
+	if len(key.ModelsOff) > 0 {
+		body = modelsAllowedFor(body, key)
+	}
+	return body, nil
+}
+
+// virtualEntry is a virtual model as a model list shows it. The entry is the
+// serving model's own, with the id and name changed — so its context window,
+// output limit and capabilities are the real ones, and a client sizing its
+// requests from the list sizes them right — plus two fields of the gateway's,
+// which clients ignore and the admin UI and config writer read.
+type virtualEntry struct {
+	ID          string
+	DisplayName string
+	CreatedAt   string
+	Serving     string
+}
+
+// withVirtual puts the virtual models at the top of a model list, dropping a
+// real entry whose id one of them takes over. A list it cannot read is
+// returned as it was.
+func withVirtual(body []byte, entries []virtualEntry) []byte {
+	var list map[string]json.RawMessage
+	if err := json.Unmarshal(body, &list); err != nil {
+		return body
+	}
+	var data []json.RawMessage
+	if err := json.Unmarshal(list["data"], &data); err != nil {
+		return body
+	}
+	real := map[string]json.RawMessage{}
+	for _, m := range data {
+		var model struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(m, &model) == nil {
+			real[store.ModelKey(model.ID)] = m
+		}
+	}
+	taken := map[string]bool{}
+	merged := make([]json.RawMessage, 0, len(entries)+len(data))
+	for _, e := range entries {
+		fields := map[string]any{"type": "model"}
+		if base, ok := real[store.ModelKey(e.Serving)]; ok {
+			_ = json.Unmarshal(base, &fields)
+		}
+		fields["id"] = e.ID
+		fields["display_name"] = e.DisplayName
+		fields["created_at"] = e.CreatedAt
+		fields["virtual"] = true
+		fields["serving"] = e.Serving
+		raw, err := json.Marshal(fields)
+		if err != nil {
+			return body
+		}
+		taken[store.ModelKey(e.ID)] = true
+		merged = append(merged, raw)
+	}
+	for _, m := range data {
+		var model struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(m, &model) == nil && taken[store.ModelKey(model.ID)] {
+			continue
+		}
+		merged = append(merged, m)
+	}
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return body
+	}
+	list["data"] = encoded
+	// The page now starts with a virtual model; first_id has to say so for a
+	// client that pages by it.
+	if _, ok := list["first_id"]; ok {
+		if first, err := json.Marshal(entries[0].ID); err == nil {
+			list["first_id"] = first
+		}
+	}
+	out, err := json.Marshal(list)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // modelsAllowedFor drops from a model list the models a key is kept off. A

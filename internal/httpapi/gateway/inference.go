@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/pool"
 	"claudication/internal/relay"
+	"claudication/internal/relay/passes"
 	"claudication/internal/request"
 	"claudication/internal/service/titles"
 	"claudication/internal/store"
@@ -84,6 +86,40 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 			return
 		}
 
+		// A virtual model becomes the real one that serves it — the first of
+		// its targets an account has on and this key may use, by the mapping
+		// for this key and client app, else this key, else the gateway's — and
+		// the answer is renamed back on its way out. See passes.SetModel.
+		virtual := ""
+		rewrote := false
+		key, _ := httpx.APIKey(r.Context())
+		if vm, err := s.store.ResolveVirtualModel(r.Context(), key.ID,
+			api.ClientName(r.UserAgent()), model); err == nil {
+			target := s.virtualTarget(r.Context(), vm, key)
+			if target == "" {
+				s.recorder.Record(store.UsageEvent{
+					At: time.Now(), KeyID: key.ID, KeyName: key.Name, Model: model,
+					VirtualModel: vm.Name, Path: route, Status: http.StatusNotFound,
+					Client: api.ClientName(r.UserAgent()), IP: httpx.ClientIP(r.Context()),
+					Rejected: true, Error: "no model this virtual model points to is available",
+				}, 0)
+				p.WriteError(w, http.StatusNotFound, "not_found_error",
+					"virtual model "+vm.Name+" points to "+strings.Join(vm.Targets, ", ")+
+						", and none is available to this key on any account; "+
+						"an administrator can change it under Models")
+				return
+			}
+			replaced, ok := passes.SetModel(outbound, target)
+			if !ok {
+				p.WriteError(w, http.StatusBadRequest, "invalid_request", "the request names no model to map")
+				return
+			}
+			outbound, virtual, model, rewrote = replaced, vm.Name, target, true
+			// Named here as the rewrites are, so the log line shows it.
+			s.log.Debug("virtual model", "asked", virtual, "serving", target,
+				"request_id", httpx.RequestID(r.Context()))
+		}
+
 		// Read before the clone, and before Headers strips anything.
 		//
 		// For a translating dialect the headers naming the conversation are
@@ -112,10 +148,18 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// sends the caller's bytes as they are has already read it; a second
 		// Peek was one more full parse of every request for nothing.
 		var prologue request.Prologue
-		if pe, ok := ex.(interface{ Prologue() request.Prologue }); ok {
+		if pe, ok := ex.(interface{ Prologue() request.Prologue }); ok && !rewrote {
 			prologue = pe.Prologue()
 		} else {
 			prologue = request.Peek(outbound)
+		}
+
+		// The answer names the model the client asked for. Wrapped beneath
+		// the dialect's sink, so the Responses translation is renamed too.
+		if virtual != "" {
+			renamer := passes.NewModelRenamer(w, virtual)
+			defer renamer.Finish()
+			w = renamer
 		}
 
 		// A client naming its own conversation is answered with the name it
@@ -149,15 +193,13 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// when the upstream simply stopped.
 		sink.Close(closingCause(res))
 
-		key, _ := httpx.APIKey(r.Context())
-
 		if res.Err != nil && res.Status == 0 {
 			// Nothing reached the client, but something was attempted and it
 			// is the failures that are worth having a record of.
 			s.recorder.Record(store.UsageEvent{
 				At: started, KeyID: key.ID, KeyName: key.Name,
 				AccountID: res.AccountID, AccountEmail: res.AccountEmail,
-				Model: model, Path: route, Status: 0, Streaming: streaming,
+				Model: model, VirtualModel: virtual, Path: route, Status: 0, Streaming: streaming,
 				ConversationID: conversation, Client: client, IP: ip,
 				Duration: elapsed, Error: res.Err.Error(),
 			}, key.TokenBudget)
@@ -168,7 +210,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		s.recorder.Record(store.UsageEvent{
 			At: started, KeyID: key.ID, KeyName: key.Name,
 			AccountID: res.AccountID, AccountEmail: res.AccountEmail,
-			Model: model, Path: route, Status: res.Status, Streaming: streaming,
+			Model: model, VirtualModel: virtual, Path: route, Status: res.Status, Streaming: streaming,
 			ConversationID:   conversation,
 			Client:           client,
 			IP:               ip,
@@ -251,6 +293,18 @@ func firstNonEmpty(vs ...string) string {
 	for _, v := range vs {
 		if v != "" {
 			return v
+		}
+	}
+	return ""
+}
+
+// virtualTarget is the real model a virtual one is served by: the first of
+// its targets this key may use and an account has on. Empty when there is
+// none, and the request is refused rather than sent somewhere it will fail.
+func (s *Gateway) virtualTarget(ctx context.Context, vm store.VirtualModel, key store.APIKey) string {
+	for _, t := range vm.Targets {
+		if key.Allows(t) && s.pool.Offers(ctx, "anthropic", t) {
+			return t
 		}
 	}
 	return ""

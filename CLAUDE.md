@@ -23,7 +23,7 @@ one needs from another.
 
 ## Read these before changing the relay
 
-1. `go doc ./internal/relay/passes` — the rule the relay follows, its six
+1. `go doc ./internal/relay/passes` — the rule the relay follows, its seven
    exceptions, and why each exists. `go doc ./internal/relay` is the relay
    itself: accounts, retries, streaming, the stall retry. `go doc
    ./internal/provider` is the line between it and Anthropic, and
@@ -56,8 +56,10 @@ it. A dialect's mapping is only defensible next to the evidence for it, and the
 evidence is per dialect.
 
 The relay's rule is that the caller's bytes go upstream unchanged. There are
-six exceptions, each a named pass in `internal/relay/passes`, each because the
-request cannot otherwise succeed. Do not add a seventh on a hunch — see below.
+seven exceptions, each named in `internal/relay/passes`, each because the
+request cannot otherwise succeed — six repairs in the default pipeline, and the
+virtual-model rewrite the gateway applies when a request names one. Do not add
+an eighth on a hunch — see below.
 
 ## When a request fails for no visible reason
 

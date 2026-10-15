@@ -60,6 +60,9 @@ type RequestJSON struct {
 	KeyName      string `json:"key_name,omitempty"`
 	AccountEmail string `json:"account_email,omitempty"`
 	Model        string `json:"model,omitempty"`
+	// VirtualModel is what the client asked for, when that was a virtual
+	// model; Model is then the real one that served it.
+	VirtualModel string `json:"virtual_model,omitempty"`
 	Path         string `json:"path"`
 	Status       int    `json:"status"`
 	Streaming    bool   `json:"streaming"`
@@ -104,6 +107,7 @@ func toRequestJSON(e store.UsageEvent) RequestJSON {
 		KeyName:      e.KeyName,
 		AccountEmail: e.AccountEmail,
 		Model:        e.Model,
+		VirtualModel: e.VirtualModel,
 		Path:         e.Path,
 		Status:       e.Status,
 		Streaming:    e.Streaming,

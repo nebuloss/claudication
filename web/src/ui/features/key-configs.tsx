@@ -23,31 +23,65 @@ export function relayAddress(config: GatewayConfig | null): string {
 }
 
 /**
- * Every client's config file, with the key just minted already in it.
+ * Every client's config file, with a key already in it.
  *
- * Here and not on the public docs page, because this is the one moment the
- * plaintext exists: the store keeps only its hash, so a file downloaded now is
- * the only config that will ever be complete without someone pasting the key
- * into it by hand. The files are the committed ones under configs/clients, the
- * same the docs page shows, with the address and the key swapped in — so what
- * is downloaded here and what the docs describe cannot drift apart.
+ * Here and not on the public docs page, because this needs the key's secret,
+ * which only an operator may see. The files are the committed ones under
+ * configs/clients, the same the docs page shows, with the address, the key
+ * and that app's models swapped in — so what is downloaded here and what the
+ * docs describe cannot drift apart.
  */
+/** Each client here as the gateway tells it apart, for its own model list. */
+const APP_OF: Record<string, string> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  opencode: 'opencode',
+  crush: 'crush',
+}
+
 export function KeyConfigs({
   plaintext,
   config,
+  keyId,
 }: {
   plaintext: string
   config: GatewayConfig | null
+  keyId: string
 }) {
   const address = relayAddress(config)
   const gateway = address !== '' ? address : EXAMPLE_BASE
 
-  // The models the accounts serve, read once when the dialog opens. A failure
-  // is not an error worth showing over a key that is visible once: the files
-  // fall back to the committed ones, which are complete, and the line below
-  // says so.
-  const { data: models, loading } = useLoader(() => api.models(), undefined, [], 0)
-  const catalog = useMemo(() => new Catalog(models?.data), [models])
+  // Each app's own model list for this key — what /v1/models answers that app
+  // — read once when the dialog opens, so a file lists the virtual models that
+  // app is mapped to and defaults to them. A failure is not an error worth
+  // showing over the key: the files fall back to the committed ones, which
+  // are complete, and the line below says so.
+  const { data: lists, loading } = useLoader(
+    async () => {
+      const entries = await Promise.all(
+        CLIENTS.map(async (c) => {
+          const app = APP_OF[c.id] ?? ''
+          try {
+            const res = await api.keyClientModels(keyId, app)
+            return [c.id, res.data] as const
+          } catch {
+            return [c.id, null] as const
+          }
+        }),
+      )
+      return Object.fromEntries(entries)
+    },
+    undefined,
+    [keyId],
+    0,
+  )
+  const catalogs = useMemo(() => {
+    const out: Record<string, Catalog> = {}
+    for (const c of CLIENTS) out[c.id] = new Catalog(lists?.[c.id])
+    return out
+  }, [lists])
+  const models = lists
+  const catalog = catalogs[CLIENTS[0].id] ?? new Catalog(null)
 
   return (
     <section className="mt-6">
@@ -60,7 +94,7 @@ export function KeyConfigs({
             <Spinner className="size-3" /> Reading the model list…
           </span>
         ) : catalog.known ? (
-          `Models: the ${catalog.models.length} your accounts serve, read from Anthropic just now.`
+          'Models: what each app is offered with this key — its virtual models first — read just now.'
         ) : (
           'Models: the list shipped with this release, because the live one could not be read.'
         )}
@@ -92,7 +126,7 @@ export function KeyConfigs({
                 )}
               </div>
               <span className="flex flex-wrap gap-2">
-                {client.files(gateway, plaintext, catalog).map((f) => (
+                {client.files(gateway, plaintext, catalogs[client.id] ?? catalog).map((f) => (
                   <TonalButton
                     key={f.filename}
                     onClick={() => saveAs(f.filename, f.body)}

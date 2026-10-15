@@ -1,11 +1,11 @@
 // Package passes is every change the gateway makes to a request body on its
 // way upstream, and the rule they are exceptions to.
 //
-// # The rule, and its six exceptions
+// # The rule, and its seven exceptions
 //
-// The caller's bytes go upstream unchanged. There are six deliberate
+// The caller's bytes go upstream unchanged. There are seven deliberate
 // exceptions, and every one exists because without it the affected request
-// cannot succeed at all. In the order [Default] runs them:
+// cannot succeed at all. Six are [Default], in the order it runs them:
 //
 //  1. [FixLoneSurrogates] — an unpaired \uD800-\uDFFF escape, which the
 //     upstream refuses the whole body over. Produced by any tool that cuts its
@@ -20,9 +20,16 @@
 //  6. [ShrinkImages] — an image over 2000 px on a side in a request carrying
 //     more than twenty of them, which the upstream refuses by name.
 //
-// The sixth is the only optional one, and the only one off by default. The
-// other five repair an envelope the upstream rejects over its shape, and the
-// caller cannot tell the difference. This one re-encodes the caller's own
+// The seventh is [SetModel]: a request naming a virtual model the operator
+// created has the real model it maps to put in its model field, and
+// [ModelRenamer] says the virtual name back in the answer. It is not in
+// Default, because it needs a decision only the gateway can make — which of
+// the virtual model's targets serves — and it runs only when one is named.
+// See model.go.
+//
+// The sixth is Default's only optional pass, and its only one off by default.
+// The other five repair an envelope the upstream rejects over its shape, and
+// the caller cannot tell the difference. This one re-encodes the caller's own
 // picture: the model is shown something slightly different from what was sent,
 // and only the caller knows whether the detail mattered. So it is a switch an
 // operator turns on, stored where the other runtime switches are.
@@ -49,7 +56,7 @@
 // it rather than decoding and re-encoding it: bodies are megabytes, and a
 // rebuild cost several times that per request.
 //
-// # Before adding a seventh
+// # Before adding an eighth
 //
 // Three of the five answer with the same message, and nothing in it is true:
 //

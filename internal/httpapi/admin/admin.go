@@ -53,6 +53,7 @@ type Admin struct {
 	sessions       *sessions
 	fetchModels    func(ctx context.Context) ([]byte, error)
 	accountModels  func(ctx context.Context, accountID, rawQuery string) ([]byte, error)
+	keyModels      func(ctx context.Context, key store.APIKey, client string) ([]byte, error)
 }
 
 // Deps is what an Admin is built from. Every field is required.
@@ -78,6 +79,9 @@ type Deps struct {
 	Models func(ctx context.Context) ([]byte, error)
 	// AccountModels is the upstream model list as one account sees it.
 	AccountModels func(ctx context.Context, accountID, rawQuery string) ([]byte, error)
+	// KeyModels is the model list one key's client app is offered, virtual
+	// models included: what /v1/models answers it, and what its config lists.
+	KeyModels func(ctx context.Context, key store.APIKey, client string) ([]byte, error)
 }
 
 // New builds an Admin with no session open.
@@ -89,6 +93,7 @@ func New(d Deps) *Admin {
 		httpClient: d.HTTPClient, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), fetchModels: d.Models, accountModels: d.AccountModels,
+		keyModels: d.KeyModels,
 	}
 }
 
@@ -131,6 +136,10 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/keys/{id}/rotate", admin(s.handleRotateKey))
 	mux.Handle("GET /admin/keys/{id}/secret", admin(s.handleKeySecret))
 	mux.Handle("GET /admin/keys/{id}/models", admin(s.handleKeyModels))
+	mux.Handle("GET /admin/keys/{id}/client-models", admin(s.handleKeyClientModels))
+	mux.Handle("GET /admin/virtual-models", admin(s.handleVirtualModels))
+	mux.Handle("PUT /admin/virtual-models", admin(s.handlePutVirtualModel))
+	mux.Handle("DELETE /admin/virtual-models", admin(s.handleDeleteVirtualModel))
 	mux.Handle("POST /admin/keys/{id}/models", admin(s.handleSetKeyModel))
 
 	mux.Handle("GET /admin/config", admin(s.handleConfig))

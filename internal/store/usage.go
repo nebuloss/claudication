@@ -21,6 +21,9 @@ type UsageEvent struct {
 	AccountID    string
 	AccountEmail string
 	Model        string
+	// VirtualModel is the name the client asked for when it was a virtual
+	// model (migration 027); Model is then the real model that served it.
+	VirtualModel string
 	Path         string
 	// ConversationID is the chat this request belonged to, as the client named
 	// it, or empty when the client named none. Client is the product that made
@@ -86,12 +89,14 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 		                           status, streaming,
 		                           input_tokens, output_tokens,
 		                           cache_read_tokens, cache_write_tokens,
-		                           duration_ms, first_token_ms, error, error_code, rejected, ip)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                           duration_ms, first_token_ms, error, error_code, rejected, ip,
+		                           virtual_model)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		stamp(e.At), e.KeyID, e.KeyName, e.AccountID, e.AccountEmail,
 		e.Model, e.Path, e.ConversationID, e.Client, e.Status, e.Streaming,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens,
 		e.Duration.Milliseconds(), e.FirstToken.Milliseconds(), e.Error, e.ErrorCode, e.Rejected, e.IP,
+		e.VirtualModel,
 	)
 	if err != nil {
 		return fmt.Errorf("record usage: %w", err)
@@ -878,7 +883,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 	                 conversation_id, client,
 	                 status, streaming, input_tokens, output_tokens,
 	                 cache_read_tokens, cache_write_tokens, duration_ms, first_token_ms, error,
-	                 error_code, rejected, ip`
+	                 error_code, rejected, ip, virtual_model`
 
 	narrow, args := filter.where()
 	// The cursor is a condition like any other, so it joins the same AND
@@ -918,7 +923,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 		if err := rows.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
 			&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
 			&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
-			&ms, &firstMS, &e.Error, &e.ErrorCode, &e.Rejected, &e.IP); err != nil {
+			&ms, &firstMS, &e.Error, &e.ErrorCode, &e.Rejected, &e.IP, &e.VirtualModel); err != nil {
 			return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)
 		}
 		e.At, _ = time.Parse(time.RFC3339Nano, at)

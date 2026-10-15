@@ -200,6 +200,25 @@ precisely the one that disappears.
 `usage.retention-days` bounds it (30 by default; 0 records nothing) and a daily
 prune enforces it, returning the freed pages to the filesystem.
 
+## Virtual models
+
+A virtual model is a name clients are configured with — `claude-smart`, say —
+that the gateway maps to real models, in order: a request gets the first one
+an account has on and the key may use. Moving every client to a new model is
+then one edit on the **Models** tab rather than one per config file. The client
+is answered in the name it asked for; the request log records both.
+
+A key's settings can map a name differently for that key, or for one of its
+client apps (Claude Code, Codex, opencode, crush — told apart by User-Agent).
+The most specific mapping wins: that app on that key, then that key, then the
+gateway. `/v1/models` lists each app's virtual models first, and the configs a
+key's settings hand out default to them.
+
+Claude Code's model picker shows only names containing "claude", so a name
+meant for it should start `claude-`. Rewriting the model is the relay's seventh
+exception to sending the caller's bytes as they are; see
+`go doc ./internal/relay/passes`.
+
 ## Configuration
 
 Optional; see [`configs/config.example.yaml`](configs/config.example.yaml). With

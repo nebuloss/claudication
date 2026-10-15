@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
 import AccountPage from './features/account-page'
 import Activity from './features/activity'
+import ModelsTab from './features/virtual-models'
 import Keys, { KeyPage } from './features/keys'
 import { KeyConfigs } from './features/key-configs'
 import Overview from './features/overview'
@@ -46,7 +47,7 @@ type State =
 // page (/accounts/<id>, /keys/<id>) for that one. Activity is the traffic
 // itself across all of them: the chats, and the requests they were made of,
 // including requests refused before they had a key.
-const TABS = ['overview', 'accounts', 'keys', 'activity', 'settings'] as const
+const TABS = ['overview', 'accounts', 'keys', 'models', 'activity', 'settings'] as const
 
 // Where the screens used to be, so a bookmark still lands on its screen —
 // filters and all — rather than on the Overview.
@@ -87,6 +88,7 @@ const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
   accounts: 'Claude accounts',
   keys: 'API keys',
+  models: 'Models',
   activity: 'Activity',
   settings: 'Settings',
 }
@@ -280,6 +282,7 @@ export default function App() {
               onMinted={setMinted}
             />
           ))}
+        {tab === 'models' && <ModelsTab onExpired={expired} />}
         {tab === 'activity' && <Activity onExpired={expired} />}
         {tab === 'settings' && (
           <Settings
@@ -299,7 +302,7 @@ export default function App() {
             later.
           </Banner>
           <CopyField label="API key" value={minted.plaintext} />
-          <KeyConfigs plaintext={minted.plaintext} config={config.data} />
+          <KeyConfigs plaintext={minted.plaintext} config={config.data} keyId={minted.key.id} />
           <div className="mt-6 flex justify-end">
             <FilledButton type="button" onClick={() => setMinted(null)}>
               Done
