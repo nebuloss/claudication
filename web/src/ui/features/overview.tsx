@@ -7,6 +7,7 @@ import {
 } from '../../api/client'
 import { Traffic } from './traffic'
 import { useLoader } from '../hooks'
+import { navigate } from '../route'
 import {
   Banner,
   ErrorState,
@@ -151,11 +152,9 @@ function TrafficCard() {
  */
 export default function Overview({
   onExpired,
-  onGoTo,
   docsURL,
 }: {
   onExpired: () => void
-  onGoTo: (tab: 'accounts' | 'keys') => void
   /**
    * The public docs page, or empty when there is none. Setup used to be a tab
    * and this used to be a link to it; now it is a page of its own, on its own
@@ -207,7 +206,7 @@ export default function Overview({
           <button
             type="button"
             className="underline underline-offset-2"
-            onClick={() => onGoTo('accounts')}
+            onClick={() => navigate('/accounts')}
           >
             Connect one
           </button>
@@ -242,7 +241,7 @@ export default function Overview({
           <button
             type="button"
             className="underline underline-offset-2"
-            onClick={() => onGoTo('accounts')}
+            onClick={() => navigate('/accounts')}
           >
             Reconnect
           </button>
@@ -258,7 +257,7 @@ export default function Overview({
           <button
             type="button"
             className="underline underline-offset-2"
-            onClick={() => onGoTo('accounts')}
+            onClick={() => navigate('/accounts')}
           >
             Reconnect
           </button>

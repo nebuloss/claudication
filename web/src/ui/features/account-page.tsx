@@ -1,25 +1,27 @@
 import { useState } from 'react'
 import AccountSettings, { status } from './account-card'
 import { Window } from './accounts'
-import { DetailHeader, detailSection } from './detail'
+import { ChatsPage } from './chats'
+import { DetailHeader, ItemSettings } from './detail'
 import QuotaMeter from './quota-meter'
-import ScopedUsage, { accountHref } from './usage'
+import RequestsPanel from './requests'
+import ScopedUsage from './usage'
 import { api } from '../../api/client'
 import { useLoader } from '../hooks'
-import { navigate } from '../route'
+import { ACCOUNT_SETTINGS, navigate, pathOf } from '../route'
 import { Banner, Card, CardTitle, Chip, Empty, SmallButton, Spinner } from '../primitives'
 
 /** As on the list: the server says how often it re-reads the quota. */
 const REFRESH_MS = 20_000
 
 /**
- * One Claude account, on two pages.
+ * One Claude account, on its pages:
  *
- * /accounts/<id> is what it is doing: the subscription's own windows as
- * Anthropic reports them, and below them what this gateway sent it — totals,
- * traffic over time, which models and keys, the chats. /accounts/<id>/settings
- * is everything that changes it, a section each: the models it may serve, its
- * connection, whether it serves at all, and removing it.
+ *   /accounts/<id>/usage     the subscription's own windows as Anthropic
+ *                            reports them, and what this gateway sent it
+ *   /accounts/<id>/chats     the conversations it served
+ *   /accounts/<id>/requests  the request log, narrowed to it
+ *   /accounts/<id>/settings/<section>  a page per setting
  *
  * Read from the account list rather than an endpoint of its own: the list is
  * a handful of rows and already carries everything shown here, and one source
@@ -27,14 +29,18 @@ const REFRESH_MS = 20_000
  */
 export default function AccountPage({
   id,
-  section: path,
+  page,
+  section,
   onExpired,
 }: {
   id: string
+  /** An id from ITEM_PAGES, and under settings an id from ACCOUNT_SETTINGS. */
+  page: string
   section: string
   onExpired: () => void
 }) {
-  const section = detailSection(path)
+  const base = pathOf('accounts', id)
+  const sectionLabel = ACCOUNT_SETTINGS.find((x) => x.id === section)?.label
   const [reading, setReading] = useState(false)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     () => api.listAccounts(),
@@ -71,8 +77,7 @@ export default function AccountPage({
   return (
     <div className="flex flex-col gap-5">
       <DetailHeader
-        back="/accounts"
-        backLabel="All accounts"
+        trail={[{ label: 'Claude accounts', href: '/accounts' }]}
         title={account.email}
         subtitle={`Priority ${rank + 1} of ${accounts.length} · ${account.provider}`}
         aside={
@@ -87,20 +92,28 @@ export default function AccountPage({
             )}
           </>
         }
-        base={accountHref(account.id)}
-        section={section}
+        base={base}
+        page={page}
+        section={page === 'settings' ? sectionLabel : undefined}
         freshness={{ updatedAt, refreshing, live, onRefresh: () => void reload() }}
       />
 
       {error !== '' && <Banner tone="error">{error}</Banner>}
 
-      {section === 'settings' ? (
-        <AccountSettings
-          account={account}
-          onChanged={() => void reload()}
-          onRemoved={() => navigate('/accounts')}
-        />
-      ) : (
+      {page === 'settings' && (
+        <ItemSettings base={base} sections={ACCOUNT_SETTINGS} current={section} danger="remove">
+          <AccountSettings
+            key={section}
+            account={account}
+            section={section}
+            onChanged={() => void reload()}
+            onRemoved={() => navigate('/accounts')}
+          />
+        </ItemSettings>
+      )}
+      {page === 'chats' && <ChatsPage scope={{ account: account.id }} onExpired={onExpired} />}
+      {page === 'requests' && <RequestsPanel scope={{ account: account.id }} onExpired={onExpired} />}
+      {page === 'usage' && (
         <>
           <Card>
             <CardTitle

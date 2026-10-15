@@ -8,7 +8,6 @@ import {
   AppLink,
   Banner,
   Card,
-  CardTitle,
   Chip,
   Empty,
   Freshness,
@@ -128,26 +127,20 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
       {notice !== '' && <Banner>{notice}</Banner>}
 
       <Card>
-        <CardTitle
-          aside={
-            <div className="flex items-center gap-3">
-              {accounts.length > 0 && (
-                <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
-                  {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over{' '}
-                  {windowDays}d
-                </span>
-              )}
-              <Freshness
-                updatedAt={updatedAt}
-                refreshing={refreshing}
-                live={live}
-                onRefresh={() => void reload()}
-              />
-            </div>
-          }
-        >
-          Claude accounts
-        </CardTitle>
+        <div className="mb-4 flex items-center justify-end gap-3">
+          {accounts.length > 0 && (
+            <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
+              {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over{' '}
+              {windowDays}d
+            </span>
+          )}
+          <Freshness
+            updatedAt={updatedAt}
+            refreshing={refreshing}
+            live={live}
+            onRefresh={() => void reload()}
+          />
+        </div>
 
         {error !== '' && (
           <Banner tone="error" className="mb-4">

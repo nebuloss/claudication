@@ -167,7 +167,7 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
         <p className="m-0 text-sm text-on-surface-variant">
           {keyId === ''
             ? 'None yet. A custom alias is a name of your own pointing to one model.'
-            : 'None. Custom aliases are made on the Models tab.'}
+            : 'None. Custom aliases are made in Settings › Model aliases.'}
         </p>
       ) : (
         <ul className="m-0 flex list-none flex-col divide-y divide-outline-variant p-0">
@@ -238,7 +238,7 @@ function NewAlias({
   )
 }
 
-/** The Models tab: the gateway's aliases, which every key follows by default. */
+/** Settings › Model aliases: the gateway's aliases, which every key follows by default. */
 export default function ModelsTab() {
   return (
     <div className="flex flex-col gap-5">

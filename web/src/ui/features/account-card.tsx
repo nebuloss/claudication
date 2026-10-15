@@ -54,12 +54,13 @@ export function status(a: Account): { tone: ChipTone; label: string } {
 }
 
 /**
- * An account's settings page: everything that changes it, a section each.
+ * An account's settings: everything that changes it, a page per section
+ * (/accounts/<id>/settings/<section>).
  *
  * Models first, because which models an account may serve is the setting an
  * operator comes here for most. Then the connection — its token, testing it,
- * reconnecting — then whether it serves at all, and removing it last and
- * apart, where it cannot be hit on the way to anything else.
+ * reconnecting — then whether it serves at all, and removing it last, on a
+ * page of its own where it cannot be hit on the way to anything else.
  *
  * Every action asks the page to reload rather than patching a local copy:
  * the account list is the one source, and a copy that drifted from it once
@@ -67,10 +68,13 @@ export function status(a: Account): { tone: ChipTone; label: string } {
  */
 export default function AccountSettings({
   account,
+  section,
   onChanged,
   onRemoved,
 }: {
   account: Account
+  /** Which section's page this is: an id from ACCOUNT_SETTINGS. */
+  section: string
   onChanged: () => void
   onRemoved: () => void
 }) {
@@ -108,13 +112,17 @@ export default function AccountSettings({
     }
   }
 
-  return (
-    <>
+  if (section === 'models') {
+    return (
       <Card>
         <CardTitle>Models</CardTitle>
         <AccountModels account={account} onChanged={onChanged} />
       </Card>
+    )
+  }
 
+  if (section === 'connection') {
+    return (
       <Card>
         <CardTitle>Connection</CardTitle>
         <KeyValue
@@ -194,7 +202,11 @@ export default function AccountSettings({
           </Banner>
         )}
       </Card>
+    )
+  }
 
+  if (section === 'availability') {
+    return (
       <Card>
         <CardTitle>Availability</CardTitle>
         <p className="mt-0 mb-4 text-sm text-on-surface-variant">
@@ -211,8 +223,17 @@ export default function AccountSettings({
           {busy === 'disable' && <Spinner />}
           {account.disabled ? 'Resume' : 'Pause'}
         </OutlinedButton>
+        {error !== '' && (
+          <Banner tone="error" className="mt-4">
+            {error}
+          </Banner>
+        )}
       </Card>
+    )
+  }
 
+  return (
+    <>
       {/* Removing destroys the credentials and revokes the token upstream, so
           getting the account back means the browser consent flow again. */}
       <Card>
@@ -225,6 +246,11 @@ export default function AccountSettings({
           {busy === 'delete' && <Spinner />}
           Remove {account.email}
         </OutlinedButton>
+        {error !== '' && (
+          <Banner tone="error" className="mt-4">
+            {error}
+          </Banner>
+        )}
       </Card>
     </>
   )

@@ -1,15 +1,18 @@
 import ChatTitles from './chat-titles'
 import ConfigTable from './configtable'
 import ImageFit from './image-fit'
+import ModelsTab from './model-roles'
 import PublicDocs from './public-docs'
 import Security from './security'
 import Surfaces from './surfaces'
 import { type GatewayConfig, type Session } from '../../api/client'
-import { Card, Empty, Spinner } from '../primitives'
+import { Card, Empty, SectionLayout, Spinner } from '../primitives'
+import { GATEWAY_SETTINGS } from '../route'
 
 /**
- * Settings: the admin account, which APIs are being served, how the gateway is
- * configured, and the things only a shell can do.
+ * Settings: a page per section (/settings/<section>) — the model aliases
+ * every client config asks for, which APIs are served, the switches, the
+ * public docs page, the admin account, and the configuration as loaded.
  *
  * The configuration is loaded here rather than inside the table, because the
  * same request carries the API switches and the settings rows. One fetch, one
@@ -27,11 +30,14 @@ import { Card, Empty, Spinner } from '../primitives'
  * than trying to change how it is configured.
  */
 export default function Settings({
+  section,
   session,
   onSessionChanged,
   config,
   onConfigChanged,
 }: {
+  /** An id from GATEWAY_SETTINGS. */
+  section: string
   session: Session
   onSessionChanged: () => void
   /**
@@ -49,37 +55,56 @@ export default function Settings({
   const { data, error, loading } = config
   const reload = onConfigChanged
 
-  return (
-    <div className="flex flex-col gap-5">
-      <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
-
-      {loading && data === null ? (
+  const page = (() => {
+    if (section === 'models') return <ModelsTab />
+    if (section === 'security') {
+      return <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
+    }
+    if (loading && data === null) {
+      return (
         <Card>
           <p className="flex items-center gap-2 text-sm text-on-surface-variant">
             <Spinner /> Loading…
           </p>
         </Card>
-      ) : error !== '' || data === null ? (
+      )
+    }
+    if (error !== '' || data === null) {
+      return (
         <Card>
           <Empty>Could not read the configuration.</Empty>
         </Card>
-      ) : (
-        <>
-          <Surfaces surfaces={data.surfaces} onChanged={() => void reload()} />
+      )
+    }
+    switch (section) {
+      case 'apis':
+        return <Surfaces surfaces={data.surfaces} onChanged={() => void reload()} />
+      case 'chats':
+        return (
           <ChatTitles
             enabled={data.chat_titles}
             capture={data.chat_titles_capture}
             onChanged={() => void reload()}
           />
-          <ImageFit enabled={data.fit_images} onChanged={() => void reload()} />
+        )
+      case 'images':
+        return <ImageFit enabled={data.fit_images} onChanged={() => void reload()} />
+      case 'docs':
+        return (
           <PublicDocs
             enabled={data.docs_enabled}
             url={data.docs_url}
             onChanged={() => void reload()}
           />
-          <ConfigTable config={data} />
-        </>
-      )}
-    </div>
+        )
+      default:
+        return <ConfigTable config={data} />
+    }
+  })()
+
+  return (
+    <SectionLayout label="Settings" base="/settings" sections={GATEWAY_SETTINGS} current={section}>
+      {page}
+    </SectionLayout>
   )
 }

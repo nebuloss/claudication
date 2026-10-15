@@ -1,30 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, messageOf } from '../api/client'
-import {
-  itemFromPath,
-  navigate,
-  panelFromHash,
-  pathForTab,
-  sectionFromPath,
-  tabFromPath,
-} from './route'
+import { canonical, segments } from './route'
 
 /**
- * The item a screen is showing and which of its pages — `<id>` and
- * `settings` in `/accounts/<id>/settings` — each empty when absent.
+ * Where we are: the path's segments, after canonical() has completed it to a
+ * page — so /accounts/<id> reads as /accounts/<id>/usage, and the address bar
+ * is corrected to say so (replaceState: the short form is the same page, not
+ * a step of history to walk back through).
+ *
+ * Still no router dependency. A read off location, one listener and one
+ * pushState is the whole requirement.
  */
-export function usePathItem(): { item: string; section: string } {
-  const read = () => ({
-    item: itemFromPath(window.location.pathname),
-    section: sectionFromPath(window.location.pathname),
-  })
-  const [where, setWhere] = useState(read)
+export function usePath(): string[] {
+  const read = useCallback(() => {
+    const { pathname, search, hash } = window.location
+    const want = canonical(pathname)
+    if (want !== pathname) window.history.replaceState(null, '', want + search + hash)
+    return want
+  }, [])
+  const [path, setPath] = useState(read)
   useEffect(() => {
-    const onPop = () => setWhere(read())
+    const onPop = () => setPath(read())
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
-  }, [])
-  return where
+  }, [read])
+  return segments(path)
 }
 
 /** Close on Escape — same contract as the hook in singbox-admin. */
@@ -37,100 +37,6 @@ export function useEscapeKey(handler: () => void, enabled = true) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [handler, enabled])
-}
-
-/**
- * Where we are: the screen in the path, the panel within it in the hash.
- *
- * Two levels, and they are addressed differently on purpose. `/usage` is a
- * place — it is what you bookmark, paste to someone, and land on from a link —
- * so it belongs in the path where a URL bar shows it plainly. `#chats` is
- * which panel of that place is open, which is a detail of the view rather than
- * a different page, and the hash is exactly what the web already means by
- * that. Together they make `/accounts/<id>#chats` a link straight to one panel,
- * which is the whole point.
- *
- * Still no router dependency. Two reads off `location` and one `pushState` is
- * the entire requirement, and a library for six screens would be more code
- * than this.
- *
- * The server already cooperates: an extension-less path that matches no asset
- * serves index.html, so a deep link loads the app rather than 404ing. See
- * staticHandler.
- */
-
-/** The screen, from the first path segment. */
-export function usePathTab<T extends string>(tabs: readonly T[], fallback: T) {
-  const read = useCallback(
-    (): T => tabFromPath(window.location.pathname, tabs, fallback),
-    [tabs, fallback],
-  )
-
-  const [tab, setTab] = useState<T>(read)
-
-  useEffect(() => {
-    // Back and forward have to work, and they are the reason this is
-    // pushState rather than assigning location: assigning reloads the whole
-    // app to change a tab.
-    const onPop = () => setTab(read())
-    window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
-  }, [read])
-
-  const select = useCallback(
-    (t: T) => {
-      // The hash belongs to the screen being left, so it goes with it. Keeping
-      // it would land on Settings with #chats still in the URL, naming a panel
-      // that is not there.
-      const path = pathForTab(t, fallback)
-      if (window.location.pathname + window.location.hash !== path) {
-        // navigate rather than a bare pushState, so everything reading the
-        // path hears it — leaving /accounts/<id> for the Accounts tab is the
-        // same tab, and only the item on it changes.
-        navigate(path)
-      }
-      setTab(t)
-      // A new screen starts at the top; carrying the scroll position across is
-      // how you arrive halfway down a page you have not seen.
-      window.scrollTo(0, 0)
-    },
-    [fallback],
-  )
-
-  return [tab, select] as const
-}
-
-/**
- * The panel within the screen, from the hash.
- *
- * replaceState rather than push: flipping between panels of one screen is not
- * six entries of history to walk back through, and the browser's Back should
- * leave the screen rather than step through its tabs.
- */
-export function useHashPanel<T extends string>(panels: readonly T[], fallback: T) {
-  const read = useCallback(
-    (): T => panelFromHash(window.location.hash, panels, fallback),
-    [panels, fallback],
-  )
-
-  const [panel, setPanel] = useState<T>(read)
-
-  useEffect(() => {
-    const onNav = () => setPanel(read())
-    window.addEventListener('hashchange', onNav)
-    window.addEventListener('popstate', onNav)
-    return () => {
-      window.removeEventListener('hashchange', onNav)
-      window.removeEventListener('popstate', onNav)
-    }
-  }, [read])
-
-  const select = useCallback((p: T) => {
-    window.history.replaceState(null, '', `${window.location.pathname}#${p}`)
-    setPanel(p)
-  }, [])
-
-  return [panel, select] as const
 }
 
 const LIVE_KEY = 'claudication.live'

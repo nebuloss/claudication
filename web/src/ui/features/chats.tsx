@@ -14,7 +14,6 @@ import { requestsHref, type RequestFilter } from './requests'
 import { navigate } from '../route'
 import {
   Card,
-  CardTitle,
   ContextMenu,
   Empty,
   ErrorState,
@@ -178,30 +177,27 @@ function tokens(c: Chat): number {
 const CHAT_WINDOWS = [1, 7, 30] as const
 
 /**
- * The Chats tab: every conversation the gateway has seen in the window. An
- * account's or a key's own page shows the same list narrowed to it.
+ * A chats page: every conversation the gateway has seen in the window, or one
+ * account's or one key's. The tab above it says what it is, so it carries no
+ * heading of its own — only the window to look over.
  */
-export function ChatsTab({ onExpired }: { onExpired: () => void }) {
+export function ChatsPage({ scope = {}, onExpired }: { scope?: UsageScope; onExpired: () => void }) {
   const [days, setDays] = useState<number>(7)
   return (
     <Card>
-      <CardTitle
-        aside={
-          <Segmented
-            label="Reporting window"
-            value={String(days)}
-            onChange={(v) => setDays(Number(v))}
-            options={CHAT_WINDOWS.map((d) => ({
-              id: String(d),
-              label: `${d} days`,
-              content: `${d}d`,
-            }))}
-          />
-        }
-      >
-        Chats
-      </CardTitle>
-      <ChatsPanel days={days} onExpired={onExpired} />
+      <div className="mb-4 flex justify-end">
+        <Segmented
+          label="Reporting window"
+          value={String(days)}
+          onChange={(v) => setDays(Number(v))}
+          options={CHAT_WINDOWS.map((d) => ({
+            id: String(d),
+            label: `${d} days`,
+            content: `${d}d`,
+          }))}
+        />
+      </div>
+      <ChatsPanel days={days} scope={scope} onExpired={onExpired} />
     </Card>
   )
 }

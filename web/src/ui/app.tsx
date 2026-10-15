@@ -2,14 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
 import AccountPage from './features/account-page'
 import Activity from './features/activity'
-import ModelsTab from './features/model-roles'
 import Keys, { KeyPage } from './features/keys'
 import { KeyConfigs } from './features/key-configs'
 import Overview from './features/overview'
 import Settings from './features/settings'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
-import { usePathItem, usePathTab, useLive, useLoader, useUpdateAvailable } from './hooks'
+import { usePath, useLive, useLoader, useUpdateAvailable } from './hooks'
+import { TABS, tabOf } from './route'
 // OverviewData, because Overview is already the panel above.
 import {
   ApiError,
@@ -21,6 +21,7 @@ import {
 } from '../api/client'
 import {
   Banner,
+  follow,
   CopyField,
   FilledButton,
   IconLink,
@@ -42,27 +43,10 @@ type State =
 // password. It is a page of its own now, on its own listener, linked from the
 // header — see the doc icon beside GitHub.
 //
-// There is no Usage tab. What was spent is read where it was spent: on the
-// Overview for the whole gateway, and on each account's and each key's own
-// page (/accounts/<id>, /keys/<id>) for that one. Activity is the traffic
-// itself across all of them: the chats, and the requests they were made of,
-// including requests refused before they had a key.
-const TABS = ['overview', 'accounts', 'keys', 'models', 'activity', 'settings'] as const
-
-// Where the screens used to be, so a bookmark still lands on its screen —
-// filters and all — rather than on the Overview.
-const MOVED: Record<string, string> = {
-  '/chats': '/activity/chats',
-  '/requests': '/activity/requests',
-  '/usage': '/',
-}
-{
-  const to = MOVED[window.location.pathname.replace(/\/+$/, '')]
-  if (to !== undefined) {
-    window.history.replaceState(null, '', to + window.location.search + window.location.hash)
-  }
-}
-type Tab = (typeof TABS)[number]
+// Every page is a path, and the path is the tree: route.ts lists it, and
+// completes a path that names a branch (/accounts/<id>, /settings) to the
+// branch's first page. The model aliases are a section of Settings, and old
+// paths (/models, /chats, /requests, /usage) are moved to where they went.
 
 /**
  * Screens that earn more than the reading width.
@@ -84,15 +68,6 @@ type Tab = (typeof TABS)[number]
  */
 const MEASURE = 'max-w-[110rem]'
 
-const TAB_LABELS: Record<Tab, string> = {
-  overview: 'Overview',
-  accounts: 'Claude accounts',
-  keys: 'API keys',
-  models: 'Models',
-  activity: 'Activity',
-  settings: 'Settings',
-}
-
 /**
  * Top-level controller: probes for a session, then shows the one screen that
  * fits. Nothing below it needs to know whether a session exists.
@@ -103,9 +78,10 @@ const TAB_LABELS: Record<Tab, string> = {
  */
 export default function App() {
   const [state, setState] = useState<State>({ phase: 'probing' })
-  const [tab, setTab] = usePathTab<Tab>(TABS, 'overview')
-  // The account or key a page is about, from /accounts/<id> or /keys/<id>.
-  const { item, section } = usePathItem()
+  // Where we are, completed to a page: [tab, item or page, page, section].
+  const path = usePath()
+  const tab = tabOf('/' + path.join('/'))
+  const [, item = '', page = '', section = ''] = path
   // The configuration, loaded once for the whole signed-in app: the header
   // reads the docs link out of it and Settings renders the rest of it. One
   // copy, because a switch on that screen decides whether the header shows a
@@ -227,19 +203,17 @@ export default function App() {
 
         <nav className={`mx-auto ${measure} overflow-x-auto px-4 sm:px-6`}>
           <div className="flex min-w-max border-b border-outline-variant">
-            {TABS.map((id) => (
+            {TABS.map(({ id, label }) => (
               <a
                 key={id}
                 href={id === 'overview' ? '/' : `/${id}`}
-                onClick={(e) => {
-                  e.preventDefault()
-                  setTab(id)
-                }}
+                onClick={follow(id === 'overview' ? '/' : `/${id}`)}
+                aria-current={tab === id ? 'page' : undefined}
                 className={`state-layer relative px-4 py-3.5 text-sm font-medium whitespace-nowrap ${
                   tab === id ? 'text-primary' : 'text-on-surface-variant'
                 }`}
               >
-                {TAB_LABELS[id]}
+                {label}
                 {tab === id && (
                   <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-t-full bg-primary" />
                 )}
@@ -261,14 +235,14 @@ export default function App() {
             </span>
           </Banner>
         )}
-        {tab === 'overview' && <Overview onExpired={expired} onGoTo={setTab} docsURL={docsURL} />}
+        {tab === 'overview' && <Overview onExpired={expired} docsURL={docsURL} />}
         {/* Keyed by the item, so moving from one account's page to another's
             starts clean rather than showing the last one's state. */}
         {tab === 'accounts' &&
           (item === '' ? (
             <Accounts onExpired={expired} />
           ) : (
-            <AccountPage key={item} id={item} section={section} onExpired={expired} />
+            <AccountPage key={item} id={item} page={page} section={section} onExpired={expired} />
           ))}
         {tab === 'keys' &&
           (item === '' ? (
@@ -277,15 +251,16 @@ export default function App() {
             <KeyPage
               key={item}
               id={item}
+              page={page}
               section={section}
               onExpired={expired}
               onMinted={setMinted}
             />
           ))}
-        {tab === 'models' && <ModelsTab />}
-        {tab === 'activity' && <Activity onExpired={expired} />}
+        {tab === 'activity' && <Activity page={item} onExpired={expired} />}
         {tab === 'settings' && (
           <Settings
+            section={item}
             session={state.session}
             onSessionChanged={() => void probe()}
             config={config}

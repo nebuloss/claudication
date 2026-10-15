@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { api, messageOf, type ApiKey, type SubscriptionShare } from '../../api/client'
 import { useLoader } from '../hooks'
-import { navigate } from '../route'
+import { KEY_SETTINGS, navigate, pathOf } from '../route'
 import ScopedUsage, { accountHref, keyHref } from './usage'
-import { DetailHeader, detailSection } from './detail'
+import { DetailHeader, ItemSettings } from './detail'
+import { ChatsPage } from './chats'
+import RequestsPanel from './requests'
 import { KeyModels } from './account-models'
 import { RolesEditor } from './model-roles'
 import type { ReactNode } from 'react'
@@ -85,25 +87,19 @@ export default function Keys({
       />
 
       <Card>
-        <CardTitle
-          aside={
-            <div className="flex items-center gap-3">
-              {data !== null && data.keys.length > 0 && (
-                <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
-                  traffic over {data.windowDays}d
-                </span>
-              )}
-              <Freshness
-                updatedAt={updatedAt}
-                refreshing={refreshing}
-                live={live}
-                onRefresh={() => void reload()}
-              />
-            </div>
-          }
-        >
-          Keys
-        </CardTitle>
+        <div className="mb-4 flex items-center justify-end gap-3">
+          {data !== null && data.keys.length > 0 && (
+            <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
+              traffic over {data.windowDays}d
+            </span>
+          )}
+          <Freshness
+            updatedAt={updatedAt}
+            refreshing={refreshing}
+            live={live}
+            onRefresh={() => void reload()}
+          />
+        </div>
 
         {error !== '' && (
           <Banner tone="error" className="mb-4">
@@ -260,24 +256,27 @@ function SubscriptionCard({ share }: { share: SubscriptionShare }) {
  */
 export function KeyPage({
   id,
-  section: path,
+  page,
+  section,
   onExpired,
   onMinted,
 }: {
   id: string
+  /** An id from ITEM_PAGES, and under settings an id from KEY_SETTINGS. */
+  page: string
   section: string
   onExpired: () => void
   /** Shows a new secret and its client configs, as for a key just created. */
   onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
-  const section = detailSection(path)
+  const base = pathOf('keys', id)
   // Not on the settings page: the form is filled from the loaded key, and a
   // poll landing mid-edit would reset the fields under the cursor.
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     () => api.listKeys(),
     onExpired,
     [],
-    section === 'settings' ? 0 : REFRESH_MS,
+    page === 'settings' ? 0 : REFRESH_MS,
   )
   const k = data?.keys.find((key) => key.id === id)
 
@@ -303,8 +302,7 @@ export function KeyPage({
   return (
     <div className="flex flex-col gap-5">
       <DetailHeader
-        back="/keys"
-        backLabel="All keys"
+        trail={[{ label: 'API keys', href: '/keys' }]}
         title={k.name}
         subtitle={
           <>
@@ -333,21 +331,31 @@ export function KeyPage({
             {k.subscription !== undefined && <SubscriptionCell share={k.subscription} />}
           </span>
         }
-        base={keyHref(k.id)}
-        section={section}
+        base={base}
+        page={page}
+        section={
+          page === 'settings' ? KEY_SETTINGS.find((x) => x.id === section)?.label : undefined
+        }
         freshness={{ updatedAt, refreshing, live, onRefresh: () => void reload() }}
       />
 
       {error !== '' && <Banner tone="error">{error}</Banner>}
 
-      {section === 'settings' ? (
-        <KeySettings
-          apiKey={k}
-          defaultRpm={data?.defaultRpm ?? 0}
-          onSaved={() => void reload()}
-          onMinted={onMinted}
-        />
-      ) : (
+      {page === 'settings' && (
+        <ItemSettings base={base} sections={KEY_SETTINGS} current={section} danger="delete">
+          <KeySettings
+            key={section}
+            apiKey={k}
+            section={section}
+            defaultRpm={data?.defaultRpm ?? 0}
+            onSaved={() => void reload()}
+            onMinted={onMinted}
+          />
+        </ItemSettings>
+      )}
+      {page === 'chats' && <ChatsPage scope={{ key: k.id }} onExpired={onExpired} />}
+      {page === 'requests' && <RequestsPanel scope={{ key: k.id }} onExpired={onExpired} />}
+      {page === 'usage' && (
         <>
           {k.subscription !== undefined && <SubscriptionCard share={k.subscription} />}
           <ScopedUsage scope={{ key: k.id }} breakdown="account" onExpired={onExpired} />
@@ -358,17 +366,21 @@ export function KeyPage({
 }
 
 /**
- * A key's settings page: the models it may ask for, its name and limits in a
- * form, and deleting it apart from them, where it cannot be hit while saving
- * a limit.
+ * A key's settings, a page per section (/keys/<id>/settings/<section>): the
+ * models it may ask for, what its aliases serve, its name and limits, its
+ * client configs, and deleting it on a page of its own, where it cannot be
+ * hit while saving a limit.
  */
 function KeySettings({
   apiKey: k,
+  section,
   defaultRpm,
   onSaved,
   onMinted,
 }: {
   apiKey: ApiKey
+  /** Which section's page this is: an id from KEY_SETTINGS. */
+  section: string
   defaultRpm: number
   onSaved: () => void
   onMinted: (m: { key: ApiKey; plaintext: string }) => void
@@ -380,7 +392,6 @@ function KeySettings({
   if (k.managed) {
     return (
       <Card>
-        <CardTitle>Settings</CardTitle>
         <p className="m-0 text-sm text-on-surface-variant">{MANAGED_HINT}</p>
       </Card>
     )
@@ -444,82 +455,95 @@ function KeySettings({
     }
   }
 
+  const card = (() => {
+    switch (section) {
+      case 'models':
+        return (
+          <Card>
+            <CardTitle>Models</CardTitle>
+            <KeyModels apiKey={k} onChanged={onSaved} />
+          </Card>
+        )
+      case 'aliases':
+        return (
+          <Card>
+            <CardTitle>Model aliases</CardTitle>
+            <RolesEditor keyId={k.id} />
+          </Card>
+        )
+      case 'limits':
+        return (
+          <Card>
+            <CardTitle>Name and limits</CardTitle>
+            <KeyEditor apiKey={k} defaultRpm={defaultRpm} busy={busy} onSave={save} />
+            {saved && error === '' && (
+              <p className="mt-3 mb-0 text-sm text-on-surface-variant">Saved.</p>
+            )}
+          </Card>
+        )
+      // The secret is kept sealed beside the account tokens (migration 026),
+      // so the configs can be written again at any time. Keys from before
+      // that have only a hash, and need a new secret once.
+      case 'configs':
+        return (
+          <Card>
+            <CardTitle>Client configurations</CardTitle>
+            {k.secret_kept ? (
+              <>
+                <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+                  The key, and ready-made configs for Claude Code, Codex, opencode and crush with it
+                  inside. Nothing changes for the clients already using it.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <FilledButton type="button" disabled={busy} onClick={() => void show()}>
+                    {busy && <Spinner />}
+                    Show key and configs
+                  </FilledButton>
+                  <OutlinedButton disabled={busy} onClick={() => void rotate()}>
+                    Issue a new secret
+                  </OutlinedButton>
+                </div>
+                <p className="mt-3 mb-0 text-xs text-on-surface-variant">
+                  A new secret is for a key that has leaked: the current one stops working at once,
+                  and every client needs the new config.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+                  This key was made before the gateway kept keys, so only a fingerprint of it exists
+                  and it cannot be shown. Issue it a new secret once — it keeps its name, limits,
+                  models and history; the current secret stops working — and from then on its configs
+                  can be downloaded here at any time.
+                </p>
+                <TonalButton disabled={busy} onClick={() => void rotate()}>
+                  {busy && <Spinner />}
+                  New secret and configs
+                </TonalButton>
+              </>
+            )}
+          </Card>
+        )
+      default:
+        return (
+          <Card>
+            <CardTitle>Delete this key</CardTitle>
+            <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+              Clients holding it stop working immediately, and it cannot be undone. Its usage stays,
+              under the name it was recorded with.
+            </p>
+            <OutlinedButton tone="error" disabled={busy} onClick={() => void remove()}>
+              Delete {k.name}
+            </OutlinedButton>
+          </Card>
+        )
+    }
+  })()
+
   return (
     <>
-      <Card>
-        <CardTitle>Models</CardTitle>
-        <KeyModels apiKey={k} onChanged={onSaved} />
-      </Card>
-
-      <Card>
-        <CardTitle>Model aliases</CardTitle>
-        <RolesEditor keyId={k.id} />
-      </Card>
-
-      <Card>
-        <CardTitle>Name and limits</CardTitle>
-        <KeyEditor apiKey={k} defaultRpm={defaultRpm} busy={busy} onSave={save} />
-        {error !== '' && (
-          <Banner tone="error" className="mt-4">
-            {error}
-          </Banner>
-        )}
-        {saved && error === '' && (
-          <p className="mt-3 mb-0 text-sm text-on-surface-variant">Saved.</p>
-        )}
-      </Card>
-
-      {/* The secret is kept sealed beside the account tokens (migration 026),
-          so the configs can be written again at any time. Keys from before
-          that have only a hash, and need a new secret once. */}
-      <Card>
-        <CardTitle>Client configurations</CardTitle>
-        {k.secret_kept ? (
-          <>
-            <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-              The key, and ready-made configs for Claude Code, Codex, opencode and crush with it
-              inside. Nothing changes for the clients already using it.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <FilledButton type="button" disabled={busy} onClick={() => void show()}>
-                {busy && <Spinner />}
-                Show key and configs
-              </FilledButton>
-              <OutlinedButton disabled={busy} onClick={() => void rotate()}>
-                Issue a new secret
-              </OutlinedButton>
-            </div>
-            <p className="mt-3 mb-0 text-xs text-on-surface-variant">
-              A new secret is for a key that has leaked: the current one stops working at once,
-              and every client needs the new config.
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-              This key was made before the gateway kept keys, so only a fingerprint of it exists
-              and it cannot be shown. Issue it a new secret once — it keeps its name, limits,
-              models and history; the current secret stops working — and from then on its configs
-              can be downloaded here at any time.
-            </p>
-            <TonalButton disabled={busy} onClick={() => void rotate()}>
-              {busy && <Spinner />}
-              New secret and configs
-            </TonalButton>
-          </>
-        )}
-      </Card>
-
-      <Card>
-        <CardTitle>Delete this key</CardTitle>
-        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-          Clients holding it stop working immediately, and it cannot be undone. Its usage stays,
-          under the name it was recorded with.
-        </p>
-        <OutlinedButton tone="error" disabled={busy} onClick={() => void remove()}>
-          Delete {k.name}
-        </OutlinedButton>
-      </Card>
+      {card}
+      {error !== '' && <Banner tone="error">{error}</Banner>}
     </>
   )
 }

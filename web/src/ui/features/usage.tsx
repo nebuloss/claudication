@@ -1,10 +1,9 @@
 import { useState, type ReactNode } from 'react'
 import { api, type Usage, type UsageBucket, type UsageScope } from '../../api/client'
 import { RankedBars } from '../charts'
-import ChatsPanel from './chats'
 import { Traffic } from './traffic'
 import { useLoader } from '../hooks'
-import { navigate } from '../route'
+import { navigate, pathOf } from '../route'
 import { requestsHref } from './requests'
 import {
   AppLink,
@@ -28,8 +27,8 @@ const REPORT_REFRESH_MS = 30_000
 const TOP = 5
 
 /** Where an account's or a key's own page lives. */
-export const accountHref = (id: string) => `/accounts/${encodeURIComponent(id)}`
-export const keyHref = (id: string) => `/keys/${encodeURIComponent(id)}`
+export const accountHref = (id: string) => pathOf('accounts', id, 'usage')
+export const keyHref = (id: string) => pathOf('keys', id, 'usage')
 
 /** A breakdown row that opens the page of what it counts, when it has one. */
 function linked(b: UsageBucket, href: ((id: string) => string) | undefined) {
@@ -107,7 +106,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * What one account or one key spent, on its own page.
  *
  * Sections rather than tabs: the figures, then traffic over time, then where
- * it went, then the chats — each a card with a heading, read top to bottom.
+ * it went — each a card with a heading, read top to bottom. The chats are a
+ * page of their own beside this one.
  * The window chosen at the top applies to all of them. Only the chart keeps a
  * row of choices, because which dimension to draw is the one question with
  * several answers worth switching between.
@@ -157,8 +157,8 @@ export default function ScopedUsage({
   return (
     <>
       <Card>
-        <CardTitle
-          aside={
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="m-0 text-base font-medium text-on-surface">Totals</h3>
             <div className="flex items-center gap-2">
               <Segmented
                 label="Reporting window"
@@ -177,10 +177,7 @@ export default function ScopedUsage({
                 onRefresh={() => void reload()}
               />
             </div>
-          }
-        >
-          Usage
-        </CardTitle>
+        </div>
 
         {loading && data === null ? (
           <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
@@ -239,9 +236,6 @@ export default function ScopedUsage({
         </>
       )}
 
-      <Section title="Chats">
-        <ChatsPanel days={days} scope={scope} onExpired={onExpired} />
-      </Section>
     </>
   )
 }

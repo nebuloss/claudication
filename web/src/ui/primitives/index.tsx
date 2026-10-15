@@ -20,6 +20,7 @@ import {
 
 export { MenuDivider, Popover, menuItem, menuSurface, useAnchoredPanel } from './popover'
 export type { Placement } from './popover'
+export { Breadcrumbs, LinkTabs, SectionLayout, follow, type Crumb } from './nav'
 
 /* Material 3 primitives, shared by every screen. */
 

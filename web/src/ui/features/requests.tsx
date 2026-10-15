@@ -26,6 +26,7 @@ import {
   menuItem,
 } from '../primitives'
 import { useLive } from '../hooks'
+import { pathOf } from '../route'
 
 /**
  * Every request that reached the gateway, newest first.
@@ -117,10 +118,20 @@ export function queryFromFilter(f: RequestFilter): string {
   return q.toString()
 }
 
-/** A filter as a path, for a link that carries it. */
-export function searchFromFilter(f: RequestFilter): string {
+/** A path with a filter as its query string. */
+function withQuery(path: string, f: RequestFilter): string {
   const s = queryFromFilter(f)
-  return s === '' ? '/activity/requests' : `/activity/requests?${s}`
+  return s === '' ? path : `${path}?${s}`
+}
+
+/** Whose requests: one account's, one key's, or every request when empty. */
+export type RequestScope = { account?: string; key?: string }
+
+/** Where a scope's request log is: the item's own Requests page, or Activity. */
+function logPath(scope: RequestScope): string {
+  if (scope.account !== undefined) return pathOf('accounts', scope.account, 'requests')
+  if (scope.key !== undefined) return pathOf('keys', scope.key, 'requests')
+  return '/activity/requests'
 }
 
 /**
@@ -131,7 +142,16 @@ export function searchFromFilter(f: RequestFilter): string {
  * is exactly what adding `client` did.
  */
 export function requestsHref(narrow: Partial<RequestFilter>): string {
-  return searchFromFilter({ ...emptyFilter(), ...narrow })
+  const f = { ...emptyFilter(), ...narrow }
+  // Narrowed to one account or one key, and not the other: that item's own
+  // Requests page, where the rest of its pages are a tab away.
+  if (f.account.length === 1 && f.key.length === 0) {
+    return withQuery(logPath({ account: f.account[0] }), { ...f, account: [] })
+  }
+  if (f.key.length === 1 && f.account.length === 0) {
+    return withQuery(logPath({ key: f.key[0] }), { ...f, key: [] })
+  }
+  return withQuery(logPath({}), f)
 }
 
 /** With a value added, or taken out if it was already there. */
@@ -139,7 +159,18 @@ function toggled(current: string[], value: string): string[] {
   return current.includes(value) ? current.filter((v) => v !== value) : [...current, value]
 }
 
-export default function RequestsPanel({ onExpired }: { onExpired: () => void }) {
+/**
+ * The request log. Under an account or a key it is that one's requests: the
+ * scope is in the path, so it is always applied and never written into the
+ * query string, and the rest of the filter is.
+ */
+export default function RequestsPanel({
+  scope = {},
+  onExpired,
+}: {
+  scope?: RequestScope
+  onExpired: () => void
+}) {
   // Read once per mount and on Back, so a link lands on its filter and the
   // browser's history still works.
   const [filter, setFilter] = useState<RequestFilter>(() =>
@@ -151,12 +182,22 @@ export default function RequestsPanel({ onExpired }: { onExpired: () => void }) 
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
+  const scoped: RequestFilter = {
+    ...filter,
+    ...(scope.account !== undefined ? { account: [scope.account] } : {}),
+    ...(scope.key !== undefined ? { key: [scope.key] } : {}),
+  }
   const narrow = (next: RequestFilter) => {
-    setFilter(next)
-    window.history.pushState(null, '', searchFromFilter(next))
+    const rest = {
+      ...next,
+      ...(scope.account !== undefined ? { account: [] } : {}),
+      ...(scope.key !== undefined ? { key: [] } : {}),
+    }
+    setFilter(rest)
+    window.history.pushState(null, '', withQuery(logPath(scope), rest))
   }
 
-  return <RecentRequests filter={filter} onNarrow={narrow} onExpired={onExpired} />
+  return <RecentRequests filter={scoped} onNarrow={narrow} onExpired={onExpired} />
 }
 
 function RecentRequests({

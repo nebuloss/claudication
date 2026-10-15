@@ -19,7 +19,7 @@ const OUT = process.env.OUT ?? new URL('../web/.charts-check', import.meta.url).
 const { niceTicks, LinearScale, LogScale, BandScale, edgeAnchor } =
   await import(`${OUT}/charts/scale.js`)
 const { Stack } = await import(`${OUT}/charts/stack.js`)
-const { tabFromPath, pathForTab, panelFromHash, itemFromPath, sectionFromPath } = await import(
+const { canonical, tabOf, segments, pathOf } = await import(
   `${OUT}/route.js`
 )
 const { Solid, Hatch, Line } = await import(`${OUT}/charts/paint.js`)
@@ -165,54 +165,48 @@ for (const [what, paint] of [
 const barStyle = { width: '57%', ...new Solid('#2a78d6').fill() }
 check('a bar keeps the width the scale gave it', barStyle.width, '57%')
 
-console.log('\n— route: the screen is the path, the panel is the hash —')
-const TABS = ['overview', 'setup', 'accounts', 'keys', 'usage', 'settings']
-const PANELS = ['requests', 'chats', 'day', 'model', 'account', 'key']
-const tab = (p) => tabFromPath(p, TABS, 'overview')
-const panel = (h) => panelFromHash(h, PANELS, 'requests')
+console.log('\n— route: every page is a path, and the path is the tree —')
+const tab = (p) => tabOf(canonical(p))
 
-check('a plain screen', tab('/usage'), 'usage')
-check('the root is the default screen', tab('/'), 'overview')
-check('and so is an empty path', tab(''), 'overview')
+check('the root is the overview', canonical('/'), '/')
+check('and so is an empty path', canonical(''), '/')
+check('the overview lives at the root, not at its own name', canonical('/overview'), '/')
 // A URL is something people type, edit and truncate.
-check('a trailing slash is the same screen', tab('/usage/'), 'usage')
-check('a doubled slash is forgiven', tab('//usage'), 'usage')
-check('a deeper path still names its screen', tab('/usage/whatever'), 'usage')
-// A bookmark to a tab that has since been renamed lands somewhere sensible
-// rather than on a blank screen.
-check('an unknown screen falls back', tab('/nonesuch'), 'overview')
+check('a trailing slash is the same page', canonical('/accounts/'), '/accounts')
+check('a doubled slash is forgiven', canonical('//keys'), '/keys')
+// A bookmark to a screen that has since moved lands where it went.
+check('the models screen is a section of Settings now', canonical('/models'), '/settings/models')
+check('chats moved under Activity', canonical('/chats'), '/activity/chats')
+check('requests too', canonical('/requests'), '/activity/requests')
+check('usage is read on the overview', canonical('/usage'), '/')
+check('an unknown screen falls back', canonical('/nonesuch'), '/')
 
-check('the default screen lives at the root, not at its own name', pathForTab('overview', 'overview'), '/')
-check('every other screen is its name', pathForTab('usage', 'overview'), '/usage')
-// Round trip: whatever pathForTab writes, tabFromPath has to read back.
+// A path naming a branch is completed to the branch's first page.
+check('an account is its usage page', canonical('/accounts/8189e5dc'), '/accounts/8189e5dc/usage')
+check('its chats are a page', canonical('/accounts/8189e5dc/chats'), '/accounts/8189e5dc/chats')
+check('its requests too', canonical('/keys/k1/requests'), '/keys/k1/requests')
+check('an unknown page is its usage', canonical('/keys/k1/nonesuch'), '/keys/k1/usage')
+check('settings open on the first section', canonical('/accounts/8189e5dc/settings'), '/accounts/8189e5dc/settings/models')
+check('a section is a page', canonical('/keys/k1/settings/aliases'), '/keys/k1/settings/aliases')
+check('an unknown section is the first', canonical('/keys/k1/settings/nonesuch'), '/keys/k1/settings/models')
+check('activity opens on chats', canonical('/activity'), '/activity/chats')
+check('the gateway settings on the first section', canonical('/settings'), '/settings/models')
+check('a gateway section is a page', canonical('/settings/apis'), '/settings/apis')
+// Ids are encoded once, whatever they hold.
+check('an id is kept encoded', canonical('/keys/a%2Fb'), '/keys/a%2Fb/usage')
+check('and decoded when read', segments('/keys/a%2Fb/usage'), ['keys', 'a/b', 'usage'])
+check('a broken escape does not throw', segments('/keys/%E0%A4%A'), ['keys', '%E0%A4%A'])
+check('a path is built encoded', pathOf('accounts', 'a b', 'chats'), '/accounts/a%20b/chats')
+
+check('a page names its screen', tab('/accounts/8189e5dc/settings/connection'), 'accounts')
+check('a moved screen names where it went', tab('/models'), 'settings')
+// Round trip: every canonical path is its own canonical form.
 check(
-  'every tab survives the round trip',
-  TABS.map((t) => tab(pathForTab(t, 'overview'))),
-  TABS,
+  'canonical paths are fixed points',
+  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/delete', '/activity/requests', '/settings/security']
+    .map((p) => canonical(p)),
+  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/delete', '/activity/requests', '/settings/security'],
 )
-
-check('a panel', panel('#chats'), 'chats')
-check('no hash is the default panel', panel(''), 'requests')
-check('a bare hash is too', panel('#'), 'requests')
-// A link that has been through a mail client comes back encoded.
-check('a percent-encoded hash still opens its panel', panel('%23model'), 'model')
-check('the panel is the first of several hash parts', panel('#model&x=1'), 'model')
-check('an unknown panel falls back', panel('#nonesuch'), 'requests')
-// A malformed escape must not throw inside a render.
-check('a broken escape does not throw', panel('#%E0%A4%A'), 'requests')
-
-// /accounts/<id> and /keys/<id>: the tab is the first segment, the item the
-// second.
-check('an item page names its screen', tab('/accounts/8189e5dc'), 'accounts')
-check('and its item', itemFromPath('/accounts/8189e5dc'), '8189e5dc')
-check('a list has no item', itemFromPath('/accounts'), '')
-check('nor does a trailing slash', itemFromPath('/accounts/'), '')
-check('an item is decoded', itemFromPath('/keys/a%2Fb'), 'a/b')
-check('a broken item escape does not throw', itemFromPath('/keys/%E0%A4%A'), '')
-check('an item page has no section', sectionFromPath('/accounts/8189e5dc'), '')
-check('its settings are one', sectionFromPath('/accounts/8189e5dc/settings'), 'settings')
-check('and still name the item', itemFromPath('/accounts/8189e5dc/settings'), '8189e5dc')
-check('a list has no section either', sectionFromPath('/keys'), '')
 
 // The client configs handed out are the committed files with their models
 // rewritten from the gateway's live list. Checked against the real committed
