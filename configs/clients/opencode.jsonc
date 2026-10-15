@@ -12,7 +12,7 @@
         "apiKey": "clc_..."
       },
       // The gateway's model aliases. Which real model answers each is set in
-      // the gateway, on its Models tab. opencode knows none of these names,
+      // the gateway, under Settings › Aliases. opencode knows none of these names,
       // so each is declared with the limits of the model it serves; the
       // thinking modes are the adaptive ones current models take.
       "models": {

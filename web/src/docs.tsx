@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import Docs from './ui/features/docs'
 import ThemeToggle from './ui/features/theme-toggle'
+import { BrandMark } from './ui/primitives'
 import './ui/styles/docs.css'
 
 /**
@@ -30,23 +31,19 @@ createRoot(root).render(
           heading that scrolls away under nothing looks like a mistake. The
           same z-30 the admin shell uses, for the same reason: this is chrome
           and the page scrolls under it. */}
-      <header className="sticky top-0 z-30 border-b border-outline-variant bg-surface/85 backdrop-blur-md">
+      <header className="sticky top-0 z-30 bg-surface/85 backdrop-blur-md">
         <div className="mx-auto flex max-w-[76rem] items-center gap-3 px-4 py-3 sm:px-6">
-          <svg viewBox="0 0 32 32" aria-hidden className="size-6 shrink-0">
-            <g fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" className="text-primary">
-              <path d="M3 8c6.5 0 6.5 6 10 6s3.5-6 10-6" />
-              <path d="M3 24c6.5 0 6.5-6 10-6s3.5 6 10 6" />
-            </g>
-            <circle cx="27.5" cy="16" r="2.75" className="fill-primary" />
-          </svg>
-          <span className="font-semibold text-on-surface">claudication</span>
-          <span className="text-sm text-on-surface-variant">Docs</span>
+          <BrandMark />
+          <h1 className="m-0 flex min-w-0 items-baseline gap-2 truncate text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
+            claudication gateway
+            <span className="hidden text-sm text-on-surface-variant sm:inline">documentation</span>
+          </h1>
           <span className="flex-grow" />
           <ThemeToggle />
         </div>
       </header>
 
-      <main className="mx-auto max-w-[76rem] px-4 py-10 sm:px-6">
+      <main className="mx-auto max-w-[76rem] px-4 pt-6 pb-16 sm:px-6">
         <Docs />
       </main>
     </div>

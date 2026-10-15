@@ -150,3 +150,22 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
     </nav>
   )
 }
+
+/**
+ * The favicon's stenosis, at header size, on its tonal tile: the one mark
+ * both headers carry, the admin app's and the docs page's, so they read as
+ * one product whatever each page's own colours are.
+ */
+export function BrandMark() {
+  return (
+    <span className="grid size-10 shrink-0 place-items-center rounded-[var(--radius-md3-m)] bg-primary-container text-on-primary-container">
+      <svg viewBox="0 0 32 32" className="size-5" aria-hidden>
+        <g fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
+          <path d="M3 8c6.5 0 6.5 6 10 6s3.5-6 10-6" />
+          <path d="M3 24c6.5 0 6.5-6 10-6s3.5 6 10 6" />
+        </g>
+        <circle cx="27.5" cy="16" r="2.75" fill="currentColor" />
+      </svg>
+    </span>
+  )
+}

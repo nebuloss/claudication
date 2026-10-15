@@ -20,7 +20,7 @@ import {
 
 export { MenuDivider, Popover, menuItem, menuSurface, useAnchoredPanel } from './popover'
 export type { Placement } from './popover'
-export { Breadcrumbs, NavRail, follow } from './nav'
+export { BrandMark, Breadcrumbs, NavRail, follow } from './nav'
 export { AddButton, ListRow, ListToolbar, RowBadge } from './list'
 export { Help, InfoTip, Note } from './info'
 import { Help } from './info'

@@ -22,6 +22,7 @@ import {
 } from '../api/client'
 import {
   Banner,
+  BrandMark,
   Breadcrumbs,
   NavRail,
   CopyField,
@@ -205,7 +206,7 @@ export default function App() {
           {/* One line, the height of the controls beside it: the name, and the
               running build, which is asked for right after a deploy. */}
           <div className="flex min-w-0 items-center gap-3">
-            <Mark />
+            <BrandMark />
             <h1 className="m-0 flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
               claudication gateway
               <Version />
@@ -354,20 +355,5 @@ function LiveToggle() {
       />
       Live
     </button>
-  )
-}
-
-/** The favicon's stenosis, at header size. */
-function Mark() {
-  return (
-    <span className="grid size-10 shrink-0 place-items-center rounded-[var(--radius-md3-m)] bg-primary-container text-on-primary-container">
-      <svg viewBox="0 0 32 32" className="size-5" aria-hidden>
-        <g fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
-          <path d="M3 8c6.5 0 6.5 6 10 6s3.5-6 10-6" />
-          <path d="M3 24c6.5 0 6.5-6 10-6s3.5 6 10 6" />
-        </g>
-        <circle cx="27.5" cy="16" r="2.75" fill="currentColor" />
-      </svg>
-    </span>
   )
 }

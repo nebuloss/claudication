@@ -6,10 +6,10 @@
 #
 # wire_api must be "responses": it is the only wire format Codex speaks.
 # env_key names an environment variable, not a key.
-# model must name a Claude model — Codex asks for gpt-5-codex by default, which
-# means nothing upstream, and the gateway then substitutes its own default.
-# claude-large is the gateway's model role for real work: which model answers
-# it is set in the gateway, on its Models tab, not here.
+# model should name a Claude model or alias. Codex asks for gpt-5-codex by
+# default, which means nothing upstream, so the gateway sends that as
+# claude-large anyway. claude-large is the gateway's alias for real work:
+# which model answers it is set in the gateway, under Settings › Aliases.
 
 model_provider = "claudication"
 model = "claude-large"

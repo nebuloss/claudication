@@ -8,7 +8,7 @@ export ANTHROPIC_BASE_URL=https://claudication.example.com
 export ANTHROPIC_AUTH_TOKEN=clc_...
 
 # The gateway's model aliases. Which real model answers each is set in the
-# gateway, on its Models tab, not here. The main model and its sub-agents run
+# gateway, under Settings › Aliases, not here. The main model and its sub-agents run
 # on claude-large, titles, summaries and quick calls on claude-small, and
 # picking a tier by name (/model opus, a sub-agent's "haiku") goes to that
 # family's alias.

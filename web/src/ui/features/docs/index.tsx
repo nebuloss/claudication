@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react'
 import { api, type DocsInfo } from '../../../api/client'
 import { useLoader } from '../../hooks'
-import { Banner, CopyField, Spinner } from '../../primitives'
+import { Banner, Card, Chip, CopyField, Note, Spinner, tile } from '../../primitives'
 import { CodeViewer } from '../../primitives/code'
 import { Catalog } from './catalog'
 import { CLIENTS, SECTIONS, TROUBLESHOOTING } from './content'
@@ -53,29 +53,30 @@ export default function Docs() {
 
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_13rem] lg:items-start lg:gap-12">
-      <article className="min-w-0 max-w-[46rem]">
-        <h1 className="mt-0 mb-3 text-3xl font-semibold tracking-tight text-on-surface">
-          Connect a client
-        </h1>
-        <p className="mt-0 mb-8 text-base leading-relaxed text-on-surface-variant">
+      <article className="flex min-w-0 max-w-[52rem] flex-col gap-5">
+        <header>
+          <h2 className="mt-0 mb-2 text-3xl font-normal text-on-surface">Connect a client</h2>
+          <p className="m-0 text-base leading-relaxed text-on-surface">
           This gateway relays Claude to any tool that speaks the Anthropic Messages API or the
           OpenAI Responses API. Point one at the address below with a key, and it behaves like the
           real thing — same models, same streaming, same errors.
-        </p>
+          </p>
+        </header>
 
         <Section id="before-you-start" title="Before you start">
           {configured === '' && (
-            <Banner tone="warn" className="mb-5">
-              <strong>This gateway has not been told its own public address.</strong> The examples
-              below carry a placeholder, so you will have to replace{' '}
+            <Note tone="warn" className="mb-4">
+              <strong className="font-medium">This gateway has not been told its own public
+              address.</strong> The examples below carry a placeholder, so you will have to replace{' '}
               <code className="font-mono">{EXAMPLE_BASE}</code> with the address you reach it on.
-            </Banner>
+            </Note>
           )}
           {!data.ready && (
-            <Banner tone="warn" className="mb-5">
-              <strong>No Claude account is connected yet.</strong> Until its operator connects one,
-              this gateway cannot answer a request however a client is configured.
-            </Banner>
+            <Note tone="warn" className="mb-4">
+              <strong className="font-medium">No Claude account is connected yet.</strong> Until
+              its operator connects one, this gateway cannot answer a request however a client is
+              configured.
+            </Note>
           )}
 
           <P>You need two things, and they are the same for every client.</P>
@@ -90,14 +91,14 @@ export default function Docs() {
             to look like an OpenAI key, and you do not need a Claude account of your own.
           </P>
 
-          <Callout>
-            <strong className="font-medium text-on-surface">
+          <Note>
+            <strong className="font-medium">
               Clients disagree about <code className="font-mono">/v1</code>.
             </strong>{' '}
             Some append it themselves and want the address without it; others want it included.
             Getting this wrong produces a 404 on every request and no explanation, so each section
             below states the address that client wants.
-          </Callout>
+          </Note>
         </Section>
 
         {CLIENTS.map((client) => (
@@ -118,19 +119,17 @@ export default function Docs() {
             here have it the next time this page loads.
           </P>
           {models.length === 0 ? (
-            <p className="m-0 text-sm text-on-surface-variant">
+            <Note>
               The model list could not be read just now. The configurations above do not depend on
               it.
-            </p>
+            </Note>
           ) : (
-            <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
+            <ul className={`${tile} m-0 flex list-none flex-wrap gap-2 p-3`}>
               {models.map((m) => (
-                <li
-                  key={m.id}
-                  className="rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-container px-2.5 py-1"
-                  title={m.display_name ?? m.id}
-                >
-                  <code className="font-mono text-xs text-on-surface">{m.id}</code>
+                <li key={m.id} title={m.display_name ?? m.id}>
+                  <Chip>
+                    <code className="font-mono text-on-surface">{m.id}</code>
+                  </Chip>
                 </li>
               ))}
             </ul>
@@ -173,20 +172,17 @@ function ClientSection({
   const missing = client.missingSurfaces(surfaces)
   return (
     <Section id={client.id} title={client.label}>
-      <p className="mt-0 mb-4 text-sm leading-relaxed text-on-surface-variant">
-        Base URL{' '}
-        <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs text-on-surface">
-          {client.baseURL(gateway)}
-        </code>
-      </p>
+      <div className="mb-4">
+        <CopyField label="Base URL" value={client.baseURL(gateway)} />
+      </div>
       <P>{client.lead}</P>
 
       {missing.length > 0 && (
-        <Banner tone="warn" className="my-4">
+        <Note tone="warn" className="my-4">
           {client.label} needs the {missing.map((s) => s.title).join(' and ')}, which is currently
           switched off on this gateway. Until it is turned back on, this configuration will answer
           404.
-        </Banner>
+        </Note>
       )}
 
       <div className="my-5 flex flex-col gap-4">
@@ -208,25 +204,30 @@ function ClientSection({
   )
 }
 
-/** A section with a heading you can link to. */
+/**
+ * A section with a heading you can link to, as a card: the admin UI's
+ * container, so the two pages read as one product.
+ */
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section id={id} className="mt-10 scroll-mt-24 border-t border-outline-variant pt-8 first:mt-0">
-      <h2 className="group mt-0 mb-4 text-xl font-semibold tracking-tight text-on-surface">
-        <a href={`#${id}`} className="no-underline">
-          {title}
-          {/* The anchor is the point of the heading having an id; shown on
-              hover rather than always, because a column of # marks reads as
-              decoration and this one is a tool. */}
-          <span
-            aria-hidden
-            className="ml-2 text-on-surface-variant opacity-0 transition-opacity group-hover:opacity-60"
-          >
-            #
-          </span>
-        </a>
-      </h2>
-      {children}
+    <section id={id} className="scroll-mt-24">
+      <Card>
+        <h2 className="group mt-0 mb-4 text-xl font-normal text-on-surface">
+          <a href={`#${id}`} className="no-underline">
+            {title}
+            {/* The anchor is the point of the heading having an id; shown on
+                hover rather than always, because a column of # marks reads as
+                decoration and this one is a tool. */}
+            <span
+              aria-hidden
+              className="ml-2 text-on-surface-variant opacity-0 transition-opacity group-hover:opacity-60"
+            >
+              #
+            </span>
+          </a>
+        </h2>
+        {children}
+      </Card>
     </section>
   )
 }
@@ -238,11 +239,11 @@ function DefinitionList({
   items: { key: string; term: ReactNode; detail: ReactNode }[]
 }) {
   return (
-    <dl className="m-0">
+    <dl className="m-0 flex flex-col gap-2">
       {items.map((i) => (
-        <div key={i.key} className="border-t border-outline-variant py-4 first:border-0">
-          <dt className="mb-1.5">{i.term}</dt>
-          <dd className="m-0 text-sm leading-relaxed text-on-surface-variant">{i.detail}</dd>
+        <div key={i.key} className={`${tile} px-4 py-3`}>
+          <dt className="mb-1">{i.term}</dt>
+          <dd className="m-0 text-sm leading-relaxed text-on-surface">{i.detail}</dd>
         </div>
       ))}
     </dl>
@@ -251,16 +252,7 @@ function DefinitionList({
 
 /** Body prose, at the one measure and rhythm the page uses. */
 function P({ children }: { children: ReactNode }) {
-  return <p className="mt-0 mb-4 text-sm leading-relaxed text-on-surface-variant">{children}</p>
-}
-
-/** An aside worth stopping at, without the alarm of a Banner. */
-function Callout({ children }: { children: ReactNode }) {
-  return (
-    <p className="my-5 rounded-[var(--radius-md3-m)] border border-outline-variant border-l-4 border-l-primary bg-surface-container px-4 py-3 text-sm leading-relaxed text-on-surface-variant">
-      {children}
-    </p>
-  )
+  return <p className="mt-0 mb-4 text-sm leading-relaxed text-on-surface">{children}</p>
 }
 
 /**
@@ -276,12 +268,14 @@ function Contents() {
   return (
     <nav
       aria-label="On this page"
-      className="order-first mb-10 lg:sticky lg:top-24 lg:order-none lg:mb-0"
+      // The admin rail's panel: filled, rounded, the section being read in
+      // the primary container colour.
+      className="order-first mb-5 rounded-[var(--radius-md3-xl)] bg-surface-container p-2 lg:sticky lg:top-24 lg:order-none lg:mb-0"
     >
-      <p className="mt-0 mb-3 text-xs font-semibold tracking-wide text-on-surface-variant uppercase">
+      <p className="mx-3 mt-2 mb-2 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
         On this page
       </p>
-      <ul className="m-0 list-none border-l border-outline-variant p-0">
+      <ul className="m-0 flex list-none flex-col gap-1 p-0">
         {SECTIONS.map((s) => (
           <li key={s.id}>
             <a
@@ -290,10 +284,10 @@ function Contents() {
               // where you are, and a reader who cannot see the border should
               // not have to infer it from the scroll position.
               aria-current={s.id === current ? 'true' : undefined}
-              className={`-ml-px block border-l py-1.5 pl-4 text-sm ${
+              className={`state-layer flex h-10 items-center rounded-[var(--radius-md3-full)] px-4 text-sm font-medium ${
                 s.id === current
-                  ? 'border-l-primary font-medium text-primary'
-                  : 'border-transparent text-on-surface-variant hover:border-l-outline hover:text-on-surface'
+                  ? 'bg-primary-container text-on-primary-container'
+                  : 'text-on-surface-variant hover:text-on-surface'
               }`}
             >
               {s.title}
