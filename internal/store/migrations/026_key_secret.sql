@@ -1,0 +1,18 @@
+-- An API key's secret, sealed, so its client configs can be downloaded again.
+--
+-- Until now only the hash was kept, the usual rule for API keys: a copied
+-- database or backup cannot then be used to call anything. Here that bought
+-- nothing. The same database already holds every account's OAuth tokens,
+-- which are worth more than any key this gateway issues, sealed with the key
+-- beside it (internal/secret) — so a stolen database file is not enough for
+-- either, and the state directory is enough for both. A gateway key can be
+-- revoked at any moment from the same screen. Sealing it the same way costs
+-- no protection the tokens do not already rely on, and means its configs are
+-- never more than a click away.
+--
+-- The hash stays and is still what authenticates: it is the constant-time
+-- comparison, and needs no sealing key on the request path.
+--
+-- NULL for every key from before this, whose secret was never kept: those are
+-- given a new one, once, to become retrievable.
+ALTER TABLE api_keys ADD COLUMN sealed_secret BLOB;

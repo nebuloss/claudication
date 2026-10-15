@@ -38,6 +38,8 @@ type KeyJSON struct {
 	Subscription *SubscriptionShare `json:"subscription,omitempty"`
 	// ModelsOff are the models this key may not ask for; empty allows all.
 	ModelsOff []string `json:"models_off"`
+	// SecretKept says the key can be shown again, configs and all.
+	SecretKept bool `json:"secret_kept"`
 	// Managed marks the key the gateway issued to itself, so the UI can leave
 	// the Delete off that row — deleting it never did what the button implied,
 	// since the next chat needing a name just gets another issued.
@@ -61,6 +63,7 @@ func (s *Admin) toKeyJSON(k store.APIKey, use store.UsageBucket) KeyJSON {
 		Requests:    use.Requests,
 		Tokens:      use.InputTokens + use.OutputTokens + use.CacheTokens,
 		ModelsOff:   k.ModelsOff,
+		SecretKept:  k.SecretKept,
 	}
 	if out.ModelsOff == nil {
 		out.ModelsOff = []string{}
@@ -187,6 +190,7 @@ func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not create the key")
 		return
 	}
+	s.keepSecret(r, &key, plaintext)
 
 	s.log.Info("api key created", "id", key.ID, "name", key.Name,
 		"ip", httpx.ClientIP(r.Context()))
@@ -194,6 +198,42 @@ func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		"key":       s.toKeyJSON(key, store.UsageBucket{}),
 		"plaintext": plaintext,
 	})
+}
+
+// keepSecret seals a new secret beside its key so it can be shown again. A
+// failure is logged and not fatal: the key works either way, and the operator
+// has the plaintext in this response — it just cannot be shown a second time.
+func (s *Admin) keepSecret(r *http.Request, key *store.APIKey, plaintext string) {
+	if err := s.store.StoreKeySecret(r.Context(), s.sealer, key.ID, plaintext); err != nil {
+		s.log.Warn("could not keep an api key's secret", "id", key.ID, "err", err)
+		return
+	}
+	key.SecretKept = true
+}
+
+// handleKeySecret shows a key's secret again, for its client configs.
+//
+// Behind the admin session like everything that can create, rotate or delete
+// a key; whoever can do those can already mint a working credential. Logged
+// all the same, so a reveal is on record. A key made before secrets were kept
+// answers 409 secret_not_kept, and the UI offers a new secret instead.
+func (s *Admin) handleKeySecret(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	plaintext, err := s.store.KeySecret(r.Context(), s.sealer, id)
+	switch {
+	case errors.Is(err, store.ErrKeyNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		return
+	case errors.Is(err, store.ErrSecretNotKept):
+		httpx.WriteError(w, http.StatusConflict, "secret_not_kept", err.Error())
+		return
+	case err != nil:
+		s.log.Error("read api key secret", "err", err, "id", id)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the key")
+		return
+	}
+	s.log.Warn("api key shown", "id", id, "ip", httpx.ClientIP(r.Context()))
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"plaintext": plaintext})
 }
 
 // handleRotateKey issues a key a new secret and answers it once, in the shape
@@ -219,6 +259,7 @@ func (s *Admin) handleRotateKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not issue a new secret")
 		return
 	}
+	s.keepSecret(r, &key, plaintext)
 	s.log.Warn("api key rotated", "id", key.ID, "name", key.Name, "ip", httpx.ClientIP(r.Context()))
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"key":       s.toKeyJSON(key, store.UsageBucket{}),

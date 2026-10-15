@@ -617,6 +617,7 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodPatch, "/admin/keys/x"},
 		{http.MethodGet, "/admin/keys/x/models"},
 		{http.MethodPost, "/admin/keys/x/rotate"},
+		{http.MethodGet, "/admin/keys/x/secret"},
 		{http.MethodPost, "/admin/keys/x/models"},
 	} {
 		for _, c := range []*http.Cookie{nil, stale} {

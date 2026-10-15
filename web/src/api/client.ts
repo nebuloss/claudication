@@ -167,6 +167,8 @@ export interface ApiKey {
   subscription?: SubscriptionShare
   /** Models this key may not ask for; empty allows every model. */
   models_off: string[]
+  /** The secret is stored sealed, so the key and its configs can be shown again. */
+  secret_kept: boolean
 }
 
 /** One key's estimated use of the subscription; see the server's keyshare.go. */
@@ -806,8 +808,15 @@ export const api = {
     }),
 
   /**
-   * A new secret for an existing key, shown once like a new key's. The old
-   * secret stops working at once; everything else about the key is kept.
+   * A key's secret again, for its client configs. 409 secret_not_kept for a
+   * key made before secrets were kept: those need a new one, once.
+   */
+  keySecret: (id: string) =>
+    request<{ plaintext: string }>('GET', `/admin/keys/${encodeURIComponent(id)}/secret`),
+
+  /**
+   * A new secret for an existing key. The old secret stops working at once;
+   * everything else about the key is kept.
    */
   rotateKey: (id: string) =>
     request<{ key: ApiKey; plaintext: string }>(

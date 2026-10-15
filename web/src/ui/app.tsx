@@ -119,14 +119,12 @@ export default function App() {
   // Settings then rendered "Could not read the configuration" at a signed-in
   // operator forever.
   const config = useLoader<GatewayConfig>(() => api.config(), undefined, [state.phase])
-  // A freshly minted API key lives here, not in the Keys panel: panels unmount
-  // on a tab change, and the tabs are hash routes, so Back unmounts one too.
-  // The plaintext exists nowhere else — the store keeps only its hash — so
-  // losing it to a stray click means the key is gone for good.
+  // A key being shown — new, re-issued, or asked for again — lives here, not in
+  // the panel that asked: panels unmount on a tab change and on Back, and the
+  // dialog should outlive both.
   const [minted, setMinted] = useState<{ key: ApiKey; plaintext: string } | null>(null)
   // A deploy since this tab loaded. Offered, never done for the operator: a
-  // reload throws away whatever is on screen, and one of the things that can be
-  // on screen is a key that is shown once.
+  // reload throws away whatever is on screen, including a key being copied.
   const updated = useUpdateAvailable()
 
   const probe = useCallback(async () => {
@@ -295,9 +293,10 @@ export default function App() {
 
       {minted !== null && (
         <Modal title={minted.key.name} size="lg" onClose={() => setMinted(null)}>
-          <Banner tone="warn" className="mb-4">
-            This is the only time the key is shown. Nothing can retrieve it afterwards — only the
-            hash is stored. Copy it, or download a client&rsquo;s config with it inside, now.
+          <Banner className="mb-4">
+            Copy the key, or download a client&rsquo;s config with it inside. It is kept sealed
+            with the gateway&rsquo;s state, so its settings page can show it and its configs again
+            later.
           </Banner>
           <CopyField label="API key" value={minted.plaintext} />
           <KeyConfigs plaintext={minted.plaintext} config={config.data} />

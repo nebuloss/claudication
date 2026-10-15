@@ -420,7 +420,7 @@ func cmdKeys(args []string) error {
 			return errors.New("keys add: -name is required")
 		}
 
-		_, st, _, err := openState(ctx, *configPath)
+		_, st, sealer, err := openState(ctx, *configPath)
 		if err != nil {
 			return err
 		}
@@ -435,7 +435,13 @@ func cmdKeys(args []string) error {
 			return err
 		}
 		fmt.Printf("Created API key %q (id %s)\n\n  %s\n\n", key.Name, key.ID, plaintext)
-		fmt.Println("This is the only time the key is shown. Store it now.")
+		// Kept sealed, as the admin API keeps the keys it makes, so the key's
+		// settings page can show it and its client configs again.
+		if err := st.StoreKeySecret(ctx, sealer, key.ID, plaintext); err != nil {
+			fmt.Printf("The key works, but could not be kept (%v): store it now.\n", err)
+			return nil
+		}
+		fmt.Println("Its settings page in the admin UI can show it and its client configs again.")
 		return nil
 
 	case "list":

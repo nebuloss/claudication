@@ -167,8 +167,13 @@ beside it as `secret.key` (0600), or comes from `CLAUDICATION_SECRET_KEY`.
 
 ## API keys and limits
 
-A key is shown once at creation and is unrecoverable afterwards: the store keeps
-`sha256(key)` and a lookup prefix, never the key.
+A key authenticates by `sha256(key)` and a lookup prefix, and is also kept
+sealed with the same key that seals the account tokens, so its settings page
+can show it — and every client's config with it — again at any time. Keys made
+before that was kept have only the hash; issuing one a new secret once fixes
+that, keeping its name, limits, models and history. A copy of the state
+directory therefore holds working keys as well as working account tokens, which
+it already did.
 
 Each key can carry two limits, both off by default:
 

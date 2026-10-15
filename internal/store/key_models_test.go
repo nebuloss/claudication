@@ -3,8 +3,60 @@ package store
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 )
+
+// A kept secret opens to exactly what was issued; a key from before secrets
+// were kept says so rather than failing obscurely; rotating drops the stale
+// sealed copy until the new one is stored.
+func TestKeySecretIsKeptSealed(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+	sealer := testSealer(t)
+	key, plaintext, err := st.CreateKey(ctx, "laptop", KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := st.KeySecret(ctx, sealer, key.ID); err != ErrSecretNotKept {
+		t.Errorf("before it is stored: %v, want ErrSecretNotKept", err)
+	}
+	if k, _ := st.Key(ctx, key.ID); k.SecretKept {
+		t.Error("SecretKept before anything was stored")
+	}
+
+	if err := st.StoreKeySecret(ctx, sealer, key.ID, plaintext); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.KeySecret(ctx, sealer, key.ID)
+	if err != nil || got != plaintext {
+		t.Fatalf("KeySecret = %q, %v", got, err)
+	}
+	if k, _ := st.Key(ctx, key.ID); !k.SecretKept {
+		t.Error("SecretKept not reported")
+	}
+	// Sealed, not stored as text.
+	var raw []byte
+	_ = st.db.QueryRow(`SELECT sealed_secret FROM api_keys WHERE id = ?`, key.ID).Scan(&raw)
+	if strings.Contains(string(raw), plaintext) {
+		t.Error("the secret is readable in the database")
+	}
+
+	if _, _, err := st.RotateKey(ctx, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.KeySecret(ctx, sealer, key.ID); err != ErrSecretNotKept {
+		t.Errorf("after rotating: %v, want the stale secret gone", err)
+	}
+
+	if err := st.StoreKeySecret(ctx, sealer, "nope", "x"); err != ErrKeyNotFound {
+		t.Errorf("unknown key: %v", err)
+	}
+	if _, err := st.KeySecret(ctx, sealer, "nope"); err != ErrKeyNotFound {
+		t.Errorf("unknown key: %v", err)
+	}
+}
 
 // A new secret replaces the old at once and keeps everything else about the
 // key — id, name, limits, model switches — which is the point of rotating

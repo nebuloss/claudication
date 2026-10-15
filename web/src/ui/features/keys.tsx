@@ -51,10 +51,9 @@ const MANAGED_HINT =
 /**
  * Client API keys — the credential you hand to Claude Code.
  *
- * The store keeps sha256(key) and a lookup prefix, never the key, so the
- * plaintext is shown once at creation and is genuinely unrecoverable after
- * that. The UI has to be honest about it rather than implying it can be looked
- * up later.
+ * A key authenticates by its hash, and is kept sealed beside it (migration
+ * 026) so its settings page can show it and its configs again. Keys from
+ * before that have only the hash, and say so there.
  */
 export default function Keys({
   onExpired,
@@ -62,12 +61,8 @@ export default function Keys({
 }: {
   onExpired: () => void
   /**
-   * Hands a freshly created key up to the app shell.
-   *
-   * It cannot live here. This panel unmounts the moment the operator changes
-   * tab — or presses Back, since the tabs are hash routes — and the plaintext
-   * is genuinely unrecoverable once it is gone, so a stray click would destroy
-   * the only copy of a credential with no warning at all.
+   * Hands a freshly created key up to the app shell, whose dialog outlives
+   * this panel unmounting on a tab change or Back.
    */
   onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
@@ -404,6 +399,18 @@ function KeySettings({
     setBusy(false)
   }
 
+  const show = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const { plaintext } = await api.keySecret(k.id)
+      onMinted({ key: k, plaintext })
+    } catch (err) {
+      setError(messageOf(err))
+    }
+    setBusy(false)
+  }
+
   const rotate = async () => {
     if (
       !window.confirm(
@@ -456,22 +463,45 @@ function KeySettings({
         )}
       </Card>
 
-      {/* Configs are written with the secret in them, and the secret is the
-          one thing about a key that cannot be read back — only its hash is
-          kept. So a config for an existing key comes with a new secret. */}
+      {/* The secret is kept sealed beside the account tokens (migration 026),
+          so the configs can be written again at any time. Keys from before
+          that have only a hash, and need a new secret once. */}
       <Card>
         <CardTitle>Client configurations</CardTitle>
-        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
-          Ready-made configs for Claude Code, Codex, opencode and crush have this key&rsquo;s secret
-          in them, and the secret was shown only once, when the key was made — the gateway keeps
-          a hash, not the key. To download them again, issue a new secret: this key keeps its
-          name, limits, models and history, the old secret stops working at once, and every
-          client&rsquo;s config is offered with the new one.
-        </p>
-        <TonalButton disabled={busy} onClick={() => void rotate()}>
-          {busy && <Spinner />}
-          New secret and configs
-        </TonalButton>
+        {k.secret_kept ? (
+          <>
+            <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+              The key, and ready-made configs for Claude Code, Codex, opencode and crush with it
+              inside. Nothing changes for the clients already using it.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <FilledButton type="button" disabled={busy} onClick={() => void show()}>
+                {busy && <Spinner />}
+                Show key and configs
+              </FilledButton>
+              <OutlinedButton disabled={busy} onClick={() => void rotate()}>
+                Issue a new secret
+              </OutlinedButton>
+            </div>
+            <p className="mt-3 mb-0 text-xs text-on-surface-variant">
+              A new secret is for a key that has leaked: the current one stops working at once,
+              and every client needs the new config.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+              This key was made before the gateway kept keys, so only a fingerprint of it exists
+              and it cannot be shown. Issue it a new secret once — it keeps its name, limits,
+              models and history; the current secret stops working — and from then on its configs
+              can be downloaded here at any time.
+            </p>
+            <TonalButton disabled={busy} onClick={() => void rotate()}>
+              {busy && <Spinner />}
+              New secret and configs
+            </TonalButton>
+          </>
+        )}
       </Card>
 
       <Card>

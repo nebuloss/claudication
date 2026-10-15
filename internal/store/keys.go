@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"claudication/internal/secret"
 )
 
 // KeyPrefix marks claudication-issued credentials so they are recognisable in logs
@@ -34,6 +36,9 @@ type APIKey struct {
 	// ModelsOff are the models this key may not ask for, as the operator
 	// switched them; everything else is allowed. See migration 025.
 	ModelsOff []string
+	// SecretKept says the secret is stored sealed and can be shown again
+	// (migration 026). Read by ListKeys; Authenticate does not need it.
+	SecretKept bool
 }
 
 // keyModelsOff is the column expression that reads a key's switches with it.
@@ -90,6 +95,47 @@ func hashKey(plaintext string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// ErrSecretNotKept is KeySecret's answer for a key whose secret was never
+// stored: made before migration 026, or the gateway's own.
+var ErrSecretNotKept = errors.New("this key's secret was not kept; issue it a new one")
+
+// StoreKeySecret seals a key's secret beside its hash, so its client configs
+// can be written again later. See migration 026 for why this is safe to keep.
+func (s *Store) StoreKeySecret(ctx context.Context, sealer *secret.Sealer, id, plaintext string) error {
+	sealed, err := sealer.Seal(plaintext)
+	if err != nil {
+		return fmt.Errorf("seal api key: %w", err)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE api_keys SET sealed_secret = ? WHERE id = ?`, sealed, id)
+	if err != nil {
+		return fmt.Errorf("store api key secret: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrKeyNotFound
+	}
+	return nil
+}
+
+// KeySecret opens a key's sealed secret.
+func (s *Store) KeySecret(ctx context.Context, sealer *secret.Sealer, id string) (string, error) {
+	var sealed []byte
+	err := s.db.QueryRowContext(ctx, `SELECT sealed_secret FROM api_keys WHERE id = ?`, id).Scan(&sealed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrKeyNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read api key secret: %w", err)
+	}
+	if len(sealed) == 0 {
+		return "", ErrSecretNotKept
+	}
+	plaintext, err := sealer.Open(sealed)
+	if err != nil {
+		return "", fmt.Errorf("open api key secret: %w", err)
+	}
+	return plaintext, nil
+}
+
 // newSecret is a fresh credential: its random body, and the plaintext a client
 // holds.
 func newSecret() (body, plaintext string, err error) {
@@ -116,8 +162,10 @@ func (s *Store) RotateKey(ctx context.Context, id string) (APIKey, string, error
 	if err != nil {
 		return APIKey{}, "", err
 	}
+	// The old sealed secret goes with the old hash: it no longer authenticates,
+	// so a config written from it would only fail.
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE api_keys SET prefix = ?, hash = ? WHERE id = ?`,
+		`UPDATE api_keys SET prefix = ?, hash = ?, sealed_secret = NULL WHERE id = ?`,
 		body[:prefixLen], hashKey(plaintext), id)
 	if err != nil {
 		return APIKey{}, "", fmt.Errorf("rotate api key: %w", err)
@@ -248,7 +296,7 @@ func (s *Store) TouchKey(ctx context.Context, id string) {
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, prefix, created_at, last_used_at, rpm_limit, rate_period_s, token_budget,
-		        `+keyModelsOff+`
+		        `+keyModelsOff+`, sealed_secret IS NOT NULL
 		   FROM api_keys ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
@@ -265,7 +313,8 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 			modelsOff     string
 		)
 		if err := rows.Scan(&key.ID, &key.Name, &key.Prefix, &createdAt,
-			&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff); err != nil {
+			&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff,
+			&key.SecretKept); err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
 		key.ModelsOff = splitModels(modelsOff)

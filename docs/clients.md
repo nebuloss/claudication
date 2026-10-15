@@ -27,7 +27,8 @@ Mint one in **Settings → API keys**, or from a shell:
 claudication keys add -name laptop
 ```
 
-Keys look like `clc_…` and are shown once.
+Keys look like `clc_…`. A key's settings page in the admin UI shows it, and every
+client's config with it inside, whenever it is needed again.
 
 **One key format, both APIs.** A Codex key is not a different kind of key, and
 nothing has to look like `sk-…`: the same `clc_…` works on `/v1/messages` and
