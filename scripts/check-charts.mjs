@@ -216,13 +216,13 @@ check(
   const hrefs = (l) => l.items.map((i) => i.href)
 
   check('the top level has no way up', lvl('/').back, undefined)
-  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Overview', 'Claude accounts', 'API keys', 'Activity', 'Settings'])
+  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Overview', 'Accounts', 'API keys', 'Activity', 'Settings'])
   check('a list is on the top level', lvl('/accounts').current, '/accounts')
   check('each screen opens on its first page', hrefs(lvl('/'))[3], '/activity/chats')
   check('an account lists its pages', hrefs(lvl('/accounts/a1/chats')), [
     '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests', '/accounts/a1/settings/models',
   ])
-  check('and goes back to the list', lvl('/accounts/a1/chats').back, { href: '/accounts', label: 'Claude accounts' })
+  check('and goes back to the list', lvl('/accounts/a1/chats').back, { href: '/accounts', label: 'Accounts' })
   check('its settings list their sections only', lvl('/keys/k1/settings/limits').items.length, 5)
   check('and go back to the key, by name', lvl('/keys/k1/settings/limits').back, { href: '/keys/k1/usage', label: 'keys:k1' })
   check('the open section is current', lvl('/keys/k1/settings/limits').current, '/keys/k1/settings/limits')
@@ -231,7 +231,7 @@ check(
 
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
   check('the overview is one step', trail('/'), ['Overview'])
-  check('a section of an account', trail('/accounts/a1/settings/connection'), ['Claude accounts', 'accounts:a1', 'Settings', 'Connection'])
+  check('a section of an account', trail('/accounts/a1/settings/connection'), ['Accounts', 'accounts:a1', 'Settings', 'Connection'])
   check('a gateway section', trail('/settings/apis'), ['Settings', 'API surfaces'])
   check('an activity page', trail('/activity/requests'), ['Activity', 'Requests'])
   check('a step links to its page', trailOf('/accounts/a1/settings/connection', name)[2].href, '/accounts/a1/settings/models')

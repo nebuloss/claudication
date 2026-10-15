@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, type Surface } from '../../api/client'
-import { Banner, Card, CardTitle, Switch } from '../primitives'
+import { Banner, Card, Switch } from '../primitives'
 
 /**
  * The switches for the client-facing APIs.
@@ -43,7 +43,6 @@ export default function Surfaces({
 
   return (
     <Card>
-      <CardTitle>API surfaces</CardTitle>
 
       <p className="mt-0 mb-4 text-sm text-on-surface-variant">
         Which APIs this gateway answers on. A change takes effect on the next request — nothing

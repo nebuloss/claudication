@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { status } from './account-card'
 import AddAccount from './add-account'
 import { accountHref } from './usage'
+import { byProvider, providerLabel } from '../providers'
 import { api, messageOf, type Account } from '../../api/client'
 import { useLoader } from '../hooks'
 import {
@@ -26,7 +27,8 @@ import {
 const FALLBACK_REFRESH_MS = 20_000
 
 /**
- * The Claude accounts the pool draws on, in priority order.
+ * The accounts the pool draws on, grouped by provider, each group in its own
+ * priority order.
  *
  * The order is the operator's decision, not something inferred: a personal
  * subscription and a work one are not interchangeable, and spreading evenly is
@@ -39,7 +41,9 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
   // What the last consent flow did, when that was not what was asked for.
   const [notice, setNotice] = useState('')
   const [ordering, setOrdering] = useState(false)
-  const [dragging, setDragging] = useState<number | null>(null)
+  // A drag is within one provider's group: priority is per provider, since a
+  // request for a Claude model can only be served by a Claude account.
+  const [dragging, setDragging] = useState<{ provider: string; at: number } | null>(null)
   const [over, setOver] = useState<number | null>(null)
 
   // Nothing may reload under a hand mid-gesture: a list that reorders itself
@@ -67,14 +71,21 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
 
   const accounts = data?.accounts ?? []
   const windowDays = data?.windowDays ?? 7
-  const orderable = accounts.length > 1
+  const groups = byProvider(accounts)
 
-  /** Moves one account and saves the whole resulting order. */
-  const move = async (from: number, to: number) => {
-    if (to < 0 || to >= accounts.length || from === to) return
-    const ids = accounts.map((a) => a.id)
-    const [moved] = ids.splice(from, 1)
-    ids.splice(to, 0, moved)
+  /**
+   * Moves one account within its provider's group and saves the whole
+   * resulting order: the group's slots in the overall order are refilled in
+   * its new order, so the other groups do not move.
+   */
+  const move = async (provider: string, from: number, to: number) => {
+    const group = groups.find((g) => g.provider === provider)?.items ?? []
+    if (to < 0 || to >= group.length || from === to) return
+    const reordered = group.map((a) => a.id)
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(to, 0, moved)
+    let next = 0
+    const ids = accounts.map((a) => (a.provider === provider ? reordered[next++] : a.id))
 
     setOrdering(true)
     try {
@@ -116,7 +127,7 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
           >
             Add account
           </TonalButton>
-          {orderable && (
+          {accounts.length > 1 && (
             <span className="text-sm text-on-surface-variant">
               Served top-down — the next one takes over when Anthropic says the one above is out.
             </span>
@@ -126,22 +137,21 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
 
       {notice !== '' && <Banner>{notice}</Banner>}
 
+      <div className="-mb-3 flex items-center justify-end gap-3">
+        {accounts.length > 0 && (
+          <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
+            {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over{' '}
+            {windowDays}d
+          </span>
+        )}
+        <Freshness
+          updatedAt={updatedAt}
+          refreshing={refreshing}
+          live={live}
+          onRefresh={() => void reload()}
+        />
+      </div>
       <Card>
-        <div className="mb-4 flex items-center justify-end gap-3">
-          {accounts.length > 0 && (
-            <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
-              {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over{' '}
-              {windowDays}d
-            </span>
-          )}
-          <Freshness
-            updatedAt={updatedAt}
-            refreshing={refreshing}
-            live={live}
-            onRefresh={() => void reload()}
-          />
-        </div>
-
         {error !== '' && (
           <Banner tone="error" className="mb-4">
             {error}
@@ -154,44 +164,61 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
           </p>
         ) : accounts.length === 0 ? (
           <Empty>
-            No Claude accounts yet. Add one to give the proxy something to talk to — add several and
+            No accounts yet. Add one to give the proxy something to talk to — add several and
             it falls through to the next when one runs out of quota.
           </Empty>
         ) : (
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
-            {accounts.map((a, i) => (
-              <li
-                key={a.id}
-                draggable={orderable && !ordering}
-                onDragStart={() => setDragging(i)}
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  setOver(i)
-                }}
-                onDragEnd={() => {
-                  if (dragging !== null && over !== null && dragging !== over) {
-                    void move(dragging, over)
-                  }
-                  setDragging(null)
-                  setOver(null)
-                }}
-                className={`rounded-[var(--radius-md3-l)] transition-[opacity,box-shadow] ${
-                  dragging === i ? 'opacity-40' : ''
-                } ${over === i && dragging !== null && dragging !== i ? 'ring-2 ring-primary' : ''}`}
-              >
-                <AccountRow
-                  account={a}
-                  rank={i}
-                  total={accounts.length}
-                  windowDays={windowDays}
-                  orderable={orderable}
-                  busy={ordering}
-                  onMoveUp={() => void move(i, i - 1)}
-                  onMoveDown={() => void move(i, i + 1)}
-                />
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col gap-6">
+            {groups.map((g) => {
+              const orderable = g.items.length > 1
+              const mine = dragging?.provider === g.provider
+              return (
+                <section key={g.provider} aria-label={providerLabel(g.provider)}>
+                  {/* Named once there is more than one provider to tell apart. */}
+                  {groups.length > 1 && (
+                    <h3 className="mt-0 mb-2 text-sm font-medium text-on-surface-variant">
+                      {providerLabel(g.provider)} · {g.items.length}
+                    </h3>
+                  )}
+                  <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                    {g.items.map((a, i) => (
+                      <li
+                        key={a.id}
+                        draggable={orderable && !ordering}
+                        onDragStart={() => setDragging({ provider: g.provider, at: i })}
+                        onDragOver={(e) => {
+                          if (!mine) return
+                          e.preventDefault()
+                          setOver(i)
+                        }}
+                        onDragEnd={() => {
+                          if (dragging !== null && mine && over !== null && dragging.at !== over) {
+                            void move(g.provider, dragging.at, over)
+                          }
+                          setDragging(null)
+                          setOver(null)
+                        }}
+                        className={`rounded-[var(--radius-md3-l)] transition-[opacity,box-shadow] ${
+                          mine && dragging?.at === i ? 'opacity-40' : ''
+                        } ${mine && over === i && dragging?.at !== i ? 'ring-2 ring-primary' : ''}`}
+                      >
+                        <AccountRow
+                          account={a}
+                          rank={i}
+                          total={g.items.length}
+                          windowDays={windowDays}
+                          orderable={orderable}
+                          busy={ordering}
+                          onMoveUp={() => void move(g.provider, i, i - 1)}
+                          onMoveDown={() => void move(g.provider, i, i + 1)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )
+            })}
+          </div>
         )}
       </Card>
     </div>

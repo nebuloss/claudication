@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { Banner, Card, CardTitle, Switch } from '../primitives'
+import { Banner, Card, Switch } from '../primitives'
 
 /**
  * The switch for capping oversized images.
@@ -49,7 +49,6 @@ export default function ImageFit({
 
   return (
     <Card>
-      <CardTitle>Oversized images</CardTitle>
 
       <p className="mt-0 mb-4 text-sm text-on-surface-variant">
         A request carrying more than 20 images is held to a stricter limit: every image in it must

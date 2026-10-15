@@ -183,9 +183,11 @@ const CHAT_WINDOWS = [1, 7, 30] as const
  */
 export function ChatsPage({ scope = {}, onExpired }: { scope?: UsageScope; onExpired: () => void }) {
   const [days, setDays] = useState<number>(7)
+  // The window above the card rather than in it, so the card starts with
+  // the chats.
   return (
-    <Card>
-      <div className="mb-4 flex justify-end">
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
         <Segmented
           label="Reporting window"
           value={String(days)}
@@ -197,8 +199,10 @@ export function ChatsPage({ scope = {}, onExpired }: { scope?: UsageScope; onExp
           }))}
         />
       </div>
-      <ChatsPanel days={days} scope={scope} onExpired={onExpired} />
-    </Card>
+      <Card>
+        <ChatsPanel days={days} scope={scope} onExpired={onExpired} />
+      </Card>
+    </div>
   )
 }
 

@@ -27,7 +27,7 @@ export type Section = { id: string; label: string }
 /** The top-level screens, in the order the app bar lists them. */
 export const TABS = [
   { id: 'overview', label: 'Overview' },
-  { id: 'accounts', label: 'Claude accounts' },
+  { id: 'accounts', label: 'Accounts' },
   { id: 'keys', label: 'API keys' },
   { id: 'activity', label: 'Activity' },
   { id: 'settings', label: 'Settings' },

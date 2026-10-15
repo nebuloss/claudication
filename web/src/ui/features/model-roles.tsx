@@ -4,7 +4,6 @@ import { useLoader } from '../hooks'
 import {
   Banner,
   Card,
-  CardTitle,
   ErrorState,
   Field,
   IconButton,
@@ -243,7 +242,6 @@ export default function ModelsTab() {
   return (
     <div className="flex flex-col gap-5">
       <Card>
-        <CardTitle>Model aliases</CardTitle>
         <p className="mt-0 mb-4 text-sm text-on-surface-variant">
           Every client config this gateway hands out asks for these names instead of a real model,
           so moving every client to a new model is one change here. Each list starts with the newest

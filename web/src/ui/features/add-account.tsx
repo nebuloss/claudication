@@ -17,6 +17,7 @@ import {
   Spinner,
   TextButton,
 } from '../primitives'
+import { PROVIDERS } from '../providers'
 
 type Phase = 'idle' | 'starting' | 'waiting' | 'exchanging'
 
@@ -40,10 +41,13 @@ type Phase = 'idle' | 'starting' | 'waiting' | 'exchanging'
  */
 export function ConsentFlow({
   account,
+  provider = account?.provider ?? 'anthropic',
   onDone,
   onCancel,
 }: {
   account?: Account
+  /** Whose login: the account's own when reconnecting. */
+  provider?: string
   onDone: (r: OAuthResult) => void
   onCancel: () => void
 }) {
@@ -71,7 +75,7 @@ export function ConsentFlow({
     setBlocked(false)
 
     api
-      .startOAuth('anthropic', account?.id)
+      .startOAuth(provider, account?.id)
       .then((s) => {
         setStart(s)
         setPhase('waiting')
@@ -103,7 +107,7 @@ export function ConsentFlow({
     setPhase('exchanging')
     setError('')
     try {
-      const result = await api.completeOAuth('anthropic', start.state, pasted.trim())
+      const result = await api.completeOAuth(provider, start.state, pasted.trim())
       reset()
       onDone(result)
     } catch (err) {
@@ -233,7 +237,11 @@ export function ConsentFlow({
   )
 }
 
-/** The new-account form at the top of the Accounts tab. */
+/**
+ * The new-account form at the top of the Accounts page: which provider, then
+ * that provider's login. One provider today, chosen already; the choice is
+ * shown anyway, so it is clear what kind of account is being added.
+ */
 export default function AddAccount({
   onAdded,
   onCancel,
@@ -241,12 +249,33 @@ export default function AddAccount({
   onAdded: (r: OAuthResult) => void
   onCancel: () => void
 }) {
+  const [provider, setProvider] = useState(PROVIDERS[0].id)
   return (
     <Card>
-      <CardTitle aside={<TextButton onClick={onCancel}>Cancel</TextButton>}>
-        Add a Claude account
-      </CardTitle>
-      <ConsentFlow onDone={onAdded} onCancel={onCancel} />
+      <CardTitle aside={<TextButton onClick={onCancel}>Cancel</TextButton>}>Add an account</CardTitle>
+      <div role="radiogroup" aria-label="Provider" className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {PROVIDERS.map((p) => {
+          const on = p.id === provider
+          return (
+            <button
+              key={p.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => setProvider(p.id)}
+              className={`state-layer flex flex-col items-start gap-1 rounded-[var(--radius-md3-m)] border p-4 text-left ${
+                on
+                  ? 'border-2 border-primary bg-secondary-container p-[15px] text-on-secondary-container'
+                  : 'border-outline text-on-surface'
+              }`}
+            >
+              <span className="text-sm font-medium">{p.label}</span>
+              <span className="text-xs opacity-80">{p.detail}</span>
+            </button>
+          )
+        })}
+      </div>
+      <ConsentFlow key={provider} provider={provider} onDone={onAdded} onCancel={onCancel} />
     </Card>
   )
 }

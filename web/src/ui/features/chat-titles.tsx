@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { Banner, Card, CardTitle, Switch } from '../primitives'
+import { Banner, Card, Switch } from '../primitives'
 
 /**
  * The switches for naming conversations.
@@ -59,7 +59,6 @@ export default function ChatTitles({
 
   return (
     <Card>
-      <CardTitle>Chat names</CardTitle>
 
       <p className="mt-0 mb-4 text-sm text-on-surface-variant">
         Conversations are grouped by the session id their client sends, which is always just an

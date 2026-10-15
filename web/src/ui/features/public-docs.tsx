@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { Banner, Card, CardTitle, Switch } from '../primitives'
+import { Banner, Card, Switch } from '../primitives'
 
 /**
  * The switch for the public docs page.
@@ -46,7 +46,6 @@ export default function PublicDocs({
 
   return (
     <Card>
-      <CardTitle>Public docs page</CardTitle>
 
       <p className="mt-0 mb-4 text-sm text-on-surface-variant">
         The instructions for pointing a client at this gateway &mdash; the config files with its

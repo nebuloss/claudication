@@ -115,7 +115,6 @@ export default function AccountSettings({
   if (section === 'models') {
     return (
       <Card>
-        <CardTitle>Models</CardTitle>
         <AccountModels account={account} onChanged={onChanged} />
       </Card>
     )
@@ -124,7 +123,6 @@ export default function AccountSettings({
   if (section === 'connection') {
     return (
       <Card>
-        <CardTitle>Connection</CardTitle>
         <KeyValue
           items={[
             ['Token expires', `${formatDate(account.expires_at)} (${relative(account.expires_at)})`],
@@ -208,7 +206,6 @@ export default function AccountSettings({
   if (section === 'availability') {
     return (
       <Card>
-        <CardTitle>Availability</CardTitle>
         <p className="mt-0 mb-4 text-sm text-on-surface-variant">
           {account.disabled
             ? 'Paused: this account serves nothing, and keeps its credentials for when it is resumed.'

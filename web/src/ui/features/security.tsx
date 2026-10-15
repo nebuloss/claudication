@@ -3,7 +3,6 @@ import { api, messageOf, type Session } from '../../api/client'
 import {
   Banner,
   Card,
-  CardTitle,
   Field,
   FilledButton,
   OutlinedButton,
@@ -34,17 +33,11 @@ export default function Security({
 
   return (
     <Card>
-      <CardTitle
-        aside={
-          session.password_updated_at !== undefined ? (
-            <span className="text-xs text-on-surface-variant">
-              password set {new Date(session.password_updated_at).toLocaleDateString()}
-            </span>
-          ) : null
-        }
-      >
-        Account
-      </CardTitle>
+      {session.password_updated_at !== undefined && (
+        <p className="mt-0 mb-4 text-xs text-on-surface-variant">
+          Password set {new Date(session.password_updated_at).toLocaleDateString()}
+        </p>
+      )}
 
       {open === 'none' && (
         <div className="flex flex-wrap items-center gap-2">

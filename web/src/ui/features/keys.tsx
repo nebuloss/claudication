@@ -86,21 +86,20 @@ export default function Keys({
         }}
       />
 
+      <div className="-mb-3 flex items-center justify-end gap-3">
+        {data !== null && data.keys.length > 0 && (
+          <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
+            traffic over {data.windowDays}d
+          </span>
+        )}
+        <Freshness
+          updatedAt={updatedAt}
+          refreshing={refreshing}
+          live={live}
+          onRefresh={() => void reload()}
+        />
+      </div>
       <Card>
-        <div className="mb-4 flex items-center justify-end gap-3">
-          {data !== null && data.keys.length > 0 && (
-            <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
-              traffic over {data.windowDays}d
-            </span>
-          )}
-          <Freshness
-            updatedAt={updatedAt}
-            refreshing={refreshing}
-            live={live}
-            onRefresh={() => void reload()}
-          />
-        </div>
-
         {error !== '' && (
           <Banner tone="error" className="mb-4">
             {error}
@@ -453,21 +452,18 @@ function KeySettings({
       case 'models':
         return (
           <Card>
-            <CardTitle>Models</CardTitle>
             <KeyModels apiKey={k} onChanged={onSaved} />
           </Card>
         )
       case 'aliases':
         return (
           <Card>
-            <CardTitle>Model aliases</CardTitle>
             <RolesEditor keyId={k.id} />
           </Card>
         )
       case 'limits':
         return (
           <Card>
-            <CardTitle>Name and limits</CardTitle>
             <KeyEditor apiKey={k} defaultRpm={defaultRpm} busy={busy} onSave={save} />
             {saved && error === '' && (
               <p className="mt-3 mb-0 text-sm text-on-surface-variant">Saved.</p>
@@ -480,7 +476,6 @@ function KeySettings({
       case 'configs':
         return (
           <Card>
-            <CardTitle>Client configurations</CardTitle>
             {k.secret_kept ? (
               <>
                 <p className="mt-0 mb-4 text-sm text-on-surface-variant">

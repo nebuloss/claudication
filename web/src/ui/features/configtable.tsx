@@ -1,5 +1,5 @@
 import { type GatewayConfig, type Origin } from '../../api/client'
-import { Banner, Card, CardTitle, Chip, Table } from '../primitives'
+import { Banner, Card, Chip, Table } from '../primitives'
 
 /** How a value got here, as something you can scan a column for. */
 function OriginChip({ origin }: { origin: Origin }) {
@@ -31,7 +31,6 @@ export default function ConfigTable({ config }: { config: GatewayConfig }) {
 
   return (
     <Card>
-      <CardTitle>Configuration</CardTitle>
 
       <p className="mt-0 mb-4 text-sm text-on-surface-variant">
         {config.path === '' ? (
