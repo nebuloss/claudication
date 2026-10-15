@@ -87,7 +87,7 @@ function ModelSwitches({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="m-0 text-xs text-on-surface-variant">{explain(count, data.models.length)}</p>
+        <p className="m-0 max-w-[80ch] text-sm text-on-surface">{explain(count, data.models.length)}</p>
         <div className="flex gap-2">
           <SmallButton onClick={() => void all(true)} disabled={busy !== '' || count === data.models.length}>
             All on
