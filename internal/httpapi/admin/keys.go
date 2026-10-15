@@ -36,6 +36,8 @@ type KeyJSON struct {
 	// 5-hour and 7-day windows; absent when usage history is off or the
 	// accounts have not reported. See keyshare.go.
 	Subscription *SubscriptionShare `json:"subscription,omitempty"`
+	// ModelsOff are the models this key may not ask for; empty allows all.
+	ModelsOff []string `json:"models_off"`
 	// Managed marks the key the gateway issued to itself, so the UI can leave
 	// the Delete off that row — deleting it never did what the button implied,
 	// since the next chat needing a name just gets another issued.
@@ -58,6 +60,10 @@ func (s *Admin) toKeyJSON(k store.APIKey, use store.UsageBucket) KeyJSON {
 		Managed:     s.titles.IsOwnKey(k.ID),
 		Requests:    use.Requests,
 		Tokens:      use.InputTokens + use.OutputTokens + use.CacheTokens,
+		ModelsOff:   k.ModelsOff,
+	}
+	if out.ModelsOff == nil {
+		out.ModelsOff = []string{}
 	}
 	if k.LastUsedAt != nil {
 		out.LastUsedAt = k.LastUsedAt.UTC().Format(time.RFC3339)

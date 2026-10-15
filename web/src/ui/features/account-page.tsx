@@ -1,4 +1,5 @@
-import AccountCard, { status } from './account-card'
+import { useState } from 'react'
+import AccountSettings, { status } from './account-card'
 import { Window } from './accounts'
 import { DetailHeader, detailSection } from './detail'
 import QuotaMeter from './quota-meter'
@@ -6,7 +7,7 @@ import ScopedUsage, { accountHref } from './usage'
 import { api } from '../../api/client'
 import { useLoader } from '../hooks'
 import { navigate } from '../route'
-import { Banner, Card, CardTitle, Chip, Empty, Spinner } from '../primitives'
+import { Banner, Card, CardTitle, Chip, Empty, SmallButton, Spinner } from '../primitives'
 
 /** As on the list: the server says how often it re-reads the quota. */
 const REFRESH_MS = 20_000
@@ -17,8 +18,8 @@ const REFRESH_MS = 20_000
  * /accounts/<id> is what it is doing: the subscription's own windows as
  * Anthropic reports them, and below them what this gateway sent it — totals,
  * traffic over time, which models and keys, the chats. /accounts/<id>/settings
- * is the card with everything that changes it: its token, its models, testing,
- * reconnecting, pausing, removing.
+ * is everything that changes it, a section each: the models it may serve, its
+ * connection, whether it serves at all, and removing it.
  *
  * Read from the account list rather than an endpoint of its own: the list is
  * a handful of rows and already carries everything shown here, and one source
@@ -34,6 +35,7 @@ export default function AccountPage({
   onExpired: () => void
 }) {
   const section = detailSection(path)
+  const [reading, setReading] = useState(false)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     () => api.listAccounts(),
     onExpired,
@@ -93,23 +95,37 @@ export default function AccountPage({
       {error !== '' && <Banner tone="error">{error}</Banner>}
 
       {section === 'settings' ? (
-        <AccountCard
+        <AccountSettings
           account={account}
-          rank={rank}
-          total={accounts.length}
-          windowDays={data?.windowDays ?? 7}
-          orderable={false}
-          busy={false}
-          onMoveUp={() => {}}
-          onMoveDown={() => {}}
           onChanged={() => void reload()}
           onRemoved={() => navigate('/accounts')}
         />
       ) : (
         <>
           <Card>
-            <CardTitle>Subscription</CardTitle>
-            <QuotaMeter quota={account.quota} pending={false} />
+            <CardTitle
+              aside={
+                <SmallButton
+                  disabled={reading}
+                  onClick={() => {
+                    setReading(true)
+                    void api
+                      .refreshUsage(account.id)
+                      .catch(() => {})
+                      .finally(() => {
+                        setReading(false)
+                        void reload()
+                      })
+                  }}
+                >
+                  {reading && <Spinner className="size-3" />}
+                  {reading ? 'Reading…' : 'Read again'}
+                </SmallButton>
+              }
+            >
+              Subscription
+            </CardTitle>
+            <QuotaMeter quota={account.quota} pending={reading} />
             <p className="mt-3 mb-0 text-xs text-on-surface-variant">
               As Anthropic reports it, counting every client on this account — not only this
               gateway.

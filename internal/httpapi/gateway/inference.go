@@ -66,6 +66,24 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		outbound := ex.Request()
 		model, streaming := ex.Model(), ex.Streaming()
 
+		// A model this key has been kept off, refused before anything is spent
+		// and recorded under the key, because it is a client to reconfigure
+		// rather than a stranger. 403 permission_error, as Anthropic answers a
+		// credential not allowed something: a client stops there rather than
+		// retrying, and the message says who can change it.
+		if key, ok := httpx.APIKey(r.Context()); ok && !key.Allows(model) {
+			s.recorder.Record(store.UsageEvent{
+				At: time.Now(), KeyID: key.ID, KeyName: key.Name, Model: model,
+				Path: route, Status: http.StatusForbidden,
+				Client: api.ClientName(r.UserAgent()), IP: httpx.ClientIP(r.Context()),
+				Rejected: true, Error: "model not allowed for this API key",
+			}, 0)
+			p.WriteError(w, http.StatusForbidden, "permission_error",
+				"this API key may not use model "+model+
+					"; an administrator can allow it in the key's settings")
+			return
+		}
+
 		// Read before the clone, and before Headers strips anything.
 		//
 		// For a translating dialect the headers naming the conversation are

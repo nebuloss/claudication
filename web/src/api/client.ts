@@ -165,6 +165,8 @@ export interface ApiKey {
    * is off or no account has reported its utilisation.
    */
   subscription?: SubscriptionShare
+  /** Models this key may not ask for; empty allows every model. */
+  models_off: string[]
 }
 
 /** One key's estimated use of the subscription; see the server's keyshare.go. */
@@ -701,6 +703,20 @@ export const api = {
     request<{ account_id: string; models: AccountModel[] }>(
       'GET',
       `/admin/accounts/${encodeURIComponent(id)}/models`,
+    ),
+
+  /** Every model the gateway serves, each with whether this key may ask for it. */
+  keyModels: (id: string) =>
+    request<{ key_id: string; models: AccountModel[] }>(
+      'GET',
+      `/admin/keys/${encodeURIComponent(id)}/models`,
+    ),
+
+  setKeyModel: (id: string, model: string, enabled: boolean) =>
+    request<{ key_id: string; models_off: string[] }>(
+      'POST',
+      `/admin/keys/${encodeURIComponent(id)}/models`,
+      { model, enabled },
     ),
 
   setAccountModel: (id: string, model: string, enabled: boolean) =>

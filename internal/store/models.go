@@ -38,17 +38,57 @@ func ModelKey(model string) string {
 
 // Serves reports whether the account has a model on. An empty model — a
 // request that names none, or a caller that does not care which — is served.
-func (a Account) Serves(model string) bool {
+func (a Account) Serves(model string) bool { return modelOn(a.ModelsOff, model) }
+
+// Allows reports whether a key may ask for a model, by the same rule.
+func (k APIKey) Allows(model string) bool { return modelOn(k.ModelsOff, model) }
+
+func modelOn(off []string, model string) bool {
 	if model == "" {
 		return true
 	}
 	key := ModelKey(model)
-	for _, off := range a.ModelsOff {
-		if ModelKey(off) == key {
+	for _, o := range off {
+		if ModelKey(o) == key {
 			return false
 		}
 	}
 	return true
+}
+
+// SetKeyModel turns a model on or off for an API key, by the rule
+// SetAccountModel follows: turning a model on clears it under either spelling.
+func (s *Store) SetKeyModel(ctx context.Context, id, model string, on bool) error {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return fmt.Errorf("set key model: no model")
+	}
+	key, err := s.Key(ctx, id)
+	if err != nil {
+		return err
+	}
+	if on {
+		for _, off := range key.ModelsOff {
+			if ModelKey(off) != ModelKey(model) {
+				continue
+			}
+			if _, err := s.db.ExecContext(ctx,
+				`DELETE FROM api_key_models_off WHERE key_id = ? AND model = ?`, id, off); err != nil {
+				return fmt.Errorf("set key model: %w", err)
+			}
+		}
+		return nil
+	}
+	if !key.Allows(model) {
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO api_key_models_off (key_id, model, off_at) VALUES (?, ?, ?)`,
+		id, model, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("set key model: %w", err)
+	}
+	return nil
 }
 
 // SetAccountModel turns a model on or off for an account. Turning on an id

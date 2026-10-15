@@ -139,8 +139,47 @@ func (s *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadGateway, "api_error", "could not reach the upstream model list")
 		return
 	}
+	// Less what the calling key may not use, for the reason the switched-off
+	// models are left out: a client builds its menu from this, and a model on
+	// the menu that is refused when picked is worse than one not offered.
+	if key, ok := httpx.APIKey(r.Context()); ok && len(key.ModelsOff) > 0 {
+		body = modelsAllowedFor(body, key)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
+}
+
+// modelsAllowedFor drops from a model list the models a key is kept off. A
+// list it cannot read is returned as it was: the request still enforces.
+func modelsAllowedFor(body []byte, key store.APIKey) []byte {
+	var list map[string]json.RawMessage
+	if err := json.Unmarshal(body, &list); err != nil {
+		return body
+	}
+	var data []json.RawMessage
+	if err := json.Unmarshal(list["data"], &data); err != nil {
+		return body
+	}
+	kept := make([]json.RawMessage, 0, len(data))
+	for _, m := range data {
+		var model struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(m, &model) == nil && !key.Allows(model.ID) {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	encoded, err := json.Marshal(kept)
+	if err != nil {
+		return body
+	}
+	list["data"] = encoded
+	out, err := json.Marshal(list)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // FetchModels is the models this gateway serves: one answer for /v1/models,

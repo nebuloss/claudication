@@ -31,6 +31,20 @@ type APIKey struct {
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
 	KeyLimits
+	// ModelsOff are the models this key may not ask for, as the operator
+	// switched them; everything else is allowed. See migration 025.
+	ModelsOff []string
+}
+
+// keyModelsOff is the column expression that reads a key's switches with it.
+const keyModelsOff = `COALESCE((SELECT group_concat(model, char(31)) FROM api_key_models_off o
+		  WHERE o.key_id = api_keys.id), '')`
+
+func splitModels(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\x1f")
 }
 
 // KeyLimits is everything about a key an operator can change without reissuing
@@ -132,7 +146,8 @@ func (s *Store) Authenticate(ctx context.Context, plaintext string) (APIKey, err
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, prefix, hash, created_at, last_used_at, rpm_limit, rate_period_s, token_budget
+		`SELECT id, name, prefix, hash, created_at, last_used_at, rpm_limit, rate_period_s, token_budget,
+		        `+keyModelsOff+`
 		   FROM api_keys WHERE prefix = ?`, body[:prefixLen])
 
 	var (
@@ -140,9 +155,10 @@ func (s *Store) Authenticate(ctx context.Context, plaintext string) (APIKey, err
 		storedHash, createdAt string
 		lastUsed              sql.NullString
 		periodSeconds         int64
+		modelsOff             string
 	)
 	err := row.Scan(&key.ID, &key.Name, &key.Prefix, &storedHash, &createdAt,
-		&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget)
+		&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Spend a comparison anyway so a miss costs about the same as a hit.
 		subtle.ConstantTimeCompare([]byte(hashKey(plaintext)), make([]byte, 64))
@@ -158,12 +174,27 @@ func (s *Store) Authenticate(ctx context.Context, plaintext string) (APIKey, err
 
 	key.RatePeriod = time.Duration(periodSeconds) * time.Second
 	key.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	key.ModelsOff = splitModels(modelsOff)
 	if lastUsed.Valid {
 		if t, err := time.Parse(time.RFC3339, lastUsed.String); err == nil {
 			key.LastUsedAt = &t
 		}
 	}
 	return key, nil
+}
+
+// Key reads one key by id.
+func (s *Store) Key(ctx context.Context, id string) (APIKey, error) {
+	keys, err := s.ListKeys(ctx)
+	if err != nil {
+		return APIKey{}, err
+	}
+	for _, k := range keys {
+		if k.ID == id {
+			return k, nil
+		}
+	}
+	return APIKey{}, ErrKeyNotFound
 }
 
 // TouchKey records last use. Best-effort: a failure here must never fail the
@@ -176,7 +207,8 @@ func (s *Store) TouchKey(ctx context.Context, id string) {
 
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, prefix, created_at, last_used_at, rpm_limit, rate_period_s, token_budget
+		`SELECT id, name, prefix, created_at, last_used_at, rpm_limit, rate_period_s, token_budget,
+		        `+keyModelsOff+`
 		   FROM api_keys ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
@@ -190,11 +222,13 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 			createdAt     string
 			lastUsed      sql.NullString
 			periodSeconds int64
+			modelsOff     string
 		)
 		if err := rows.Scan(&key.ID, &key.Name, &key.Prefix, &createdAt,
-			&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget); err != nil {
+			&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff); err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
+		key.ModelsOff = splitModels(modelsOff)
 		key.RatePeriod = time.Duration(periodSeconds) * time.Second
 		key.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		if lastUsed.Valid {

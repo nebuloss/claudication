@@ -4,6 +4,7 @@ import { useLoader } from '../hooks'
 import { navigate } from '../route'
 import ScopedUsage, { accountHref, keyHref } from './usage'
 import { DetailHeader, detailSection } from './detail'
+import { KeyModels } from './account-models'
 import type { ReactNode } from 'react'
 import {
   AppLink,
@@ -315,6 +316,11 @@ export function KeyPage({
         aside={
           <span className="flex flex-wrap items-center gap-3 text-xs text-on-surface">
             {k.managed && <Chip tone="neutral">gateway&rsquo;s own</Chip>}
+            {k.models_off.length > 0 && (
+              <Chip tone="warn">
+                {k.models_off.length} model{k.models_off.length === 1 ? '' : 's'} off
+              </Chip>
+            )}
             <span>
               <span className="text-on-surface-variant">Rate</span>{' '}
               {k.rpm_limit > 0
@@ -352,8 +358,9 @@ export function KeyPage({
 }
 
 /**
- * A key's settings page: its name and limits in a form, and deleting it apart
- * from them, where it cannot be hit while saving a limit.
+ * A key's settings page: the models it may ask for, its name and limits in a
+ * form, and deleting it apart from them, where it cannot be hit while saving
+ * a limit.
  */
 function KeySettings({
   apiKey: k,
@@ -406,6 +413,11 @@ function KeySettings({
 
   return (
     <>
+      <Card>
+        <CardTitle>Models</CardTitle>
+        <KeyModels apiKey={k} onChanged={onSaved} />
+      </Card>
+
       <Card>
         <CardTitle>Name and limits</CardTitle>
         <KeyEditor apiKey={k} defaultRpm={defaultRpm} busy={busy} onSave={save} />

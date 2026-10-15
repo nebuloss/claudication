@@ -1,24 +1,21 @@
 import { useState } from 'react'
-import QuotaMeter from './quota-meter'
 import { ConsentFlow } from './add-account'
 import AccountModels from './account-models'
 import { api, messageOf, type Account, type ProbeResult } from '../../api/client'
 import {
   Banner,
-  Chip,
+  Card,
+  CardTitle,
   FilledButton,
   KeyValue,
   OutlinedButton,
   Spinner,
   TonalButton,
   Verbatim,
-  IconButton,
-  SmallButton,
-  compact,
   type ChipTone,
 } from '../primitives'
 
-type Busy = '' | 'test' | 'refresh' | 'usage' | 'disable' | 'delete'
+type Busy = '' | 'test' | 'refresh' | 'disable' | 'delete'
 
 function formatDate(iso?: string): string {
   if (!iso) return 'never'
@@ -56,89 +53,41 @@ export function status(a: Account): { tone: ChipTone; label: string } {
   return { tone: 'ok', label: 'ready' }
 }
 
-export default function AccountCard({
-  account: initial,
-  rank,
-  total,
-  windowDays,
-  orderable,
-  busy: reordering,
-  onMoveUp,
-  onMoveDown,
+/**
+ * An account's settings page: everything that changes it, a section each.
+ *
+ * Models first, because which models an account may serve is the setting an
+ * operator comes here for most. Then the connection — its token, testing it,
+ * reconnecting — then whether it serves at all, and removing it last and
+ * apart, where it cannot be hit on the way to anything else.
+ *
+ * Every action asks the page to reload rather than patching a local copy:
+ * the account list is the one source, and a copy that drifted from it once
+ * put the "serving" badge on the wrong account.
+ */
+export default function AccountSettings({
+  account,
   onChanged,
   onRemoved,
 }: {
   account: Account
-  rank: number
-  total: number
-  windowDays: number
-  orderable: boolean
-  busy: boolean
-  onMoveUp: () => void
-  onMoveDown: () => void
   onChanged: () => void
   onRemoved: () => void
 }) {
-  // The prop is the only source of truth. Copying it into state and updating
-  // that copy locally left the card showing whatever it last fetched for
-  // itself: after a reorder, `serving` and the rank came from the old render
-  // and the wrong account wore the badge. Every action that changes an account
-  // now asks the parent to reload instead.
-  const account = initial
   const [probe, setProbe] = useState<ProbeResult | null>(null)
   const [busy, setBusy] = useState<Busy>('')
   const [error, setError] = useState('')
   const [reconnecting, setReconnecting] = useState(false)
-  const [showModels, setShowModels] = useState(false)
-  const off = account.models_off?.length ?? 0
 
-  const chip = status(account)
   // Reconnecting is the fix for a dead refresh token and the only cure for an
   // expiring one, so it leads the actions when either is the case.
   const reauthDue = account.needs_reauth === true || account.needs_reauth_soon === true
 
-  const runTest = async () => {
-    setBusy('test')
-    setError('')
-    setProbe(null)
-    try {
-      setProbe(await api.testAccount(account.id))
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy('')
-    onChanged()
-  }
-
-  const runUsage = async () => {
-    setBusy('usage')
+  const run = async (what: Busy, fn: () => Promise<unknown>) => {
+    setBusy(what)
     setError('')
     try {
-      await api.refreshUsage(account.id)
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy('')
-    onChanged()
-  }
-
-  const runRefresh = async () => {
-    setBusy('refresh')
-    setError('')
-    try {
-      await api.refreshAccount(account.id)
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy('')
-    onChanged()
-  }
-
-  const runToggleDisabled = async () => {
-    setBusy('disable')
-    setError('')
-    try {
-      await api.setAccountDisabled(account.id, !account.disabled)
+      await fn()
     } catch (err) {
       setError(messageOf(err))
     }
@@ -160,175 +109,124 @@ export default function AccountCard({
   }
 
   return (
-    <article
-      className={`rounded-[var(--radius-md3-l)] p-5 ${
-        account.serving ? 'bg-secondary-container/40' : 'bg-surface-low'
-      }`}
-    >
-      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          {orderable && (
-            <span
-              className="mt-0.5 hidden cursor-grab text-on-surface-variant active:cursor-grabbing sm:block"
-              title="Drag to reorder"
-              aria-hidden
-            >
-              <svg viewBox="0 0 24 24" className="size-5 fill-current">
-                <path d="M9 4h2v2H9V4zm4 0h2v2h-2V4zM9 9h2v2H9V9zm4 0h2v2h-2V9zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2z" />
-              </svg>
-            </span>
-          )}
-          <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-surface-high text-xs font-medium text-on-surface-variant">
-            {rank + 1}
-          </span>
-          <div className="min-w-0">
-            <h3 className="m-0 text-base leading-6 font-medium break-all text-on-surface">
-              {account.email}
-            </h3>
-            <p className="mt-0.5 mb-0 text-xs text-on-surface-variant">
-              {account.provider} · added {formatDate(account.created_at)}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          {account.serving && <Chip tone="ok">serving</Chip>}
-          <Chip tone={chip.tone}>{chip.label}</Chip>
-          {orderable && (
-            <>
-              <IconButton
-                label="Higher priority"
-                disabled={reordering || rank === 0}
-                onClick={onMoveUp}
-              >
-                <path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z" />
-              </IconButton>
-              <IconButton
-                label="Lower priority"
-                disabled={reordering || rank === total - 1}
-                onClick={onMoveDown}
-              >
-                <path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z" />
-              </IconButton>
-            </>
-          )}
-        </div>
-      </header>
+    <>
+      <Card>
+        <CardTitle>Models</CardTitle>
+        <AccountModels account={account} onChanged={onChanged} />
+      </Card>
 
-      <div className="mb-5 rounded-[var(--radius-md3-m)] border border-outline bg-surface-high px-4 py-3">
-        <div className="mb-3 flex items-baseline justify-between gap-3">
-          <span className="text-xs tracking-wide text-on-surface-variant uppercase">
-            Subscription usage
-          </span>
-          <SmallButton onClick={() => void runUsage()} disabled={busy !== ''}>
-            {busy === 'usage' && <Spinner className="size-3" />}
-            {busy === 'usage' ? 'Reading…' : 'Refresh'}
-          </SmallButton>
-        </div>
-        <QuotaMeter quota={account.quota} pending={busy === 'usage'} />
-      </div>
+      <Card>
+        <CardTitle>Connection</CardTitle>
+        <KeyValue
+          items={[
+            ['Token expires', `${formatDate(account.expires_at)} (${relative(account.expires_at)})`],
+            ['Refreshed', formatDate(account.last_refresh_at)],
+            ['Last used', formatDate(account.last_used_at)],
+            ['Connected', formatDate(account.created_at)],
+          ]}
+        />
 
-      <KeyValue
-        items={[
-          ['Expires', `${formatDate(account.expires_at)} (${relative(account.expires_at)})`],
-          ['Refreshed', formatDate(account.last_refresh_at)],
-          ['Last used', formatDate(account.last_used_at)],
-          [
-            `Via this gateway (${windowDays}d)`,
-            `${compact(account.requests)} requests · ${compact(account.tokens)} tokens`,
-          ],
-        ]}
-      />
-
-      {/* Which models this account may serve. Collapsed: it is one upstream
-          call to open, and the list beside it re-reads itself constantly. */}
-      <div className="mt-4 rounded-[var(--radius-md3-m)] border border-outline-variant px-4 py-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-xs tracking-wide text-on-surface-variant uppercase">
-            Models
-            <span className="ml-2 tracking-normal normal-case">
-              {off === 0 ? 'all on' : `${off} off`}
-            </span>
-          </span>
-          <SmallButton onClick={() => setShowModels(!showModels)}>
-            {showModels ? 'Hide' : 'Manage'}
-          </SmallButton>
-        </div>
-        {showModels && (
-          <div className="mt-3">
-            <AccountModels account={account} onChanged={onChanged} />
+        {account.needs_reauth_soon === true && (
+          <Banner tone="warn" className="mt-4">
+            Re-authorisation needed
+            {account.reauth_days_left !== undefined
+              ? ` in ${account.reauth_days_left} day${account.reauth_days_left === 1 ? '' : 's'}`
+              : ' soon'}
+            . Refreshing the token cannot push this back — reconnect the account.
+          </Banner>
+        )}
+        {account.last_error && (
+          <div className="mt-4">
+            <Verbatim>{account.last_error}</Verbatim>
           </div>
         )}
-      </div>
 
-      {account.needs_reauth_soon === true && (
-        <Banner tone="warn" className="mt-4">
-          Re-authorisation needed
-          {account.reauth_days_left !== undefined
-            ? ` in ${account.reauth_days_left} day${account.reauth_days_left === 1 ? '' : 's'}`
-            : ' soon'}
-          . Refreshing the token cannot push this back — reconnect the account.
-        </Banner>
-      )}
-
-      {account.last_error && (
-        <div className="mt-4">
-          <Verbatim>{account.last_error}</Verbatim>
-        </div>
-      )}
-      {error !== '' && (
-        <Banner tone="error" className="mt-4">
-          {error}
-        </Banner>
-      )}
-
-      {reconnecting && (
-        <div className="mt-5 rounded-[var(--radius-md3-m)] border border-outline bg-surface-high p-4">
-          <ConsentFlow
-            account={account}
-            onDone={() => {
-              setReconnecting(false)
-              setError('')
-              setProbe(null)
-              onChanged()
-            }}
-            onCancel={() => setReconnecting(false)}
-          />
-        </div>
-      )}
-
-      <div className="mt-5 flex flex-wrap items-center gap-2">
-        {reauthDue && !reconnecting && (
-          <FilledButton type="button" onClick={() => setReconnecting(true)} disabled={busy !== ''}>
-            Reconnect
-          </FilledButton>
+        {reconnecting && (
+          <div className="mt-5 rounded-[var(--radius-md3-m)] border border-outline bg-surface-high p-4">
+            <ConsentFlow
+              account={account}
+              onDone={() => {
+                setReconnecting(false)
+                setError('')
+                setProbe(null)
+                onChanged()
+              }}
+              onCancel={() => setReconnecting(false)}
+            />
+          </div>
         )}
-        <TonalButton onClick={runTest} disabled={busy !== ''}>
-          {busy === 'test' && <Spinner />}
-          {busy === 'test' ? 'Testing…' : 'Test'}
-        </TonalButton>
-        <OutlinedButton onClick={runRefresh} disabled={busy !== ''}>
-          {busy === 'refresh' && <Spinner />}
-          {busy === 'refresh' ? 'Refreshing…' : 'Refresh token'}
-        </OutlinedButton>
-        {/* Pausing keeps the credentials; removing destroys them and revokes
-            the token upstream, so getting the account back means going through
-            the browser consent flow again. */}
-        {!reauthDue && !reconnecting && (
-          <OutlinedButton onClick={() => setReconnecting(true)} disabled={busy !== ''}>
-            Reconnect
+
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          {reauthDue && !reconnecting && (
+            <FilledButton type="button" onClick={() => setReconnecting(true)} disabled={busy !== ''}>
+              Reconnect
+            </FilledButton>
+          )}
+          <TonalButton
+            onClick={() =>
+              void run('test', async () => {
+                setProbe(null)
+                setProbe(await api.testAccount(account.id))
+              })
+            }
+            disabled={busy !== ''}
+          >
+            {busy === 'test' && <Spinner />}
+            {busy === 'test' ? 'Testing…' : 'Test'}
+          </TonalButton>
+          <OutlinedButton
+            onClick={() => void run('refresh', () => api.refreshAccount(account.id))}
+            disabled={busy !== ''}
+          >
+            {busy === 'refresh' && <Spinner />}
+            {busy === 'refresh' ? 'Refreshing…' : 'Refresh token'}
           </OutlinedButton>
+          {!reauthDue && !reconnecting && (
+            <OutlinedButton onClick={() => setReconnecting(true)} disabled={busy !== ''}>
+              Reconnect
+            </OutlinedButton>
+          )}
+        </div>
+        {probe && <ProbeReport probe={probe} />}
+        {error !== '' && (
+          <Banner tone="error" className="mt-4">
+            {error}
+          </Banner>
         )}
-        <OutlinedButton onClick={runToggleDisabled} disabled={busy !== ''}>
+      </Card>
+
+      <Card>
+        <CardTitle>Availability</CardTitle>
+        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+          {account.disabled
+            ? 'Paused: this account serves nothing, and keeps its credentials for when it is resumed.'
+            : 'Serving, in its place in the priority order. Pausing takes it out of rotation without signing it out.'}
+        </p>
+        <OutlinedButton
+          onClick={() =>
+            void run('disable', () => api.setAccountDisabled(account.id, !account.disabled))
+          }
+          disabled={busy !== ''}
+        >
           {busy === 'disable' && <Spinner />}
           {account.disabled ? 'Resume' : 'Pause'}
         </OutlinedButton>
-        <OutlinedButton onClick={runDelete} disabled={busy !== ''} tone="error">
-          Remove
-        </OutlinedButton>
-      </div>
+      </Card>
 
-      {probe && <ProbeReport probe={probe} />}
-    </article>
+      {/* Removing destroys the credentials and revokes the token upstream, so
+          getting the account back means the browser consent flow again. */}
+      <Card>
+        <CardTitle>Remove this account</CardTitle>
+        <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+          The stored credentials are destroyed and the token is revoked with Anthropic. Its usage
+          stays in the history, under its email.
+        </p>
+        <OutlinedButton onClick={() => void runDelete()} disabled={busy !== ''} tone="error">
+          {busy === 'delete' && <Spinner />}
+          Remove {account.email}
+        </OutlinedButton>
+      </Card>
+    </>
   )
 }
 
