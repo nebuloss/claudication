@@ -11,9 +11,9 @@
         "baseURL": "https://claudication.example.com/v1",
         "apiKey": "clc_..."
       },
-      // The gateway's two model roles. Which real model answers each is set
-      // in the gateway, on its Models tab. opencode knows neither name, so
-      // each is declared here with the limits of the model it serves; the
+      // The gateway's model aliases. Which real model answers each is set in
+      // the gateway, on its Models tab. opencode knows none of these names,
+      // so each is declared with the limits of the model it serves; the
       // thinking modes are the adaptive ones current models take.
       "models": {
         "claude-large": {
@@ -35,12 +35,70 @@
         "claude-small": {
           "name": "Claude (small)",
           "family": "claude-haiku",
-          "limit": { "context": 200000, "output": 64000 },
+          "limit": { "context": 1000000, "output": 128000 },
           "reasoning": true,
           "attachment": true,
           "tool_call": true,
           "temperature": false,
           "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "claude-opus": {
+          "name": "Claude Opus",
+          "family": "claude-opus",
+          "limit": { "context": 1000000, "output": 128000 },
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "temperature": false,
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": {
+            "low": { "thinking": { "type": "adaptive" }, "effort": "low" },
+            "medium": { "thinking": { "type": "adaptive" }, "effort": "medium" },
+            "high": { "thinking": { "type": "adaptive" }, "effort": "high" },
+            "max": { "thinking": { "type": "adaptive" }, "effort": "max" }
+          }
+        },
+        "claude-sonnet": {
+          "name": "Claude Sonnet",
+          "family": "claude-sonnet",
+          "limit": { "context": 1000000, "output": 128000 },
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "temperature": false,
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": {
+            "low": { "thinking": { "type": "adaptive" }, "effort": "low" },
+            "medium": { "thinking": { "type": "adaptive" }, "effort": "medium" },
+            "high": { "thinking": { "type": "adaptive" }, "effort": "high" },
+            "max": { "thinking": { "type": "adaptive" }, "effort": "max" }
+          }
+        },
+        "claude-haiku": {
+          "name": "Claude Haiku",
+          "family": "claude-haiku",
+          "limit": { "context": 1000000, "output": 128000 },
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "temperature": false,
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "claude-fable": {
+          "name": "Claude Fable",
+          "family": "claude-fable",
+          "limit": { "context": 1000000, "output": 128000 },
+          "reasoning": true,
+          "attachment": true,
+          "tool_call": true,
+          "temperature": false,
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": {
+            "low": { "thinking": { "type": "adaptive" }, "effort": "low" },
+            "medium": { "thinking": { "type": "adaptive" }, "effort": "medium" },
+            "high": { "thinking": { "type": "adaptive" }, "effort": "high" },
+            "max": { "thinking": { "type": "adaptive" }, "effort": "max" }
+          }
         }
       }
     }

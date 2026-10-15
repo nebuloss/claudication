@@ -452,7 +452,7 @@ function KeySettings({
       </Card>
 
       <Card>
-        <CardTitle>Model roles</CardTitle>
+        <CardTitle>Model aliases</CardTitle>
         <RolesEditor keyId={k.id} />
       </Card>
 

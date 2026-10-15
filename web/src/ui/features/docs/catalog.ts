@@ -43,7 +43,7 @@ export type CatalogModel = {
   /** A gateway model role; its other fields are the serving model's. */
   virtual?: boolean
   serving?: string
-  role?: 'large' | 'small'
+  role?: string
   capabilities?: {
     effort?: Capability & Record<string, Capability | boolean | undefined>
     image_input?: Capability
@@ -89,7 +89,7 @@ export class Catalog {
   }
 
   /** The model role of this name, when the gateway lists it. */
-  private role(name: 'large' | 'small'): CatalogModel | undefined {
+  private role(name: string): CatalogModel | undefined {
     return this.models.find((m) => m.virtual === true && m.role === name)
   }
 
@@ -202,28 +202,34 @@ export function tailorCodexConfig(body: string, catalog: Catalog): string {
 }
 
 /**
- * Claude Code: its opus and haiku tiers, which every model it picks goes
- * through, and what each name behaves like.
+ * Claude Code: what each alias behaves like.
  *
- * behavesAs is how Claude Code is told a name it does not know is handled as
- * a real model — window, output limit, prompt profile; without it a name like
- * claude-large is capped at a 200k window. So each role is described as the
- * model it serves for this key now.
+ * The committed file already asks for the aliases in every slot. behavesAs is
+ * how Claude Code is told a name it does not know is handled as a real model —
+ * window, output limit, prompt profile; without it an alias is capped at a
+ * 200k window. So each is described as the model it serves for this key now.
+ * An alias the gateway does not list (no account has that family) keeps the
+ * committed description.
  */
 export function tailorClaudeCode(body: string, catalog: Catalog): string {
-  const large = catalog.large
-  const small = catalog.small
-  body = setting(body, /^(export ANTHROPIC_DEFAULT_OPUS_MODEL=)()\S+/m, large)
-  body = setting(body, /^(export ANTHROPIC_DEFAULT_HAIKU_MODEL=)()\S+/m, small)
-  body = body.replace(
-    /("model":")claude-large(","behavesAs":")[^"]*"/,
-    (_, a: string, b: string) => `${a}${large}${b}${catalog.servingOf(large)}"`,
-  )
   return body.replace(
-    /("model":")claude-small(","behavesAs":")[^"]*"/,
-    (_, a: string, b: string) => `${a}${small}${b}${catalog.servingOf(small)}"`,
+    /("model":")(claude-[a-z]+)(","behavesAs":")([^"]*)"/g,
+    (whole, a: string, alias: string, b: string) => {
+      const serving = catalog.entry(alias)?.serving
+      return serving === undefined ? whole : `${a}${alias}${b}${serving}"`
+    },
   )
 }
+
+/** The gateway's built-in model aliases, as internal/store names them. */
+const ALIASES = [
+  'claude-large',
+  'claude-small',
+  'claude-opus',
+  'claude-sonnet',
+  'claude-haiku',
+  'claude-fable',
+]
 
 /** Replaces a number field the first time it follows `after` in body. */
 function numberAfter(body: string, after: string, field: string, value: number): string {
@@ -246,7 +252,7 @@ function numberAfter(body: string, after: string, field: string, value: number):
 export function tailorOpencode(body: string, catalog: Catalog): string {
   body = setting(body, /^(\s*"model": )(")anthropic\/[^"]*"/m, `anthropic/${catalog.large}`)
   body = setting(body, /^(\s*"small_model": )(")anthropic\/[^"]*"/m, `anthropic/${catalog.small}`)
-  for (const role of ['claude-large', 'claude-small']) {
+  for (const role of ALIASES) {
     const real = catalog.entry(role)
     if (real === undefined) continue
     if (real.max_input_tokens) body = numberAfter(body, `"${role}": {`, 'context', real.max_input_tokens)

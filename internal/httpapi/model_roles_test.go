@@ -170,11 +170,51 @@ func TestModelRolesOverTheAPI(t *testing.T) {
 	}
 
 	for _, bad := range []string{
-		`{"role":"claude-medium","model":"claude-opus-5"}`,
+		`{"role":"Bad Name","model":"claude-opus-5"}`,
 		`{"role":"claude-large","model":"claude-small"}`,
+		`{"key_id":"` + laptop.ID + `","role":"never-made","model":"claude-opus-5"}`,
 	} {
 		if status, _ := call(t, base, http.MethodPut, "/admin/model-roles", bad, c); status != http.StatusBadRequest {
 			t.Errorf("PUT %s: %d", bad, status)
 		}
+	}
+
+	// The families are the accounts' own: claude-opus and claude-haiku exist
+	// because models of them are listed, and nothing else does.
+	_, body = call(t, base, http.MethodGet, "/admin/model-roles", "", c)
+	var listed struct {
+		Roles []struct {
+			Role    string `json:"role"`
+			Builtin bool   `json:"builtin"`
+			Serving string `json:"serving"`
+		} `json:"roles"`
+	}
+	_ = json.Unmarshal(body, &listed)
+	names := []string{}
+	for _, r := range listed.Roles {
+		names = append(names, r.Role)
+	}
+	if strings.Join(names, ",") != "claude-large,claude-small,claude-opus,claude-haiku" {
+		t.Errorf("aliases = %v", names)
+	}
+
+	// A custom alias: made, served, shown to a key's clients, deleted.
+	bind("", "team-fast", "claude-haiku-4-5")
+	if _, sent, answered := ask(otherKey, "team-fast"); sent != "claude-haiku-4-5" || answered != "team-fast" {
+		t.Errorf("custom alias: sent %q, answered %q", sent, answered)
+	}
+	bind(laptop.ID, "team-fast", "claude-opus-5-5")
+	if _, sent, _ := ask(laptopKey, "team-fast"); sent != "claude-opus-5-5" {
+		t.Errorf("custom alias, key's own binding: sent %q", sent)
+	}
+	if status, body := call(t, base, http.MethodDelete, "/admin/model-roles?name=claude-opus", "", c); status != http.StatusBadRequest {
+		t.Errorf("deleting a built-in: %d %s", status, body)
+	}
+	if status, body := call(t, base, http.MethodDelete, "/admin/model-roles?name=team-fast", "", c); status != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", status, body)
+	}
+	before = len(models)
+	if _, _, _ = ask(otherKey, "team-fast"); len(models) != before+1 || models[len(models)-1] != "team-fast" {
+		t.Errorf("a deleted alias is still mapped: sent %q", models[len(models)-1])
 	}
 }

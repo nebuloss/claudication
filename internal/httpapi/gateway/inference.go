@@ -93,7 +93,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		virtual := ""
 		rewrote := false
 		key, _ := httpx.APIKey(r.Context())
-		if store.IsRole(model) {
+		if s.isAlias(r.Context(), model) {
 			role := store.ModelKey(model)
 			target, why := s.RoleTarget(r.Context(), key, role)
 			if why != "" {

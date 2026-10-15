@@ -300,7 +300,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: trusted, StartedAt: time.Now(),
 		Models: s.gateway.FetchModels, AccountModels: s.gateway.FetchModelsFor,
-		KeyModels: s.gateway.ModelsFor, RoleTarget: s.gateway.RoleTarget,
+		KeyModels: s.gateway.ModelsFor, RoleTarget: s.gateway.RoleTarget, Aliases: s.gateway.Aliases,
 	})
 	s.web = web.New(web.Deps{
 		Config: s.cfg, Log: log, Store: st, Docs: s.docs, Surfaces: s.surfaces,

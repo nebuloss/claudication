@@ -287,7 +287,11 @@ console.log('\n— model catalog: the configs are written from the live list —
   check('and nothing else in it moves', toml.replace('claude-opus-5-5', 'X'), committed('codex.toml').replace(/^model = "[^"]*"/m, 'model = "X"'))
 
   const sh = tailorClaudeCode(committed('claude-code.sh'), catalog)
-  check('Claude Code gets both defaults', [/^export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5-5$/m.test(sh), /^export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-5-5$/m.test(sh)], [true, true])
+  check('Claude Code asks for the aliases in every slot', [
+    /^export ANTHROPIC_MODEL=claude-large$/m.test(sh), /^export ANTHROPIC_SMALL_FAST_MODEL=claude-small$/m.test(sh),
+    /^export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus$/m.test(sh), /^export ANTHROPIC_DEFAULT_FABLE_MODEL=claude-fable$/m.test(sh),
+  ], [true, true, true, true])
+  check('an alias the gateway does not list keeps its committed description', sh, committed('claude-code.sh'))
 
   const oc = tailorOpencode(committed('opencode.jsonc'), catalog)
   check('opencode gets both defaults, quotes intact', [oc.includes('"model": "anthropic/claude-opus-5-5"'), oc.includes('"small_model": "anthropic/claude-haiku-5-5"')], [true, true])
@@ -303,8 +307,11 @@ console.log('\n— model catalog: the configs are written from the live list —
   ])
   check('the roles are the defaults', [roles.large, roles.small], ['claude-large', 'claude-small'])
   const rsh = tailorClaudeCode(committed('claude-code.sh'), roles)
-  check('Claude Code asks for the roles', [/^export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-large$/m.test(rsh), /^export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-small$/m.test(rsh)], [true, true])
-  check('and is told what each behaves like', [rsh.includes('{"model":"claude-large","behavesAs":"claude-opus-5-5"}'), rsh.includes('{"model":"claude-small","behavesAs":"claude-opus-4-5-20251101"}')], [true, true])
+  check('Claude Code is told what each listed alias behaves like', [
+    rsh.includes('{"model":"claude-large","behavesAs":"claude-opus-5-5"}'),
+    rsh.includes('{"model":"claude-small","behavesAs":"claude-opus-4-5-20251101"}'),
+    rsh.includes('{"model":"claude-fable","behavesAs":"claude-fable-5-1"}'),
+  ], [true, true, true])
   const roc = tailorOpencode(committed('opencode.jsonc'), roles)
   check('opencode asks for the roles', [roc.includes('"model": "anthropic/claude-large"'), roc.includes('"small_model": "anthropic/claude-small"')], [true, true])
   const smallAt = roc.slice(roc.indexOf('"claude-small": {'))

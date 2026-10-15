@@ -200,30 +200,38 @@ precisely the one that disappears.
 `usage.retention-days` bounds it (30 by default; 0 records nothing) and a daily
 prune enforces it, returning the freed pages to the filesystem.
 
-## Model roles
+## Model aliases
 
-Every client has a slot for the model doing the work and one for titles and
-summaries. The configs this gateway hands out fill both with two names of its
-own, `claude-large` and `claude-small`, and the gateway decides which real model
-answers each:
+The configs this gateway hands out ask for names of its own instead of real
+models, and the gateway decides which real model answers each. Built in:
+
+- `claude-large` and `claude-small` — the two slots every client has, the
+  model doing the work and the one for titles and summaries;
+- one per model family your accounts list — `claude-opus`, `claude-haiku`,
+  `claude-fable`, … — found from the model list, so a new family has an alias
+  the day an account lists it.
 
 | Client | `claude-large` | `claude-small` |
 |---|---|---|
-| Claude Code | `ANTHROPIC_DEFAULT_OPUS_MODEL` — main model, sub-agents | `ANTHROPIC_DEFAULT_HAIKU_MODEL` — titles, summaries |
+| Claude Code | `ANTHROPIC_MODEL` — main model, sub-agents | `ANTHROPIC_SMALL_FAST_MODEL` — titles, summaries |
 | Codex | `model` | — |
 | opencode | `model` | `small_model` |
 | crush | `models.large` | `models.small` |
 
-On the **Models** tab each role is automatic — the newest Opus, the newest
-Haiku your accounts list — or bound to a model you choose; a key can bind
-either differently in its own settings. Moving every client to a new model is
-then one change here, with no config to edit. The client is answered in the
-role's name; the request log records both.
+Claude Code's tiers (`/model opus`, a sub-agent's `haiku`) go to the family
+aliases. Every config lists all of them.
 
-Each config also carries what the role's model can do — Claude Code's
+On the **Models** tab each built-in alias follows the newest model of its
+family, by release date, until you choose another; a key can choose
+differently in its own settings. Below them you can add custom aliases, each a
+name of your own pointing to one model. Moving every client to a new model is
+then one change here, with no config to edit. The client is answered in the
+alias's name; the request log records both.
+
+Each config also carries what an alias's model can do — Claude Code's
 `behavesAs`, opencode's declared limits, the crush and Codex model lists —
-because a client sizes its requests from those. Binding a role to a model with a
-smaller window means downloading that key's configs again.
+because a client sizes its requests from those. Pointing an alias at a model
+with a smaller window means downloading that key's configs again.
 
 Rewriting the model is the relay's seventh exception to sending the caller's
 bytes as they are; see `go doc ./internal/relay/passes`.

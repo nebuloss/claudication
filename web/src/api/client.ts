@@ -474,7 +474,7 @@ export interface Model {
   /** A gateway model role, the real model it serves now, and which role. */
   virtual?: boolean
   serving?: string
-  role?: 'large' | 'small'
+  role?: string
 }
 
 /** A model role — claude-large, claude-small — for the gateway or one key. */
@@ -485,7 +485,9 @@ export interface ModelRole {
    * newest of family); for a key, empty is "follow the gateway".
    */
   model: string
+  /** What a built-in follows while unbound; empty for a custom alias. */
   family: string
+  builtin: boolean
   /** What a request for the role gets now, and why not when it cannot. */
   serving: string
   problem?: string
@@ -804,6 +806,10 @@ export const api = {
    */
   setModelRole: (keyId: string, role: string, model: string) =>
     request<void>('PUT', '/admin/model-roles', { key_id: keyId, role, model }),
+
+  /** Delete a custom alias, from the gateway and every key. */
+  deleteAlias: (name: string) =>
+    request<void>('DELETE', `/admin/model-roles?name=${encodeURIComponent(name)}`),
 
   setSurface: (id: string, enabled: boolean) =>
     request<{ surfaces: Surface[] }>('POST', `/admin/surfaces/${encodeURIComponent(id)}`, {

@@ -55,6 +55,7 @@ type Admin struct {
 	accountModels  func(ctx context.Context, accountID, rawQuery string) ([]byte, error)
 	keyModels      func(ctx context.Context, key store.APIKey) ([]byte, error)
 	roleTarget     func(ctx context.Context, key store.APIKey, role string) (string, string)
+	aliases        func(ctx context.Context) ([]store.Alias, error)
 }
 
 // Deps is what an Admin is built from. Every field is required.
@@ -86,6 +87,8 @@ type Deps struct {
 	// RoleTarget is the real model a role serves for a key, and why not when
 	// it cannot; the gateway's own rule, so the screen says what a request gets.
 	RoleTarget func(ctx context.Context, key store.APIKey, role string) (string, string)
+	// Aliases is every model alias the gateway answers to now.
+	Aliases func(ctx context.Context) ([]store.Alias, error)
 }
 
 // New builds an Admin with no session open.
@@ -97,7 +100,7 @@ func New(d Deps) *Admin {
 		httpClient: d.HTTPClient, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), fetchModels: d.Models, accountModels: d.AccountModels,
-		keyModels: d.KeyModels, roleTarget: d.RoleTarget,
+		keyModels: d.KeyModels, roleTarget: d.RoleTarget, aliases: d.Aliases,
 	}
 }
 
@@ -143,6 +146,7 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/keys/{id}/offered-models", admin(s.handleKeyOfferedModels))
 	mux.Handle("GET /admin/model-roles", admin(s.handleModelRoles))
 	mux.Handle("PUT /admin/model-roles", admin(s.handleSetModelRole))
+	mux.Handle("DELETE /admin/model-roles", admin(s.handleDeleteAlias))
 	mux.Handle("POST /admin/keys/{id}/models", admin(s.handleSetKeyModel))
 
 	mux.Handle("GET /admin/config", admin(s.handleConfig))

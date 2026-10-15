@@ -10,6 +10,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +54,7 @@ type Gateway struct {
 	// newestOf.
 	rolesMu  sync.Mutex
 	newest   map[string]string
+	families []string
 	newestAt time.Time
 }
 
@@ -164,16 +167,20 @@ func (s *Gateway) ModelsFor(ctx context.Context, key store.APIKey) ([]byte, erro
 		return nil, err
 	}
 	s.rememberNewest(body)
+	aliases, err := s.Aliases(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var entries []virtualEntry
-	for _, role := range store.Roles {
-		target, why := s.RoleTarget(ctx, key, role)
+	for _, a := range aliases {
+		target, why := s.RoleTarget(ctx, key, a.Name)
 		if why != "" {
 			continue
 		}
 		entries = append(entries, virtualEntry{
-			ID: role, DisplayName: roleLabel(role),
+			ID: a.Name, DisplayName: roleLabel(a),
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			Serving:   target, Role: strings.TrimPrefix(role, "claude-"),
+			Serving:   target, Role: strings.TrimPrefix(a.Name, "claude-"),
 		})
 	}
 	if len(entries) > 0 {
@@ -198,82 +205,172 @@ type virtualEntry struct {
 	DisplayName string
 	CreatedAt   string
 	Serving     string
-	// Role is "large" or "small", for the config writer.
+	// Role is the alias without its claude- prefix — large, small, opus,
+	// sonnet, haiku, fable — for the config writer.
 	Role string
 }
 
-func roleLabel(role string) string {
-	if role == store.RoleSmall {
-		return "Claude (small)"
+// roleLabel is how an alias reads in a client's model picker.
+func roleLabel(a store.Alias) string {
+	name := strings.TrimPrefix(a.Name, "claude-")
+	switch {
+	case store.IsRoleName(a.Name):
+		return "Claude (" + name + ")"
+	case a.Builtin:
+		return "Claude " + strings.ToUpper(name[:1]) + name[1:]
 	}
-	return "Claude (large)"
+	return a.Name
 }
 
-// newestTTL is how long the newest model of each family is remembered for an
-// automatic role. The list comes from the upstream, once per account, and a
-// new model is released every few months; a request should not wait on it.
+// newestTTL is how long the families and their newest models are remembered.
+// The list comes from the upstream, once per account, and a model is released
+// every few months; a request should not wait on it.
 const newestTTL = 10 * time.Minute
 
-// rememberNewest notes the newest model of each family in a model list, which
-// lists newest first.
+// familyOf is a real model's family, from its id: claude-opus-5-5 is opus.
+var familyOf = regexp.MustCompile(`^claude-([a-z]+)-`)
+
+// rememberNewest notes every family in a model list and the newest model of
+// each, by release date — not by the list's order, and not from a list of
+// families written down here: a family Anthropic adds is found the day an
+// account lists it. Families are kept newest release first.
 func (s *Gateway) rememberNewest(list []byte) {
 	var l struct {
 		Data []struct {
-			ID      string `json:"id"`
-			Virtual bool   `json:"virtual"`
+			ID        string `json:"id"`
+			CreatedAt string `json:"created_at"`
+			Virtual   bool   `json:"virtual"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(list, &l) != nil {
 		return
 	}
-	newest := map[string]string{}
-	for _, m := range l.Data {
-		if m.Virtual {
+	type pick struct {
+		id, at string
+		seen   int // where the family first appears, for ties
+	}
+	newest := map[string]pick{}
+	for i, m := range l.Data {
+		match := familyOf.FindStringSubmatch(m.ID)
+		if m.Virtual || match == nil {
 			continue
 		}
-		for _, family := range []string{"opus", "haiku"} {
-			if _, seen := newest[family]; !seen && strings.HasPrefix(m.ID, "claude-"+family+"-") {
-				newest[family] = m.ID
-			}
+		// RFC 3339 times in one zone order as strings do. A later entry
+		// wins only when strictly newer, so a list that already runs newest
+		// first keeps its first.
+		have, ok := newest[match[1]]
+		if !ok {
+			newest[match[1]] = pick{m.ID, m.CreatedAt, i}
+		} else if m.CreatedAt > have.at {
+			newest[match[1]] = pick{m.ID, m.CreatedAt, have.seen}
 		}
 	}
+	families := make([]string, 0, len(newest))
+	ids := make(map[string]string, len(newest))
+	for f, p := range newest {
+		families = append(families, f)
+		ids[f] = p.id
+	}
+	sort.Slice(families, func(i, j int) bool {
+		a, b := newest[families[i]].at, newest[families[j]].at
+		if a != b {
+			return a > b
+		}
+		// Undated, or released together: the accounts' own order, newest first.
+		return newest[families[i]].seen < newest[families[j]].seen
+	})
 	s.rolesMu.Lock()
-	s.newest, s.newestAt = newest, time.Now()
+	s.newest, s.families, s.newestAt = ids, families, time.Now()
 	s.rolesMu.Unlock()
 }
 
-// newestOf is the newest model of a family, reading the model list again
-// when what was remembered is stale.
-func (s *Gateway) newestOf(ctx context.Context, family string) string {
+// refreshFamilies re-reads the model list when what was remembered is stale.
+func (s *Gateway) refreshFamilies(ctx context.Context) {
 	s.rolesMu.Lock()
-	id, fresh := s.newest[family], time.Since(s.newestAt) < newestTTL
+	stale := time.Since(s.newestAt) >= newestTTL
 	s.rolesMu.Unlock()
-	if fresh && id != "" {
-		return id
+	if !stale {
+		return
 	}
 	if body, err := s.FetchModels(ctx); err == nil {
 		s.rememberNewest(body)
 	}
+}
+
+// newestOf is the newest model of a family.
+func (s *Gateway) newestOf(ctx context.Context, family string) string {
+	s.refreshFamilies(ctx)
 	s.rolesMu.Lock()
 	defer s.rolesMu.Unlock()
 	return s.newest[family]
 }
 
-// RoleTarget is the real model a role serves for a key: the key's binding,
-// else the gateway's, else the newest of the role's family. why is non-empty
-// when it cannot serve — the key may not use it, or no account has it on —
-// and says so, naming the model.
+// Aliases is every alias the gateway answers to now: the two roles, one per
+// family the accounts list (newest release first), and the operator's own.
+func (s *Gateway) Aliases(ctx context.Context) ([]store.Alias, error) {
+	s.refreshFamilies(ctx)
+	out := []store.Alias{
+		{Name: store.RoleLarge, Family: store.AliasFamily(store.RoleLarge), Builtin: true},
+		{Name: store.RoleSmall, Family: store.AliasFamily(store.RoleSmall), Builtin: true},
+	}
+	s.rolesMu.Lock()
+	for _, f := range s.families {
+		out = append(out, store.Alias{Name: "claude-" + f, Family: f, Builtin: true})
+	}
+	s.rolesMu.Unlock()
+	custom, err := s.store.CustomAliases(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range custom {
+		out = append(out, store.Alias{Name: name})
+	}
+	return out, nil
+}
+
+// isAlias reports whether a request's model is one of the aliases. A real id
+// always carries a version, so only a version-less claude-<family> has to be
+// checked against the families, and the model list is not read for a
+// request naming a real model.
+func (s *Gateway) isAlias(ctx context.Context, model string) bool {
+	if store.IsRoleName(model) {
+		return true
+	}
+	if family := store.AliasFamily(model); family != "" {
+		return s.newestOf(ctx, family) != ""
+	}
+	custom, err := s.store.CustomAliases(ctx)
+	if err != nil {
+		return false
+	}
+	key := store.ModelKey(model)
+	for _, name := range custom {
+		if name == key {
+			return true
+		}
+	}
+	return false
+}
+
+// RoleTarget is the real model an alias serves for a key: the key's binding,
+// else the gateway's, else — for a built-in — the newest of its family. why
+// is non-empty when it cannot serve — the key may not use it, or no account
+// has it on — and says so, naming the model.
 func (s *Gateway) RoleTarget(ctx context.Context, key store.APIKey, role string) (target, why string) {
+	role = store.ModelKey(role)
 	bound, err := s.store.RoleBinding(ctx, key.ID, role)
 	if err != nil {
-		return "", "could not read the model roles"
+		return "", "could not read the model aliases"
 	}
 	target = bound
 	if target == "" {
-		target = s.newestOf(ctx, store.RoleFamily(role))
+		family := store.AliasFamily(role)
+		if family == "" {
+			return "", role + " points to no model"
+		}
+		target = s.newestOf(ctx, family)
 		if target == "" {
-			return "", role + " follows the newest " + store.RoleFamily(role) +
-				" model, and no account lists one"
+			return "", role + " follows the newest " + family + " model, and no account lists one"
 		}
 	}
 	if !key.Allows(target) {

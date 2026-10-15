@@ -7,14 +7,19 @@
 export ANTHROPIC_BASE_URL=https://claudication.example.com
 export ANTHROPIC_AUTH_TOKEN=clc_...
 
-# The gateway's two model roles. Every model Claude Code picks goes through
-# its opus and haiku tiers: the main model and its sub-agents through opus,
-# titles, summaries and quick calls through haiku. Which real model answers
-# is set in the gateway, on its Models tab, not here.
-export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-large
-export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-small
+# The gateway's model aliases. Which real model answers each is set in the
+# gateway, on its Models tab, not here. The main model and its sub-agents run
+# on claude-large, titles, summaries and quick calls on claude-small, and
+# picking a tier by name (/model opus, a sub-agent's "haiku") goes to that
+# family's alias.
+export ANTHROPIC_MODEL=claude-large
+export ANTHROPIC_SMALL_FAST_MODEL=claude-small
+export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus
+export ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku
+export ANTHROPIC_DEFAULT_FABLE_MODEL=claude-fable
 
-# Claude Code does not know these two names, so it is told which real models
-# they behave like — their context window, output limit and prompt handling.
+# Claude Code does not know these names, so it is told which real models they
+# behave like — their context window, output limit and prompt handling.
 # Without this it treats them as unknown and caps them at a 200k window.
-claude --settings '{"modelPicker":{"options":[{"model":"claude-large","behavesAs":"claude-opus-5-5"},{"model":"claude-small","behavesAs":"claude-haiku-5-5"}]}}' "$@"
+claude --settings '{"modelPicker":{"options":[{"model":"claude-large","behavesAs":"claude-opus-5-5"},{"model":"claude-small","behavesAs":"claude-haiku-5-5"},{"model":"claude-opus","behavesAs":"claude-opus-5-5"},{"model":"claude-sonnet","behavesAs":"claude-sonnet-5-5"},{"model":"claude-haiku","behavesAs":"claude-haiku-5-5"},{"model":"claude-fable","behavesAs":"claude-fable-5-1"}]}}' "$@"

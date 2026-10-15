@@ -48,6 +48,86 @@
           "default_reasoning_effort": "medium"
         },
         {
+          "id": "claude-opus",
+          "name": "Claude Opus",
+          "context_window": 600000,
+          "default_max_tokens": 128000,
+          "can_reason": true,
+          "supports_attachments": true,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0,
+          "cost_per_1m_in_cached": 0,
+          "cost_per_1m_out_cached": 0,
+          "reasoning_levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default_reasoning_effort": "medium"
+        },
+        {
+          "id": "claude-sonnet",
+          "name": "Claude Sonnet",
+          "context_window": 600000,
+          "default_max_tokens": 128000,
+          "can_reason": true,
+          "supports_attachments": true,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0,
+          "cost_per_1m_in_cached": 0,
+          "cost_per_1m_out_cached": 0,
+          "reasoning_levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default_reasoning_effort": "medium"
+        },
+        {
+          "id": "claude-haiku",
+          "name": "Claude Haiku",
+          "context_window": 600000,
+          "default_max_tokens": 128000,
+          "can_reason": true,
+          "supports_attachments": true,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0,
+          "cost_per_1m_in_cached": 0,
+          "cost_per_1m_out_cached": 0,
+          "reasoning_levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default_reasoning_effort": "medium"
+        },
+        {
+          "id": "claude-fable",
+          "name": "Claude Fable",
+          "context_window": 600000,
+          "default_max_tokens": 128000,
+          "can_reason": true,
+          "supports_attachments": true,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0,
+          "cost_per_1m_in_cached": 0,
+          "cost_per_1m_out_cached": 0,
+          "reasoning_levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default_reasoning_effort": "medium"
+        },
+        {
           "id": "claude-haiku-5-5",
           "name": "Claude Haiku 5.5",
           "context_window": 600000,

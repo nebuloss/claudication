@@ -956,6 +956,176 @@ export function ContextMenu({
   )
 }
 
+/** One choice in a Select. */
+export type SelectOption = { value: string; label: string; hint?: string }
+
+/**
+ * A choice from a list, styled as the outlined fields are.
+ *
+ * Not a native <select>: its popup is the operating system's, which cannot be
+ * styled and on Linux renders as a grey box in the middle of an MD3 page. This
+ * is a button showing the choice and a listbox under it, portalled for the
+ * reason HeaderMenu is, with the keyboard a select has — arrows to move,
+ * Enter to choose, Escape to close.
+ */
+export function Select({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+  className = '',
+}: {
+  label: string
+  value: string
+  options: SelectOption[]
+  onChange: (value: string) => void
+  disabled?: boolean
+  className?: string
+}) {
+  const [at, setAt] = useState<{ left: number; top: number; width: number } | null>(null)
+  const [cursor, setCursor] = useState(0)
+  const anchor = useRef<HTMLButtonElement>(null)
+  const panel = useRef<HTMLUListElement>(null)
+  const id = useId()
+  const open = at !== null
+  const current = options.find((o) => o.value === value) ?? options[0]
+
+  const close = useCallback(() => setAt(null), [])
+  useEscapeKey(close, open)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (panel.current?.contains(t) || anchor.current?.contains(t)) return
+      setAt(null)
+    }
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [open, close])
+
+  // The chosen option in view when the list opens on a long list.
+  useEffect(() => {
+    if (!open) return
+    panel.current?.querySelector<HTMLElement>(`[data-index="${cursor}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [open, cursor])
+
+  const show = () => {
+    const r = anchor.current?.getBoundingClientRect()
+    if (r === undefined) return
+    const width = Math.max(r.width, 260)
+    setCursor(Math.max(0, options.findIndex((o) => o.value === value)))
+    setAt({
+      left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
+      top: r.bottom + 4,
+      width,
+    })
+  }
+  const choose = (o: SelectOption) => {
+    setAt(null)
+    anchor.current?.focus()
+    if (o.value !== value) onChange(o.value)
+  }
+
+  return (
+    <div className={`relative ${className}`}>
+      <button
+        ref={anchor}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => (open ? setAt(null) : show())}
+        onKeyDown={(e) => {
+          if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+            e.preventDefault()
+            show()
+            return
+          }
+          if (!open) return
+          if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            setCursor((c) => Math.min(options.length - 1, c + 1))
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            setCursor((c) => Math.max(0, c - 1))
+          } else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            const o = options[cursor]
+            if (o !== undefined) choose(o)
+          } else if (e.key === 'Tab') {
+            setAt(null)
+          }
+        }}
+        className={`state-layer flex h-14 w-full items-center gap-2 rounded-[var(--radius-md3-xs)] border bg-transparent px-4 pt-4 text-left text-on-surface outline-none disabled:opacity-60 ${
+          open ? 'border-2 border-primary px-[15px]' : 'border-outline focus-visible:border-2 focus-visible:border-primary focus-visible:px-[15px]'
+        }`}
+      >
+        <span className="min-w-0 flex-1 truncate text-sm">{current?.label ?? ''}</span>
+        <svg
+          viewBox="0 0 10 6"
+          aria-hidden
+          className={`h-2 w-3 shrink-0 fill-current text-on-surface-variant transition-transform ${open ? 'rotate-180' : ''}`}
+        >
+          <path d="M0 0h10L5 6z" />
+        </svg>
+      </button>
+      <span
+        className={`pointer-events-none absolute top-2.5 left-4 text-xs ${open ? 'text-primary' : 'text-on-surface-variant'}`}
+      >
+        {label}
+      </span>
+      {open &&
+        createPortal(
+          <ul
+            ref={panel}
+            id={id}
+            role="listbox"
+            aria-label={label}
+            style={{ left: at.left, top: at.top, width: at.width }}
+            className="fixed z-50 m-0 max-h-80 list-none overflow-auto overscroll-contain rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest p-0 py-1 shadow-lg"
+          >
+            {options.map((o, i) => (
+              <li
+                key={o.value}
+                data-index={i}
+                role="option"
+                aria-selected={o.value === value}
+                onMouseEnter={() => setCursor(i)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => choose(o)}
+                className={`flex cursor-pointer items-start gap-2 px-3 py-2 text-sm ${
+                  i === cursor ? 'bg-surface-container' : ''
+                } ${o.value === value ? 'text-primary' : 'text-on-surface'}`}
+              >
+                <span aria-hidden className={`w-4 shrink-0 ${o.value === value ? '' : 'opacity-0'}`}>
+                  ✓
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{o.label}</span>
+                  {o.hint !== undefined && (
+                    <span className="block truncate font-mono text-xs text-on-surface-variant">
+                      {o.hint}
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>,
+          document.body,
+        )}
+    </div>
+  )
+}
+
 /** One line of a header menu that does something when clicked. */
 export function MenuRow({
   onClick,

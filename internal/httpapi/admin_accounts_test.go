@@ -620,6 +620,7 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodGet, "/admin/keys/x/offered-models"},
 		{http.MethodGet, "/admin/model-roles"},
 		{http.MethodPut, "/admin/model-roles"},
+		{http.MethodDelete, "/admin/model-roles"},
 		{http.MethodGet, "/admin/keys/x/secret"},
 		{http.MethodPost, "/admin/keys/x/models"},
 	} {
