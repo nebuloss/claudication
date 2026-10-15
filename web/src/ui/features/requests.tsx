@@ -14,6 +14,7 @@ import {
   Empty,
   Freshness,
   KeyValue,
+  MenuDivider,
   MenuRow,
   Spinner,
   Table,
@@ -22,6 +23,7 @@ import {
   Verbatim,
   compact,
   copyText,
+  menuItem,
 } from '../primitives'
 import { useLive } from '../hooks'
 
@@ -292,7 +294,7 @@ function RecentRequests({
       >
         Failed only
       </MenuRow>
-      <div className="my-1 border-t border-outline-variant" />
+      <MenuDivider />
     </>
   )
 
@@ -1008,13 +1010,13 @@ function FacetList({
       {chosen.length > 0 && (
         <>
           <MenuRow onClick={onClear}>Clear {chosen.length} selected</MenuRow>
-          <div className="my-1 border-t border-outline-variant" />
+          <MenuDivider />
         </>
       )}
       {rows.map((v) => (
         <label
           key={v.value}
-          className="state-layer flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm font-normal tracking-normal text-on-surface"
+          className={menuItem()}
         >
           <input
             type="checkbox"

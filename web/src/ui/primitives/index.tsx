@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useId,
   useRef,
@@ -10,6 +9,17 @@ import {
 import { createPortal } from 'react-dom'
 import { useEscapeKey, useNow } from '../hooks'
 import { navigate } from '../route'
+import {
+  MenuDivider,
+  Popover,
+  menuItem,
+  useAnchoredPanel,
+  useContainedScroll,
+  useDismiss,
+} from './popover'
+
+export { MenuDivider, Popover, menuItem, menuSurface, useAnchoredPanel } from './popover'
+export type { Placement } from './popover'
 
 /* Material 3 primitives, shared by every screen. */
 
@@ -47,6 +57,19 @@ export function CardTitle({ children, aside }: { children: ReactNode; aside?: Re
   )
 }
 
+/**
+ * The outlined field's shape, shared by Field and Select so the two sit side
+ * by side as one family: 56px, a medium rounded corner, the outline turning
+ * primary and 2px when focused (or, for a select, open) — with the padding
+ * a pixel less, so the text does not move when the border thickens.
+ */
+export function outlinedField(focused = false): string {
+  const edge = focused
+    ? 'border-2 border-primary px-[15px]'
+    : 'border border-outline px-4 hover:border-on-surface focus:border-2 focus:border-primary focus:px-[15px] focus-visible:border-2 focus-visible:border-primary focus-visible:px-[15px]'
+  return `h-14 w-full rounded-[var(--radius-md3-m)] bg-transparent pt-4 text-on-surface outline-none transition-colors ${edge}`
+}
+
 /** MD3 outlined text field, with the label riding up out of the way. */
 export function Field({
   label,
@@ -79,9 +102,7 @@ export function Field({
           spellCheck={false}
           autoComplete={autoComplete}
           onChange={(e) => onChange(e.target.value)}
-          className={`peer h-14 w-full rounded-[var(--radius-md3-xs)] border border-outline bg-transparent px-4 pt-4 text-base text-on-surface outline-none transition-colors focus:border-2 focus:border-primary focus:px-[15px] ${
-            mono ? 'font-mono text-sm' : ''
-          }`}
+          className={`peer ${outlinedField()} text-base ${mono ? 'font-mono text-sm' : ''}`}
         />
         <span className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-base text-on-surface-variant transition-all peer-focus:top-2.5 peer-focus:text-xs peer-focus:text-primary peer-[:not(:placeholder-shown)]:top-2.5 peer-[:not(:placeholder-shown)]:text-xs">
           {label}
@@ -699,127 +720,22 @@ export type Column = {
 }
 
 /**
- * A column heading that opens a menu.
- *
- * Portalled rather than drawn inside the cell. A capped table scrolls under
- * overflow-auto, which clips anything absolutely positioned within it, so a
- * panel opened from a heading would be cut off at the first row — and the
- * sticky header makes it worse, not better. Fixed coordinates are read from
- * the heading at the moment it opens.
+ * A column heading that opens a menu: its sort and whatever col.menu holds.
+ * The popup's behaviour — portalled, following the heading, scrolling inside
+ * — is popover.tsx's.
  */
 function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
-  const [at, setAt] = useState<{ left: number; top: number } | null>(null)
-  const anchor = useRef<HTMLButtonElement>(null)
-  const panel = useRef<HTMLDivElement>(null)
-  const open = at !== null
-
-  useEscapeKey(() => setAt(null), open)
-
-  /**
-   * Put the panel under its heading, wherever that heading is now.
-   *
-   * The panel is in fixed coordinates, so it has to be told when the page
-   * moves. This used to close instead, which was the wrong answer twice: a
-   * scroll inside the panel's own list closed the menus long enough to be
-   * worth scrolling, and once that was fixed, a scroll over a *short* list
-   * still closed it — the page scrolls when the panel cannot, so the event
-   * came from the document and looked like someone scrolling away.
-   *
-   * Following removes the whole question. The only reason left to close is the
-   * heading itself leaving the screen, where a menu belonging to something you
-   * cannot see is just a box floating in the page.
-   */
-  const place = useCallback(() => {
-    const rect = anchor.current?.getBoundingClientRect()
-    if (rect === undefined) return
-    if (rect.bottom < 0 || rect.top > window.innerHeight) {
-      setAt(null)
-      return
-    }
-    // Kept on screen: a menu on the last column would otherwise open past the
-    // right edge, where reading it means scrolling the page sideways.
-    const width = 264
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
-    const top = rect.bottom + 4
-    // Same position, same object: scrolling the panel's own list moves no
-    // heading, and a new object every frame would re-render the whole menu
-    // for nothing.
-    setAt((prev) => (prev !== null && prev.left === left && prev.top === top ? prev : { left, top }))
-  }, [])
-
-  // Scrolling over the panel stays in the panel.
-  //
-  // overscroll-contain below does most of this: it stops the scroll chaining
-  // to the page once this list reaches its end. But it only applies while the
-  // list has something to scroll — a short one has no scroll of its own, so
-  // the wheel goes straight through to the document and the page slides away
-  // under a menu you are still reading.
-  //
-  // So a wheel or a drag over a panel that cannot scroll is swallowed.
-  // Non-passive, because preventDefault on a passive listener does nothing and
-  // the browser will say so.
-  useEffect(() => {
-    if (!open) return
-    const el = panel.current
-    if (el === null) return
-    const swallow = (e: Event) => {
-      if (el.scrollHeight <= el.clientHeight) e.preventDefault()
-    }
-    el.addEventListener('wheel', swallow, { passive: false })
-    el.addEventListener('touchmove', swallow, { passive: false })
-    return () => {
-      el.removeEventListener('wheel', swallow)
-      el.removeEventListener('touchmove', swallow)
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Node
-      if (panel.current !== null && panel.current.contains(target)) return
-      if (anchor.current !== null && anchor.current.contains(target)) return
-      setAt(null)
-    }
-    // Capture, so it sees scrolling in any container between here and the
-    // document — the table this heading sits in is one of them. Throttled to a
-    // frame, because a scroll handler that measures on every event measures
-    // far more often than the screen is redrawn.
-    let frame = 0
-    const onScroll = () => {
-      if (frame !== 0) return
-      frame = requestAnimationFrame(() => {
-        frame = 0
-        place()
-      })
-    }
-    window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', onScroll)
-    document.addEventListener('mousedown', onDown)
-    return () => {
-      if (frame !== 0) cancelAnimationFrame(frame)
-      window.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', onScroll)
-      document.removeEventListener('mousedown', onDown)
-    }
-  }, [open, place])
-
-  const toggle = () => {
-    if (open) {
-      setAt(null)
-      return
-    }
-    place()
-  }
+  const p = useAnchoredPanel({ width: 264 })
+  const done = () => p.close()
 
   return (
     <>
       <button
-        ref={anchor}
+        ref={p.anchor}
         type="button"
-        onClick={toggle}
+        onClick={p.toggle}
         aria-haspopup="menu"
-        aria-expanded={open}
+        aria-expanded={p.open}
         className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 text-left ${
           col.sorted !== undefined || col.filtered === true
             ? 'text-on-surface'
@@ -854,42 +770,34 @@ function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
           </svg>
         )}
       </button>
-      {open &&
-        createPortal(
-          <div
-            ref={panel}
-            role="menu"
-            aria-label={col.label}
-            style={{ left: at.left, top: at.top, width: 264 }}
-            className="fixed z-50 max-h-[22rem] overflow-auto overscroll-contain rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest py-1 text-sm normal-case shadow-lg"
-          >
-            {col.onSort !== undefined && (
-              <>
-                <MenuRow
-                  onClick={() => {
-                    col.onSort?.('asc')
-                    setAt(null)
-                  }}
-                  active={col.sorted === 'asc'}
-                >
-                  Sort ascending
-                </MenuRow>
-                <MenuRow
-                  onClick={() => {
-                    col.onSort?.('desc')
-                    setAt(null)
-                  }}
-                  active={col.sorted === 'desc'}
-                >
-                  Sort descending
-                </MenuRow>
-                <div className="my-1 border-t border-outline-variant" />
-              </>
-            )}
-            {children}
-          </div>,
-          document.body,
-        )}
+      {p.at !== null && (
+        <Popover panelRef={p.panel} at={p.at} role="menu" label={col.label}>
+          {col.onSort !== undefined && (
+            <>
+              <MenuRow
+                onClick={() => {
+                  col.onSort?.('asc')
+                  done()
+                }}
+                active={col.sorted === 'asc'}
+              >
+                Sort ascending
+              </MenuRow>
+              <MenuRow
+                onClick={() => {
+                  col.onSort?.('desc')
+                  done()
+                }}
+                active={col.sorted === 'desc'}
+              >
+                Sort descending
+              </MenuRow>
+              <MenuDivider />
+            </>
+          )}
+          {children}
+        </Popover>
+      )}
     </>
   )
 }
@@ -897,11 +805,10 @@ function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
 /**
  * A menu opened where the pointer is, on right-click.
  *
- * Portalled into fixed coordinates for the reason HeaderMenu is: a capped
- * table clips anything positioned inside it. Unlike a heading's menu it has no
- * anchor to follow, so a scroll closes it rather than moving it — the point it
- * was opened at is somewhere else once the page moves. The first item takes
- * focus, so the keyboard's own context-menu key leads somewhere usable.
+ * It has no anchor to follow, so a scroll of the page closes it — the point it
+ * was opened at is somewhere else once the page moves. A scroll inside the
+ * menu does not. The first item takes focus, so the keyboard's own
+ * context-menu key leads somewhere usable.
  */
 export function ContextMenu({
   at,
@@ -916,19 +823,19 @@ export function ContextMenu({
 }) {
   const panel = useRef<HTMLDivElement>(null)
   useEscapeKey(onClose)
+  useDismiss(true, [panel], onClose)
+  useContainedScroll(panel, true)
 
   useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (panel.current !== null && panel.current.contains(e.target as Node)) return
+    const onScroll = (e: Event) => {
+      if (panel.current?.contains(e.target as Node) === true) return
       onClose()
     }
-    window.addEventListener('scroll', onClose, true)
+    window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', onClose)
-    document.addEventListener('mousedown', onDown)
     return () => {
-      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', onClose)
-      document.removeEventListener('mousedown', onDown)
     }
   }, [onClose])
 
@@ -936,23 +843,21 @@ export function ContextMenu({
     panel.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
   }, [])
 
-  // Kept on screen, as HeaderMenu is: a right-click near an edge would
-  // otherwise open the menu past it.
+  // Kept on screen: a right-click near an edge would otherwise open the menu
+  // past it.
   const width = 232
   const left = Math.max(8, Math.min(at.x, window.innerWidth - width - 8))
   const top = Math.max(8, Math.min(at.y, window.innerHeight - 160))
 
-  return createPortal(
-    <div
-      ref={panel}
+  return (
+    <Popover
+      panelRef={panel}
+      at={{ left, top, width, maxHeight: window.innerHeight - top - 8 }}
       role="menu"
-      aria-label={label}
-      style={{ left, top, width }}
-      className="fixed z-50 rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest py-1 text-sm shadow-lg"
+      label={label}
     >
       {children}
-    </div>,
-    document.body,
+    </Popover>
   )
 }
 
@@ -960,13 +865,12 @@ export function ContextMenu({
 export type SelectOption = { value: string; label: string; hint?: string }
 
 /**
- * A choice from a list, styled as the outlined fields are.
+ * A choice from a list, as an MD3 outlined select: the field the text fields
+ * are, and a menu under it.
  *
  * Not a native <select>: its popup is the operating system's, which cannot be
- * styled and on Linux renders as a grey box in the middle of an MD3 page. This
- * is a button showing the choice and a listbox under it, portalled for the
- * reason HeaderMenu is, with the keyboard a select has — arrows to move,
- * Enter to choose, Escape to close.
+ * styled and on Linux renders as a grey box in the middle of an MD3 page. The
+ * keyboard is a select's — arrows to move, Enter to choose, Escape to close.
  */
 export function Select({
   label,
@@ -983,74 +887,48 @@ export function Select({
   disabled?: boolean
   className?: string
 }) {
-  const [at, setAt] = useState<{ left: number; top: number; width: number } | null>(null)
+  const p = useAnchoredPanel({ width: 260, matchAnchor: true, maxHeight: 320 })
   const [cursor, setCursor] = useState(0)
-  const anchor = useRef<HTMLButtonElement>(null)
-  const panel = useRef<HTMLUListElement>(null)
   const id = useId()
-  const open = at !== null
   const current = options.find((o) => o.value === value) ?? options[0]
 
-  const close = useCallback(() => setAt(null), [])
-  useEscapeKey(close, open)
-
+  // The cursor on the chosen option, and that option in view, as it opens.
   useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node
-      if (panel.current?.contains(t) || anchor.current?.contains(t)) return
-      setAt(null)
-    }
-    window.addEventListener('scroll', close, true)
-    window.addEventListener('resize', close)
-    document.addEventListener('mousedown', onDown)
-    return () => {
-      window.removeEventListener('scroll', close, true)
-      window.removeEventListener('resize', close)
-      document.removeEventListener('mousedown', onDown)
-    }
-  }, [open, close])
-
-  // The chosen option in view when the list opens on a long list.
-  useEffect(() => {
-    if (!open) return
-    panel.current?.querySelector<HTMLElement>(`[data-index="${cursor}"]`)?.scrollIntoView({ block: 'nearest' })
-  }, [open, cursor])
-
-  const show = () => {
-    const r = anchor.current?.getBoundingClientRect()
-    if (r === undefined) return
-    const width = Math.max(r.width, 260)
+    if (!p.open) return
     setCursor(Math.max(0, options.findIndex((o) => o.value === value)))
-    setAt({
-      left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
-      top: r.bottom + 4,
-      width,
-    })
-  }
+    // Only on opening: the list re-rendering while open must not move it.
+  }, [p.open])
+  useEffect(() => {
+    if (!p.open) return
+    p.panel.current
+      ?.querySelector<HTMLElement>(`[data-index="${cursor}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [p.open, p.panel, cursor])
+
   const choose = (o: SelectOption) => {
-    setAt(null)
-    anchor.current?.focus()
+    p.close()
+    p.anchor.current?.focus()
     if (o.value !== value) onChange(o.value)
   }
 
   return (
     <div className={`relative ${className}`}>
       <button
-        ref={anchor}
+        ref={p.anchor}
         type="button"
         disabled={disabled}
         aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={() => (open ? setAt(null) : show())}
+        aria-expanded={p.open}
+        aria-controls={p.open ? id : undefined}
+        onClick={p.toggle}
         onKeyDown={(e) => {
-          if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-            e.preventDefault()
-            show()
+          if (!p.open) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault()
+              p.show()
+            }
             return
           }
-          if (!open) return
           if (e.key === 'ArrowDown') {
             e.preventDefault()
             setCursor((c) => Math.min(options.length - 1, c + 1))
@@ -1062,71 +940,58 @@ export function Select({
             const o = options[cursor]
             if (o !== undefined) choose(o)
           } else if (e.key === 'Tab') {
-            setAt(null)
+            p.close()
           }
         }}
-        className={`state-layer flex h-14 w-full items-center gap-2 rounded-[var(--radius-md3-xs)] border bg-transparent px-4 pt-4 text-left text-on-surface outline-none disabled:opacity-60 ${
-          open ? 'border-2 border-primary px-[15px]' : 'border-outline focus-visible:border-2 focus-visible:border-primary focus-visible:px-[15px]'
-        }`}
+        className={`${outlinedField(p.open)} state-layer flex items-center gap-2 text-left disabled:opacity-60`}
       >
         <span className="min-w-0 flex-1 truncate text-sm">{current?.label ?? ''}</span>
         <svg
           viewBox="0 0 10 6"
           aria-hidden
-          className={`h-2 w-3 shrink-0 fill-current text-on-surface-variant transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`h-2 w-3 shrink-0 fill-current text-on-surface-variant transition-transform ${p.open ? 'rotate-180' : ''}`}
         >
           <path d="M0 0h10L5 6z" />
         </svg>
       </button>
       <span
-        className={`pointer-events-none absolute top-2.5 left-4 text-xs ${open ? 'text-primary' : 'text-on-surface-variant'}`}
+        className={`pointer-events-none absolute top-2.5 left-4 text-xs ${p.open ? 'text-primary' : 'text-on-surface-variant'}`}
       >
         {label}
       </span>
-      {open &&
-        createPortal(
-          <ul
-            ref={panel}
-            id={id}
-            role="listbox"
-            aria-label={label}
-            style={{ left: at.left, top: at.top, width: at.width }}
-            className="fixed z-50 m-0 max-h-80 list-none overflow-auto overscroll-contain rounded-[var(--radius-md3-s)] border border-outline-variant bg-surface-lowest p-0 py-1 shadow-lg"
-          >
-            {options.map((o, i) => (
-              <li
-                key={o.value}
-                data-index={i}
-                role="option"
-                aria-selected={o.value === value}
-                onMouseEnter={() => setCursor(i)}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => choose(o)}
-                className={`flex cursor-pointer items-start gap-2 px-3 py-2 text-sm ${
-                  i === cursor ? 'bg-surface-container' : ''
-                } ${o.value === value ? 'text-primary' : 'text-on-surface'}`}
-              >
-                <span aria-hidden className={`w-4 shrink-0 ${o.value === value ? '' : 'opacity-0'}`}>
-                  ✓
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{o.label}</span>
-                  {o.hint !== undefined && (
-                    <span className="block truncate font-mono text-xs text-on-surface-variant">
-                      {o.hint}
-                    </span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>,
-          document.body,
-        )}
+      {p.at !== null && (
+        <Popover panelRef={p.panel} at={p.at} role="listbox" label={label} id={id}>
+          {options.map((o, i) => (
+            <div
+              key={o.value}
+              data-index={i}
+              role="option"
+              aria-selected={o.value === value}
+              onMouseEnter={() => setCursor(i)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => choose(o)}
+              className={menuItem({ active: i === cursor, selected: o.value === value })}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{o.label}</span>
+                {o.hint !== undefined && (
+                  <span className="block truncate font-mono text-xs opacity-75">{o.hint}</span>
+                )}
+              </span>
+              {o.value === value && (
+                <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
+                  <path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+                </svg>
+              )}
+            </div>
+          ))}
+        </Popover>
+      )}
     </div>
   )
 }
 
-/** One line of a header menu that does something when clicked. */
+/** One line of a menu that does something when clicked. */
 export function MenuRow({
   onClick,
   active = false,
@@ -1141,9 +1006,7 @@ export function MenuRow({
       type="button"
       role="menuitem"
       onClick={onClick}
-      className={`state-layer flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-normal tracking-normal ${
-        active ? 'text-primary' : 'text-on-surface'
-      }`}
+      className={`${menuItem()} ${active ? 'text-primary' : ''}`}
     >
       {children}
     </button>
