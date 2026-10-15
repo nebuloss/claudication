@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { api, messageOf, type ApiKey, type SubscriptionShare } from '../../api/client'
 import { useLoader } from '../hooks'
-import { KEY_SETTINGS, navigate, pathOf } from '../route'
+import { navigate } from '../route'
 import ScopedUsage, { accountHref, keyHref } from './usage'
-import { DetailHeader, ItemSettings } from './detail'
+import { DetailHeader } from './detail'
 import { ChatsPage } from './chats'
 import RequestsPanel from './requests'
 import { KeyModels } from './account-models'
@@ -269,7 +269,6 @@ export function KeyPage({
   /** Shows a new secret and its client configs, as for a key just created. */
   onMinted: (m: { key: ApiKey; plaintext: string }) => void
 }) {
-  const base = pathOf('keys', id)
   // Not on the settings page: the form is filled from the loaded key, and a
   // poll landing mid-edit would reset the fields under the cursor.
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
@@ -302,7 +301,8 @@ export function KeyPage({
   return (
     <div className="flex flex-col gap-5">
       <DetailHeader
-        trail={[{ label: 'API keys', href: '/keys' }]}
+        kind="keys"
+        id={k.id}
         title={k.name}
         subtitle={
           <>
@@ -331,27 +331,20 @@ export function KeyPage({
             {k.subscription !== undefined && <SubscriptionCell share={k.subscription} />}
           </span>
         }
-        base={base}
-        page={page}
-        section={
-          page === 'settings' ? KEY_SETTINGS.find((x) => x.id === section)?.label : undefined
-        }
         freshness={{ updatedAt, refreshing, live, onRefresh: () => void reload() }}
       />
 
       {error !== '' && <Banner tone="error">{error}</Banner>}
 
       {page === 'settings' && (
-        <ItemSettings base={base} sections={KEY_SETTINGS} current={section} danger="delete">
-          <KeySettings
-            key={section}
-            apiKey={k}
-            section={section}
-            defaultRpm={data?.defaultRpm ?? 0}
-            onSaved={() => void reload()}
-            onMinted={onMinted}
-          />
-        </ItemSettings>
+        <KeySettings
+          key={section}
+          apiKey={k}
+          section={section}
+          defaultRpm={data?.defaultRpm ?? 0}
+          onSaved={() => void reload()}
+          onMinted={onMinted}
+        />
       )}
       {page === 'chats' && <ChatsPage scope={{ key: k.id }} onExpired={onExpired} />}
       {page === 'requests' && <RequestsPanel scope={{ key: k.id }} onExpired={onExpired} />}

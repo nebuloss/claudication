@@ -19,7 +19,7 @@ const OUT = process.env.OUT ?? new URL('../web/.charts-check', import.meta.url).
 const { niceTicks, LinearScale, LogScale, BandScale, edgeAnchor } =
   await import(`${OUT}/charts/scale.js`)
 const { Stack } = await import(`${OUT}/charts/stack.js`)
-const { canonical, tabOf, segments, pathOf } = await import(
+const { canonical, tabOf, segments, pathOf, navLevel, trailOf } = await import(
   `${OUT}/route.js`
 )
 const { Solid, Hatch, Line } = await import(`${OUT}/charts/paint.js`)
@@ -203,10 +203,40 @@ check('a moved screen names where it went', tab('/models'), 'settings')
 // Round trip: every canonical path is its own canonical form.
 check(
   'canonical paths are fixed points',
-  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/delete', '/activity/requests', '/settings/security']
+  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/security']
     .map((p) => canonical(p)),
-  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/delete', '/activity/requests', '/settings/security'],
+  ['/', '/accounts', '/accounts/x/usage', '/keys/x/settings/advanced', '/activity/requests', '/settings/security'],
 )
+
+// The rail lists only the level a page is on, with the way up; the trail
+// lists every level. Names come from the pages, by id.
+{
+  const name = (kind, id) => `${kind}:${id}`
+  const lvl = (p) => navLevel(canonical(p), name)
+  const hrefs = (l) => l.items.map((i) => i.href)
+
+  check('the top level has no way up', lvl('/').back, undefined)
+  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Overview', 'Claude accounts', 'API keys', 'Activity', 'Settings'])
+  check('a list is on the top level', lvl('/accounts').current, '/accounts')
+  check('each screen opens on its first page', hrefs(lvl('/'))[3], '/activity/chats')
+  check('an account lists its pages', hrefs(lvl('/accounts/a1/chats')), [
+    '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests', '/accounts/a1/settings/models',
+  ])
+  check('and goes back to the list', lvl('/accounts/a1/chats').back, { href: '/accounts', label: 'Claude accounts' })
+  check('its settings list their sections only', lvl('/keys/k1/settings/limits').items.length, 5)
+  check('and go back to the key, by name', lvl('/keys/k1/settings/limits').back, { href: '/keys/k1/usage', label: 'keys:k1' })
+  check('the open section is current', lvl('/keys/k1/settings/limits').current, '/keys/k1/settings/limits')
+  check('removing is under Advanced, last', lvl('/keys/k1/settings/limits').items.at(-1).href, '/keys/k1/settings/advanced')
+  check('settings go back to the top', lvl('/settings/apis').back.href, '/')
+
+  const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
+  check('the overview is one step', trail('/'), ['Overview'])
+  check('a section of an account', trail('/accounts/a1/settings/connection'), ['Claude accounts', 'accounts:a1', 'Settings', 'Connection'])
+  check('a gateway section', trail('/settings/apis'), ['Settings', 'API surfaces'])
+  check('an activity page', trail('/activity/requests'), ['Activity', 'Requests'])
+  check('a step links to its page', trailOf('/accounts/a1/settings/connection', name)[2].href, '/accounts/a1/settings/models')
+}
+
 
 // The client configs handed out are the committed files with their models
 // rewritten from the gateway's live list. Checked against the real committed

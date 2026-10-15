@@ -46,7 +46,7 @@ export const ACCOUNT_SETTINGS = [
   { id: 'models', label: 'Models' },
   { id: 'connection', label: 'Connection' },
   { id: 'availability', label: 'Availability' },
-  { id: 'remove', label: 'Remove' },
+  { id: 'advanced', label: 'Advanced' },
 ] as const satisfies readonly Section[]
 
 export const KEY_SETTINGS = [
@@ -54,7 +54,7 @@ export const KEY_SETTINGS = [
   { id: 'aliases', label: 'Model aliases' },
   { id: 'limits', label: 'Name and limits' },
   { id: 'configs', label: 'Client configurations' },
-  { id: 'delete', label: 'Delete' },
+  { id: 'advanced', label: 'Advanced' },
 ] as const satisfies readonly Section[]
 
 export const ACTIVITY_PAGES = [
@@ -135,6 +135,94 @@ export function canonical(pathname: string): string {
 export function tabOf(pathname: string): Tab {
   const top = segments(pathname)[0]
   return TABS.some((t) => t.id === top) ? (top as Tab) : 'overview'
+}
+
+/** A place to go: where, and what the navigation calls it. */
+export type NavLink = { href: string; label: string }
+
+/**
+ * The navigation for one page: the choices on its own level, which one is
+ * this page, and the way up a level.
+ *
+ * Only the last level is listed, so the rail stays a handful of short entries
+ * however deep the page is — an account's settings show its four sections,
+ * not the whole tree above them. The level above is one Back away, and the
+ * breadcrumb (trailOf) shows every level at once.
+ */
+export type NavLevel = { back?: NavLink; items: NavLink[]; current: string }
+
+/** Names an account or a key by id, for the trail and the Back button. */
+export type Namer = (kind: 'accounts' | 'keys', id: string) => string
+
+const links = (base: string, list: readonly Section[]): NavLink[] =>
+  list.map((s) => ({ href: `${base}/${s.id}`, label: s.label }))
+
+const ROOT: NavLink[] = TABS.map((t) => ({
+  href: t.id === 'overview' ? '/' : `/${t.id}`,
+  label: t.label,
+}))
+const HOME: NavLink = { href: '/', label: 'Main menu' }
+
+/** The navigation level of a canonical path. */
+export function navLevel(pathname: string, name: Namer): NavLevel {
+  const [top, id, page, section] = segments(pathname)
+  if ((top === 'accounts' || top === 'keys') && id !== undefined) {
+    const base = pathOf(top, id)
+    if (page === 'settings') {
+      const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
+      return {
+        back: { href: `${base}/usage`, label: name(top, id) },
+        items: links(`${base}/settings`, list),
+        current: `${base}/settings/${section}`,
+      }
+    }
+    const list = TABS.find((t) => t.id === top)!
+    return {
+      back: { href: pathOf(top), label: list.label },
+      // Settings opens on its first section; its link says so, so it is the
+      // same href the page will end up at and Back history stays clean.
+      items: links(base, ITEM_PAGES).map((l) =>
+        l.href === `${base}/settings` ? { ...l, href: canonical(l.href) } : l,
+      ),
+      current: `${base}/${page}`,
+    }
+  }
+  if (top === 'activity') {
+    return { back: HOME, items: links('/activity', ACTIVITY_PAGES), current: pathOf(top, id ?? '') }
+  }
+  if (top === 'settings') {
+    return { back: HOME, items: links('/settings', GATEWAY_SETTINGS), current: pathOf(top, id ?? '') }
+  }
+  // The root's own level: the screens, each opening on its first page.
+  return {
+    items: ROOT.map((l) => ({ ...l, href: canonical(l.href) })),
+    current: canonical(top === undefined ? '/' : pathOf(top)),
+  }
+}
+
+/** Every level from the top down to this page, each but the last a link. */
+export function trailOf(pathname: string, name: Namer): NavLink[] {
+  const [top, id, page, section] = segments(pathname)
+  const tab = TABS.find((t) => t.id === tabOf(pathname))!
+  const tabHref = canonical(tab.id === 'overview' ? '/' : pathOf(tab.id))
+  const out: NavLink[] = [{ href: tabHref, label: tab.label }]
+  const label = (list: readonly Section[], x: string | undefined) =>
+    list.find((s) => s.id === x)?.label ?? x ?? ''
+  if ((top === 'accounts' || top === 'keys') && id !== undefined) {
+    const base = pathOf(top, id)
+    out[0] = { href: pathOf(top), label: tab.label }
+    out.push({ href: `${base}/usage`, label: name(top, id) })
+    out.push({ href: canonical(`${base}/${page}`), label: label(ITEM_PAGES, page) })
+    if (page === 'settings') {
+      const list = top === 'accounts' ? ACCOUNT_SETTINGS : KEY_SETTINGS
+      out.push({ href: pathOf(top, id, 'settings', section ?? ''), label: label(list, section) })
+    }
+  } else if (top === 'activity' && id !== undefined) {
+    out.push({ href: pathOf(top, id), label: label(ACTIVITY_PAGES, id) })
+  } else if (top === 'settings' && id !== undefined) {
+    out.push({ href: pathOf(top, id), label: label(GATEWAY_SETTINGS, id) })
+  }
+  return out
 }
 
 /**

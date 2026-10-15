@@ -1,7 +1,5 @@
 import { ChatsPage } from './chats'
 import RequestsPanel from './requests'
-import { LinkTabs } from '../primitives'
-import { ACTIVITY_PAGES } from '../route'
 
 /**
  * What the gateway has been doing, across every account and key: the
@@ -15,10 +13,9 @@ import { ACTIVITY_PAGES } from '../route'
  * a link to a filtered log lands on the log.
  */
 export default function Activity({ page, onExpired }: { page: string; onExpired: () => void }) {
-  return (
-    <div className="flex flex-col gap-5">
-      <LinkTabs label="Activity" base="/activity" pages={ACTIVITY_PAGES} current={page} />
-      {page === 'requests' ? <RequestsPanel onExpired={onExpired} /> : <ChatsPage onExpired={onExpired} />}
-    </div>
+  return page === 'requests' ? (
+    <RequestsPanel onExpired={onExpired} />
+  ) : (
+    <ChatsPage onExpired={onExpired} />
   )
 }

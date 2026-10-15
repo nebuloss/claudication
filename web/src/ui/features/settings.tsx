@@ -6,8 +6,7 @@ import PublicDocs from './public-docs'
 import Security from './security'
 import Surfaces from './surfaces'
 import { type GatewayConfig, type Session } from '../../api/client'
-import { Card, Empty, SectionLayout, Spinner } from '../primitives'
-import { GATEWAY_SETTINGS } from '../route'
+import { Card, Empty, Spinner } from '../primitives'
 
 /**
  * Settings: a page per section (/settings/<section>) — the model aliases
@@ -102,9 +101,5 @@ export default function Settings({
     }
   })()
 
-  return (
-    <SectionLayout label="Settings" base="/settings" sections={GATEWAY_SETTINGS} current={section}>
-      {page}
-    </SectionLayout>
-  )
+  return <div className="flex flex-col gap-5">{page}</div>
 }

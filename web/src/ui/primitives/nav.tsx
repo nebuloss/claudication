@@ -1,11 +1,11 @@
-import type { MouseEvent, ReactNode } from 'react'
-import { navigate, type Section } from '../route'
+import type { MouseEvent } from 'react'
+import { navigate, type NavLevel, type NavLink } from '../route'
 
 /**
- * Navigation, as links. Every place in the UI is a path (see route.ts), so
- * everything that moves between places is an <a href> the browser can open in
- * a new tab, copy, or show in its status bar — the click is intercepted only
- * so the app is not rebuilt to change a path.
+ * The app's navigation: one trail across the top, one rail down the side,
+ * for every page. Both are read off the path (route.ts), and both are plain
+ * links — the browser can open any of them in a new tab or copy it — with the
+ * click intercepted only so the app is not rebuilt to change a path.
  */
 
 /** Follow an in-app link without a reload; leave modified clicks to the browser. */
@@ -18,144 +18,95 @@ export function follow(href: string) {
   }
 }
 
-/** One step of a breadcrumb trail; the last has no href, being where you are. */
-export type Crumb = { label: string; href?: string }
+const chevron = 'M9.3 6.7 10.7 5.3 17.4 12l-6.7 6.7-1.4-1.4 5.3-5.3z'
 
-/** Where this page sits in the tree, each step above it a link. */
-export function Breadcrumbs({ trail }: { trail: Crumb[] }) {
+/** Where this page sits in the tree: every level above it a link, itself not. */
+export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
   return (
-    <nav aria-label="Breadcrumb" className="min-w-0">
-      <ol className="m-0 flex list-none flex-wrap items-center gap-1 p-0 text-sm">
-        {trail.map((c, i) => (
-          <li key={i} className="flex min-w-0 items-center gap-1">
-            {i > 0 && (
-              <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-on-surface-variant/60">
-                <path d="M9.3 6.7 10.7 5.3 17.4 12l-6.7 6.7-1.4-1.4 5.3-5.3z" />
-              </svg>
-            )}
-            {c.href !== undefined ? (
-              <a
-                href={c.href}
-                onClick={follow(c.href)}
-                className="state-layer truncate rounded-[var(--radius-md3-full)] px-2 py-1 text-on-surface-variant hover:text-on-surface"
-              >
-                {c.label}
-              </a>
-            ) : (
-              <span aria-current="page" className="truncate px-2 py-1 text-on-surface">
-                {c.label}
-              </span>
-            )}
-          </li>
-        ))}
+    <nav aria-label="Breadcrumb" className="min-w-0 overflow-x-auto">
+      <ol className="m-0 flex min-w-max list-none items-center gap-0.5 p-0 text-sm">
+        {trail.map((c, i) => {
+          const last = i === trail.length - 1
+          return (
+            <li key={c.href + i} className="flex items-center gap-0.5">
+              {i > 0 && (
+                <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-on-surface-variant/60">
+                  <path d={chevron} />
+                </svg>
+              )}
+              {last ? (
+                <span aria-current="page" className="max-w-[24ch] truncate px-2 py-1 font-medium text-on-surface">
+                  {c.label}
+                </span>
+              ) : (
+                <a
+                  href={c.href}
+                  onClick={follow(c.href)}
+                  className="state-layer max-w-[24ch] truncate rounded-[var(--radius-md3-full)] px-2 py-1 text-on-surface-variant hover:text-on-surface"
+                >
+                  {c.label}
+                </a>
+              )}
+            </li>
+          )
+        })}
       </ol>
     </nav>
   )
 }
 
 /**
- * The pages of one place, as MD3 secondary tabs: Usage, Chats, Requests,
- * Settings under an account. Each is a link to its path.
+ * The choices of the level this page is on, and the way up.
+ *
+ * Only that level: at the top the screens, under an account its pages, under
+ * its settings their sections — so the rail is always a handful of short
+ * entries. Vertical beside the page on a wide screen; a row that scrolls
+ * sideways above it on a narrow one.
  */
-export function LinkTabs({
-  label,
-  base,
-  pages,
-  current,
-  aside,
-}: {
-  label: string
-  /** The place's path; each page is base/<id>. */
-  base: string
-  pages: readonly Section[]
-  current: string
-  aside?: ReactNode
-}) {
+export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean }) {
+  const item = (on: boolean) =>
+    `state-layer flex h-10 shrink-0 items-center rounded-[var(--radius-md3-full)] px-4 text-sm font-medium whitespace-nowrap ${
+      on
+        ? 'bg-secondary-container text-on-secondary-container'
+        : 'text-on-surface-variant hover:text-on-surface'
+    }`
   return (
-    <div className="-mx-1 overflow-x-auto px-1">
-      <nav
-        aria-label={label}
-        className="flex w-full min-w-max items-center gap-1 border-b border-outline-variant"
-      >
-        {pages.map((p) => {
-          const href = `${base}/${p.id}`
-          const on = p.id === current
-          return (
+    <nav
+      aria-label="Navigation"
+      className={row ? '-mx-1 overflow-x-auto px-1' : 'flex flex-col gap-1'}
+    >
+      <ul className={`m-0 flex list-none gap-1 p-0 ${row ? 'min-w-max items-center' : 'flex-col'}`}>
+        {level.back !== undefined && (
+          <li className={row ? '' : 'mb-1 border-b border-outline-variant pb-2'}>
             <a
-              key={p.id}
-              href={href}
-              onClick={follow(href)}
-              aria-current={on ? 'page' : undefined}
-              className={`state-layer relative rounded-t-[var(--radius-md3-m)] px-4 py-3 text-sm font-medium whitespace-nowrap ${
-                on ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'
-              }`}
+              href={level.back.href}
+              onClick={follow(level.back.href)}
+              title={`Back to ${level.back.label}`}
+              className="state-layer flex h-10 min-w-0 items-center gap-2 rounded-[var(--radius-md3-full)] pr-4 pl-2 text-sm text-on-surface-variant hover:text-on-surface"
             >
-              {p.label}
-              {on && <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-t-full bg-primary" />}
+              <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
+                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+              </svg>
+              <span className={`truncate ${row ? 'max-w-[16ch]' : ''}`}>{level.back.label}</span>
             </a>
+          </li>
+        )}
+        {level.items.map((l) => {
+          const on = l.href === level.current
+          return (
+            <li key={l.href}>
+              <a
+                href={l.href}
+                onClick={follow(l.href)}
+                aria-current={on ? 'page' : undefined}
+                className={item(on)}
+              >
+                {l.label}
+              </a>
+            </li>
           )
         })}
-        {aside !== undefined && <div className="ml-auto pb-1 pl-4">{aside}</div>}
-      </nav>
-    </div>
-  )
-}
-
-/**
- * A list of sections beside the one open, as an MD3 navigation drawer: one
- * page per section, each a path, so a section is a link and a bookmark rather
- * than a card somewhere down a long page.
- *
- * Beside the content on a wide screen; above it, as a row that scrolls
- * sideways, on a narrow one.
- */
-export function SectionLayout({
-  label,
-  base,
-  sections,
-  current,
-  tone,
-  children,
-}: {
-  label: string
-  /** The place's path; each section is base/<id>. */
-  base: string
-  sections: readonly Section[]
-  current: string
-  /** Sections drawn in the error colour: the destructive ones. */
-  tone?: Record<string, 'error'>
-  children: ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-5 md:flex-row md:items-start md:gap-8">
-      <nav aria-label={label} className="-mx-1 overflow-x-auto px-1 md:sticky md:top-32 md:mx-0 md:w-60 md:shrink-0 md:overflow-visible md:px-0">
-        <ul className="m-0 flex w-max list-none gap-1 p-0 md:w-auto md:flex-col">
-          {sections.map((s) => {
-            const href = `${base}/${s.id}`
-            const on = s.id === current
-            const danger = tone?.[s.id] === 'error'
-            return (
-              <li key={s.id}>
-                <a
-                  href={href}
-                  onClick={follow(href)}
-                  aria-current={on ? 'page' : undefined}
-                  className={`state-layer flex h-10 items-center rounded-[var(--radius-md3-full)] px-4 text-sm font-medium whitespace-nowrap md:h-12 md:px-5 ${
-                    on
-                      ? 'bg-secondary-container text-on-secondary-container'
-                      : danger
-                        ? 'text-error'
-                        : 'text-on-surface-variant hover:text-on-surface'
-                  }`}
-                >
-                  {s.label}
-                </a>
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
-      <div className="flex min-w-0 flex-1 flex-col gap-5">{children}</div>
-    </div>
+      </ul>
+    </nav>
   )
 }

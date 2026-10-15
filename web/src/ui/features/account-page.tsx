@@ -2,13 +2,13 @@ import { useState } from 'react'
 import AccountSettings, { status } from './account-card'
 import { Window } from './accounts'
 import { ChatsPage } from './chats'
-import { DetailHeader, ItemSettings } from './detail'
+import { DetailHeader } from './detail'
 import QuotaMeter from './quota-meter'
 import RequestsPanel from './requests'
 import ScopedUsage from './usage'
 import { api } from '../../api/client'
 import { useLoader } from '../hooks'
-import { ACCOUNT_SETTINGS, navigate, pathOf } from '../route'
+import { navigate } from '../route'
 import { Banner, Card, CardTitle, Chip, Empty, SmallButton, Spinner } from '../primitives'
 
 /** As on the list: the server says how often it re-reads the quota. */
@@ -39,8 +39,6 @@ export default function AccountPage({
   section: string
   onExpired: () => void
 }) {
-  const base = pathOf('accounts', id)
-  const sectionLabel = ACCOUNT_SETTINGS.find((x) => x.id === section)?.label
   const [reading, setReading] = useState(false)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     () => api.listAccounts(),
@@ -77,7 +75,8 @@ export default function AccountPage({
   return (
     <div className="flex flex-col gap-5">
       <DetailHeader
-        trail={[{ label: 'Claude accounts', href: '/accounts' }]}
+        kind="accounts"
+        id={account.id}
         title={account.email}
         subtitle={`Priority ${rank + 1} of ${accounts.length} · ${account.provider}`}
         aside={
@@ -92,24 +91,19 @@ export default function AccountPage({
             )}
           </>
         }
-        base={base}
-        page={page}
-        section={page === 'settings' ? sectionLabel : undefined}
         freshness={{ updatedAt, refreshing, live, onRefresh: () => void reload() }}
       />
 
       {error !== '' && <Banner tone="error">{error}</Banner>}
 
       {page === 'settings' && (
-        <ItemSettings base={base} sections={ACCOUNT_SETTINGS} current={section} danger="remove">
-          <AccountSettings
-            key={section}
-            account={account}
-            section={section}
-            onChanged={() => void reload()}
-            onRemoved={() => navigate('/accounts')}
-          />
-        </ItemSettings>
+        <AccountSettings
+          key={section}
+          account={account}
+          section={section}
+          onChanged={() => void reload()}
+          onRemoved={() => navigate('/accounts')}
+        />
       )}
       {page === 'chats' && <ChatsPage scope={{ account: account.id }} onExpired={onExpired} />}
       {page === 'requests' && <RequestsPanel scope={{ account: account.id }} onExpired={onExpired} />}

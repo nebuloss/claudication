@@ -9,7 +9,8 @@ import Settings from './features/settings'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import { usePath, useLive, useLoader, useUpdateAvailable } from './hooks'
-import { TABS, tabOf } from './route'
+import { nameOf, useNames } from './names'
+import { navLevel, pathOf, tabOf, trailOf } from './route'
 // OverviewData, because Overview is already the panel above.
 import {
   ApiError,
@@ -21,7 +22,8 @@ import {
 } from '../api/client'
 import {
   Banner,
-  follow,
+  Breadcrumbs,
+  NavRail,
   CopyField,
   FilledButton,
   IconLink,
@@ -80,8 +82,12 @@ export default function App() {
   const [state, setState] = useState<State>({ phase: 'probing' })
   // Where we are, completed to a page: [tab, item or page, page, section].
   const path = usePath()
-  const tab = tabOf('/' + path.join('/'))
+  const here = pathOf(...path)
+  const tab = tabOf(here)
   const [, item = '', page = '', section = ''] = path
+  // The trail and the rail name an account or a key once its page has said
+  // what it is called.
+  useNames()
   // The configuration, loaded once for the whole signed-in app: the header
   // reads the docs link out of it and Settings renders the rest of it. One
   // copy, because a switch on that screen decides whether the header shows a
@@ -163,6 +169,8 @@ export default function App() {
   // in which case the header links out to it. Allowed to fail silently: a
   // missing link is a missing link, not a reason to fail the shell.
   const docsURL = config.data?.docs_enabled === true ? (config.data.docs_url ?? '') : ''
+  const level = navLevel(here, nameOf)
+  const trail = trailOf(here, nameOf)
 
   return (
     <div className="min-h-dvh">
@@ -201,73 +209,71 @@ export default function App() {
           </div>
         </div>
 
-        <nav className={`mx-auto ${measure} overflow-x-auto px-4 sm:px-6`}>
-          <div className="flex min-w-max border-b border-outline-variant">
-            {TABS.map(({ id, label }) => (
-              <a
-                key={id}
-                href={id === 'overview' ? '/' : `/${id}`}
-                onClick={follow(id === 'overview' ? '/' : `/${id}`)}
-                aria-current={tab === id ? 'page' : undefined}
-                className={`state-layer relative px-4 py-3.5 text-sm font-medium whitespace-nowrap ${
-                  tab === id ? 'text-primary' : 'text-on-surface-variant'
-                }`}
-              >
-                {label}
-                {tab === id && (
-                  <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-t-full bg-primary" />
-                )}
-              </a>
-            ))}
-          </div>
-        </nav>
+        {/* Where this page is: every level above it a link. The tabs that
+            used to be here are the rail's top level now. */}
+        <div className={`mx-auto ${measure} border-b border-outline-variant px-4 py-2 sm:px-6`}>
+          <Breadcrumbs trail={trail} />
+        </div>
       </header>
 
-      <main className={`mx-auto ${measure} px-4 pt-6 pb-16 sm:px-6`}>
-        {updated && (
-          <Banner className="mb-5">
-            <span className="flex flex-wrap items-center justify-between gap-2">
-              <span>
-                claudication has been updated since this page was opened. Reload to use the new
-                version.
+      {/* One navigation for every page: the trail above, and beside the page
+          the choices of its own level with the way up. A row above the page
+          on a narrow screen. */}
+      <div className={`mx-auto ${measure} px-4 sm:px-6 md:flex md:gap-8`}>
+        <aside className="hidden w-52 shrink-0 md:block">
+          <div className="sticky top-28 pt-6">
+            <NavRail level={level} />
+          </div>
+        </aside>
+        <div className="pt-4 md:hidden">
+          <NavRail level={level} row />
+        </div>
+        <main className="min-w-0 flex-1 pt-6 pb-16">
+          {updated && (
+            <Banner className="mb-5">
+              <span className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  claudication has been updated since this page was opened. Reload to use the new
+                  version.
+                </span>
+                <TextButton onClick={() => window.location.reload()}>Reload</TextButton>
               </span>
-              <TextButton onClick={() => window.location.reload()}>Reload</TextButton>
-            </span>
-          </Banner>
-        )}
-        {tab === 'overview' && <Overview onExpired={expired} docsURL={docsURL} />}
-        {/* Keyed by the item, so moving from one account's page to another's
-            starts clean rather than showing the last one's state. */}
-        {tab === 'accounts' &&
-          (item === '' ? (
-            <Accounts onExpired={expired} />
-          ) : (
-            <AccountPage key={item} id={item} page={page} section={section} onExpired={expired} />
-          ))}
-        {tab === 'keys' &&
-          (item === '' ? (
-            <Keys onExpired={expired} onMinted={setMinted} />
-          ) : (
-            <KeyPage
-              key={item}
-              id={item}
-              page={page}
-              section={section}
-              onExpired={expired}
-              onMinted={setMinted}
+            </Banner>
+          )}
+          {tab === 'overview' && <Overview onExpired={expired} docsURL={docsURL} />}
+          {/* Keyed by the item, so moving from one account's page to another's
+              starts clean rather than showing the last one's state. */}
+          {tab === 'accounts' &&
+            (item === '' ? (
+              <Accounts onExpired={expired} />
+            ) : (
+              <AccountPage key={item} id={item} page={page} section={section} onExpired={expired} />
+            ))}
+          {tab === 'keys' &&
+            (item === '' ? (
+              <Keys onExpired={expired} onMinted={setMinted} />
+            ) : (
+              <KeyPage
+                key={item}
+                id={item}
+                page={page}
+                section={section}
+                onExpired={expired}
+                onMinted={setMinted}
+              />
+            ))}
+          {tab === 'activity' && <Activity page={item} onExpired={expired} />}
+          {tab === 'settings' && (
+            <Settings
+              section={item}
+              session={state.session}
+              onSessionChanged={() => void probe()}
+              config={config}
+              onConfigChanged={() => void config.reload()}
             />
-          ))}
-        {tab === 'activity' && <Activity page={item} onExpired={expired} />}
-        {tab === 'settings' && (
-          <Settings
-            section={item}
-            session={state.session}
-            onSessionChanged={() => void probe()}
-            config={config}
-            onConfigChanged={() => void config.reload()}
-          />
-        )}
-      </main>
+          )}
+        </main>
+      </div>
 
       {minted !== null && (
         <Modal title={minted.key.name} size="lg" onClose={() => setMinted(null)}>
