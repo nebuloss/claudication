@@ -1,4 +1,8 @@
-# Working on claudication
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Working on claudication
 
 A gateway that proxies Claude subscription accounts over OAuth, with an
 embedded admin UI. Go, no CGO; the UI is built into the binary with
@@ -78,13 +82,31 @@ it costs hours every time someone meets it fresh.
 
 ## Commands
 
-    make check        # fmt-check, vet, test, typecheck, web build — run this
+    make check        # fmt-check, vet, test, typecheck, chart checks, web build — run this
     make build        # binary at dist/claudication, UI embedded
-    make test         # Go tests only
+    make test         # Go tests only, with -race (needs cgo)
+    make test-norace  # the same without cgo
     make typecheck    # tsc over web/
+    make fmt          # gofmt -w cmd internal
+    make dev          # Vite on :5173, proxying the API to `make dev-api`
 
-The tests do not need credentials or a network. Anything that probes the real
-API is a script under `scripts/`, run by hand, and says so.
+Go and a C compiler are not on the editing machine, so none of these run
+there. `scripts/remote.sh` rsyncs the working tree as it is (uncommitted
+changes included) to the build machine and runs `make check`; given
+arguments, it runs those instead:
+
+    scripts/remote.sh                                        # make check
+    scripts/remote.sh go test ./internal/relay -run TestStall -race -count=1
+    scripts/remote.sh make repro                             # prove the build is byte-identical
+
+CI also fails when `go mod tidy -diff` is not a no-op.
+
+The tests do not need credentials or a network. A package whose tests build
+an outbound client has a `main_offline_test.go` calling `testenv.Offline`,
+which points every proxy at a dead port so a test that forgets its fake fails
+instead of reaching api.anthropic.com; add one to any new package like that.
+Anything that probes the real API is a script under `scripts/`, run by hand,
+and says so.
 
 ## Conventions
 
@@ -107,3 +129,8 @@ sealing key — lives in the state directory and never in config.
 `claudication backup FILE` takes a consistent snapshot without stopping the
 service; that file holds the sealing key and every stored token together, so it
 is exactly as sensitive as the state directory.
+
+`scripts/deploy.sh [ref]` builds a pushed commit on the build machine and runs
+`install.sh` on the gateway host with it, which backs up, waits for every
+port, verifies the version and rolls back on failure. Use it rather than
+copying a binary in and restarting by hand.
