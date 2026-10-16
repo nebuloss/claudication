@@ -96,7 +96,7 @@ changes included) to the build machine and runs `make check`; given
 arguments, it runs those instead:
 
     scripts/remote.sh                                        # make check
-    scripts/remote.sh go test ./internal/relay -run TestStall -race -count=1
+    scripts/remote.sh go test ./internal/relay -run TestAStreamThatNeverStartsIsSentAgain -count=1
     scripts/remote.sh make repro                             # prove the build is byte-identical
 
 CI also fails when `go mod tidy -diff` is not a no-op.
