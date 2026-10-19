@@ -218,12 +218,18 @@ func (s *Store) SetAdminPassword(ctx context.Context, password string) error {
 // administer the gateway, not what it is connected to. Whoever sets the next
 // password inherits both, which is the same position the first operator was in.
 func (s *Store) DeleteAdmin(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM admin`); err != nil {
-		return fmt.Errorf("delete admin account: %w", err)
-	}
-	// Outstanding sign-in links were passes to the account that just went away.
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM login_links`)
-	return nil
+	return s.inTx(ctx, "delete admin account", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM admin`); err != nil {
+			return fmt.Errorf("delete admin account: %w", err)
+		}
+		// Outstanding sign-in links were passes to the account that just went
+		// away. Both or neither: a reset that left them valid would hand
+		// whoever claims the gateway next to the holder of an old link.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM login_links`); err != nil {
+			return fmt.Errorf("delete sign-in links: %w", err)
+		}
+		return nil
+	})
 }
 
 // AdminUpdatedAt reports when the password last changed.

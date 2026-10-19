@@ -419,17 +419,20 @@ func (s *Store) UpdateKey(ctx context.Context, id, name string, limits KeyLimits
 }
 
 func (s *Store) DeleteKey(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete api key: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrKeyNotFound
-	}
-	// Its model-role bindings, which have no foreign key to go with it, since
-	// the gateway's own rows belong to no key: see migration 028.
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM model_roles WHERE key_id = ?`, id); err != nil {
-		return fmt.Errorf("delete api key's model roles: %w", err)
-	}
-	return nil
+	return s.inTx(ctx, "delete api key", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ?`, id)
+		if err != nil {
+			return fmt.Errorf("delete api key: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrKeyNotFound
+		}
+		// Its model-role bindings, which have no foreign key to go with it, since
+		// the gateway's own rows belong to no key: see migration 028. In the same
+		// transaction, so a key is never gone with its roles left behind.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM model_roles WHERE key_id = ?`, id); err != nil {
+			return fmt.Errorf("delete api key's model roles: %w", err)
+		}
+		return nil
+	})
 }

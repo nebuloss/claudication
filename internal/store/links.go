@@ -69,27 +69,22 @@ func (s *Store) MintLoginLink(ctx context.Context, ttl time.Duration) (string, t
 // The row is deleted whether or not it was still valid, so a token cannot be
 // retried and an expired one cannot be probed twice for a different answer.
 func (s *Store) SpendLoginLink(ctx context.Context, token string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("spend sign-in link: %w", err)
-	}
-	defer tx.Rollback()
-
 	var expiresAt string
-	err = tx.QueryRowContext(ctx,
-		`SELECT expires_at FROM login_links WHERE token = ?`, token).Scan(&expiresAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrLinkInvalid
-	}
-	if err != nil {
-		return fmt.Errorf("look up sign-in link: %w", err)
-	}
-
-	if _, err := tx.ExecContext(ctx, `DELETE FROM login_links WHERE token = ?`, token); err != nil {
-		return fmt.Errorf("spend sign-in link: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("spend sign-in link: %w", err)
+	if err := s.inTx(ctx, "spend sign-in link", func(tx *sql.Tx) error {
+		err := tx.QueryRowContext(ctx,
+			`SELECT expires_at FROM login_links WHERE token = ?`, token).Scan(&expiresAt)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrLinkInvalid
+		}
+		if err != nil {
+			return fmt.Errorf("look up sign-in link: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM login_links WHERE token = ?`, token); err != nil {
+			return fmt.Errorf("spend sign-in link: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	expiry, err := time.Parse(time.RFC3339Nano, expiresAt)

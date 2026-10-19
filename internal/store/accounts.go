@@ -155,14 +155,16 @@ func (s *Store) UpsertAccount(ctx context.Context, sealer *secret.Sealer, acct A
 	now := time.Now().UTC()
 
 	// Last in the priority list: adding an account must never silently change
-	// which one is already serving.
-	position := s.nextAccountPosition(ctx)
-
+	// which one is already serving. The position is computed inside the INSERT
+	// rather than by a query before it, so two accounts added at once cannot
+	// take the same place. A reconnect keeps its place: position is not in the
+	// update list.
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO accounts (id, provider, email, account_uuid, access_token, refresh_token,
 		                      expires_at, refresh_expires_at, created_at, last_refresh_at,
 		                      position)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		        (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts))
 		ON CONFLICT (provider, email) DO UPDATE SET
 			access_token       = excluded.access_token,
 			refresh_token      = excluded.refresh_token,
@@ -177,7 +179,7 @@ func (s *Store) UpsertAccount(ctx context.Context, sealer *secret.Sealer, acct A
 		acct.ID, acct.Provider, acct.Email, acct.AccountUUID,
 		sealedAccess, sealedRefresh,
 		acct.ExpiresAt.UTC().Format(time.RFC3339), nullTime(acct.RefreshExpiresAt),
-		now.Format(time.RFC3339), now.Format(time.RFC3339), position)
+		now.Format(time.RFC3339), now.Format(time.RFC3339))
 	if err != nil {
 		return Account{}, fmt.Errorf("store account: %w", err)
 	}
@@ -322,39 +324,22 @@ func (s *Store) AccountByEmail(ctx context.Context, provider, email string) (Acc
 // ignored, and any account the caller did not mention keeps its place after
 // the ones that were listed.
 func (s *Store) SetAccountOrder(ctx context.Context, ids []string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("reorder accounts: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Push everything out of the way first: position has no unique constraint,
-	// but leaving stale values would put unlisted accounts among the listed.
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE accounts SET position = position + ?`, len(ids)+1000); err != nil {
-		return fmt.Errorf("reorder accounts: %w", err)
-	}
-	for i, id := range ids {
+	return s.inTx(ctx, "reorder accounts", func(tx *sql.Tx) error {
+		// Push everything out of the way first: position has no unique
+		// constraint, but leaving stale values would put unlisted accounts among
+		// the listed.
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE accounts SET position = ? WHERE id = ?`, i, id); err != nil {
+			`UPDATE accounts SET position = position + ?`, len(ids)+1000); err != nil {
 			return fmt.Errorf("reorder accounts: %w", err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("reorder accounts: %w", err)
-	}
-	return nil
-}
-
-// nextAccountPosition puts a newly added account at the end of the list, so
-// adding one never silently changes which account serves.
-func (s *Store) nextAccountPosition(ctx context.Context) int {
-	var n sql.NullInt64
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT MAX(position) FROM accounts`).Scan(&n); err != nil || !n.Valid {
-		return 0
-	}
-	return int(n.Int64) + 1
+		for i, id := range ids {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE accounts SET position = ? WHERE id = ?`, i, id); err != nil {
+				return fmt.Errorf("reorder accounts: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // SetAccountQuota records what /api/oauth/usage reported for an account.

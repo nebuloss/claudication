@@ -158,6 +158,28 @@ func migrate(ctx context.Context, db *sql.DB) error {
 
 func (s *Store) Close() error { return s.db.Close() }
 
+// inTx runs fn inside one transaction: committed when fn returns nil, rolled
+// back otherwise. what names the operation for the begin and commit errors;
+// fn wraps its own.
+//
+// It exists so a write that touches more than one table cannot be left
+// half-done by a failure between its statements — a key gone with its model
+// roles kept, an admin gone with its sign-in links still valid.
+func (s *Store) inTx(ctx context.Context, what string, fn func(tx *sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("%s: begin: %w", what, err)
+	}
+	defer tx.Rollback()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("%s: commit: %w", what, err)
+	}
+	return nil
+}
+
 // DB exposes the handle for packages that need direct access.
 func (s *Store) DB() *sql.DB { return s.db }
 
