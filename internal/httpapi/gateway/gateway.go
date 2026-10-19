@@ -32,7 +32,7 @@ import (
 type Gateway struct {
 	cfg         *config.Config
 	log         *slog.Logger
-	store       *store.Store
+	store       Store
 	keyLimiter  *limits.Limiter
 	anonLimiter *limits.Limiter
 	budgets     *limits.Budgets
@@ -47,11 +47,21 @@ type Gateway struct {
 	models      *modelsvc.Catalog
 }
 
+// Store is what the gateway reads and writes of the database on a request's
+// path: the key a credential belongs to, its last use, and when its budget
+// starts freeing up. Everything else it needs comes through the services it is
+// handed, so the gateway cannot grow a query of its own unnoticed.
+type Store interface {
+	Authenticate(ctx context.Context, plaintext string) (store.APIKey, error)
+	TouchKey(ctx context.Context, id string)
+	OldestSpendAt(ctx context.Context, keyID string, since time.Time) (time.Time, bool)
+}
+
 // Deps is what a Gateway is built from. Every field is required.
 type Deps struct {
 	Config      *config.Config
 	Log         *slog.Logger
-	Store       *store.Store
+	Store       Store
 	KeyLimiter  *limits.Limiter
 	AnonLimiter *limits.Limiter
 	Budgets     *limits.Budgets

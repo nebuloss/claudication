@@ -29,7 +29,7 @@ import (
 type Site struct {
 	cfg      *config.Config
 	log      *slog.Logger
-	store    *store.Store
+	store    Store
 	docs     *settings.Switch
 	surfaces *surfaces.Surfaces
 	models   Models
@@ -42,6 +42,12 @@ type Site struct {
 	docsModels modelCache
 }
 
+// Store is what the docs page reads of the database: whether any account is
+// connected. A public page is the last place to hold the whole store.
+type Store interface {
+	ListAccounts(ctx context.Context) ([]store.Account, error)
+}
+
 // Models is the model list as the public page shows it: as a key bound to
 // nothing sees it.
 type Models interface {
@@ -52,7 +58,7 @@ type Models interface {
 type Deps struct {
 	Config   *config.Config
 	Log      *slog.Logger
-	Store    *store.Store
+	Store    Store
 	Docs     *settings.Switch
 	Surfaces *surfaces.Surfaces
 	// Models is the model list the public page shows.
