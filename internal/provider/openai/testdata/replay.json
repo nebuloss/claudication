@@ -1,0 +1,141 @@
+{
+  "status": 200,
+  "headers": {
+    "x-codex-active-limit": "premium",
+    "x-codex-plan-type": "plus",
+    "x-codex-primary-used-percent": "0",
+    "x-codex-secondary-used-percent": "0",
+    "x-codex-primary-window-minutes": "300",
+    "x-codex-primary-over-secondary-limit-percent": "0",
+    "x-codex-secondary-window-minutes": "10080",
+    "x-codex-primary-reset-after-seconds": "17947",
+    "x-codex-secondary-reset-after-seconds": "604747",
+    "x-codex-primary-reset-at": "1792446828",
+    "x-codex-secondary-reset-at": "1793033628",
+    "x-codex-credits-has-credits": "False",
+    "x-codex-credits-balance": "0",
+    "x-codex-credits-unlimited": "False",
+    "x-codex-turn-state": "gAAAAABq1ktS7qhG6bXCjV1XS2JJ1-O2eMzakZF57lUk3l4hcHL1GAK6hNyuzbKnejjN1BVODEssZnB_UtIFuh1CuRuYlFrQs7wl38gxTTRgrqWIvN4jHwV0RBvx0aia8YY6uOmIi05UrP5Y7l1JCo3K2WH1GvP2g_H6LNz57B2i_TBlqJJN65xB7_RojPfmjLD9Tj78T5sXaB11XAjMxKWgN0-NLPII7HrtT3ksMfLQAwM46CfQo_vuIiWvnsJSGEKqosmhWxgOlRfTlIKMuc975Drh9--fe2h0ul74ccrsGalVf6y_jOZmeL40jJpWmbTo039hIbLn0dufqyHiQVFSdx8UzPyLaBmHpxnncphBV8UideOk7F1F_iEskTC-AjwcfkMXCDOz15lBAxpt_kAG7WfkNTIUIBFQ81rmCR_jSIYRT9HTi4MEeFm5dOQCspummlFQF4JyB269ulMyHZItGQrl_vNAKzmJx4HLh-DevinoIT-cPDpCGd-rkbm6hLBeRsRisNsbGR8-V-4D_rhnHLH3qBRBF0wpzd-fRd56fimTnox5qNBUTd8xP4q2roG4JVltWf4jL9zhRSgKiTqjRnsJR3s5fvGVDy7YE9G3cZ09aZp7UvdattrFNbyYgeGdT7hqNzs_pXK3dCL_iG4qeOgaYnakS9rOfwkXUFn-_zndmij_vG__e0aLtRXQbxm6iNOWFxWN43hqKL5l1f1eolwUuStSS_7s1fGEw3s5ljPdTb2C9cOWiwNBDOMHM5c68igFfMCY",
+    "x-codex-safety-buffering-enabled": "true",
+    "x-codex-safety-buffering-faster-model": "gpt-6-luna"
+  },
+  "event_names": [
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.content_part.added",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.output_text.delta",
+    "response.metadata",
+    "response.output_text.done",
+    "response.content_part.done",
+    "response.output_item.done",
+    "response.completed"
+  ],
+  "usage": {
+    "input_tokens": 84,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 7,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 91,
+    "attribution": {
+      "items": {
+        "msg_04145a751362d6d7016ad64b5208bc81919320b3abb0c2d575": {
+          "input_tokens": 9,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 9,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_04145a751362d6d7016ad64b529f30819198180594d11206d9": {
+          "input_tokens": 11,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 11,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_04145a751362d6d7016ad64b529f308191a11fc9289f9a8e96": {
+          "input_tokens": 41,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 41,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_04145a751362d6d7016ad64b53747481918fb8f18a78eac47f": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 7,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 7
+            }
+          ]
+        },
+        "rs_04145a751362d6d7016ad64b51f6d4819196a77f96cde8151e": {
+          "input_tokens": 11,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 10,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_04145a751362d6d7016ad64b53747481918fb8f18a78eac47f",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "0.10",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error_body": null,
+  "replayed_reasoning": 1
+}

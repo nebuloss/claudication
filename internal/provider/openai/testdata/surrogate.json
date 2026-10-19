@@ -1,0 +1,10 @@
+{
+  "status": 400,
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "event_names": [],
+  "usage": null,
+  "output": null,
+  "error_body": "{\"detail\":\"Bad Request\"}"
+}

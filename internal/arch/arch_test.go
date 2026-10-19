@@ -37,6 +37,7 @@ var layers = map[string]int{
 
 	"internal/pool":               2,
 	"internal/provider/anthropic": 2,
+	"internal/provider/openai":    2,
 	"internal/service/accounts":   2,
 	"internal/service/usage":      2,
 	"internal/service/surfaces":   2,
@@ -63,6 +64,7 @@ var onlyImportedBy = map[string][]string{
 	// The upstreams. Everything else reaches one through provider.Wire or
 	// provider.Accounts, handed over by the composition root.
 	"internal/provider/anthropic": {"internal/httpapi"},
+	"internal/provider/openai":    {"internal/httpapi"},
 	// The client dialects: registered by the root, served by the gateway.
 	"internal/api/anthropic": {"internal/httpapi", "internal/httpapi/gateway"},
 	"internal/api/openai":    {"internal/httpapi", "internal/httpapi/gateway"},

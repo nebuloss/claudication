@@ -1,0 +1,104 @@
+{
+  "status": 200,
+  "headers": {
+    "x-codex-active-limit": "premium",
+    "x-codex-plan-type": "plus",
+    "x-codex-primary-used-percent": "0",
+    "x-codex-secondary-used-percent": "0",
+    "x-codex-primary-window-minutes": "300",
+    "x-codex-primary-over-secondary-limit-percent": "0",
+    "x-codex-secondary-window-minutes": "10080",
+    "x-codex-primary-reset-after-seconds": "17954",
+    "x-codex-secondary-reset-after-seconds": "604754",
+    "x-codex-primary-reset-at": "1792446828",
+    "x-codex-secondary-reset-at": "1793033628",
+    "x-codex-credits-has-credits": "False",
+    "x-codex-credits-balance": "0",
+    "x-codex-credits-unlimited": "False",
+    "x-codex-turn-state": "gAAAAABq1ktLiXsaZFxOE736VXmLRsQe7xIb5_0_J02uh1dEyeaYKP7J8RMU-QtgNDof_zbOrL5mKztGLG3JXG8Ypzwk4pAs4dc0OtKroCQOonrPLuLxjm1ZjMnHY5mUaVjNhvM-hlUFRL6LvP7Juc_uqOC6TA5hKV0yM0wC7pjbl97EZloTsO4AgdtPliaqJifTF5aTImFBzKDALbwyh19AaAJPjnxnX_Rw8OY1Rxyx0QgrU4yKXNrjxXsOsP15FwQIKgTZirFnPUXOdYsPp9idy3_MkenG4wrI8v9REHK268ZrHDpKorqW_jCXYu3O1L0C6xyGbI3cbUvcmz1ntFb2T14vZhF3WUo0X14G41lVH2PzDyzoLQfLTJ1PZIK7v9tWJUssTYJa-bu8Vs7vHI0sBaE-oNYdRkS6zvDf7eS9QpAUQ2e_eunN3Of8ot4PC-xEssLoIe69f01lRngeWMqqA4jNEzug7VZxC3fipQpZHYarr3fXFpFdF9xcTBB3pXk9WqTxXMu-_W2s1WyE_OCaQ0ywdzAQx_e6B_vV3ZGi31D23WytUWuP-lx3gsYdlzv9aF4gWfgbbLiIO53jGPjiqSMf0vA7axWU0-W3McASPWJJ8r_NrF4yZ6QL6mHwkjRPYeajmN5te0ger5UwEJybiIkp4o06lbc8YOn5hewxcPxoh8aIHVd9QScqSet51NKrRfZbRr6zDTwIPqjOCPPsVBDvXkCBGGWxZnpVhhhbV2sw3Od9H0_wNEwaPfPmjsQZhT_KGYzj",
+    "x-codex-safety-buffering-enabled": "true",
+    "x-codex-safety-buffering-faster-model": "gpt-6-luna"
+  },
+  "event_names": [
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.content_part.added",
+    "response.output_text.delta",
+    "response.metadata",
+    "response.output_text.done",
+    "response.content_part.done",
+    "response.output_item.done",
+    "response.completed"
+  ],
+  "usage": {
+    "input_tokens": 23,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 5,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 28,
+    "attribution": {
+      "items": {
+        "msg_0323973f4147cce0016ad64b4bca8881918d68008c793ce3d8": {
+          "input_tokens": 11,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 11,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_0323973f4147cce0016ad64b4cb4648191bd6afc669e709db9": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 5,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 5
+            }
+          ]
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 10,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_0323973f4147cce0016ad64b4cb4648191bd6afc669e709db9",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "ok",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error_body": null
+}

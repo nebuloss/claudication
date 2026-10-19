@@ -1,0 +1,34 @@
+{
+  "plan": "plus",
+  "has_account_id": true,
+  "claim_keys": [
+    "amr",
+    "at_hash",
+    "aud",
+    "auth_provider",
+    "auth_time",
+    "email",
+    "email_verified",
+    "exp",
+    "https://api.openai.com/auth",
+    "iat",
+    "iss",
+    "jti",
+    "name",
+    "rat",
+    "sid",
+    "sub"
+  ],
+  "auth_keys": [
+    "chatgpt_account_id",
+    "chatgpt_plan_type",
+    "chatgpt_subscription_active_start",
+    "chatgpt_subscription_active_until",
+    "chatgpt_subscription_last_checked",
+    "chatgpt_user_id",
+    "groups",
+    "organizations",
+    "user_id"
+  ],
+  "exp_in_s": 3405
+}

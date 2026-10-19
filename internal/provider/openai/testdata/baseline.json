@@ -1,0 +1,105 @@
+{
+  "status": 200,
+  "headers": {
+    "x-codex-active-limit": "premium",
+    "x-codex-plan-type": "plus",
+    "x-codex-primary-used-percent": "0",
+    "x-codex-secondary-used-percent": "0",
+    "x-codex-primary-window-minutes": "300",
+    "x-codex-primary-over-secondary-limit-percent": "0",
+    "x-codex-secondary-window-minutes": "10080",
+    "x-codex-primary-reset-after-seconds": "17956",
+    "x-codex-secondary-reset-after-seconds": "604756",
+    "x-codex-primary-reset-at": "1792446828",
+    "x-codex-secondary-reset-at": "1793033628",
+    "x-codex-credits-has-credits": "False",
+    "x-codex-credits-balance": "0",
+    "x-codex-credits-unlimited": "False",
+    "x-codex-turn-state": "gAAAAABq1ktJ0lOfjd72PbAEx8R1X7Lyvvl1qQIYyTcc8I0_6jr5D_dLsKQK9TFwmWfePFe-GQnEwyYdZPoUqSkytXIqvHM6797btywdmydxxds6nmEPE2evwMqaBdFK26azZZNZILmufs2CmeskgVVJLomZJjUnUXoSH1sEtP4XkdE_YNdVG7Sd97bWppvvaFQ52TxfelLJ_aWNidrwdt6zwwxx1sliVzZCIV4i79wR3bO2A8Jo2dowHpxGQkJ24D-80lg6w-zbMyi1o4JM8zCyfo0lyh23MUyLCCS4Uu7YJhD3OZ3Nu61aX4kM_X5OPlfey5rLUO2Z9Gs1qv5ePdLii21S6AZAzTyA1nBg3iw6IAZ_V37BENQgLVFjErFPX01ZvFI8DUL_O1LB46-VJgXzw1q6rTnforykCwnBNhsDQPO4BlUnzGAre8I_kRaZTLlsBnTndGmjQVGSteKoZ92YLretKJgUv3e5eDxCx2e7xI0UgjCQh6VFwXzRdNWXItlU4-OfOrdQyhnA8J_nzP9RinfW6sr8fzItVs2YBV0J6Jj5vMlvU504vZYgjXWKm8yRCC89REyJcLM7dlr0P3Mx2jC_O3K-MLTJIv0zmNJ66_4-SHCGxddX1wknnLgBj7VBcGtdNXLBdCEY-PpTBlTpCPzxK3tqNjikU3Fef63WRN-rGUQzYlacUWDc_fwNt4Y_wMHCQnG6j3JDJ6ZQqbmOEzwsWz0A47i_xgCopx96tXKtbXLEzv5t04JVrwKNlXT8-o2hOeRp",
+    "x-codex-safety-buffering-enabled": "true",
+    "x-codex-safety-buffering-faster-model": "gpt-6-luna"
+  },
+  "event_names": [
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.content_part.added",
+    "response.output_text.delta",
+    "response.metadata",
+    "response.output_text.done",
+    "response.content_part.done",
+    "response.output_item.done",
+    "response.completed"
+  ],
+  "usage": {
+    "input_tokens": 23,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 5,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 28,
+    "attribution": {
+      "items": {
+        "msg_03f1b39f0e158f3f016ad64b49a454819195da16efad70b45b": {
+          "input_tokens": 11,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0,
+          "content": [
+            {
+              "input_tokens": 11,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0
+            }
+          ]
+        },
+        "msg_03f1b39f0e158f3f016ad64b4a7d50819196ea15c16d5855dc": {
+          "input_tokens": 2,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 5,
+          "content": [
+            {
+              "input_tokens": 2,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 5
+            }
+          ]
+        }
+      },
+      "request_fields": {
+        "instructions": {
+          "input_tokens": 10,
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 0
+        }
+      }
+    }
+  },
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_03f1b39f0e158f3f016ad64b4a7d50819196ea15c16d5855dc",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "ok",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  ],
+  "error_body": null,
+  "model": "gpt-6.1-sol"
+}
