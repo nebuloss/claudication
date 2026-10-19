@@ -106,7 +106,7 @@ func TestModelRenamerHoldsNothingBack(t *testing.T) {
 	m := NewModelRenamer(rec, "claude-smart", modelEvents)
 	for event, want := range map[string]string{
 		"event: content_block_delta\ndata: {\"delta\":{\"text\":\"hi\"}}\n\n": "",
-		"event: message_start\ndata: {\"message\":{\"model\":\"m\"}}\n\n": "event: message_start\ndata: {\"message\":{\"model\":\"claude-smart\"}}\n\n",
+		"event: message_start\ndata: {\"message\":{\"model\":\"m\"}}\n\n":     "event: message_start\ndata: {\"message\":{\"model\":\"claude-smart\"}}\n\n",
 	} {
 		if want == "" {
 			want = event
