@@ -78,7 +78,9 @@ appears 41 times.
 
 The `model` line is worth setting. Codex asks for `gpt-5-codex` by default,
 which means nothing upstream, so the gateway sends it as `claude-large` — the
-alias every client's main model is, chosen in Settings › Aliases. Naming a
+alias every client's main model is, chosen in Settings › Aliases, where Codex
+can be given a `claude-large` of its own without moving any other client's.
+Naming a
 Claude model or alias in Codex's own config keeps the choice where you can see
 it: a request that already asks for a `claude-` model is passed through
 untouched.

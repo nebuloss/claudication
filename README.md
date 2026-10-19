@@ -231,8 +231,11 @@ enough to set up the aliases and hand out configs before the first login.
 `models-catalog: off` never asks, and the list is then the accounts' own.
 
 On the **Models** tab each built-in alias follows the newest model of its
-family, by release date, until you choose another; a key can choose
-differently in its own settings. Below them you can add custom aliases, each a
+family, by release date, until you choose another. Each alias can also be
+bound per client — Codex's `claude-large` on one model while Claude Code's
+stays on another — the client being the one the request log names from its
+User-Agent; and a key can choose differently in its own settings, which wins
+over its client's. Below them you can add custom aliases, each a
 name of your own pointing to one model. Moving every client to a new model is
 then one change here, with no config to edit. The client is answered in the
 alias's name; the request log records both.

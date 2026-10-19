@@ -37,7 +37,7 @@ import (
 type Store interface {
 	ListAccounts(ctx context.Context) ([]store.Account, error)
 	CustomAliases(ctx context.Context) ([]string, error)
-	RoleBinding(ctx context.Context, keyID, role string) (string, error)
+	RoleBinding(ctx context.Context, keyID, client, role string) (model, by string, err error)
 }
 
 // Pool is what the catalogue asks of the account pool: a token to read an
@@ -93,16 +93,18 @@ func New(d Deps) *Catalog {
 // alias and is kept off nothing sees it, so the configs written from it ask
 // for the roles as every other config does.
 func (s *Catalog) Public(ctx context.Context) ([]byte, error) {
-	return s.For(ctx, store.APIKey{})
+	return s.For(ctx, store.APIKey{}, "")
 }
 
-// For is the model list one key is offered: the two model roles first,
-// each carrying the facts of the model it serves for that key, then the real
-// models, less what the key may not use. The /v1/models answer, and what the
-// admin UI writes that key's configs from, so the two cannot disagree.
+// For is the model list one key is offered from one client: the aliases
+// first, each carrying the facts of the model it serves for that key and
+// client, then the real models, less what the key may not use. The
+// /v1/models answer, and what the admin UI writes that key's configs from, so
+// the two cannot disagree. client is as api.ClientName names it; empty is a
+// caller that is no client in particular.
 //
-// A role is listed only while it can serve.
-func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
+// An alias is listed only while it can serve.
+func (s *Catalog) For(ctx context.Context, key store.APIKey, client string) ([]byte, error) {
 	body, fromCatalog, err := s.list(ctx)
 	if err != nil {
 		return nil, err
@@ -117,7 +119,7 @@ func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
 		// Listed from the catalogue, no account can serve anything yet, and
 		// an alias is shown as it will serve once one is connected — the
 		// configs written now are the ones that will be used then.
-		target, why := s.RoleTarget(ctx, key, a.Name)
+		target, why := s.RoleTarget(ctx, key, client, a.Name)
 		if fromCatalog && target != "" && key.Allows(target) {
 			why = ""
 		}
@@ -299,17 +301,30 @@ func (s *Catalog) IsAlias(ctx context.Context, model string) bool {
 	return false
 }
 
-// RoleTarget is the real model an alias serves for a key: the key's binding,
-// else the gateway's, else — for a built-in — the newest of its family. why
-// is non-empty when it cannot serve — the key may not use it, or no account
-// has it on — and says so, naming the model.
-func (s *Catalog) RoleTarget(ctx context.Context, key store.APIKey, role string) (target, why string) {
+// RoleTarget is the real model an alias serves for a key and a client: the
+// key's binding, else the client's, else the gateway's, else — for a
+// built-in — the newest of its family. why is non-empty when it cannot serve
+// — the key may not use it, or no account has it on — and says so, naming
+// the model and the binding that chose it, which is the one to change.
+func (s *Catalog) RoleTarget(ctx context.Context, key store.APIKey, client, role string) (target, why string) {
 	role = store.ModelKey(role)
-	bound, err := s.store.RoleBinding(ctx, key.ID, role)
+	bound, by, err := s.store.RoleBinding(ctx, key.ID, client, role)
 	if err != nil {
 		return "", "could not read the model aliases"
 	}
 	target = bound
+	// What chose the target, for the refusal: an operator who moved Codex's
+	// claude-large and sees "no connected account has it on" in Codex has to
+	// know it was Codex's binding and not the gateway's.
+	var chose string
+	switch by {
+	case store.BoundByKey:
+		chose = " for this API key"
+	case store.BoundByClient:
+		chose = " for " + client
+	case store.BoundByGateway:
+		chose = " on the gateway"
+	}
 	if target == "" {
 		family := store.AliasFamily(role)
 		if family == "" {
@@ -321,10 +336,10 @@ func (s *Catalog) RoleTarget(ctx context.Context, key store.APIKey, role string)
 		}
 	}
 	if !key.Allows(target) {
-		return target, role + " is " + target + ", which this API key may not use"
+		return target, role + " is " + target + chose + ", which this API key may not use"
 	}
 	if !s.pool.Offers(ctx, s.relay.Wire.ID(), target) {
-		return target, role + " is " + target + ", which no connected account has on"
+		return target, role + " is " + target + chose + ", which no connected account has on"
 	}
 	return target, ""
 }

@@ -79,12 +79,13 @@ type Models interface {
 	List(ctx context.Context) ([]byte, error)
 	// ListFor is the upstream list as one account sees it, unfiltered.
 	ListFor(ctx context.Context, accountID, rawQuery string) ([]byte, error)
-	// For is the list one key is offered, model roles included: what
-	// /v1/models answers it, and what its configs are written from.
-	For(ctx context.Context, key store.APIKey) ([]byte, error)
-	// RoleTarget is the real model a role serves for a key, and why not when
-	// it cannot.
-	RoleTarget(ctx context.Context, key store.APIKey, role string) (target, why string)
+	// For is the list one key is offered from one client, model roles
+	// included: what /v1/models answers it, and what its configs are
+	// written from.
+	For(ctx context.Context, key store.APIKey, client string) ([]byte, error)
+	// RoleTarget is the real model a role serves for a key and a client, and
+	// why not when it cannot.
+	RoleTarget(ctx context.Context, key store.APIKey, client, role string) (target, why string)
 	// Aliases is every model alias the gateway answers to now.
 	Aliases(ctx context.Context) ([]store.Alias, error)
 }

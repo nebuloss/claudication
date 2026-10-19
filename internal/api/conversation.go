@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -142,6 +143,18 @@ var clientNames = map[string]string{
 	"opencode":     "opencode",
 	"codex_cli_rs": "Codex",
 	"Charm-Crush":  "crush",
+}
+
+// KnownClients are the names ClientName gives the clients it recognises, in
+// a fixed order: what an alias can be bound for before any of them has made
+// a request.
+func KnownClients() []string {
+	out := make([]string, 0, len(clientNames))
+	for _, name := range clientNames {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ClientName is the product a User-Agent claims to be.

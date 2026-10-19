@@ -261,8 +261,10 @@ func TestUpgradeMatchesFreshSchema(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT MAX(version), COUNT(*) FROM schema_migrations`).Scan(&version, &rows); err != nil {
 		t.Fatal(err)
 	}
-	if version != schemaVersion || rows != 1 {
-		t.Errorf("upgraded to version %d in %d rows, want %d in one", version, rows, schemaVersion)
+	// One row per step taken from 28: the rows before it went with 029.
+	if version != schemaVersion || rows != schemaVersion-oldestUpgradable {
+		t.Errorf("upgraded to version %d in %d rows, want %d in %d", version, rows, schemaVersion,
+			schemaVersion-oldestUpgradable)
 	}
 	var mode int
 	if err := st.db.QueryRow(`PRAGMA auto_vacuum`).Scan(&mode); err != nil || mode != 2 {
@@ -414,19 +416,31 @@ func TestUpgradeKeepsTheData(t *testing.T) {
 		t.Errorf("%d quota rows, want the fetched account's alone", n)
 	}
 
-	// Roles: the gateway's as NULL, the key's kept, the orphan gone.
+	// Roles: the gateway's as NULL, the key's kept, the orphan gone, none of
+	// them a client's.
 	roles, err := st.ModelRoles(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]string{}
 	for _, r := range roles {
-		got[r.KeyID+"/"+r.Role] = r.Model
+		got[r.KeyID+"/"+r.Client+"/"+r.Role] = r.Model
 	}
-	want := map[string]string{"/claude-large": "", "/claude-fast": "claude-haiku-4-5",
-		f.keyKept + "/claude-small": "claude-haiku-4-5"}
+	want := map[string]string{"//claude-large": "", "//claude-fast": "claude-haiku-4-5",
+		f.keyKept + "//claude-small": "claude-haiku-4-5"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("roles %v, want %v", got, want)
+	}
+	// And the upgraded table takes a client's binding beside them, below the
+	// key's.
+	if err := st.SetClientRole(ctx, "Codex", "claude-small", "claude-sonnet-5"); err != nil {
+		t.Fatal(err)
+	}
+	if m, by, _ := st.RoleBinding(ctx, "", "Codex", "claude-small"); m != "claude-sonnet-5" || by != BoundByClient {
+		t.Errorf("Codex's claude-small after the upgrade: %q by %q", m, by)
+	}
+	if m, by, _ := st.RoleBinding(ctx, f.keyKept, "Codex", "claude-small"); m != "claude-haiku-4-5" || by != BoundByKey {
+		t.Errorf("the kept key's claude-small after the upgrade: %q by %q", m, by)
 	}
 
 	// The rest.
@@ -452,12 +466,12 @@ func TestUpgradeKeepsTheData(t *testing.T) {
 		t.Fatal(err)
 	}
 	for q, want := range map[string]int{
-		`SELECT COUNT(*) FROM api_key_models_off`:                   0,
-		`SELECT COUNT(*) FROM model_roles WHERE key_id IS NOT NULL`: 0,
-		`SELECT COUNT(*) FROM model_roles WHERE key_id IS NULL`:     2,
-		`SELECT COUNT(*) FROM account_models_off`:                   0,
-		`SELECT COUNT(*) FROM account_quota`:                        0,
-		`SELECT COUNT(*) FROM usage_events`:                         f.events,
+		`SELECT COUNT(*) FROM api_key_models_off`:                                  0,
+		`SELECT COUNT(*) FROM model_roles WHERE key_id IS NOT NULL`:                0,
+		`SELECT COUNT(*) FROM model_roles WHERE key_id IS NULL AND client IS NULL`: 2,
+		`SELECT COUNT(*) FROM account_models_off`:                                  0,
+		`SELECT COUNT(*) FROM account_quota`:                                       0,
+		`SELECT COUNT(*) FROM usage_events`:                                        f.events,
 	} {
 		if n := count(q); n != want {
 			t.Errorf("%s = %d after deleting, want %d", q, n, want)

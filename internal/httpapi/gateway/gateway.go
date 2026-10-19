@@ -153,8 +153,10 @@ func (s *Gateway) handleModels(p api.Protocol) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
+		// The list as this client is served, so a client that sizes its
+		// requests from it sizes them for the model its own binding chose.
 		key, _ := httpx.APIKey(r.Context())
-		body, err := s.models.For(ctx, key)
+		body, err := s.models.For(ctx, key, api.ClientName(r.UserAgent()))
 		if err != nil {
 			s.log.Warn("model discovery failed; answering 502 so the client keeps its cached list",
 				"err", err, "request_id", httpx.RequestID(r.Context()))

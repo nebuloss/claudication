@@ -1,5 +1,5 @@
 -- claudication's schema, whole: what a fresh database is created with, and
--- what migrations/ brings an older one to. Version 29 (schemaVersion in
+-- what migrations/ brings an older one to. Version 30 (schemaVersion in
 -- store.go).
 --
 -- Written as if from scratch. Migrations 001-028 grew it a column at a time;
@@ -78,21 +78,31 @@ CREATE TABLE api_key_models_off (
 -- roles claude-large and claude-small; family aliases and custom ones sit
 -- beside them. See roles.go.
 --
--- key_id NULL is the gateway-wide binding; a key's row overrides it for that
--- key, and no row means the key follows the gateway. NULL rather than '' so a
--- key's rows go with their key by foreign key -- DeleteKey used to remove them
--- with a second statement. An empty model on a built-in alias's gateway row
--- follows its family's newest model.
+-- A row binds an alias at one of three levels: gateway-wide (key_id and
+-- client NULL), for one key (key_id), or for one client (client, as
+-- api.ClientName names it from the User-Agent: Claude Code, Codex, crush,
+-- opencode, ...). A request takes its key's binding, else its client's, else
+-- the gateway's, so Codex's claude-large can be moved without Claude Code's,
+-- and a key set apart stays apart whatever its client. Never a key and a
+-- client at once: nobody asked for it, and four levels is one more order to
+-- explain than it buys. No row means the level follows the one below it.
+--
+-- key_id NULL rather than '' so a key's rows go with their key by foreign key
+-- -- DeleteKey used to remove them with a second statement. An empty model on
+-- a built-in alias's gateway row follows its family's newest model.
 CREATE TABLE model_roles (
     key_id     TEXT    REFERENCES api_keys (id) ON DELETE CASCADE,
+    client     TEXT,
     role       TEXT    NOT NULL,
     model      TEXT    NOT NULL DEFAULT '',
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    CHECK (key_id IS NULL OR client IS NULL)
 );
--- One binding per role gateway-wide, one per role per key. Two partial
--- indexes, because NULLs are distinct in a plain UNIQUE (key_id, role).
-CREATE UNIQUE INDEX model_roles_global ON model_roles (role) WHERE key_id IS NULL;
+-- One binding per role at each level. Partial indexes, because NULLs are
+-- distinct in a plain UNIQUE (key_id, client, role).
+CREATE UNIQUE INDEX model_roles_global ON model_roles (role) WHERE key_id IS NULL AND client IS NULL;
 CREATE UNIQUE INDEX model_roles_key    ON model_roles (key_id, role) WHERE key_id IS NOT NULL;
+CREATE UNIQUE INDEX model_roles_client ON model_roles (client, role) WHERE client IS NOT NULL;
 
 ------------------------------------------------------------------ accounts
 -- Upstream accounts, one row per logged-in provider account. Tokens are sealed

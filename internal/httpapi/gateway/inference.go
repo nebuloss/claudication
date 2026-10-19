@@ -83,16 +83,21 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		}
 
 		// A model role — claude-large, claude-small — becomes the real model
-		// it is bound to for this key, else for the gateway, else the newest
-		// of its family; the answer is renamed back on its way out. One model,
-		// no fallback: when it cannot serve, the request is refused saying
-		// which one to change. See passes.SetModel.
+		// it is bound to for this key, else for this client, else for the
+		// gateway, else the newest of its family; the answer is renamed back
+		// on its way out. One model, no fallback: when it cannot serve, the
+		// request is refused saying which one to change. See passes.SetModel.
+		//
+		// The client is the one the User-Agent names, as the request log
+		// records it, so a binding made for "Codex" is the one the log's
+		// Codex rows were served by.
 		virtual := ""
 		rewrote := false
 		key, _ := httpx.APIKey(r.Context())
+		client := api.ClientName(r.UserAgent())
 		if s.models.IsAlias(r.Context(), model) {
 			role := store.ModelKey(model)
-			target, why := s.models.RoleTarget(r.Context(), key, role)
+			target, why := s.models.RoleTarget(r.Context(), key, client, role)
 			if why != "" {
 				ev := rejection(r, key, http.StatusNotFound, why)
 				ev.Model, ev.VirtualModel, ev.Path = target, role, route
@@ -107,7 +112,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 				return
 			}
 			outbound, virtual, model, rewrote = replaced, role, target, true
-			s.log.Debug("model role", "role", role, "serving", target,
+			s.log.Debug("model role", "role", role, "serving", target, "client", client,
 				"request_id", httpx.RequestID(r.Context()))
 		}
 
@@ -119,7 +124,6 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// This is the only point at which the caller's own request is still
 		// intact.
 		conversation := p.ConversationID(r.Header, body)
-		client := api.ClientName(r.UserAgent())
 		// Which machine made this. A key says who is paying and a client says
 		// what they are running; neither says where it ran, and when one host
 		// out of several is burning a subscription that is the only question
