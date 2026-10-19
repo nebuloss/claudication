@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"claudication/internal/pool"
+	"claudication/internal/provider"
 	"claudication/internal/provider/anthropic"
 	"claudication/internal/request"
 	"claudication/internal/store"
@@ -173,5 +175,9 @@ func (p *recordingPool) Acquire(_ context.Context, _, _ string, exclude map[stri
 }
 
 func (p *recordingPool) ReportFailure(string, pool.FailureKind, string) { p.failures++ }
-func (p *recordingPool) ReportSuccess(string)                           { p.successes++ }
-func (p *recordingPool) Refresh(context.Context, string) error          { p.refreshes++; return nil }
+func (p *recordingPool) ReportFailureUntil(string, pool.FailureKind, string, time.Time) {
+	p.failures++
+}
+func (p *recordingPool) NoteQuota(string, provider.Quota)      {}
+func (p *recordingPool) ReportSuccess(string)                  { p.successes++ }
+func (p *recordingPool) Refresh(context.Context, string) error { p.refreshes++; return nil }

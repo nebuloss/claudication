@@ -11,7 +11,6 @@ import (
 	"claudication/internal/api"
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/memlimit"
-	"claudication/internal/provider/anthropic"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
@@ -98,7 +97,7 @@ type RequestJSON struct {
 // reads. Shared, because a chat's requests and the recent-requests list are
 // the same rows rendered by the same table — and a second copy of this is how
 // one of them quietly starts reporting a different duration unit.
-func toRequestJSON(e store.UsageEvent) RequestJSON {
+func (s *Admin) toRequestJSON(e store.UsageEvent) RequestJSON {
 	return RequestJSON{
 		ID:           e.ID,
 		At:           e.At.UTC().Format(time.RFC3339),
@@ -115,7 +114,7 @@ func toRequestJSON(e store.UsageEvent) RequestJSON {
 		DurationMS:   e.Duration.Milliseconds(),
 		FirstTokenMS: e.FirstToken.Milliseconds(),
 		Error:        e.Error,
-		ErrorKind:    string(anthropic.ClassifyRefusal(e.Error)),
+		ErrorKind:    s.refusal("", e.Error),
 		ErrorCode:    e.ErrorCode,
 		Rejected:     e.Rejected,
 		IP:           e.IP,
@@ -153,7 +152,7 @@ func (s *Admin) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]RequestJSON, 0, len(events))
 	for _, e := range events {
-		out = append(out, toRequestJSON(e))
+		out = append(out, s.toRequestJSON(e))
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,
@@ -313,7 +312,7 @@ func (s *Admin) handleOverview(w http.ResponseWriter, r *http.Request) {
 	// rows. Cooldowns are held in memory, so counting rows could not see them:
 	// every account could be sitting out a rate limit and this screen would
 	// still say the gateway was ready to serve.
-	status, err := s.pool.Status(r.Context(), anthropic.ID)
+	status, err := s.poolStatus(r.Context())
 	if err != nil {
 		s.log.Error("overview pool status", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read accounts")
@@ -349,6 +348,6 @@ func (s *Admin) handleOverview(w http.ResponseWriter, r *http.Request) {
 
 	// Whether the gateway can serve a request right now is not the same
 	// question as whether it has accounts: they may all be cooling down.
-	out["ready"] = status.Serving != ""
+	out["ready"] = len(status.Serving) > 0
 	httpx.WriteJSON(w, http.StatusOK, out)
 }

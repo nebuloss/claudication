@@ -102,11 +102,21 @@ type Pool struct {
 	states map[string]*health
 	now    func() time.Time
 
-	// exchange is the token refresh itself, injectable so the cancellation and
-	// error-propagation rules around it can be tested without a live provider.
-	// The rules are the part that has teeth: getting them wrong takes an
-	// account offline until a human redoes the browser flow.
-	exchange RefreshFunc
+	// refreshers are the token refresh itself, one per provider, injectable
+	// so the cancellation and error-propagation rules around it can be tested
+	// without a live provider. The rules are the part that has teeth: getting
+	// them wrong takes an account offline until a human redoes the browser
+	// flow.
+	refreshers map[string]RefreshFunc
+
+	// affinity is which account last served each conversation, for the
+	// providers that want one kept; see affinity.go.
+	affinity affinity
+
+	// quotaSeen is what each account's live quota last wrote, so a figure
+	// read off every relayed answer is not a database write per request; see
+	// NoteQuota.
+	quotaSeen map[string]quotaNote
 }
 
 // RefreshFunc trades a refresh token for new tokens at the provider. The pool
@@ -114,16 +124,27 @@ type Pool struct {
 // provider's, which is why it is handed in rather than known here.
 type RefreshFunc func(ctx context.Context, client *http.Client, refreshToken string) (oauth.Result, error)
 
-// New returns a pool over the accounts in st, refreshing their tokens with
-// refresh.
-func New(st *store.Store, client *http.Client, log *slog.Logger, refresh RefreshFunc) *Pool {
+// New returns a pool over the accounts in st, refreshing each account's token
+// with its provider's function in refresh.
+//
+// One pool for every provider: which accounts may serve is already asked by
+// provider (candidatesFor), and one priority list, one set of cooldowns and
+// one refresh lock per account are the same thing whoever the account
+// belongs to.
+func New(st *store.Store, client *http.Client, log *slog.Logger, refresh map[string]RefreshFunc) *Pool {
+	refreshers := make(map[string]RefreshFunc, len(refresh))
+	for k, v := range refresh {
+		refreshers[k] = v
+	}
 	return &Pool{
-		store:    st,
-		client:   client,
-		log:      log,
-		states:   make(map[string]*health),
-		now:      time.Now,
-		exchange: refresh,
+		store:      st,
+		client:     client,
+		log:        log,
+		states:     make(map[string]*health),
+		now:        time.Now,
+		refreshers: refreshers,
+		affinity:   affinity{last: map[string]affine{}},
+		quotaSeen:  map[string]quotaNote{},
 	}
 }
 
@@ -253,10 +274,15 @@ func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[
 		return Lease{}, ErrNoAccounts
 	}
 
-	chosen, ok := p.pick(candidates)
+	conversation := conversationOf(ctx)
+	chosen, ok := p.preferred(provider, conversation, candidates)
+	if !ok {
+		chosen, ok = p.pick(candidates)
+	}
 	if !ok {
 		return Lease{}, ErrAllCoolingUp
 	}
+	p.remember(provider, conversation, chosen.ID)
 
 	if p.refreshDue(chosen) {
 		if err := p.Refresh(ctx, chosen.ID); err != nil {
@@ -438,11 +464,19 @@ func (p *Pool) refresh(ctx context.Context, id string, h *health) error {
 	exchangeCtx, cancel := context.WithTimeout(ctx, refreshTimeout)
 	defer cancel()
 
+	acct, err := p.store.Account(exchangeCtx, id)
+	if err != nil {
+		return err
+	}
+	exchange := p.refreshers[acct.Provider]
+	if exchange == nil {
+		return fmt.Errorf("no token refresh for provider %q", acct.Provider)
+	}
 	tokens, err := p.store.AccountTokens(exchangeCtx, id)
 	if err != nil {
 		return err
 	}
-	res, err := p.exchange(exchangeCtx, p.client, tokens.RefreshToken)
+	res, err := exchange(exchangeCtx, p.client, tokens.RefreshToken)
 	if err != nil {
 		// invalid_grant is terminal: revoked, expired, or already spent.
 		// Record it so nothing tries again, and say plainly what fixes it,
@@ -537,6 +571,25 @@ func (p *Pool) Reset(id string) {
 // ReportFailure cools an account down, backing off further each consecutive
 // time so a persistently broken account stops being tried every request.
 func (p *Pool) ReportFailure(id string, kind FailureKind, detail string) {
+	p.ReportFailureUntil(id, kind, detail, time.Time{})
+}
+
+// maxReportedWait bounds how far ahead an upstream's own reset may sit an
+// account out. A weekly limit is a week; a date further out than that is a
+// figure gone wrong, and trusting it would take an account out of rotation
+// until someone noticed.
+const maxReportedWait = 8 * 24 * time.Hour
+
+// ReportFailureUntil is ReportFailure for an upstream that said when the
+// account can serve again — ChatGPT's usage_limit_reached carries the reset.
+// The account sits out until then or for the usual backoff, whichever is
+// longer: the backoff still grows for an account that keeps failing, and a
+// reset already past is no reason to try it again at once.
+//
+// Sitting out is a preference, not a refusal: with every account out, the
+// pool still serves from the one that comes back soonest (see pick), and the
+// upstream's own refusal, naming the reset, is what the client reads.
+func (p *Pool) ReportFailureUntil(id string, kind FailureKind, detail string, until time.Time) {
 	p.mu.Lock()
 	h := p.stateOf(id)
 	h.failures++
@@ -548,7 +601,11 @@ func (p *Pool) ReportFailure(id string, kind FailureKind, detail string) {
 	if wait > b.max || wait <= 0 {
 		wait = b.max
 	}
-	h.cooldownUntil = p.now().Add(wait)
+	now := p.now()
+	if reported := until.Sub(now); reported > wait {
+		wait = min(reported, maxReportedWait)
+	}
+	h.cooldownUntil = now.Add(wait)
 	failures := h.failures
 	p.mu.Unlock()
 

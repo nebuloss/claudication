@@ -14,6 +14,7 @@ import (
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
+	"claudication/internal/provider"
 	accountsvc "claudication/internal/service/accounts"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
@@ -38,6 +39,7 @@ type Admin struct {
 	surfaces       *surfaces.Surfaces
 	protocols      api.Registry
 	httpClient     *http.Client
+	providers      provider.Registry
 	anonLimiter    *limits.Limiter
 	budgets        *limits.Budgets
 	trustedProxies []*net.IPNet
@@ -50,18 +52,22 @@ type Admin struct {
 
 // Deps is what an Admin is built from. Every field is required.
 type Deps struct {
-	Config         *config.Config
-	Log            *slog.Logger
-	Store          *store.Store
-	Pool           *pool.Pool
-	Pending        *oauth.Pending
-	Poller         *accountsvc.Poller
-	Titles         *titles.Titler
-	Images         *settings.Switch
-	Docs           *settings.Switch
-	Surfaces       *surfaces.Surfaces
-	Protocols      api.Registry
-	HTTPClient     *http.Client
+	Config     *config.Config
+	Log        *slog.Logger
+	Store      *store.Store
+	Pool       *pool.Pool
+	Pending    *oauth.Pending
+	Poller     *accountsvc.Poller
+	Titles     *titles.Titler
+	Images     *settings.Switch
+	Docs       *settings.Switch
+	Surfaces   *surfaces.Surfaces
+	Protocols  api.Registry
+	HTTPClient *http.Client
+	// Providers are the upstreams accounts are connected to, which the
+	// account screens reach through rather than by name: signing in,
+	// refreshing, testing and revoking are each the provider's own.
+	Providers      provider.Registry
 	AnonLimiter    *limits.Limiter
 	Budgets        *limits.Budgets
 	TrustedProxies []*net.IPNet
@@ -96,7 +102,7 @@ func New(d Deps) *Admin {
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
 		pending: d.Pending, poller: d.Poller, titles: d.Titles, images: d.Images,
 		docs: d.Docs, surfaces: d.Surfaces, protocols: d.Protocols,
-		httpClient: d.HTTPClient, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
+		httpClient: d.HTTPClient, providers: d.Providers, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
 	}

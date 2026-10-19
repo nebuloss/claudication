@@ -9,7 +9,7 @@ import (
 
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/oauth"
-	"claudication/internal/provider/anthropic"
+	"claudication/internal/provider"
 	"claudication/internal/store"
 )
 
@@ -28,11 +28,10 @@ func (s *Admin) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Provider == "" {
-		body.Provider = anthropic.ID
+		body.Provider = s.defaultProvider()
 	}
-	if body.Provider != anthropic.ID {
-		httpx.WriteError(w, http.StatusBadRequest, "unsupported_provider",
-			"only the anthropic provider is implemented so far")
+	prov, ok := s.providerFor(w, body.Provider)
+	if !ok {
 		return
 	}
 
@@ -55,7 +54,12 @@ func (s *Admin) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		target = acct
 	}
 
-	redirectURI := anthropic.RedirectManual
+	paste, ok := prov.(provider.PasteLogin)
+	if !ok {
+		httpx.WriteError(w, http.StatusBadRequest, "unsupported_provider",
+			"the "+body.Provider+" provider signs in another way")
+		return
+	}
 
 	pkce, err := oauth.NewPKCE()
 	if err != nil {
@@ -67,15 +71,17 @@ func (s *Admin) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		httpx.Internal(w, s.log, "start the sign-in", err)
 		return
 	}
-	expires := s.pending.StartFor(body.Provider, state, pkce, redirectURI, target.ID)
+	login := paste.LoginURL(state, pkce, loginHint(target))
+	expires := s.pending.StartFor(body.Provider, state, pkce, login.Redirect, target.ID)
 
 	out := map[string]any{
 		"provider":     body.Provider,
+		"flow":         "paste",
 		"state":        state,
-		"auth_url":     anthropic.AuthURL(state, pkce, redirectURI, loginHint(target)),
-		"redirect_uri": redirectURI,
+		"auth_url":     login.URL,
+		"redirect_uri": login.Redirect,
 		"expires_at":   expires.UTC().Format(time.RFC3339),
-		"instructions": "Open the URL, approve access, then paste the authorization code Anthropic shows you back here.",
+		"instructions": login.Instructions,
 	}
 	if target.ID != "" {
 		out["account_id"] = target.ID
@@ -127,7 +133,17 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Provider == "" {
-		body.Provider = anthropic.ID
+		body.Provider = s.defaultProvider()
+	}
+	prov, ok := s.providerFor(w, body.Provider)
+	if !ok {
+		return
+	}
+	paste, ok := prov.(provider.PasteLogin)
+	if !ok {
+		httpx.WriteError(w, http.StatusBadRequest, "unsupported_provider",
+			"the "+body.Provider+" provider signs in another way")
+		return
 	}
 
 	code, returnedState, err := oauth.ParseCallback(body.RedirectURL)
@@ -151,7 +167,7 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 
 	// Replay the redirect the authorize request carried; a mismatch is
 	// rejected by the token endpoint.
-	res, err := anthropic.ExchangeCode(r.Context(), s.httpClient,
+	res, err := paste.Exchange(r.Context(), s.httpClient,
 		code, attempt.PKCE.Verifier, body.State, attempt.RedirectURI)
 	if err != nil {
 		// The attempt stays live, so a corrected paste can be retried without
@@ -162,26 +178,33 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	// Redeemed: the verifier is spent from here on.
 	s.pending.Consume(body.State)
+	s.storeConsent(w, r, prov, attempt, res)
+}
 
+// storeConsent stores what a finished sign-in bought, however it was signed in
+// — a pasted code or an approved device code — and answers with the account.
+func (s *Admin) storeConsent(w http.ResponseWriter, r *http.Request, prov provider.Accounts, attempt oauth.Attempt, res oauth.Result) {
+	providerID := prov.ID()
 	email := res.Email
 	if email == "" {
-		email = "unknown@" + body.Provider
+		email = "unknown@" + providerID
 	}
 	tokens := store.Tokens{AccessToken: res.AccessToken, RefreshToken: res.RefreshToken}
 	fresh := store.Account{
-		Provider:         body.Provider,
+		Provider:         providerID,
 		Email:            email,
 		AccountUUID:      res.AccountUUID,
 		ExpiresAt:        res.ExpiresAt,
 		RefreshExpiresAt: res.RefreshTokenExpiresAt,
 	}
+	var err error
 
 	// Which stored account, if any, these tokens renew.
 	var target store.Account
 	if attempt.Account != "" {
 		target, err = s.store.Account(r.Context(), attempt.Account)
 		if errors.Is(err, store.ErrAccountNotFound) {
-			s.handBack(res.RefreshToken, "the account was removed during its reconnect")
+			s.handBack(prov, res.RefreshToken, "the account was removed during its reconnect")
 			httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound,
 				"that account was removed while you were signing in; add it again instead")
 			return
@@ -191,17 +214,17 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !sameAccount(target, res.AccountUUID, res.Email) {
-			s.handBack(res.RefreshToken, "a reconnect came back as a different account")
+			s.handBack(prov, res.RefreshToken, "a reconnect came back as a different account")
 			s.log.Warn("reconnect approved as a different account; nothing stored",
 				"account", target.ID, "expected", target.Email, "approved_as", email)
 			httpx.WriteError(w, http.StatusConflict, "wrong_account",
 				"access was approved as "+email+", not "+target.Email+
-					", so nothing was changed. The browser approves as whichever Claude account "+
-					"it is signed in to: sign out of claude.ai there, or open the link in a "+
+					", so nothing was changed. The browser approves as whichever account "+
+					"it is signed in to: sign out there, or open the link in a "+
 					"private window, sign in as "+target.Email+", and start the reconnect again.")
 			return
 		}
-	} else if existing, err := s.store.AccountByEmail(r.Context(), body.Provider, email); err == nil {
+	} else if existing, err := s.store.AccountByEmail(r.Context(), providerID, email); err == nil {
 		target = existing
 	}
 
@@ -236,7 +259,7 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		acct = fresh
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(acct), "renewed": renewed})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": s.accountJSON(acct), "renewed": renewed})
 }
 
 // handBack revokes a refresh token the gateway was issued but will not keep.
@@ -245,10 +268,10 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 // refusal into an error, and an unrevoked grant ages out on its own. But not
 // revoking at all would leave a live credential for an account nobody asked
 // to connect, held by nothing.
-func (s *Admin) handBack(refreshToken, why string) {
+func (s *Admin) handBack(prov provider.Accounts, refreshToken, why string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := anthropic.Revoke(ctx, s.httpClient, refreshToken, anthropic.ClientID); err != nil {
+	if err := prov.Revoke(ctx, s.httpClient, refreshToken); err != nil {
 		s.log.Warn("could not revoke an unwanted grant; it will lapse on its own", "why", why, "err", err)
 	}
 }

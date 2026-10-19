@@ -17,7 +17,7 @@ func TestAccountJSONCountsReauthDaysUp(t *testing.T) {
 		ID: "x", Provider: "anthropic", Email: "e", ExpiresAt: now.Add(time.Hour), CreatedAt: now,
 		RefreshExpiresAt: now.Add(36 * time.Hour), LastRefreshAt: &used, LastUsedAt: &used,
 		Quota: store.AccountQuota{FiveHourUtil: -1, SevenDayUtil: -1},
-	})
+	}, nil)
 	if j.ReauthDaysLeft == nil || *j.ReauthDaysLeft != 2 {
 		t.Errorf("reauth_days_left = %v, want 2 for a day and a half", j.ReauthDaysLeft)
 	}

@@ -36,6 +36,7 @@ import (
 	"claudication/internal/memlimit"
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
+	"claudication/internal/provider"
 	"claudication/internal/provider/anthropic"
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
@@ -85,6 +86,9 @@ type Server struct {
 	// order the admin UI lists them. Anthropic is one of them rather than the
 	// default case — see internal/api.
 	protocols api.Registry
+	// providers are the upstreams accounts connect to, in the order the admin
+	// UI lists them. See internal/provider.
+	providers provider.Registry
 	surfaces  *surfaces.Surfaces
 	images    *settings.Switch
 	docs      *settings.Switch
@@ -211,19 +215,29 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 		Budgets:   s.budgets,
 		Log:       log,
 	}
-	// Anthropic is the only provider. It is named here, in the composition
-	// root, and nowhere below: the pool is handed its token refresh and the
-	// relay its wire, and neither knows whose they are.
-	s.pool = pool.New(st, s.httpClient, log, anthropic.Refresh)
+	// The providers are named here, in the composition root, and nowhere
+	// below: the pool is handed each one's token refresh, the poller each
+	// one's usage endpoint and the relay its wire, and none of them knows
+	// whose they are.
+	s.providers = provider.Registry{anthropic.Accounts{}}
+	refresh := map[string]pool.RefreshFunc{}
+	for _, p := range s.providers {
+		refresh[p.ID()] = p.Refresh
+	}
+	s.pool = pool.New(st, s.httpClient, log, refresh)
 	s.poller = &accountsvc.Poller{
 		Store:  st,
 		Tokens: s.pool,
-		Fetch: func(ctx context.Context, token string) (store.AccountQuota, error) {
-			u, err := anthropic.FetchUsage(ctx, s.httpClient, token)
+		Fetch: func(ctx context.Context, a store.Account, token string) (store.AccountQuota, error) {
+			p, ok := s.providers.Find(a.Provider)
+			if !ok {
+				return store.AccountQuota{}, fmt.Errorf("no provider %q", a.Provider)
+			}
+			q, err := p.Usage(ctx, s.httpClient, provider.Credential{Token: token, AccountID: a.AccountUUID})
 			if err != nil {
 				return store.AccountQuota{}, err
 			}
-			return u.Quota(), nil
+			return pool.StoredQuota(q), nil
 		},
 		Idle:    cfg.Usage.PollIdle.D(),
 		Watched: cfg.Usage.PollWatched.D(),
@@ -303,7 +317,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
 		Titles: titler, Images: s.images, Docs: s.docs, Surfaces: s.surfaces,
-		Protocols: s.protocols, HTTPClient: s.httpClient,
+		Protocols: s.protocols, HTTPClient: s.httpClient, Providers: s.providers,
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
 		Models: s.models, Install: installs,

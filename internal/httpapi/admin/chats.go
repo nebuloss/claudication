@@ -166,7 +166,7 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 	// vocabulary of its own.
 	out := make([]RequestJSON, 0, len(events))
 	for _, e := range events {
-		out = append(out, toRequestJSON(e))
+		out = append(out, s.toRequestJSON(e))
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,

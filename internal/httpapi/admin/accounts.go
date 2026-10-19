@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"claudication/internal/httpapi/httpx"
-	"claudication/internal/provider/anthropic"
+	"claudication/internal/provider"
 	"claudication/internal/store"
 )
 
@@ -49,11 +49,12 @@ type AccountJSON struct {
 	ModelsOff []string `json:"models_off,omitempty"`
 }
 
-// quotaJSON is what /api/oauth/usage reported: the two headline windows, plus
-// the server's own normalised rows — the same list `/usage` prints, including
-// the per-model weekly limits the headline windows do not cover.
+// quotaJSON is what the provider last reported: the two headline windows,
+// plus the provider's own rows — for Anthropic the same list `/usage` prints,
+// including the per-model weekly limits the headline windows do not cover;
+// for ChatGPT one row per window, labelled by its length.
 //
-// Percentages are 0-100, as the endpoint sends them.
+// Percentages are 0-100, as the endpoints send them.
 type quotaJSON struct {
 	UpdatedAt      string           `json:"updated_at"`
 	FiveHourUtil   float64          `json:"five_hour_util"`
@@ -63,21 +64,13 @@ type quotaJSON struct {
 	SevenDayReset  string           `json:"seven_day_reset,omitempty"`
 	SevenDayStatus string           `json:"seven_day_status,omitempty"`
 	Allowed        bool             `json:"allowed"`
-	Limits         []usageLimitJSON `json:"limits,omitempty"`
+	Limits         []provider.Limit `json:"limits,omitempty"`
 }
 
-// usageLimitJSON is one row of the usage display, titled the way the client
-// titles it so the two read the same.
-type usageLimitJSON struct {
-	Title    string  `json:"title"`
-	Kind     string  `json:"kind"`
-	Percent  float64 `json:"percent"`
-	Severity string  `json:"severity"`
-	ResetsAt string  `json:"resets_at,omitempty"`
-	IsActive bool    `json:"is_active"`
-}
-
-func toAccountJSON(a store.Account) AccountJSON {
+// toAccountJSON is one account as the admin API reports it. prov reads the
+// quota's detail back, which is in the provider's own shape; nil leaves the
+// rows out.
+func toAccountJSON(a store.Account, prov provider.Accounts) AccountJSON {
 	out := AccountJSON{
 		ID:        a.ID,
 		Provider:  a.Provider,
@@ -132,23 +125,8 @@ func toAccountJSON(a store.Account) AccountJSON {
 		if !a.Quota.SevenDayReset.IsZero() {
 			q.SevenDayReset = a.Quota.SevenDayReset.UTC().Format(time.RFC3339)
 		}
-		if a.Quota.Detail != "" {
-			var rows []anthropic.UsageLimit
-			if err := json.Unmarshal([]byte(a.Quota.Detail), &rows); err == nil {
-				for _, l := range rows {
-					row := usageLimitJSON{
-						Title:    l.Title(),
-						Kind:     l.Kind,
-						Percent:  l.Percent,
-						Severity: l.Severity,
-						IsActive: l.IsActive,
-					}
-					if l.ResetsAt != nil {
-						row.ResetsAt = *l.ResetsAt
-					}
-					q.Limits = append(q.Limits, row)
-				}
-			}
+		if a.Quota.Detail != "" && prov != nil {
+			q.Limits = prov.Limits(a.Quota.Detail)
 		}
 		out.Quota = &q
 	}
@@ -176,7 +154,7 @@ func (s *Admin) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	// here. This walk used to approximate pick() and could not see a cooldown
 	// at all — cooldowns are in memory, not in the row — so an account sitting
 	// out a rate limit still wore the "serving" badge.
-	status, err := s.pool.Status(r.Context(), anthropic.ID)
+	status, err := s.poolStatus(r.Context())
 	if err != nil {
 		s.log.Error("account pool status", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read accounts")
@@ -185,13 +163,13 @@ func (s *Admin) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]AccountJSON, 0, len(accounts))
 	for i, a := range accounts {
-		j := toAccountJSON(a)
+		j := s.accountJSON(a)
 		j.Position = i
 		if u, ok := usage[a.ID]; ok {
 			j.Requests = u.Requests
 			j.Tokens = u.InputTokens + u.OutputTokens + u.CacheTokens
 		}
-		j.Serving = a.ID == status.Serving
+		j.Serving = status.Serving[a.ID]
 		if until, ok := status.Cooling[a.ID]; ok {
 			j.CoolingUntil = until.UTC().Format(time.RFC3339)
 		}
@@ -245,7 +223,13 @@ func (s *Admin) handleRefreshUsage(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(account)})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": s.accountJSON(account)})
+}
+
+// accountJSON is toAccountJSON with the account's own provider.
+func (s *Admin) accountJSON(a store.Account) AccountJSON {
+	prov, _ := s.providers.Find(a.Provider)
+	return toAccountJSON(a, prov)
 }
 
 func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +244,10 @@ func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	prov, ok := s.providerFor(w, acct.Provider)
+	if !ok {
+		return
+	}
 	tokens, err := s.store.AccountTokens(r.Context(), id)
 	if err != nil {
 		httpx.Internal(w, s.log, "read the account's tokens", err)
@@ -286,7 +274,8 @@ func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body)
 
-	result := anthropic.Probe(r.Context(), s.httpClient, tokens.AccessToken, body.Model)
+	result := prov.Probe(r.Context(), s.httpClient,
+		provider.Credential{Token: tokens.AccessToken, AccountID: acct.AccountUUID}, body.Model)
 	if result.OK {
 		s.store.MarkAccountUsed(r.Context(), id)
 	} else {
@@ -317,7 +306,7 @@ func (s *Admin) handleRefreshAccount(w http.ResponseWriter, r *http.Request) {
 		httpx.Internal(w, s.log, "read the account", err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(acct)})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": s.accountJSON(acct)})
 }
 
 // handleSetAccountDisabled pauses an account, or resumes it.
@@ -350,7 +339,7 @@ func (s *Admin) handleSetAccountDisabled(w http.ResponseWriter, r *http.Request)
 		httpx.WriteJSON(w, http.StatusOK, map[string]bool{"disabled": body.Disabled})
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toAccountJSON(acct))
+	httpx.WriteJSON(w, http.StatusOK, s.accountJSON(acct))
 }
 
 // handleDeleteAccount hands the credential back before forgetting it.
@@ -366,9 +355,18 @@ func (s *Admin) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	// Best-effort, and deliberately not fatal. The operator asked for this
 	// account to be gone; an upstream that is down, slow or has already
 	// forgotten the token must not be able to prevent that.
-	if tokens, err := s.store.AccountTokens(r.Context(), id); err == nil {
-		if err := anthropic.Revoke(r.Context(), s.httpClient,
-			tokens.RefreshToken, anthropic.ClientID); err != nil {
+	acct, err := s.store.Account(r.Context(), id)
+	if errors.Is(err, store.ErrAccountNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
+		return
+	}
+	if err != nil {
+		httpx.Internal(w, s.log, "read the account", err)
+		return
+	}
+	prov, known := s.providers.Find(acct.Provider)
+	if tokens, err := s.store.AccountTokens(r.Context(), id); err == nil && known {
+		if err := prov.Revoke(r.Context(), s.httpClient, tokens.RefreshToken); err != nil {
 			s.log.Warn("could not revoke the refresh token upstream; deleting locally anyway",
 				"account", id, "err", err)
 		} else {

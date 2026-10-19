@@ -5,9 +5,10 @@
 // Lowest first:
 //
 //	0  leaves         version logging memlimit secret oauth request anthropicwire
-//	                  provider api service/limits service/settings
-//	                  service/install testenv
-//	1  records        store config relay/passes api/anthropic api/openai
+//	                  api service/limits service/settings service/install
+//	                  testenv
+//	1  records        store config provider relay/passes api/anthropic
+//	                  api/openai
 //	2  accounts       pool provider/anthropic service/accounts service/usage
 //	                  service/surfaces
 //	3  relay          relay
@@ -28,13 +29,13 @@
 //   - The three HTTP surfaces do not import one another. What one needs from
 //     another — the model list, the sign-in link at the root — is handed
 //     across by the composition root, as a function.
-//   - Anthropic, as an upstream, is known only where it has to be. The relay,
-//     the pool and the services speak to it through provider.Wire and are
-//     handed its functions (token refresh, error classification) by the
-//     composition root. The admin API is the one exception, because
-//     connecting, testing and revoking an account is a provider's own OAuth
-//     flow, and there is one provider; a second would bring the interface that
-//     flow does not need yet.
+//   - An upstream is known only to the composition root, which builds it.
+//     The relay speaks to one through provider.Wire; the pool, the usage
+//     poller, the recorder and the admin API through provider.Accounts, the
+//     registry the root hands them. The admin API used to import Anthropic's
+//     package directly, because connecting, testing and revoking an account
+//     is a provider's own flow and there was one provider; the second brought
+//     the interface, as this rule said it would.
 //   - The client dialects are known only to the gateway, which serves them,
 //     and the composition root, which registers them.
 //

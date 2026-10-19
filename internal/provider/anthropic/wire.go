@@ -5,8 +5,8 @@
 // behind the admin screens.
 //
 // It is the only package that knows any of those details. The relay sees it
-// through provider.Wire; the pool through a refresh function; the admin
-// screens call it directly, because they are about Anthropic accounts.
+// through provider.Wire, and everything else that deals with its accounts —
+// the pool, the usage poller, the admin screens — through provider.Accounts.
 package anthropic
 
 import (
@@ -71,9 +71,9 @@ func (Provider) BaseURL() string { return BaseURL }
 
 // Authorize implements provider.Wire: the account's bearer token, the OAuth
 // capability the upstream requires of it, and an API version if the caller
-// named none.
-func (Provider) Authorize(out *http.Request, token string) {
-	out.Header.Set("Authorization", "Bearer "+token)
+// named none. The account id is not sent: the token alone names the account.
+func (Provider) Authorize(out *http.Request, c provider.Credential) {
+	out.Header.Set("Authorization", "Bearer "+c.Token)
 
 	// Merge rather than replace: the client's beta values are its own
 	// capabilities and the contract forbids allowlisting them.
@@ -99,6 +99,24 @@ func hasBeta(header, want string) bool {
 	}
 	return false
 }
+
+// Inspect implements provider.Wire. Anthropic says nothing about the account
+// on a relayed answer that the pool acts on: its quota is polled (see
+// accountusage.go, for why that beats the rate-limit headers), and its 429
+// carries no reset worth more than the pool's own backoff.
+func (Provider) Inspect(int, http.Header, []byte) provider.Verdict { return provider.Verdict{} }
+
+// ModelsPath implements provider.Wire: the Messages API's own model list,
+// which takes the caller's paging as it is.
+func (Provider) ModelsPath(rawQuery string) string {
+	if rawQuery == "" {
+		return "/v1/models"
+	}
+	return "/v1/models?" + rawQuery
+}
+
+// ModelList implements provider.Wire. The gateway's list shape is this one's.
+func (Provider) ModelList(body []byte) ([]byte, error) { return body, nil }
 
 // Meter implements provider.Wire. Which reader can recover the usage depends
 // on the shape of the answer, not on what the caller asked for: a request

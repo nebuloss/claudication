@@ -41,7 +41,7 @@ func refreshFixture(t *testing.T) (*Pool, *store.Store, string) {
 		t.Fatalf("UpsertAccount: %v", err)
 	}
 
-	p := New(st, &http.Client{}, slog.New(slog.DiscardHandler), nil) // each test sets exchange
+	p := New(st, &http.Client{}, slog.New(slog.DiscardHandler), nil) // each test sets its refresh
 	return p, st, acct.ID
 }
 
@@ -56,7 +56,7 @@ func TestRefreshSurvivesTheCallerGivingUp(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	reached := make(chan struct{})
-	p.exchange = func(exchangeCtx context.Context, _ *http.Client, refreshToken string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(exchangeCtx context.Context, _ *http.Client, refreshToken string) (oauth.Result, error) {
 		close(reached)
 		// The caller gives up exactly here: the old token is now spent
 		// upstream and only this function holds its replacement.
@@ -100,7 +100,7 @@ func TestRefreshWaitersLearnItFailed(t *testing.T) {
 	started := make(chan struct{})
 	wantErr := errors.New("upstream said no")
 
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		close(started)
 		<-release
 		return oauth.Result{}, wantErr
@@ -148,7 +148,7 @@ func TestRefreshIsSingleFlight(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{})
 
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		mu.Lock()
 		calls++
 		if calls == 1 {

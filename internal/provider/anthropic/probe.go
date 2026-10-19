@@ -11,25 +11,15 @@ import (
 	"time"
 
 	"claudication/internal/anthropicwire"
+	"claudication/internal/provider"
 )
 
 // probePath is the Messages endpoint as the official client calls it.
 const probePath = "/v1/messages?beta=true"
 
-// ProbeResult is what a credential test learned.
-type ProbeResult struct {
-	OK           bool          `json:"ok"`
-	Model        string        `json:"model,omitempty"`
-	StopReason   string        `json:"stop_reason,omitempty"`
-	InputTokens  int           `json:"input_tokens,omitempty"`
-	OutputTokens int           `json:"output_tokens,omitempty"`
-	Reply        string        `json:"reply,omitempty"`
-	LatencyMS    int64         `json:"latency_ms"`
-	Status       int           `json:"status"`
-	RequestID    string        `json:"request_id,omitempty"`
-	Error        string        `json:"error,omitempty"`
-	latency      time.Duration `json:"-"`
-}
+// ProbeResult is what a credential test learned; every provider's is the
+// same shape, because the accounts screen renders it.
+type ProbeResult = provider.ProbeResult
 
 // Probe sends the smallest useful request through an OAuth credential
 // to prove it actually works end to end.

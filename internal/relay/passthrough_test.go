@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"claudication/internal/pool"
+	"claudication/internal/provider"
 	"claudication/internal/provider/anthropic"
 )
 
@@ -15,7 +16,7 @@ import (
 func buildFor(t *testing.T, in *http.Request) *http.Request {
 	t.Helper()
 	r := &Relay{Wire: anthropic.Provider{}}
-	out, err := r.build(in, "https://api.anthropic.com/v1/messages", []byte(`{"a":1}`), "tok123")
+	out, err := r.build(in, "https://api.anthropic.com/v1/messages", []byte(`{"a":1}`), provider.Credential{Token: "tok123"})
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestBuildSendsTheBodyVerbatim(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-5","system":[{"type":"text","text":"x"}]}`)
 
 	r := &Relay{Wire: anthropic.Provider{}}
-	out, err := r.build(in, "https://api.anthropic.com/v1/messages", body, "tok")
+	out, err := r.build(in, "https://api.anthropic.com/v1/messages", body, provider.Credential{Token: "tok"})
 	if err != nil {
 		t.Fatal(err)
 	}

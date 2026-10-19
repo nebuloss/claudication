@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"claudication/internal/pool"
+	"claudication/internal/provider"
 	"claudication/internal/provider/anthropic"
 	"claudication/internal/request"
 	"claudication/internal/store"
@@ -32,9 +34,11 @@ func (p *onePool) Acquire(_ context.Context, _, _ string, exclude map[string]boo
 	}, nil
 }
 
-func (p *onePool) ReportFailure(string, pool.FailureKind, string) {}
-func (p *onePool) ReportSuccess(string)                           {}
-func (p *onePool) Refresh(context.Context, string) error          { return nil }
+func (p *onePool) ReportFailure(string, pool.FailureKind, string)                 {}
+func (p *onePool) ReportFailureUntil(string, pool.FailureKind, string, time.Time) {}
+func (p *onePool) NoteQuota(string, provider.Quota)                               {}
+func (p *onePool) ReportSuccess(string)                                           {}
+func (p *onePool) Refresh(context.Context, string) error                          { return nil }
 
 // The rule the relay exists for: the upstream's error reaches the client
 // unmodified. Claude Code decides whether to retry, and whether to disable a
@@ -105,6 +109,8 @@ type emptyPool struct{}
 func (emptyPool) Acquire(context.Context, string, string, map[string]bool) (pool.Lease, error) {
 	return pool.Lease{}, pool.ErrNoAccounts
 }
-func (emptyPool) ReportFailure(string, pool.FailureKind, string) {}
-func (emptyPool) ReportSuccess(string)                           {}
-func (emptyPool) Refresh(context.Context, string) error          { return nil }
+func (emptyPool) ReportFailure(string, pool.FailureKind, string)                 {}
+func (emptyPool) ReportFailureUntil(string, pool.FailureKind, string, time.Time) {}
+func (emptyPool) NoteQuota(string, provider.Quota)                               {}
+func (emptyPool) ReportSuccess(string)                                           {}
+func (emptyPool) Refresh(context.Context, string) error                          { return nil }

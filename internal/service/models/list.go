@@ -28,6 +28,7 @@ import (
 
 	"claudication/internal/config"
 	"claudication/internal/pool"
+	"claudication/internal/provider"
 	"claudication/internal/relay"
 	"claudication/internal/store"
 )
@@ -533,15 +534,11 @@ func (s *Catalog) listModels(ctx context.Context, token, rawQuery string) ([]byt
 	if base == "" {
 		base = s.relay.Wire.BaseURL()
 	}
-	url := base + "/v1/models"
-	if rawQuery != "" {
-		url += "?" + rawQuery
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+s.relay.Wire.ModelsPath(rawQuery), nil)
 	if err != nil {
 		return nil, err
 	}
-	s.relay.Wire.Authorize(req, token)
+	s.relay.Wire.Authorize(req, provider.Credential{Token: token})
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -551,7 +548,11 @@ func (s *Catalog) listModels(ctx context.Context, token, rawQuery string) ([]byt
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("upstream models returned %d", resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	return s.relay.Wire.ModelList(body)
 }
 
 // mergeModels is the union of several accounts' model lists, each less the

@@ -45,6 +45,7 @@ const (
 // Store is where accounts and their quotas live. The database is one.
 type Store interface {
 	ListAccounts(ctx context.Context) ([]store.Account, error)
+	Account(ctx context.Context, id string) (store.Account, error)
 	SetAccountQuota(ctx context.Context, id string, q store.AccountQuota) error
 }
 
@@ -55,8 +56,9 @@ type TokenSource interface {
 }
 
 // FetchFunc reads one account's usage from its provider, as the quota the
-// store keeps.
-type FetchFunc func(ctx context.Context, token string) (store.AccountQuota, error)
+// store keeps. The account says whose: each provider has its own endpoint,
+// and the composition root, which knows them, picks it.
+type FetchFunc func(ctx context.Context, a store.Account, token string) (store.AccountQuota, error)
 
 // Poller refreshes account usage at a rate that follows whether anyone is
 // looking.
@@ -109,11 +111,15 @@ func (p *Poller) Interval() time.Duration {
 
 // Refresh asks the provider what one account has spent and stores it.
 func (p *Poller) Refresh(ctx context.Context, id string) error {
+	a, err := p.Store.Account(ctx, id)
+	if err != nil {
+		return err
+	}
 	token, err := p.Tokens.AccessToken(ctx, id)
 	if err != nil {
 		return err
 	}
-	q, err := p.Fetch(ctx, token)
+	q, err := p.Fetch(ctx, a, token)
 	if err != nil {
 		return err
 	}

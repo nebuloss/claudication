@@ -83,8 +83,13 @@ type AccountPool interface {
 	// Acquire leases an account that has model on; see pool.Pool.Acquire.
 	Acquire(ctx context.Context, provider, model string, exclude map[string]bool) (pool.Lease, error)
 	ReportFailure(id string, kind pool.FailureKind, detail string)
+	// ReportFailureUntil is ReportFailure for an upstream that named when the
+	// account can serve again.
+	ReportFailureUntil(id string, kind pool.FailureKind, detail string, until time.Time)
 	ReportSuccess(id string)
 	Refresh(ctx context.Context, id string) error
+	// NoteQuota records the quota an answer reported for its account.
+	NoteQuota(id string, q provider.Quota)
 }
 
 // Result describes what happened, for logging and stats.
@@ -240,7 +245,8 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		res.AccountID = lease.Account.ID
 		res.AccountEmail = lease.Account.Email
 
-		upstreamReq, err := r.build(req, base+upstreamPath, body, lease.AccessToken)
+		cred := provider.Credential{Token: lease.AccessToken, AccountID: lease.Account.AccountUUID}
+		upstreamReq, err := r.build(req, base+upstreamPath, body, cred)
 		if err != nil {
 			res.Err = err
 			return res
@@ -281,6 +287,16 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 				body:   raw,
 			}
 			detail := errorText(raw)
+			// What the refusal says about the account beyond its status: a
+			// reset to sit out until, a kind the status does not imply, the
+			// windows. Nothing, for a provider that says nothing there.
+			verdict := r.Wire.Inspect(resp.StatusCode, resp.Header, raw)
+			if verdict.Kind != "" {
+				kind = pool.FailureKind(verdict.Kind)
+			}
+			if verdict.Quota != nil {
+				r.Pool.NoteQuota(lease.Account.ID, *verdict.Quota)
+			}
 
 			// A 401 usually means the access token aged out rather than the
 			// account being broken; refresh once and let the same account
@@ -295,7 +311,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 					continue
 				}
 			}
-			r.Pool.ReportFailure(lease.Account.ID, kind, detail)
+			r.Pool.ReportFailureUntil(lease.Account.ID, kind, detail, verdict.Until)
 			tried[lease.Account.ID] = true
 			continue
 		}
@@ -305,11 +321,22 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		// request recorded as a 429 carried no hint of *which* limit, and the
 		// Usage tab could show that something failed but never why. The body
 		// is put back either way, so the client still gets it byte for byte.
+		var errBody []byte
 		if resp.StatusCode >= 400 {
-			res.UpstreamError = peekErrorAndRestore(resp)
+			res.UpstreamError, errBody = peekErrorAndRestore(resp)
+		}
+		// Read before the body is relayed, from the status line and headers,
+		// which a provider that reports its quota on every answer — ChatGPT's
+		// does — fills on a success as much as on a failure.
+		verdict := r.Wire.Inspect(resp.StatusCode, resp.Header, errBody)
+		if verdict.Kind != "" && kind != "" {
+			kind = pool.FailureKind(verdict.Kind)
+		}
+		if verdict.Quota != nil {
+			r.Pool.NoteQuota(lease.Account.ID, *verdict.Quota)
 		}
 		if kind != "" {
-			r.Pool.ReportFailure(lease.Account.ID, kind, res.UpstreamError)
+			r.Pool.ReportFailureUntil(lease.Account.ID, kind, res.UpstreamError, verdict.Until)
 		}
 
 		// Hold the opening of a stream until it carries content, and send the
@@ -352,7 +379,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 
 // build copies the client's request onto the upstream, changing only what has
 // to change: the credential, and the OAuth capability the upstream requires.
-func (r *Relay) build(req *http.Request, url string, body []byte, token string) (*http.Request, error) {
+func (r *Relay) build(req *http.Request, url string, body []byte, cred provider.Credential) (*http.Request, error) {
 	out, err := http.NewRequestWithContext(req.Context(), req.Method, url, &sentBody{b: body})
 	if err != nil {
 		return nil, err
@@ -370,8 +397,9 @@ func (r *Relay) build(req *http.Request, url string, body []byte, token string) 
 			continue
 		}
 		switch lower {
-		// The client's credential authenticates it to us, not us to Anthropic.
-		case "authorization", "x-api-key",
+		// The client's credential authenticates it to us, not us to the
+		// upstream; and an account id it sent names no account of ours.
+		case "authorization", "x-api-key", "chatgpt-account-id",
 			// Set by the transport from the body we are sending.
 			"content-length", "host",
 			// Content coding is negotiated per hop, and this hop must see
@@ -404,7 +432,7 @@ func (r *Relay) build(req *http.Request, url string, body []byte, token string) 
 
 	// The account's credential, and whatever else the provider requires of
 	// an authenticated call.
-	r.Wire.Authorize(out, token)
+	r.Wire.Authorize(out, cred)
 	return out, nil
 }
 
@@ -570,14 +598,17 @@ func copyHeaders(dst, src http.Header) {
 // the client still receives it byte for byte. Error text is load-bearing:
 // Claude Code decides whether to retry and disable a capability by matching on
 // the upstream's wording, so it must arrive unmodified.
-func peekErrorAndRestore(resp *http.Response) string {
+//
+// The raw bytes come back too, for the provider to read the refusal's meaning
+// out of (Wire.Inspect).
+func peekErrorAndRestore(resp *http.Response) (string, []byte) {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxRefusalBytes))
 	resp.Body.Close()
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(raw))
-	return errorText(raw)
+	return errorText(raw), raw
 }
 
 // Timeout returns a context deadline appropriate to the request.

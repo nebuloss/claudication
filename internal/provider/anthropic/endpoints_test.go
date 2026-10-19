@@ -545,7 +545,7 @@ func TestAuthorizeMergesTheOAuthBeta(t *testing.T) {
 		if c.in != "" {
 			req.Header.Set("anthropic-beta", c.in)
 		}
-		Provider{}.Authorize(req, "tok")
+		Provider{}.Authorize(req, provider.Credential{Token: "tok"})
 		if got := req.Header.Get("anthropic-beta"); got != c.want {
 			t.Errorf("beta %q -> %q, want %q", c.in, got, c.want)
 		}
@@ -560,7 +560,7 @@ func TestAuthorizeMergesTheOAuthBeta(t *testing.T) {
 	// A version the caller chose is its own and is not overwritten.
 	req, _ := http.NewRequest(http.MethodPost, "http://x/v1/messages", nil)
 	req.Header.Set("anthropic-version", "2099-01-01")
-	Provider{}.Authorize(req, "tok")
+	Provider{}.Authorize(req, provider.Credential{Token: "tok"})
 	if got := req.Header.Get("anthropic-version"); got != "2099-01-01" {
 		t.Errorf("caller's version replaced with %q", got)
 	}

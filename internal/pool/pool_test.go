@@ -33,11 +33,12 @@ func fixture(t *testing.T) (*Pool, *store.Store) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	p := New(st, &http.Client{}, slog.New(slog.DiscardHandler),
-		func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p := New(st, &http.Client{}, slog.New(slog.DiscardHandler), map[string]RefreshFunc{
+		"anthropic": func(context.Context, *http.Client, string) (oauth.Result, error) {
 			t.Error("unexpected token exchange")
 			return oauth.Result{}, errors.New("unexpected exchange")
-		})
+		},
+	})
 	return p, st
 }
 
@@ -259,7 +260,7 @@ func TestAcquireRefreshesANearlyExpiredToken(t *testing.T) {
 	p, _ := fixture(t)
 	connect(t, p, "a@example.com", time.Now().Add(30*time.Second))
 	var calls int
-	p.exchange = newTokens("brand-new", &calls)
+	p.refreshers["anthropic"] = newTokens("brand-new", &calls)
 
 	lease, err := p.Acquire(context.Background(), "anthropic", "", nil)
 	if err != nil {
@@ -281,7 +282,7 @@ func TestAcquireRefreshesANearlyExpiredToken(t *testing.T) {
 func TestAcquireCoolsDownOnRefreshFailure(t *testing.T) {
 	p, _ := fixture(t)
 	id := connect(t, p, "a@example.com", time.Now().Add(-time.Minute))
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		return oauth.Result{}, errors.New("provider down")
 	}
 
@@ -445,7 +446,7 @@ func TestAccessToken(t *testing.T) {
 	}
 
 	var calls int
-	p.exchange = newTokens("refreshed", &calls)
+	p.refreshers["anthropic"] = newTokens("refreshed", &calls)
 	if tok, err := p.AccessToken(ctx, due); err != nil || tok != "refreshed" {
 		t.Errorf("due account: %q, %v; want the refreshed token", tok, err)
 	}
@@ -457,7 +458,7 @@ func TestAccessToken(t *testing.T) {
 		t.Errorf("missing account: %v, want ErrAccountNotFound", err)
 	}
 
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		return oauth.Result{}, errors.New("boom")
 	}
 	other := connect(t, p, "other@example.com", time.Now().Add(-time.Minute))
@@ -475,7 +476,7 @@ func TestRefreshInvalidGrantMarksTheAccountDead(t *testing.T) {
 	id := connect(t, p, "a@example.com", time.Now().Add(-time.Minute))
 
 	calls := 0
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		calls++
 		return oauth.Result{}, fmt.Errorf("token endpoint: %w", oauth.ErrInvalidGrant)
 	}
@@ -505,7 +506,7 @@ func TestRefreshTransientErrorIsRecorded(t *testing.T) {
 	p, st := fixture(t)
 	ctx := context.Background()
 	id := connect(t, p, "a@example.com", time.Now().Add(-time.Minute))
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		return oauth.Result{}, errors.New("503 from token endpoint")
 	}
 
@@ -528,7 +529,7 @@ func TestRefreshSuccessClearsCooldown(t *testing.T) {
 	p, _ := fixture(t)
 	id := connect(t, p, "a@example.com", time.Now().Add(-time.Minute))
 	p.ReportFailure(id, FailureAuth, "401")
-	p.exchange = newTokens("new", nil)
+	p.refreshers["anthropic"] = newTokens("new", nil)
 
 	if err := p.Refresh(context.Background(), id); err != nil {
 		t.Fatalf("Refresh: %v", err)
@@ -550,7 +551,7 @@ func TestRefreshWarnsWhenReauthIsNear(t *testing.T) {
 	p.log = slog.New(slog.NewTextHandler(&buf, nil))
 	id := connect(t, p, "a@example.com", time.Now().Add(-time.Minute))
 
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		return oauth.Result{
 			AccessToken: "a", RefreshToken: "r",
 			ExpiresAt:             time.Now().Add(time.Hour),
@@ -565,7 +566,7 @@ func TestRefreshWarnsWhenReauthIsNear(t *testing.T) {
 	}
 
 	buf.Reset()
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		return oauth.Result{
 			AccessToken: "a", RefreshToken: "r",
 			ExpiresAt:             time.Now().Add(time.Hour),
@@ -588,7 +589,7 @@ func TestRefreshWarnsWhenReauthIsNear(t *testing.T) {
 func TestRefreshFailsWhenTheTokensCannotBeStored(t *testing.T) {
 	p, st := fixture(t)
 	id := connect(t, p, "a@example.com", time.Now().Add(-time.Minute))
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		// The account vanishes between the exchange and the write.
 		if err := st.DeleteAccount(context.Background(), id); err != nil {
 			t.Error(err)
@@ -616,7 +617,7 @@ func TestRefreshWaiterHonoursItsOwnContext(t *testing.T) {
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	p.exchange = func(context.Context, *http.Client, string) (oauth.Result, error) {
+	p.refreshers["anthropic"] = func(context.Context, *http.Client, string) (oauth.Result, error) {
 		close(started)
 		<-release
 		return oauth.Result{AccessToken: "a", RefreshToken: "r", ExpiresAt: time.Now().Add(time.Hour)}, nil

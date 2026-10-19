@@ -26,7 +26,10 @@ type flow struct {
 	redirectURI string
 	// account is the stored account this attempt renews, or empty for one
 	// that adds whichever account the operator approves as.
-	account   string
+	account string
+	// device is the device-code attempt, for a provider that signs in that
+	// way; zero for a consent-and-paste one.
+	device    Device
 	expiresAt time.Time
 }
 
@@ -38,6 +41,8 @@ type Attempt struct {
 	// adds a new one. Kept with the attempt rather than sent back by the
 	// browser, so completing it cannot be pointed at a different account.
 	Account string
+	// Device is the device-code attempt; zero for a paste one.
+	Device Device
 }
 
 var (
@@ -76,6 +81,28 @@ func (p *Pending) StartFor(provider, state string, pkce PKCE, redirectURI, accou
 	return expires
 }
 
+// StartDevice registers a device-code attempt, renewing the stored account
+// with the given id when it is not empty, and returns when it expires: the
+// pending store's own lifetime or the code's, whichever is sooner, since a
+// code the provider has forgotten cannot be approved.
+func (p *Pending) StartDevice(provider, state string, d Device, account string) time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.evictLocked()
+
+	expires := p.now().Add(p.ttl)
+	if !d.ExpiresAt.IsZero() && d.ExpiresAt.Before(expires) {
+		expires = d.ExpiresAt
+	}
+	p.flows[state] = &flow{
+		provider:  provider,
+		account:   account,
+		device:    d,
+		expiresAt: expires,
+	}
+	return expires
+}
+
 // Peek resolves an attempt without consuming it.
 //
 // Deliberately separate from Consume: the verifier is only spent once the
@@ -96,7 +123,7 @@ func (p *Pending) Peek(provider, state string) (Attempt, error) {
 	if f.provider != provider {
 		return Attempt{}, ErrStateMismatch
 	}
-	return Attempt{PKCE: f.pkce, RedirectURI: f.redirectURI, Account: f.account}, nil
+	return Attempt{PKCE: f.pkce, RedirectURI: f.redirectURI, Account: f.account, Device: f.device}, nil
 }
 
 // Consume discards an attempt once it has been redeemed.

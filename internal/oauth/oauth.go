@@ -113,4 +113,24 @@ type Result struct {
 	// re-identify an existing account.
 	Email       string
 	AccountUUID string
+	// Plan is the subscription the account is on, in the provider's own
+	// word ("plus", "pro", "team"), when the provider says. Like the
+	// identity, it is read at sign-in.
+	Plan string
+}
+
+// Device is one device-code sign-in in progress: the code the operator enters
+// on the provider's page, and what the gateway asks with until it is
+// approved.
+type Device struct {
+	// ID is the provider's handle for the attempt; never shown.
+	ID string
+	// UserCode is what the operator types.
+	UserCode string
+	// VerificationURI is the page they type it on.
+	VerificationURI string
+	// Interval is how often the provider wants to be asked.
+	Interval time.Duration
+	// ExpiresAt is when the code stops working.
+	ExpiresAt time.Time
 }

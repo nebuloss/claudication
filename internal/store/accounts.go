@@ -91,6 +91,74 @@ func (q AccountQuota) Allowed() bool {
 	return ok(q.FiveHourStatus) && ok(q.SevenDayStatus)
 }
 
+// QuotaWindow is one rolling limit as a provider reports it: by its length,
+// not by a name. The same fields as provider.Window, which converts to it
+// directly; store and provider sit on one layer and cannot share the type.
+type QuotaWindow struct {
+	Seconds     int64
+	UsedPercent float64
+	ResetAt     time.Time
+	Status      string
+}
+
+// The window lengths the quota has columns for.
+const (
+	fiveHourSeconds = 5 * 60 * 60
+	sevenDaySeconds = 7 * 24 * 60 * 60
+)
+
+// near reports whether a window is the given length, give or take a tenth: a
+// provider that reports in minutes, or rounds, is still describing the same
+// window.
+func near(seconds, want int64) bool {
+	d := seconds - want
+	if d < 0 {
+		d = -d
+	}
+	return d*10 <= want
+}
+
+// QuotaFromWindows is a provider's windows as the quota columns hold them.
+//
+// By length, never by position: the 5-hour columns take the window about five
+// hours long and the 7-day columns the one about a week long, and any other
+// window is left to detail, where the accounts screen still shows it. A
+// window not reported stays unknown (-1), as it does for a poll that named
+// none.
+//
+// limited is the provider saying the account may not serve now. It closes the
+// windows that are full, or both columns when none is — the pool reads a
+// closed window as out of room, which is what limited means — so the account
+// is skipped without the figures having to agree.
+func QuotaFromWindows(at time.Time, windows []QuotaWindow, limited bool, detail string) AccountQuota {
+	q := AccountQuota{UpdatedAt: at, FiveHourUtil: -1, SevenDayUtil: -1, Detail: detail}
+	for _, w := range windows {
+		status := w.Status
+		if status == "" {
+			status = "allowed"
+		}
+		switch {
+		case near(w.Seconds, fiveHourSeconds):
+			q.FiveHourUtil, q.FiveHourReset, q.FiveHourStatus = w.UsedPercent, w.ResetAt.UTC(), status
+		case near(w.Seconds, sevenDaySeconds):
+			q.SevenDayUtil, q.SevenDayReset, q.SevenDayStatus = w.UsedPercent, w.ResetAt.UTC(), status
+		}
+	}
+	if limited {
+		closed := false
+		if q.FiveHourUtil >= 100 {
+			q.FiveHourStatus, closed = "limit_reached", true
+		}
+		if q.SevenDayUtil >= 100 {
+			q.SevenDayStatus, closed = "limit_reached", true
+		}
+		if !closed {
+			q.FiveHourStatus, q.SevenDayStatus = "limit_reached", "limit_reached"
+		}
+	}
+	return q
+}
+
 func (a Account) Disabled() bool { return a.DisabledAt != nil }
 
 // RefreshDead reports whether the refresh token has been refused for good.

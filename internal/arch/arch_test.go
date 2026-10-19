@@ -19,7 +19,6 @@ var layers = map[string]int{
 	"internal/secret":           0,
 	"internal/oauth":            0,
 	"internal/request":          0,
-	"internal/provider":         0,
 	"internal/api":              0,
 	"internal/service":          0, // the package comment for the services
 	"internal/service/limits":   0,
@@ -31,6 +30,7 @@ var layers = map[string]int{
 
 	"internal/store":         1,
 	"internal/config":        1,
+	"internal/provider":      1,
 	"internal/relay/passes":  1,
 	"internal/api/anthropic": 1,
 	"internal/api/openai":    1,
@@ -60,10 +60,9 @@ var layers = map[string]int{
 // onlyImportedBy names packages that a lower layer is not enough to make
 // available: each may be imported by the listed packages and no others.
 var onlyImportedBy = map[string][]string{
-	// The upstream. Everything else reaches it through provider.Wire or a
-	// function the composition root hands over; see the package comment for
-	// why the admin API is allowed it.
-	"internal/provider/anthropic": {"internal/httpapi", "internal/httpapi/admin"},
+	// The upstreams. Everything else reaches one through provider.Wire or
+	// provider.Accounts, handed over by the composition root.
+	"internal/provider/anthropic": {"internal/httpapi"},
 	// The client dialects: registered by the root, served by the gateway.
 	"internal/api/anthropic": {"internal/httpapi", "internal/httpapi/gateway"},
 	"internal/api/openai":    {"internal/httpapi", "internal/httpapi/gateway"},

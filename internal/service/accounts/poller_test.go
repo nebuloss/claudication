@@ -22,6 +22,15 @@ func (f *fakeStore) ListAccounts(context.Context) ([]store.Account, error) {
 	return f.accounts, f.listErr
 }
 
+func (f *fakeStore) Account(_ context.Context, id string) (store.Account, error) {
+	for _, a := range f.accounts {
+		if a.ID == id {
+			return a, nil
+		}
+	}
+	return store.Account{}, store.ErrAccountNotFound
+}
+
 func (f *fakeStore) SetAccountQuota(_ context.Context, id string, q store.AccountQuota) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -51,7 +60,7 @@ func (t tokens) AccessToken(_ context.Context, id string) (string, error) {
 }
 
 func fetchUtil(u float64) FetchFunc {
-	return func(_ context.Context, token string) (store.AccountQuota, error) {
+	return func(_ context.Context, _ store.Account, token string) (store.AccountQuota, error) {
 		if token == "bad" {
 			return store.AccountQuota{}, errors.New("401")
 		}
@@ -93,7 +102,7 @@ func TestTheWatchWindowOutlastsThePollInterval(t *testing.T) {
 }
 
 func TestRefreshStoresWhatTheProviderReports(t *testing.T) {
-	st := &fakeStore{}
+	st := &fakeStore{accounts: []store.Account{{ID: "a"}, {ID: "no-token"}}}
 	p := &Poller{Store: st, Tokens: tokens{"a": "tok"}, Fetch: fetchUtil(42)}
 	if err := p.Refresh(context.Background(), "a"); err != nil {
 		t.Fatal(err)
@@ -142,7 +151,7 @@ func TestRunPollsAtOnceThenWhenDueAndStops(t *testing.T) {
 	var mu sync.Mutex
 	fetches := 0
 	p := &Poller{Store: st, Tokens: tokens{"a": "tok"}, Idle: 20 * time.Millisecond, Watched: 10 * time.Millisecond,
-		Fetch: func(context.Context, string) (store.AccountQuota, error) {
+		Fetch: func(context.Context, store.Account, string) (store.AccountQuota, error) {
 			mu.Lock()
 			fetches++
 			mu.Unlock()
