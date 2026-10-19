@@ -135,7 +135,11 @@ func ResponsesToAnthropic(body []byte, opts Options) (Request, error) {
 		out["stream"] = true
 	}
 
-	system, messages := convertInput(in.Instructions, in.Input)
+	// The tools first: a call coming back as history has to name its tool the
+	// way the tools went upstream, and only converting them says how that was.
+	tools, origins := convertTools(in.Tools)
+
+	system, messages := convertInput(in.Instructions, in.Input, upstreamNames(origins))
 	if system != "" {
 		// A single text block rather than the string form: EnsureAttribution
 		// prepends to a block list, and giving it one already saves it the
@@ -144,7 +148,6 @@ func ResponsesToAnthropic(body []byte, opts Options) (Request, error) {
 	}
 	out["messages"] = messages
 
-	tools, origins := convertTools(in.Tools)
 	if len(tools) > 0 {
 		out["tools"] = tools
 		if choice := convertToolChoice(in.ToolChoice, in.ParallelToolCalls); choice != nil {
@@ -171,7 +174,10 @@ func ResponsesToAnthropic(body []byte, opts Options) (Request, error) {
 // prompt is the reading that loses least: it is instruction rather than
 // conversation, and the alternative — a user turn — would put it in the
 // transcript as something the user said.
-func convertInput(instructions string, items []responsesItem) (string, []map[string]any) {
+//
+// names maps a tool as Codex declared it to the name it went upstream under,
+// for the calls in the history; see upstreamNames.
+func convertInput(instructions string, items []responsesItem, names map[ToolOrigin]string) (string, []map[string]any) {
 	system := []string{}
 	if strings.TrimSpace(instructions) != "" {
 		system = append(system, instructions)
@@ -227,10 +233,17 @@ func convertInput(instructions string, items []responsesItem) (string, []map[str
 					input = map[string]any{}
 				}
 			}
+			// Named as the tool went upstream. Codex sends the call back with
+			// its namespace beside the bare name; a child whose name collided
+			// went up qualified, and the bare name is a different tool there.
+			name := item.Name
+			if up, ok := names[ToolOrigin{Namespace: item.Namespace, Name: item.Name}]; ok {
+				name = up
+			}
 			appendBlock("assistant", map[string]any{
 				"type":  "tool_use",
 				"id":    item.CallID,
-				"name":  item.Name,
+				"name":  name,
 				"input": input,
 			})
 
@@ -274,6 +287,17 @@ func outputText(raw json.RawMessage) string {
 	}
 	// Something else entirely: hand it over as JSON rather than lose it.
 	return string(raw)
+}
+
+// upstreamNames inverts the tool origins: how Codex declared a tool, to the
+// name it went upstream under. Only the tools whose name needed undoing are in
+// it, which are the only ones whose name needs doing again.
+func upstreamNames(origins map[string]ToolOrigin) map[ToolOrigin]string {
+	out := make(map[ToolOrigin]string, len(origins))
+	for up, o := range origins {
+		out[o] = up
+	}
+	return out
 }
 
 // convertTools flattens the three shapes Codex sends into the one Anthropic

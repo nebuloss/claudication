@@ -785,3 +785,41 @@ data: {"type":"message_stop"}
 		t.Errorf("cached_tokens = %v, want 500", cached)
 	}
 }
+
+// A namespaced tool whose name collided went upstream qualified, so its call
+// coming back as history has to be named that way too: under the bare name it
+// would be the other tool's call.
+func TestHistoryCallNamesTheToolAsItWentUpstream(t *testing.T) {
+	body := []byte(`{"model":"m","input":[
+		{"type":"function_call","namespace":"ns","name":"x","call_id":"c1","arguments":"{}"},
+		{"type":"function_call_output","call_id":"c1","output":"ok"},
+		{"type":"function_call","name":"x","call_id":"c2","arguments":"{}"}],
+		"tools":[{"type":"function","name":"x"},
+		         {"type":"namespace","name":"ns","tools":[{"type":"function","name":"x"}]}]}`)
+	req, err := ResponsesToAnthropic(body, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Messages []struct {
+			Content []struct {
+				Type string `json:"type"`
+				Name string `json:"name"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(req.Body, &out); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, m := range out.Messages {
+		for _, c := range m.Content {
+			if c.Type == "tool_use" {
+				names = append(names, c.Name)
+			}
+		}
+	}
+	if len(names) != 2 || names[0] != "ns__x" || names[1] != "x" {
+		t.Errorf("history calls named %v, want [ns__x x]", names)
+	}
+}
