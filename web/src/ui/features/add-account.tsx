@@ -78,7 +78,7 @@ export function ConsentFlow({
     setBlocked(false)
 
     api
-      .startOAuth(provider, account?.id)
+      .accounts.startOAuth(provider, account?.id)
       .then((s) => {
         setStart(s)
         setPhase('waiting')
@@ -110,7 +110,7 @@ export function ConsentFlow({
     setPhase('exchanging')
     setError('')
     try {
-      const result = await api.completeOAuth(provider, start.state, pasted.trim())
+      const result = await api.accounts.completeOAuth(provider, start.state, pasted.trim())
       reset()
       onDone(result)
     } catch (err) {

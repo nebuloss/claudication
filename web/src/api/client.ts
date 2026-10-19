@@ -1,78 +1,49 @@
-/* The admin API: its shapes, and the single place that talks to it. */
-
-/** One row of the usage display, titled as the client titles it. */
-export interface UsageLimitRow {
-  title: string
-  kind: string
-  /** Percentage, 0-100. */
-  percent: number
-  severity: string
-  resets_at?: string
-  is_active: boolean
-}
-
-/**
- * What /api/oauth/usage reported — the same figures `/usage` prints. The
- * 5-hour window is what bites during a working session; the 7-day one is what
- * runs out over a heavy week. Percentages are 0-100.
+/*
+ * The admin API, as one object per resource.
+ *
+ * It was one flat literal of forty-odd functions, with positional arguments,
+ * some list endpoints handing back `null` for an empty list and others `[]`,
+ * and the encoding of every path segment written out at each call. Now:
+ *
+ *  - every request goes through one HttpTransport (transport.ts), which owns
+ *    the timeout, cancellation and the lapsed-session report;
+ *  - paths are built with the `path` tag, which encodes what it interpolates;
+ *  - a list always comes back as an array, so no screen has to remember which
+ *    endpoint answers null, and an endpoint with nothing to say is
+ *    Promise<void>;
+ *  - a key's limits travel as one KeyLimits value rather than three numbers
+ *    in a row, where a rate period and a budget are one transposition apart.
  */
-export interface Quota {
-  updated_at: string
-  five_hour_util: number
-  five_hour_reset?: string
-  five_hour_status?: string
-  seven_day_util: number
-  seven_day_reset?: string
-  seven_day_status?: string
-  allowed: boolean
-  /** The server's own normalised rows, including per-model weekly limits. */
-  limits?: UsageLimitRow[]
-}
+import { HttpTransport, path, sessionExpiry } from './transport'
+import type {
+  Account,
+  AccountList,
+  AccountModel,
+  ApiKey,
+  ChatDetail,
+  Chats,
+  DocsInfo,
+  GatewayConfig,
+  InstallFile,
+  Model,
+  ModelRole,
+  OAuthResult,
+  OAuthStart,
+  Overview,
+  ProbeResult,
+  RequestFacets,
+  RequestRow,
+  Session,
+  SetupStatus,
+  Surface,
+  Usage,
+  UsageScope,
+} from './types'
 
-export interface Account {
-  id: string
-  provider: string
-  email: string
-  expires_at: string
-  created_at: string
-  last_refresh_at?: string
-  last_used_at?: string
-  last_error?: string
-  expired: boolean
-  disabled: boolean
-  refresh_expires_at?: string
-  reauth_days_left?: number
-  needs_reauth_soon?: boolean
-  /** Terminal: the refresh token was refused for good. Only a browser fixes it. */
-  needs_reauth?: boolean
-  refresh_dead_at?: string
-  /** Absent until the account has served a request. */
-  quota?: Quota
-  /** What this gateway put through the account over the report window. */
-  requests: number
-  tokens: number
-  /** Priority order, and whether this one would serve the next request. */
-  position: number
-  serving: boolean
-  /**
-   * When a sidelined account comes back. The pool holds cooldowns in memory,
-   * so this is empty for a healthy account and after a restart.
-   */
-  cooling_until?: string
-  /** Models turned off for this account, as they were switched. */
-  models_off?: string[]
-}
+export * from './types'
+export { ApiError, SessionExpiry, messageOf, path, sessionExpiry } from './transport'
 
-export interface AccountList {
-  accounts: Account[]
-  windowDays: number
-  /**
-   * How often the gateway re-reads each subscription's usage, in seconds. The
-   * accounts panel polls at this rate: asking faster returns the same figures,
-   * and asking slower shows stale ones for no reason.
-   */
-  usagePollS: number
-}
+const http = new HttpTransport(sessionExpiry)
 
 interface AccountListWire {
   accounts: Account[] | null
@@ -88,160 +59,6 @@ function toAccountList(res: AccountListWire): AccountList {
   }
 }
 
-export interface ProbeResult {
-  ok: boolean
-  model?: string
-  stop_reason?: string
-  input_tokens?: number
-  output_tokens?: number
-  reply?: string
-  latency_ms: number
-  status: number
-  request_id?: string
-  error?: string
-}
-
-export interface OAuthStart {
-  provider: string
-  state: string
-  auth_url: string
-  redirect_uri: string
-  expires_at: string
-  instructions: string
-  /** Set on a reconnect: the account being renewed, and who to sign in as. */
-  account_id?: string
-  email?: string
-}
-
-/** One model as one account's subscription serves it, with its switch. */
-export interface AccountModel extends Model {
-  /** Whether this account may serve it. */
-  enabled: boolean
-  /** False for a model switched off that the upstream no longer lists. */
-  listed: boolean
-}
-
-/** What a finished consent flow stored. */
-export interface OAuthResult {
-  account: Account
-  /** True when an account already connected was renewed rather than added. */
-  renewed: boolean
-}
-
-export interface Session {
-  authenticated: boolean
-  /** How the session was opened: "password", "setup", "password change". */
-  via?: string
-  expires_at?: string
-  /** When the password last changed. Absent if the account is gone. */
-  password_updated_at?: string
-}
-
-export interface ApiKey {
-  id: string
-  name: string
-  display: string
-  created_at: string
-  last_used_at?: string
-  rpm_limit: number
-  /** What rpm_limit is per, in seconds. 60 unless an operator chose otherwise. */
-  rate_period_s: number
-  /** Tokens allowed per rolling day; 0 means unlimited. */
-  token_budget: number
-  /** What has been counted against that budget so far. */
-  spent_today: number
-  requests: number
-  tokens: number
-  /**
-   * The key the gateway issued to itself — today, the one chat titling bills
-   * to. The row shows no Delete, because deleting it never stopped anything:
-   * the next chat needing a name just gets another issued. Its limits stay
-   * editable, and a token budget is how you actually cap it.
-   */
-  managed: boolean
-  /**
-   * The key's estimated part of the Claude subscription's two windows, as a
-   * percent of every account's capacity together. Absent when usage history
-   * is off or no account has reported its utilisation.
-   */
-  subscription?: SubscriptionShare
-  /** Models this key may not ask for; empty allows every model. */
-  models_off: string[]
-  /** The secret is stored sealed, so the key and its configs can be shown again. */
-  secret_kept: boolean
-}
-
-/** One key's estimated use of the subscription; see the server's keyshare.go. */
-export interface SubscriptionShare {
-  five_hour: number
-  seven_day: number
-  accounts: {
-    account_id: string
-    email: string
-    /** Percentage points of this account's window. */
-    five_hour: number
-    seven_day: number
-    /** The key's fraction of the gateway's weighted traffic to this account. */
-    five_hour_share: number
-    seven_day_share: number
-  }[]
-}
-
-export interface UsageTotals {
-  requests: number
-  errors: number
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  cache_write_tokens: number
-  median_ms: number
-  p95_ms: number
-}
-
-export interface UsageBucket {
-  label: string
-  id?: string
-  requests: number
-  errors: number
-  input_tokens: number
-  output_tokens: number
-  cache_tokens: number
-}
-
-/**
- * One name on one day: a model, a key, an account, a status code.
- *
- * The gateway sends the cross-tabs long-form because that is the shape its
- * grouped query already produces; pivoting into a grid is the chart's job.
- */
-export interface UsageCell {
-  day: string
-  name: string
-  requests: number
-  errors: number
-  input_tokens: number
-  output_tokens: number
-  cache_tokens: number
-}
-
-export interface UsageReport {
-  since: string
-  totals: UsageTotals
-  by_day: UsageBucket[]
-  by_model: UsageBucket[]
-  by_key: UsageBucket[]
-  by_account: UsageBucket[]
-  by_status: UsageBucket[]
-  /** Each breakdown crossed with the day, keyed by dimension. */
-  cross?: Record<string, UsageCell[]>
-}
-
-/** What a report is narrowed to: one account's page, one key's, or neither. */
-export interface UsageScope {
-  account?: string
-  key?: string
-}
-
 function scopedQuery(days: number | undefined, scope: UsageScope): string {
   const q = new URLSearchParams()
   if (days !== undefined) q.set('days', String(days))
@@ -251,539 +68,78 @@ function scopedQuery(days: number | undefined, scope: UsageScope): string {
   return s === '' ? '' : `?${s}`
 }
 
-export interface Usage {
-  enabled: boolean
-  days?: number
-  retention_days?: number
-  report?: UsageReport
-}
-
 /**
- * One conversation's totals.
- *
- * The id is the one the client itself sent — Claude Code's session uuid,
- * opencode's `ses_…`, Codex's session id. Nothing here is derived from the
- * messages, which is why there is no title: see the Chats screen.
+ * What a key may spend, as the editor holds it. 0 means the gateway's own
+ * limit for the rate, and no ceiling at all for the budget.
  */
-export interface Chat {
-  id: string
-  /**
-   * What the gateway asked a model to call this conversation, or empty when it
-   * never did — titling is off, the chat predates it, or the model declined.
-   * Empty is normal, so the row falls back to the client and the id.
-   */
-  title: string
-  /** The operator typed it, so the gateway will not rename it on its own. */
-  title_manual: boolean
-  client: string
-  key_name: string
-  account_email: string
-  /** In first-seen order. A chat that switched model mid-way shows both. */
-  models: string[]
-  requests: number
-  errors: number
-  input_tokens: number
-  output_tokens: number
-  cache_tokens: number
-  first: string
-  last: string
-  /** Where the conversation's context stands. Absent on the unattributed row. */
-  context?: ChatContext
+export interface KeyLimits {
+  /** Requests per `ratePeriodS`; 0 for the gateway's default. */
+  rpmLimit: number
+  /** What rpmLimit is per, in seconds. */
+  ratePeriodS: number
+  /** Tokens per rolling day; 0 for unlimited. */
+  tokenBudget: number
 }
 
-/**
- * A chat's context: the prompt its client resends each turn, counted on the
- * model that carried its largest one, and how often it fell by more than half
- * — compacted. See internal/store/context.go for the rule.
- */
-export interface ChatContext {
-  /** Empty when no request in the window succeeded. */
-  model: string
-  now: number
-  peak: number
-  compactions: number
-  /** When it compacted, oldest first. Only on one chat's detail. */
-  compacted_at?: string[]
-}
-
-export interface ChatDetail {
-  enabled: boolean
-  id: string
-  /** The latest requests, oldest first. */
-  requests: RequestRow[]
-  context: ChatContext
-}
-
-export interface ChatReport {
-  chats: Chat[]
-  /**
-   * Every request whose client named no conversation, as one bucket. Shown
-   * rather than dropped: without it the totals here would not add up to the
-   * ones on the Overview, and it is how you find out something is talking to
-   * the gateway unlabelled.
-   */
-  unattributed: Chat
-  /** Distinct chats in the window, which is not chats.length once limit bites. */
-  total: number
-}
-
-export interface Chats {
-  enabled: boolean
-  days?: number
-  retention_days?: number
-  report?: ChatReport
-}
-
-export interface RequestRow {
-  at: string
-  key_name?: string
-  account_email?: string
-  model?: string
-  /** What the client asked for, when that was a virtual model. */
-  virtual_model?: string
-  path: string
-  status: number
-  streaming: boolean
-  input_tokens: number
-  output_tokens: number
-  cache_tokens: number
-  duration_ms: number
-  /**
-   * How long a streamed request waited for its first token, retries included.
-   * Absent when not measured: not a stream, no content, or an older row.
-   */
-  first_token_ms?: number
-  error?: string
-  /** Set when the refusal does not mean what its message says. */
-  error_kind?: string
-  /**
-   * What went wrong, in one word, decided when the request was recorded: the
-   * upstream's own type, content_check, no_answer, or absent for one that
-   * worked. What the Message column shows and what its filter matches.
-   */
-  error_code?: string
-  /**
-   * True for a request this gateway refused before it reached the upstream —
-   * no key, or one it does not recognise. Those spent nothing and have no key,
-   * model or account, so every usage figure steps over them; this log is the
-   * only place they appear.
-   */
-  rejected?: boolean
-  /**
-   * Which machine made the request. For a refused one it is the only identity
-   * there is; for a relayed one it answers what a key and a User-Agent cannot,
-   * which is where it ran.
-   */
-  ip?: string
-  /**
-   * What was running, read from the User-Agent. Not the same question as the
-   * key, which names whoever is paying and is whatever they typed when they
-   * minted it.
-   */
-  client?: string
-  /**
-   * The chat this request belongs to, as its client named it. Empty for a
-   * client that names none, which is one bucket rather than one chat.
-   */
-  conversation_id?: string
-}
-
-/** One line of a column's filter menu. */
-export interface FacetValue {
-  /** What to filter on. Empty means the rows with nothing in that column. */
-  value: string
-  /** What to show, when that is not the value itself — a key id is not a name. */
-  label?: string
-  count: number
-}
-
-/**
- * What each filterable column of the request log holds.
- *
- * Counted over the whole log rather than the page on screen, and deliberately
- * not narrowed by the filter in force: a menu that hid the values the current
- * filter excludes would be a filter you cannot widen.
- */
-export interface RequestFacets {
-  models: FacetValue[]
-  clients: FacetValue[]
-  keys: FacetValue[]
-  ips: FacetValue[]
-  statuses: FacetValue[]
-  /** Labelled with each chat's name where it has one, since an id is not a thing anyone recognises. */
-  chats: FacetValue[]
-  /** The stored outcome classes — the Message column's values. */
-  messages: FacetValue[]
-  /** Forwarded to the upstream, or refused here. */
-  kinds: FacetValue[]
-  /** Account ids, labelled with each one's email. */
-  accounts: FacetValue[]
-}
-
-/**
- * Where a value came from. The four are ranked: database beats environment
- * beats file beats default, and every one of them is silent about losing.
- */
-export type Origin = 'default' | 'file' | 'env' | 'database'
-
-/** One configuration value, and which source supplied it. */
-export interface Setting {
-  key: string
-  value: string
-  /** The environment wins over the file, silently. */
-  origin: Origin
-  /** The variable that overrides this one, absent when none does. */
-  env?: string
-  doc: string
-}
-
-/**
- * One client-facing API, and whether it is being served.
- *
- * Runtime state rather than configuration: the switch takes effect on the next
- * request, with no restart and nothing to drain.
- */
-export interface Surface {
-  id: string
-  title: string
-  /** The paths it answers on. */
-  routes: string[]
-  enabled: boolean
-  /** 'database' once someone has set it, 'default' while nobody has. */
-  origin: Origin
-}
-
-/**
- * One model the connected accounts can serve, as the upstream lists it.
- *
- * Read live rather than hardcoded: the gateway has no model allowlist — it
- * relays whatever name a client sends — so any list written into the UI would
- * be a second opinion that quietly goes stale.
- */
-/** One entry of GET /v1/models. Only id is guaranteed; the rest is read by
- *  ui/features/docs/catalog.ts, which falls back when a field is missing. */
-export interface Model {
-  id: string
-  display_name?: string
-  created_at?: string
-  line?: string
-  max_input_tokens?: number
-  max_tokens?: number
-  lifecycle?: string
-  capabilities?: Record<string, unknown>
-  /** A gateway model role, the real model it serves now, and which role. */
-  virtual?: boolean
-  serving?: string
-  role?: string
-}
-
-/** A model role — claude-large, claude-small — for the gateway or one key. */
-export interface ModelRole {
-  role: string
-  /**
-   * What this scope binds it to. For the gateway, empty is automatic (the
-   * newest of family); for a key, empty is "follow the gateway".
-   */
-  model: string
-  /** What a built-in follows while unbound; empty for a custom alias. */
-  family: string
-  builtin: boolean
-  /** What a request for the role gets now, and why not when it cannot. */
-  serving: string
-  problem?: string
-}
-
-export interface GatewayConfig {
-  /** The file it was read from, empty when there was none. */
-  path: string
-  settings: Setting[]
-  surfaces: Surface[]
-  /**
-   * Whether the gateway may name conversations by asking a model. The only
-   * thing it does that spends the operator's subscription on its own behalf,
-   * which is why it is a switch and why it is off until turned on.
-   */
-  chat_titles: boolean
-  /**
-   * Whether the gateway reads names that clients generate for themselves.
-   * Costs nothing — opencode and crush ask a model to name their own
-   * conversations, and that answer already passes through here.
-   */
-  chat_titles_capture: boolean
-  /**
-   * Whether the relay caps oversized images in a many-image request. The one
-   * pass that changes what the model is shown rather than the shape of the
-   * envelope, so it is off until an operator asks for it.
-   */
-  fit_images: boolean
-  /**
-   * Where the public docs page is published, or empty when there is none.
-   * The gateway cannot see its own outside name, so this is configured.
-   */
-  docs_url: string
-  /** Whether the public docs page is being served right now. */
-  docs_enabled: boolean
-}
-
-/**
- * Everything the public docs page is told, and nothing else.
- *
- * Deliberately not the admin overview or the configuration: those carry the
- * listen addresses, the state directory and every limit. This is four facts —
- * what to point a client at, which APIs are on, whether an account is
- * connected, and which models exist.
- */
-export interface DocsInfo {
-  /** The relay's address. Empty when nobody has configured public-url. */
-  public_url: string
-  surfaces: Surface[]
-  ready: boolean
-  /** Cached upstream list; absent when the upstream could not be reached. */
-  models?: { data: Model[] | null }
-}
-
-export interface Overview {
-  version: string
-  commit: string
-  listen: string
-  /** What clients should point at, when the operator has said. */
-  public_url?: string
-  /** True when the admin UI is on its own listener, so this origin is not it. */
-  admin_split?: boolean
-  started_at: string
-  uptime_s: number
-  usage_enabled: boolean
-  ready: boolean
-  accounts: {
-    total: number
-    usable: number
-    cooling?: number
-    needs_reauth_soon: number
-    needs_reauth?: number
-  }
-  keys: { total: number }
-  last_24h?: UsageTotals
-  /** The gateway process's own memory, read when the overview was asked for. */
-  memory?: MemorySnapshot
-}
-
-/** internal/memlimit's Snapshot. Byte counts; 0 means unknown or unset. */
-export interface MemorySnapshot {
-  /** Resident memory: what a container's limit counts. 0 off Linux. */
-  rss_bytes: number
-  /** The process ceiling from memory-limit or the cgroup. */
-  limit_bytes: number
-  /** The Go runtime's own target, a share of the ceiling. */
-  heap_limit_bytes: number
-  heap_in_use_bytes: number
-  /** Held from the system but unused; the trimmer gives it back. */
-  heap_idle_bytes: number
-  goroutines: number
-  gc_cycles: number
-}
-
-/** One file the installer writes; see internal/service/install. */
-export interface InstallFile {
-  client_id: string
-  client: string
-  path: string
-  windows_path?: string
-  env?: boolean
-  body: string
-}
-
-export interface SetupStatus {
-  needs_setup: boolean
-  min_password_len: number
-  /** The public docs page, when it is published; empty otherwise. */
-  docs_url?: string
-  /** The running build, for the header. */
-  version?: string
-}
-
-/** An error carrying the status and machine-readable type from the server. */
-export class ApiError extends Error {
-  readonly status: number
-  readonly type: string
-
-  constructor(status: number, type: string, message: string) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.type = type
-  }
-
-  /** True when the session is missing or expired and the user must sign in. */
-  get isUnauthenticated(): boolean {
-    return this.status === 401
+/** A key's name and limits as the API spells them. */
+function toKeyBody(name: string, limits: KeyLimits) {
+  return {
+    name,
+    rpm_limit: limits.rpmLimit,
+    rate_period_s: limits.ratePeriodS,
+    token_budget: limits.tokenBudget,
   }
 }
 
-/**
- * Where a lapsed session is reported: to one handler, which the shell installs,
- * because only the shell can put the sign-in screen up.
- *
- * request() does not call it on every 401 by itself. Two endpoints answer 401
- * to an operator who is signed in and mistyped a password — changing it and
- * deleting the admin account both ask for it again — and treating that as a
- * lapsed session would sign them out over a typo. The callers that do mean "the
- * session is gone" report here instead: useLoader for every read, and useAction
- * for every write except those two.
- */
-export class SessionExpiry {
-  private handler: (() => void) | null = null
+/** The models one account serves or one key may ask for, each with its switch. */
+type ModelSwitches = { models: AccountModel[] }
 
-  /** Installs the handler, and returns what takes it away again. */
-  listen(handler: () => void): () => void {
-    this.handler = handler
-    return () => {
-      if (this.handler === handler) this.handler = null
-    }
-  }
+/** For the calls whose 401 is their answer; see CallOptions.answersAuth. */
+const AUTH = { answersAuth: true }
 
-  /**
-   * Hands `err` to the shell when it says the session lapsed. False when it is
-   * any other failure, or when nobody is signed in to be signed out — on the
-   * sign-in screen a 401 is the expected answer, not news.
-   */
-  report(err: unknown): boolean {
-    if (this.handler === null || !(err instanceof ApiError) || !err.isUnauthenticated) return false
-    this.handler()
-    return true
-  }
-}
-
-export const sessionExpiry = new SessionExpiry()
-
-/** Anything thrown at us, as a sentence worth showing. */
-export function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
-
-/**
- * How long a call to the admin API may hang before it is reported as failed.
- *
- * fetch has no timeout of its own, so a gateway that accepts a connection and
- * then stops answering — mid-restart, or reachable over a tunnel that has gone
- * away — leaves every panel spinning for ever with nothing to click. Generous,
- * because a few of these do real work: probing an account talks to Anthropic.
- */
-const REQUEST_TIMEOUT_MS = 30_000
-
-/**
- * One call to the admin API.
- *
- * `signal` is the caller's way of saying the answer is no longer wanted — a
- * panel whose inputs changed, or one that has gone away. It is folded into the
- * timeout's own controller, and an abort it asked for is rethrown as the
- * AbortError it is rather than reported as the gateway failing to answer.
- */
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-  signal?: AbortSignal,
-): Promise<T> {
-  let response: Response
-  const abort = new AbortController()
-  const timer = window.setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS)
-  const cancel = () => abort.abort()
-  if (signal?.aborted) abort.abort()
-  signal?.addEventListener('abort', cancel, { once: true })
-  try {
-    response = await fetch(path, {
-      method,
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-      body: body === undefined ? null : JSON.stringify(body),
-      credentials: 'same-origin',
-      signal: abort.signal,
-    })
-  } catch (cause) {
-    if (signal?.aborted) throw new DOMException('The request was cancelled.', 'AbortError')
-    if (abort.signal.aborted) {
-      throw new ApiError(
-        0,
-        'timeout',
-        `The gateway did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
-      )
-    }
-    throw new ApiError(0, 'network_error', `Could not reach the gateway: ${String(cause)}`)
-  } finally {
-    window.clearTimeout(timer)
-    signal?.removeEventListener('abort', cancel)
-  }
-
-  const text = await response.text()
-  let payload: unknown = null
-  if (text.length > 0) {
-    try {
-      payload = JSON.parse(text)
-    } catch {
-      // A non-JSON body is reported verbatim below.
-    }
-  }
-
-  if (!response.ok) {
-    const envelope = payload as { error?: { message?: string; type?: string } } | null
-    // `||`, not `??`: text.trim() is always a string, so `??` never reaches
-    // the status fallback and an empty error body renders as an empty message —
-    // which the panels then show as their "nothing here yet" empty state.
-    throw new ApiError(
-      response.status,
-      envelope?.error?.type ?? 'http_error',
-      envelope?.error?.message || text.trim() || `HTTP ${response.status}`,
-    )
-  }
-  return payload as T
-}
-
-export const api = {
+/** The admin account and the session: signing in, and the password. */
+const session = {
   /** Unauthenticated: tells a fresh install apart from a forgotten password. */
-  setupStatus: () => request<SetupStatus>('GET', '/admin/setup'),
+  setupStatus: () => http.get<SetupStatus>('/admin/setup', undefined, AUTH),
 
   /** Claims a gateway nobody has set up yet, and signs in as part of it. */
-  setup: (password: string) => request<Session>('POST', '/admin/setup', { password }),
+  setup: (password: string) => http.post<Session>('/admin/setup', { password }, AUTH),
 
-  signIn: (password: string) => request<Session>('POST', '/admin/session', { password }),
-  signOut: () => request<unknown>('DELETE', '/admin/session'),
-  whoAmI: () => request<Session>('GET', '/admin/me'),
+  signIn: (password: string) => http.post<Session>('/admin/session', { password }, AUTH),
+  signOut: () => http.send('DELETE', '/admin/session', AUTH),
+  whoAmI: () => http.get<Session>('/admin/me', undefined, AUTH),
 
   /** Ends every other session, and hands this one a fresh cookie. */
   changePassword: (current: string, next: string) =>
-    request<Session>('POST', '/admin/password', {
-      current_password: current,
-      new_password: next,
-    }),
+    http.post<Session>(
+      '/admin/password',
+      { current_password: current, new_password: next },
+      AUTH,
+    ),
 
   /** Returns the gateway to its first-run state. Upstream accounts survive. */
-  deleteAdminAccount: (password: string) =>
-    request<unknown>('POST', '/admin/account/delete', { password }),
+  deleteAdmin: (password: string) =>
+    http.send('POST', '/admin/account/delete', { ...AUTH, body: { password } }),
+}
 
-  listAccounts: async (signal?: AbortSignal): Promise<AccountList> => {
-    const res = await request<AccountListWire>('GET', '/admin/accounts', undefined, signal)
-    return toAccountList(res)
-  },
+/** The upstream accounts the pool draws on. */
+const accounts = {
+  list: async (signal?: AbortSignal): Promise<AccountList> =>
+    toAccountList(await http.get<AccountListWire>('/admin/accounts', signal)),
 
   /** Sets the whole priority order; the first account with room serves. */
-  reorderAccounts: async (ids: string[]): Promise<AccountList> => {
-    const res = await request<AccountListWire>('POST', '/admin/accounts/order', { ids })
-    return toAccountList(res)
-  },
+  reorder: async (ids: string[]): Promise<AccountList> =>
+    toAccountList(await http.post<AccountListWire>('/admin/accounts/order', { ids })),
 
   /** Begins a consent flow: for a new account, or to reconnect `accountId`. */
   startOAuth: (provider: string, accountId?: string) =>
-    request<OAuthStart>('POST', '/admin/accounts/oauth/start', {
+    http.post<OAuthStart>('/admin/accounts/oauth/start', {
       provider,
       ...(accountId !== undefined ? { account_id: accountId } : {}),
     }),
 
-  completeOAuth: async (
-    provider: string,
-    state: string,
-    redirectUrl: string,
-  ): Promise<OAuthResult> => {
-    const res = await request<{ account: Account; renewed?: boolean }>(
-      'POST',
+  completeOAuth: async (provider: string, state: string, redirectUrl: string): Promise<OAuthResult> => {
+    const res = await http.post<{ account: Account; renewed?: boolean }>(
       '/admin/accounts/oauth/complete',
       { provider, state, redirect_url: redirectUrl },
     )
@@ -791,134 +147,44 @@ export const api = {
   },
 
   /** The models one account serves, each with whether it may serve it. */
-  accountModels: (id: string, signal?: AbortSignal) =>
-    request<{ account_id: string; models: AccountModel[] }>(
-      'GET',
-      `/admin/accounts/${encodeURIComponent(id)}/models`,
-      undefined,
-      signal,
-    ),
+  models: async (id: string, signal?: AbortSignal): Promise<ModelSwitches> => {
+    const res = await http.get<{ models: AccountModel[] | null }>(path`/admin/accounts/${id}/models`, signal)
+    return { models: res.models ?? [] }
+  },
 
-  /** Every model the gateway serves, each with whether this key may ask for it. */
-  keyModels: (id: string, signal?: AbortSignal) =>
-    request<{ key_id: string; models: AccountModel[] }>(
-      'GET',
-      `/admin/keys/${encodeURIComponent(id)}/models`,
-      undefined,
-      signal,
-    ),
+  setModel: (id: string, model: string, enabled: boolean) =>
+    http.send('POST', path`/admin/accounts/${id}/models`, { body: { model, enabled } }),
 
-  setKeyModel: (id: string, model: string, enabled: boolean) =>
-    request<{ key_id: string; models_off: string[] }>(
-      'POST',
-      `/admin/keys/${encodeURIComponent(id)}/models`,
-      { model, enabled },
-    ),
-
-  setAccountModel: (id: string, model: string, enabled: boolean) =>
-    request<{ account_id: string; models_off: string[] }>(
-      'POST',
-      `/admin/accounts/${encodeURIComponent(id)}/models`,
-      { model, enabled },
-    ),
-
-  testAccount: (id: string) =>
-    request<ProbeResult>('POST', `/admin/accounts/${encodeURIComponent(id)}/test`, { model: '' }),
+  test: (id: string) => http.post<ProbeResult>(path`/admin/accounts/${id}/test`, { model: '' }),
 
   /** Re-reads the subscription usage now, rather than waiting for the poll. */
-  refreshUsage: async (id: string): Promise<Account> => {
-    const res = await request<{ account: Account }>(
-      'POST',
-      `/admin/accounts/${encodeURIComponent(id)}/usage`,
-    )
-    return res.account
-  },
+  refreshUsage: async (id: string): Promise<Account> =>
+    (await http.post<{ account: Account }>(path`/admin/accounts/${id}/usage`)).account,
 
-  refreshAccount: async (id: string): Promise<Account> => {
-    const res = await request<{ account: Account }>(
-      'POST',
-      `/admin/accounts/${encodeURIComponent(id)}/refresh`,
-    )
-    return res.account
-  },
+  refreshToken: async (id: string): Promise<Account> =>
+    (await http.post<{ account: Account }>(path`/admin/accounts/${id}/refresh`)).account,
 
   /**
    * Pause an account without destroying it. Deleting revokes the refresh
    * token upstream and costs a trip through the consent flow to undo.
    */
-  setAccountDisabled: (id: string, disabled: boolean) =>
-    request<Account>('POST', `/admin/accounts/${encodeURIComponent(id)}/disabled`, { disabled }),
+  setDisabled: (id: string, disabled: boolean) =>
+    http.post<Account>(path`/admin/accounts/${id}/disabled`, { disabled }),
 
-  deleteAccount: (id: string) =>
-    request<unknown>('DELETE', `/admin/accounts/${encodeURIComponent(id)}`),
+  remove: (id: string) => http.send('DELETE', path`/admin/accounts/${id}`),
+}
 
-  overview: (signal?: AbortSignal) =>
-    request<Overview>('GET', '/admin/overview', undefined, signal),
-
-  config: (signal?: AbortSignal) =>
-    request<GatewayConfig>('GET', '/admin/config', undefined, signal),
-
-  models: (signal?: AbortSignal) =>
-    request<{ data: Model[] | null }>('GET', '/admin/models', undefined, signal),
-
-  /** What one key is offered — /v1/models as it sees it, the roles first. */
-  keyOfferedModels: (keyId: string, signal?: AbortSignal) =>
-    request<{ data: Model[] | null }>(
-      'GET',
-      `/admin/keys/${encodeURIComponent(keyId)}/offered-models`,
-      undefined,
-      signal,
-    ),
-
-  /** The model roles for the gateway, or for one key. */
-  modelRoles: (keyId = '', signal?: AbortSignal) =>
-    request<{ roles: ModelRole[] }>(
-      'GET',
-      keyId === '' ? '/admin/model-roles' : `/admin/model-roles?key=${encodeURIComponent(keyId)}`,
-      undefined,
-      signal,
-    ),
-
-  /**
-   * Bind a role. An empty model is automatic for the gateway, and "follow the
-   * gateway" for a key.
-   */
-  setModelRole: (keyId: string, role: string, model: string) =>
-    request<void>('PUT', '/admin/model-roles', { key_id: keyId, role, model }),
-
-  /** Delete a custom alias, from the gateway and every key. */
-  deleteAlias: (name: string) =>
-    request<void>('DELETE', `/admin/model-roles?name=${encodeURIComponent(name)}`),
-
-  setSurface: (id: string, enabled: boolean) =>
-    request<{ surfaces: Surface[] }>('POST', `/admin/surfaces/${encodeURIComponent(id)}`, {
-      enabled,
-    }),
-
-  setFitImages: (enabled: boolean) =>
-    request<{ fit_images: boolean }>('POST', '/admin/fit-images', { enabled }),
-
-  setChatTitles: (change: { enabled?: boolean; capture?: boolean }) =>
-    request<{ chat_titles: boolean; chat_titles_capture: boolean }>(
-      'POST',
-      '/admin/chat-titles',
-      change,
-    ),
-
-  listKeys: async (
+/** The API keys clients hold. */
+const keys = {
+  list: async (
     signal?: AbortSignal,
-  ): Promise<{
-    keys: ApiKey[]
-    windowDays: number
-    budgetHours: number
-    defaultRpm: number
-  }> => {
-    const res = await request<{
+  ): Promise<{ keys: ApiKey[]; windowDays: number; budgetHours: number; defaultRpm: number }> => {
+    const res = await http.get<{
       keys: ApiKey[] | null
       window_days: number
       budget_hours: number
       default_rpm: number
-    }>('GET', '/admin/keys', undefined, signal)
+    }>('/admin/keys', signal)
     return {
       keys: res.keys ?? [],
       windowDays: res.window_days,
@@ -927,92 +193,118 @@ export const api = {
     }
   },
 
-  /** The plaintext comes back exactly once; nothing can retrieve it later. */
-  createKey: (name: string, rpmLimit: number, ratePeriodS: number, tokenBudget: number) =>
-    request<{ key: ApiKey; plaintext: string }>('POST', '/admin/keys', {
-      name,
-      rpm_limit: rpmLimit,
-      rate_period_s: ratePeriodS,
-      token_budget: tokenBudget,
-    }),
+  /** The plaintext comes back once from here; secret() reads it again later. */
+  create: (name: string, limits: KeyLimits) =>
+    http.post<{ key: ApiKey; plaintext: string }>('/admin/keys', toKeyBody(name, limits)),
+
+  /** Rename a key or change its limits. The secret is untouched. */
+  update: (id: string, name: string, limits: KeyLimits) =>
+    http.patch<{ key: ApiKey }>(path`/admin/keys/${id}`, toKeyBody(name, limits)),
+
+  remove: (id: string) => http.send('DELETE', path`/admin/keys/${id}`),
 
   /**
    * A key's secret again, for its client configs. 409 secret_not_kept for a
    * key made before secrets were kept: those need a new one, once.
    */
-  keySecret: (id: string, signal?: AbortSignal) =>
-    request<{ plaintext: string }>(
-      'GET',
-      `/admin/keys/${encodeURIComponent(id)}/secret`,
-      undefined,
-      signal,
-    ),
+  secret: (id: string, signal?: AbortSignal) =>
+    http.get<{ plaintext: string }>(path`/admin/keys/${id}/secret`, signal),
 
   /**
    * A new secret for an existing key. The old secret stops working at once;
    * everything else about the key is kept.
    */
+  rotate: (id: string) => http.post<{ key: ApiKey; plaintext: string }>(path`/admin/keys/${id}/rotate`),
+
   /** Keeps a key's client files for the one-line installer; the token fetches them. */
   createInstall: (id: string, files: InstallFile[]) =>
-    request<{ token: string; expires_at: string }>(
-      'POST',
-      `/admin/keys/${encodeURIComponent(id)}/install`,
-      { files },
-    ),
-  rotateKey: (id: string) =>
-    request<{ key: ApiKey; plaintext: string }>(
-      'POST',
-      `/admin/keys/${encodeURIComponent(id)}/rotate`,
-    ),
+    http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/install`, { files }),
 
-  /** Rename a key or change its limit. The secret is untouched. */
-  updateKey: (
-    id: string,
-    name: string,
-    rpmLimit: number,
-    ratePeriodS: number,
-    tokenBudget: number,
-  ) =>
-    request<{ key: ApiKey }>('PATCH', `/admin/keys/${encodeURIComponent(id)}`, {
-      name,
-      rpm_limit: rpmLimit,
-      rate_period_s: ratePeriodS,
-      token_budget: tokenBudget,
-    }),
+  /** Every model the gateway serves, each with whether this key may ask for it. */
+  models: async (id: string, signal?: AbortSignal): Promise<ModelSwitches> => {
+    const res = await http.get<{ models: AccountModel[] | null }>(path`/admin/keys/${id}/models`, signal)
+    return { models: res.models ?? [] }
+  },
 
-  deleteKey: (id: string) => request<unknown>('DELETE', `/admin/keys/${encodeURIComponent(id)}`),
+  setModel: (id: string, model: string, enabled: boolean) =>
+    http.send('POST', path`/admin/keys/${id}/models`, { body: { model, enabled } }),
 
+  /** What one key is offered — /v1/models as it sees it, the roles first. */
+  offeredModels: async (id: string, signal?: AbortSignal): Promise<Model[]> =>
+    (await http.get<{ data: Model[] | null }>(path`/admin/keys/${id}/offered-models`, signal)).data ?? [],
+}
+
+/** The models the accounts serve, and the aliases clients ask for instead. */
+const models = {
+  list: async (signal?: AbortSignal): Promise<Model[]> =>
+    (await http.get<{ data: Model[] | null }>('/admin/models', signal)).data ?? [],
+
+  /** The model roles for the gateway, or for one key. */
+  roles: async (keyId = '', signal?: AbortSignal): Promise<ModelRole[]> =>
+    (
+      await http.get<{ roles: ModelRole[] | null }>(
+        keyId === '' ? '/admin/model-roles' : path`/admin/model-roles?key=${keyId}`,
+        signal,
+      )
+    ).roles ?? [],
+
+  /**
+   * Bind a role. An empty model is automatic for the gateway, and "follow the
+   * gateway" for a key.
+   */
+  setRole: (keyId: string, role: string, model: string) =>
+    http.send('PUT', '/admin/model-roles', { body: { key_id: keyId, role, model } }),
+
+  /** Delete a custom alias, from the gateway and every key. */
+  deleteAlias: (name: string) => http.send('DELETE', path`/admin/model-roles?name=${name}`),
+}
+
+/** The gateway's own state and switches. */
+const gateway = {
+  overview: (signal?: AbortSignal) => http.get<Overview>('/admin/overview', signal),
+  config: (signal?: AbortSignal) => http.get<GatewayConfig>('/admin/config', signal),
+
+  setSurface: (id: string, enabled: boolean) =>
+    http.post<{ surfaces: Surface[] }>(path`/admin/surfaces/${id}`, { enabled }),
+  setFitImages: (enabled: boolean) => http.send('POST', '/admin/fit-images', { body: { enabled } }),
+  setChatTitles: (change: { enabled?: boolean; capture?: boolean }) =>
+    http.send('POST', '/admin/chat-titles', { body: change }),
+  setDocs: (enabled: boolean) => http.send('POST', '/admin/docs', { body: { enabled } }),
+
+  /** What the public docs page is told: unauthenticated, and four facts. */
+  docsInfo: async (signal?: AbortSignal): Promise<DocsInfo> => {
+    const res = await http.get<Omit<DocsInfo, 'models'> & { models?: { data: Model[] | null } }>(
+      '/api/docs',
+      signal,
+    )
+    return { ...res, surfaces: res.surfaces ?? [], models: res.models?.data ?? [] }
+  },
+}
+
+/** What went through the gateway: the usage report, the chats, the request log. */
+const traffic = {
   /** The usage report, gateway-wide or narrowed to one account or one key. */
   usage: (days?: number, scope: UsageScope = {}, signal?: AbortSignal) =>
-    request<Usage>('GET', `/admin/usage${scopedQuery(days, scope)}`, undefined, signal),
+    http.get<Usage>(`/admin/usage${scopedQuery(days, scope)}`, signal),
 
   chats: (days?: number, scope: UsageScope = {}, signal?: AbortSignal) =>
-    request<Chats>('GET', `/admin/chats${scopedQuery(days, scope)}`, undefined, signal),
+    http.get<Chats>(`/admin/chats${scopedQuery(days, scope)}`, signal),
 
   /** One conversation's latest requests, oldest first — the drill-down behind a row. */
-  chat: (id: string, signal?: AbortSignal) =>
-    request<ChatDetail>('GET', `/admin/chats/${encodeURIComponent(id)}`, undefined, signal),
+  chat: (id: string, signal?: AbortSignal) => http.get<ChatDetail>(path`/admin/chats/${id}`, signal),
 
   /** A title typed by hand, held against automatic renames. */
   setChatTitle: (id: string, title: string) =>
-    request<{ title: string; title_manual: boolean }>(
-      'PUT',
-      `/admin/chats/${encodeURIComponent(id)}/title`,
-      { title },
-    ),
+    http.send('PUT', path`/admin/chats/${id}/title`, { body: { title } }),
 
-  docsInfo: (signal?: AbortSignal) => request<DocsInfo>('GET', '/api/docs', undefined, signal),
+  /** The column menus' values, or null while usage history is off. */
+  requestFacets: async (): Promise<RequestFacets | null> =>
+    (await http.get<{ enabled: boolean; facets?: RequestFacets }>('/admin/requests/facets')).facets ?? null,
 
-  setDocs: (enabled: boolean) =>
-    request<{ docs_enabled: boolean }>('POST', '/admin/docs', { enabled }),
-
-  requestFacets: () =>
-    request<{ enabled: boolean; facets?: RequestFacets }>('GET', '/admin/requests/facets'),
-
-  recentRequests: async (
-    limit = 50,
-    after = '',
-    filter: Record<string, string | readonly string[]> = {},
+  requests: async (
+    limit: number,
+    after: string,
+    filter: Record<string, string | readonly string[]>,
     signal?: AbortSignal,
   ): Promise<{ rows: RequestRow[]; nextCursor: string }> => {
     const query = new URLSearchParams({ limit: String(limit) })
@@ -1032,12 +324,12 @@ export const api = {
         query.set(k, v)
       }
     }
-    const res = await request<{ requests: RequestRow[] | null; next_cursor?: string }>(
-      'GET',
+    const res = await http.get<{ requests: RequestRow[] | null; next_cursor?: string }>(
       `/admin/requests?${query.toString()}`,
-      undefined,
       signal,
     )
     return { rows: res.requests ?? [], nextCursor: res.next_cursor ?? '' }
   },
 }
+
+export const api = { session, accounts, keys, models, gateway, traffic }

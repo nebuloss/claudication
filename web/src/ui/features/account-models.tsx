@@ -135,8 +135,8 @@ export default function AccountModels({
 }) {
   return (
     <ModelSwitches
-      load={(signal) => api.accountModels(account.id, signal)}
-      set={(model, enabled) => api.setAccountModel(account.id, model, enabled)}
+      load={(signal) => api.accounts.models(account.id, signal)}
+      set={(model, enabled) => api.accounts.setModel(account.id, model, enabled)}
       loadingText="Reading this account’s models…"
       explain={(on, total) =>
         `${on} of ${total} on. A model off here is served by another account that has it on; ` +
@@ -156,8 +156,8 @@ export default function AccountModels({
 export function KeyModels({ apiKey, onChanged }: { apiKey: ApiKey; onChanged: () => void }) {
   return (
     <ModelSwitches
-      load={(signal) => api.keyModels(apiKey.id, signal)}
-      set={(model, enabled) => api.setKeyModel(apiKey.id, model, enabled)}
+      load={(signal) => api.keys.models(apiKey.id, signal)}
+      set={(model, enabled) => api.keys.setModel(apiKey.id, model, enabled)}
       loadingText="Reading the models this gateway serves…"
       explain={(on, total) =>
         `${on} of ${total} allowed. A model off here is refused for this key — every other key ` +

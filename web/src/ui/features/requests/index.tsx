@@ -99,9 +99,9 @@ function RecentRequests({
   // menus are counted over the whole log, so each poll re-reads them too: new
   // rows can add a value that was not offered a minute ago.
   const loadFacets = useCallback(() => {
-    api
+    api.traffic
       .requestFacets()
-      .then((res) => setFacetData(res.facets ?? null))
+      .then(setFacetData)
       // No banner: the table is fine without menus, and the values already
       // filtered still show so they can be cleared.
       .catch(() => undefined)

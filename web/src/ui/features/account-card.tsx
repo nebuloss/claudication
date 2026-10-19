@@ -66,7 +66,7 @@ export default function AccountSettings({
       confirmLabel: 'Remove account',
       tone: 'danger',
       action: async () => {
-        await api.deleteAccount(account.id)
+        await api.accounts.remove(account.id)
         onRemoved()
       },
     })
@@ -133,7 +133,7 @@ export default function AccountSettings({
               onClick={() =>
                 void run('test', async () => {
                   setProbe(null)
-                  setProbe(await api.testAccount(account.id))
+                  setProbe(await api.accounts.test(account.id))
                 })
               }
               busy={busy === 'test'}
@@ -143,7 +143,7 @@ export default function AccountSettings({
             </Button>
             <Button
               variant="outlined"
-              onClick={() => void run('refresh', () => api.refreshAccount(account.id))}
+              onClick={() => void run('refresh', () => api.accounts.refreshToken(account.id))}
               busy={busy === 'refresh'}
               disabled={busy !== ''}
             >
@@ -177,7 +177,7 @@ export default function AccountSettings({
         <Button
           variant="outlined"
           onClick={() =>
-            void run('disable', () => api.setAccountDisabled(account.id, !account.disabled))
+            void run('disable', () => api.accounts.setDisabled(account.id, !account.disabled))
           }
           busy={busy === 'disable'}
           disabled={busy !== ''}

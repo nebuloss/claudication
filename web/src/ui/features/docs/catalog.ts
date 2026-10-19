@@ -12,11 +12,13 @@
  * from that answer. The committed file stays complete on its own — it is what
  * the repository links to, and what is shown when the list cannot be read.
  *
- * Measured on the live list (2026-10-09): every field below is present on
+ * Measured on the live list (2026-10-09): every field of Model is present on
  * every model, and the older models genuinely differ — Haiku 4.5 and Sonnet 4.5
  * have no effort setting, Opus 4.5 stops at high, Opus 4.6 and Sonnet 4.6 skip
  * xhigh. The hand-written lists had several of those wrong.
  */
+
+import type { Model } from '../../../api/types'
 
 /**
  * The context window crush is told for a model whose real one is larger.
@@ -28,50 +30,28 @@
  */
 export const CRUSH_WINDOW = 600_000
 
-/** What a model's entry in the upstream list can say. Everything is optional:
- *  a field Anthropic stops sending falls back to the committed file's value. */
-type Capability = { supported?: boolean }
-
-export type CatalogModel = {
-  id: string
-  display_name?: string
-  created_at?: string
-  line?: string
-  max_input_tokens?: number
-  max_tokens?: number
-  lifecycle?: string
-  /** A gateway model role; its other fields are the serving model's. */
-  virtual?: boolean
-  serving?: string
-  role?: string
-  capabilities?: {
-    effort?: Capability & Record<string, Capability | boolean | undefined>
-    image_input?: Capability
-    thinking?: Capability
-  }
-}
-
 /** Effort levels in the order a picker should list them. */
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
 /** The line a model belongs to: opus, sonnet, haiku, fable. */
-function lineOf(m: CatalogModel): string {
+function lineOf(m: Model): string {
   return m.line ?? /^claude-([a-z]+)/.exec(m.id)?.[1] ?? ''
 }
 
 export class Catalog {
   /** Active Claude models, newest first, as the upstream orders them. */
-  readonly models: CatalogModel[]
+  readonly models: Model[]
 
-  // Typed loosely on the way in: the API client's Model says less than this
-  // reads, and every field is checked before it is trusted.
-  constructor(models: readonly { id: string }[] | null | undefined) {
+  // Every field but id is optional on Model, and each is checked before it
+  // is trusted: a field Anthropic stops sending falls back to the committed
+  // file's value.
+  constructor(models: readonly Model[] | null | undefined) {
     // Retired and deprecated models still answer for a while, but a config
     // written today has no business offering one.
     // A virtual model is listed whatever its name: it is one the operator
     // made for this client, and it comes first, so a virtual model serving
     // an Opus is what the config's large default becomes.
-    this.models = ((models ?? []) as CatalogModel[]).filter(
+    this.models = (models ?? []).filter(
       (m) =>
         m.virtual === true ||
         (m.id.startsWith('claude-') && (m.lifecycle === undefined || m.lifecycle === 'active')),
@@ -89,7 +69,7 @@ export class Catalog {
   }
 
   /** The model role of this name, when the gateway lists it. */
-  private role(name: string): CatalogModel | undefined {
+  private role(name: string): Model | undefined {
     return this.models.find((m) => m.virtual === true && m.role === name)
   }
 
@@ -111,13 +91,13 @@ export class Catalog {
   }
 
   /** A model's entry, for its facts. */
-  entry(id: string): CatalogModel | undefined {
+  entry(id: string): Model | undefined {
     return this.models.find((m) => m.id === id)
   }
 
   /** The effort levels a model accepts, in picker order; empty when it has
    *  no effort setting at all. */
-  efforts(m: CatalogModel): string[] {
+  efforts(m: Model): string[] {
     const e = m.capabilities?.effort
     if (e?.supported !== true) return []
     return EFFORTS.filter((level) => {

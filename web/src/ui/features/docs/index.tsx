@@ -37,7 +37,7 @@ export default function Docs() {
   // One request, and a public one. The in-app version of this screen read
   // /admin/overview, /admin/config and /admin/models — an inventory of the
   // deployment, for four facts. This asks for the four.
-  const { data, error, loading } = useLoader<DocsInfo>((signal) => api.docsInfo(signal))
+  const { data, error, loading } = useLoader<DocsInfo>((signal) => api.gateway.docsInfo(signal))
 
   if (loading && data === null) return <Loading />
   if (error !== '' || data === null) {
@@ -50,7 +50,7 @@ export default function Docs() {
   // keep the example address with a note saying so.
   const configured = data.public_url ?? ''
   const gateway = configured !== '' ? configured : EXAMPLE_BASE
-  const models = data.models?.data ?? []
+  const models = data.models
   // The files below are written from this when it could be read, and are the
   // committed ones when it could not.
   const catalog = new Catalog(models)

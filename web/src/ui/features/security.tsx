@@ -75,7 +75,7 @@ function ChangePassword({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       return
     }
     await run('change', async () => {
-      await api.changePassword(current, next)
+      await api.session.changePassword(current, next)
       onDone()
     })
   }
@@ -127,7 +127,7 @@ function DeleteAccount({ onDone, onCancel }: { onDone: () => void; onCancel: () 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     await run('delete', async () => {
-      await api.deleteAdminAccount(password)
+      await api.session.deleteAdmin(password)
       onDone()
     })
   }

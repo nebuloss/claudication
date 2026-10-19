@@ -66,7 +66,7 @@ export default function Accounts() {
   const [pollMs, setPollMs] = useState(FALLBACK_REFRESH_MS)
 
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
-    (signal) => api.listAccounts(signal),
+    (signal) => api.accounts.list(signal),
     { refreshMs: settled ? pollMs : 0 },
   )
 
@@ -94,7 +94,7 @@ export default function Accounts() {
     const ids = accounts.map((a) => (a.provider === provider ? reordered[next++] : a.id))
 
     await order.run('order', async () => {
-      await api.reorderAccounts(ids)
+      await api.accounts.reorder(ids)
       await reload()
     })
   }

@@ -30,7 +30,7 @@ register(
     ),
 )
 
-const OUT = process.env.OUT ?? new URL('../web/.charts-check', import.meta.url).pathname
+const OUT = process.env.OUT ?? new URL('../web/.charts-check/ui', import.meta.url).pathname
 const { niceTicks, LinearScale, LogScale, BandScale, edgeAnchor } =
   await import(`${OUT}/charts/scale.js`)
 const { Stack } = await import(`${OUT}/charts/stack.js`)

@@ -27,7 +27,7 @@ export default function Surfaces({
 
   const toggle = (id: string, enabled: boolean) =>
     run(id, async () => {
-      await api.setSurface(id, enabled)
+      await api.gateway.setSurface(id, enabled)
       onChanged()
     })
 

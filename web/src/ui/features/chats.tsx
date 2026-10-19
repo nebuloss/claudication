@@ -176,7 +176,7 @@ export default function ChatsPanel({
   // chart that follows its chat while open.
   const [open, setOpen] = useState<string | null>(null)
   const { data, error, loading, reload } = useLoader<Chats>(
-    (signal) => api.chats(days, scope, signal),
+    (signal) => api.traffic.chats(days, scope, signal),
     {
       deps: [days, scope.account, scope.key],
       // A chat gains requests as it is being held, and this panel is the one an
@@ -195,7 +195,7 @@ export default function ChatsPanel({
   const saveTitle = (c: Chat, title: string) => {
     setEditing(null)
     void rename.run(c.id, async () => {
-      await api.setChatTitle(c.id, title)
+      await api.traffic.setChatTitle(c.id, title)
       void reload()
     })
   }

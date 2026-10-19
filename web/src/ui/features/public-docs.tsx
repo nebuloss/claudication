@@ -27,7 +27,7 @@ export default function PublicDocs({
   const toggle = (next: boolean) =>
     apply(next, () =>
       run('toggle', async () => {
-        await api.setDocs(next)
+        await api.gateway.setDocs(next)
         onChanged()
       }),
     )

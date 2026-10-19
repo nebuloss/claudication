@@ -62,7 +62,7 @@ export default function SignIn({
     setBusy(true)
     setError('')
     try {
-      await (setup ? api.setup(password) : api.signIn(password))
+      await (setup ? api.session.setup(password) : api.session.signIn(password))
       onSignedIn()
     } catch (err) {
       setError(messageOf(err))

@@ -100,7 +100,7 @@ export default function App() {
   // so it 401'd, set an error, and never tried again once a session existed.
   // Settings then rendered "Could not read the configuration" at a signed-in
   // operator forever.
-  const config = useLoader<GatewayConfig>((signal) => api.config(signal), { deps: [state.phase] })
+  const config = useLoader<GatewayConfig>((signal) => api.gateway.config(signal), { deps: [state.phase] })
   // A deploy since this tab loaded is taken without asking, at the first
   // moment it loses nothing: at once when nothing is being typed or shown, or
   // else on the next move to another page, or when the tab is left with
@@ -125,7 +125,7 @@ export default function App() {
 
   const probe = useCallback(async () => {
     try {
-      setState({ phase: 'in', session: await api.whoAmI() })
+      setState({ phase: 'in', session: await api.session.whoAmI() })
       return
     } catch (err) {
       if (!(err instanceof ApiError) || !err.isUnauthenticated) {
@@ -134,7 +134,7 @@ export default function App() {
       }
     }
     try {
-      const status = await api.setupStatus()
+      const status = await api.session.setupStatus()
       setState(
         status.needs_setup
           ? {
@@ -188,7 +188,7 @@ export default function App() {
 
   const signOut = async () => {
     try {
-      await api.signOut()
+      await api.session.signOut()
     } catch {
       // Signing out locally matters more than the round trip succeeding.
     }
@@ -314,7 +314,7 @@ const REPO = 'https://github.com/nebuloss/claudication'
  * header that reflows the moment the request lands.
  */
 function Version() {
-  const { data } = useLoader<OverviewData>((signal) => api.overview(signal))
+  const { data } = useLoader<OverviewData>((signal) => api.gateway.overview(signal))
   if (data === null) return null
   return <VersionTag>{data.version}</VersionTag>
 }

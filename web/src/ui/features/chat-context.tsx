@@ -38,7 +38,7 @@ export default function ChatContextDetail({
   colour: string
 }) {
   const { data, error, loading, reload } = useLoader<ChatDetail>(
-    (signal) => api.chat(id, signal),
+    (signal) => api.traffic.chat(id, signal),
     {
       deps: [id],
       refreshMs: DETAIL_REFRESH_MS,

@@ -30,7 +30,7 @@ export default function ChatTitles({
 
   const write = (which: 'enabled' | 'capture', next: boolean) => () =>
     run(which, async () => {
-      await api.setChatTitles({ [which]: next })
+      await api.gateway.setChatTitles({ [which]: next })
       onChanged()
     })
 

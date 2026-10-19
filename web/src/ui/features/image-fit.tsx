@@ -27,7 +27,7 @@ export default function ImageFit({
   const toggle = (next: boolean) =>
     apply(next, () =>
       run('toggle', async () => {
-        await api.setFitImages(next)
+        await api.gateway.setFitImages(next)
         onChanged()
       }),
     )

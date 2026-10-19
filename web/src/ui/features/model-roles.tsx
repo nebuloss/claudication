@@ -63,11 +63,11 @@ function choicesFor(family: string, real: Model[]): SelectOption[] {
 
 /** The aliases as a short form: for the gateway (keyId empty) or one key. */
 export function RolesEditor({ keyId = '' }: { keyId?: string }) {
-  const { data, error, loading, reload } = useLoader((signal) => api.modelRoles(keyId, signal), {
+  const { data, error, loading, reload } = useLoader((signal) => api.models.roles(keyId, signal), {
     deps: [keyId],
   })
-  const { data: models } = useLoader((signal) => api.models(signal))
-  const real = (models?.data ?? []).filter((m) => m.virtual !== true)
+  const { data: models } = useLoader((signal) => api.models.list(signal))
+  const real = (models ?? []).filter((m) => m.virtual !== true)
   const { busy, error: failure, run } = useAction()
   const confirm = useConfirm()
 
@@ -84,7 +84,7 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
 
   const bind = (r: ModelRole, model: string) =>
     run(r.role, async () => {
-      await api.setModelRole(keyId, r.role, model)
+      await api.models.setRole(keyId, r.role, model)
       await reload()
     })
 
@@ -95,7 +95,7 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
       confirmLabel: 'Delete alias',
       tone: 'danger',
       action: async () => {
-        await api.deleteAlias(r.role)
+        await api.models.deleteAlias(r.role)
         await reload()
       },
     })
@@ -165,9 +165,9 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
 
   // The two roles every client has, then one per family, then the
   // operator's own.
-  const roles = data.roles.filter((r) => r.role === 'claude-large' || r.role === 'claude-small')
-  const families = data.roles.filter((r) => r.builtin && !roles.includes(r))
-  const custom = data.roles.filter((r) => !r.builtin)
+  const roles = data.filter((r) => r.role === 'claude-large' || r.role === 'claude-small')
+  const families = data.filter((r) => r.builtin && !roles.includes(r))
+  const custom = data.filter((r) => !r.builtin)
   const group = (title: string, list: ModelRole[]) => (
     <Section title={title}>
       <Stack gap={2} as="ul">
@@ -194,7 +194,7 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
               busy={busy !== ''}
               onCreate={(name, model) =>
                 run(name, async () => {
-                  await api.setModelRole('', name, model)
+                  await api.models.setRole('', name, model)
                   await reload()
                 })
               }

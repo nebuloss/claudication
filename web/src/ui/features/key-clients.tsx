@@ -44,7 +44,7 @@ import { relayAddress } from './key-configs'
  */
 function useKeySecret(k: ApiKey) {
   return useLoader(
-    (signal) => (k.secret_kept ? api.keySecret(k.id, signal) : Promise.resolve({ plaintext: '' })),
+    (signal) => (k.secret_kept ? api.keys.secret(k.id, signal) : Promise.resolve({ plaintext: '' })),
     { deps: [k.id, k.secret_kept, k.display] },
   )
 }
@@ -60,8 +60,8 @@ export default function KeyClients({
   // What this key is offered — /v1/models as it sees it, the aliases first,
   // each with the facts of the model it serves for this key. Without it the
   // files are the committed ones, which are complete.
-  const offered = useLoader((signal) => api.keyOfferedModels(k.id, signal), { deps: [k.id] })
-  const catalog = useMemo(() => new Catalog(offered.data?.data), [offered.data])
+  const offered = useLoader((signal) => api.keys.offeredModels(k.id, signal), { deps: [k.id] })
+  const catalog = useMemo(() => new Catalog(offered.data), [offered.data])
   const address = relayAddress(config)
   const gateway = address !== '' ? address : EXAMPLE_BASE
   const plaintext = secret.data?.plaintext ?? ''
@@ -144,7 +144,7 @@ export function KeySecret({ apiKey: k, onChanged }: { apiKey: ApiKey; onChanged:
   const plaintext = secret.data?.plaintext ?? ''
 
   const rotate = async () => {
-    await api.rotateKey(k.id)
+    await api.keys.rotate(k.id)
     onChanged()
     await secret.reload()
   }
@@ -225,7 +225,7 @@ function InstallCommand({
 
   const create = () =>
     run('create', async () => {
-      const made = await api.createInstall(keyId, files())
+      const made = await api.keys.createInstall(keyId, files())
       setLink({ token: made.token, expires: new Date(made.expires_at) })
     })
 

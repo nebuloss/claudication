@@ -105,7 +105,7 @@ const TRAFFIC_REFRESH_MS = 60_000
 function TrafficCard() {
   const [days, setDays] = useState(14)
   const { data: usage } = useLoader<Usage>(
-    (signal) => api.usage(days, {}, signal),
+    (signal) => api.traffic.usage(days, {}, signal),
     {
       deps: [days],
       refreshMs: TRAFFIC_REFRESH_MS,
@@ -148,7 +148,7 @@ export default function Overview({
   docsURL: string
 }) {
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<OverviewData>(
-    (signal) => api.overview(signal),
+    (signal) => api.gateway.overview(signal),
     { refreshMs: REFRESH_MS },
   )
 

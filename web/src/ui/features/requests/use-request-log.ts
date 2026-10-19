@@ -52,7 +52,7 @@ export function useRequestLog(filter: RequestFilter, onPolled: () => void) {
       }
       setError('')
       try {
-        const page = await api.recentRequests(PAGE, after, params, run.signal)
+        const page = await api.traffic.requests(PAGE, after, params, run.signal)
         if (!runs.owns(run)) return
         // Replaced when refreshing, so Refresh cannot leave a stale tail
         // below freshly loaded rows; appended when paging.
@@ -77,7 +77,7 @@ export function useRequestLog(filter: RequestFilter, onPolled: () => void) {
     if (run === null) return
     setRefreshing(true)
     try {
-      const page = await api.recentRequests(PAGE, '', params, run.signal)
+      const page = await api.traffic.requests(PAGE, '', params, run.signal)
       // Checked before merging: a poll that a new filter overtook holds the
       // old filter's rows, and merging them would put them under the new
       // filter's chips.

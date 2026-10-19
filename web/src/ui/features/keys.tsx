@@ -3,6 +3,7 @@ import {
   api,
   type ApiKey,
   type GatewayConfig,
+  type KeyLimits,
   type SubscriptionShare,
 } from '../../api/client'
 import { useAction, useLoader } from '../hooks'
@@ -86,7 +87,7 @@ export default function Keys() {
   // its Clients page, where its configurations are.
   const [created, setCreated] = useState<{ key: ApiKey; plaintext: string } | null>(null)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
-    (signal) => api.listKeys(signal),
+    (signal) => api.keys.list(signal),
     { refreshMs: REFRESH_MS },
   )
 
@@ -317,7 +318,7 @@ export function KeyPage({
   // Not on the settings page: the form is filled from the loaded key, and a
   // poll landing mid-edit would reset the fields under the cursor.
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
-    (signal) => api.listKeys(signal),
+    (signal) => api.keys.list(signal),
     { refreshMs: SETTINGS_PAGES.has(page) ? 0 : REFRESH_MS },
   )
   const k = data?.keys.find((key) => key.id === id)
@@ -438,10 +439,10 @@ function KeySettings({
     )
   }
 
-  const save = async (name: string, rpm: number, periodS: number, tokenBudget: number) => {
+  const save = async (name: string, limits: KeyLimits) => {
     setSaved(false)
     await run('save', async () => {
-      await api.updateKey(k.id, name, rpm, periodS, tokenBudget)
+      await api.keys.update(k.id, name, limits)
       setSaved(true)
       onSaved()
     })
@@ -454,7 +455,7 @@ function KeySettings({
       confirmLabel: 'Delete key',
       tone: 'danger',
       action: async () => {
-        await api.deleteKey(k.id)
+        await api.keys.remove(k.id)
         navigate('/keys')
       },
     })
@@ -740,7 +741,7 @@ function KeyEditor({
   apiKey: ApiKey
   defaultRpm: number
   busy: boolean
-  onSave: (name: string, rpmLimit: number, periodS: number, tokenBudget: number) => void
+  onSave: (name: string, limits: KeyLimits) => void
 }) {
   const [name, setName] = useState(apiKey.name)
   const [rpm, setRpm] = useState(apiKey.rpm_limit)
@@ -794,7 +795,7 @@ function KeyEditor({
           <Button
             busy={busy}
             disabled={!valid || !changed}
-            onClick={() => onSave(name.trim(), rpm, periodS, budget)}
+            onClick={() => onSave(name.trim(), { rpmLimit: rpm, ratePeriodS: periodS, tokenBudget: budget })}
           >
             {busy ? 'Saving…' : 'Save'}
           </Button>
@@ -825,7 +826,9 @@ function NewKey({
       return
     }
     await run('create', async () => {
-      onCreated(await api.createKey(name.trim(), rpm, periodS, budget))
+      onCreated(
+        await api.keys.create(name.trim(), { rpmLimit: rpm, ratePeriodS: periodS, tokenBudget: budget }),
+      )
     })
   }
 

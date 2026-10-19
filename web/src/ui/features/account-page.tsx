@@ -52,7 +52,7 @@ export default function AccountPage({
 }) {
   const [reading, setReading] = useState(false)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
-    (signal) => api.listAccounts(signal),
+    (signal) => api.accounts.list(signal),
     { refreshMs: REFRESH_MS },
   )
 
@@ -141,7 +141,7 @@ export default function AccountPage({
                 onClick={() => {
                     setReading(true)
                     void api
-                      .refreshUsage(account.id)
+                      .accounts.refreshUsage(account.id)
                       .catch(() => {})
                       .finally(() => {
                         setReading(false)
