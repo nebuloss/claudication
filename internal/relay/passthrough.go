@@ -294,9 +294,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 			// reset to sit out until, a kind the status does not imply, the
 			// windows. Nothing, for a provider that says nothing there.
 			verdict := r.Wire.Inspect(resp.StatusCode, resp.Header, raw)
-			if verdict.Kind != "" {
-				kind = pool.FailureKind(verdict.Kind)
-			}
+			kind = failureKind(kind, verdict)
 			if verdict.Quota != nil {
 				r.Pool.NoteQuota(lease.Account.ID, *verdict.Quota)
 			}
@@ -332,9 +330,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		// which a provider that reports its quota on every answer — ChatGPT's
 		// does — fills on a success as much as on a failure.
 		verdict := r.Wire.Inspect(resp.StatusCode, resp.Header, errBody)
-		if verdict.Kind != "" && kind != "" {
-			kind = pool.FailureKind(verdict.Kind)
-		}
+		kind = failureKind(kind, verdict)
 		if verdict.Quota != nil {
 			r.Pool.NoteQuota(lease.Account.ID, *verdict.Quota)
 		}
@@ -378,6 +374,19 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		replay(w, last, &res)
 	}
 	return res
+}
+
+// failureKind is how long an account sits out for an answer: the kind its
+// status implies, or the provider's own when it named one — a 429 that says
+// the plan does not include the service is not a rate limit to wait out. An
+// answer whose status is no failure stays none, whatever the provider said:
+// a verdict names what a failure means, it does not make one. One rule for the
+// retry path and the last attempt alike.
+func failureKind(status pool.FailureKind, v provider.Verdict) pool.FailureKind {
+	if status == "" || v.Kind == "" {
+		return status
+	}
+	return pool.FailureKind(v.Kind)
 }
 
 // build copies the client's request onto the upstream, changing only what has
