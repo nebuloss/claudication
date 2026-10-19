@@ -14,6 +14,7 @@ import {
   Spinner,
   tile,
   type SelectOption,
+  useConfirm,
 } from '../primitives'
 
 /**
@@ -63,6 +64,7 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
   const { data: models } = useLoader((signal) => api.models(signal))
   const real = (models?.data ?? []).filter((m) => m.virtual !== true)
   const { busy, error: failure, run } = useAction()
+  const confirm = useConfirm()
 
   if (loading && data === null) {
     return (
@@ -87,14 +89,17 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
       await reload()
     })
 
-  const remove = async (r: ModelRole) => {
-    if (!window.confirm(`Delete ${r.role}? Clients configured with it will be told no such model.`))
-      return
-    await run(r.role, async () => {
-      await api.deleteAlias(r.role)
-      await reload()
+  const remove = (r: ModelRole) =>
+    confirm({
+      title: `Delete ${r.role}?`,
+      body: 'Clients configured with it will be told there is no such model.',
+      confirmLabel: 'Delete alias',
+      tone: 'danger',
+      action: async () => {
+        await api.deleteAlias(r.role)
+        await reload()
+      },
     })
-  }
 
   // One alias as a row like any list's: what it is and what it is for on
   // the left, the model it serves on the right, and — when it cannot serve —

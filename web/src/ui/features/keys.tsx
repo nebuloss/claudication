@@ -42,6 +42,7 @@ import {
   tile,
   ago,
   compact,
+  useConfirm,
 } from '../primitives'
 
 /**
@@ -444,7 +445,8 @@ function KeySettings({
   config: GatewayConfig | null
   onSaved: () => void
 }) {
-  const { pending: busy, error, run } = useAction<'save' | 'delete'>()
+  const { pending: busy, error, run } = useAction()
+  const confirm = useConfirm()
   const [saved, setSaved] = useState(false)
 
   if (k.managed) {
@@ -464,13 +466,17 @@ function KeySettings({
     })
   }
 
-  const remove = async () => {
-    if (!window.confirm(`Delete ${k.name}? Clients using it stop working immediately.`)) return
-    await run('delete', async () => {
-      await api.deleteKey(k.id)
-      navigate('/keys')
+  const remove = () =>
+    confirm({
+      title: `Delete ${k.name}?`,
+      body: 'Clients using it stop working immediately.',
+      confirmLabel: 'Delete key',
+      tone: 'danger',
+      action: async () => {
+        await api.deleteKey(k.id)
+        navigate('/keys')
+      },
     })
-  }
 
   const card = (() => {
     switch (section) {

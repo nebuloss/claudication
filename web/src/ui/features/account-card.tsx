@@ -16,9 +16,10 @@ import {
   Verbatim,
   tile,
   type Tone,
+  useConfirm,
 } from '../primitives'
 
-type Busy = 'test' | 'refresh' | 'disable' | 'delete'
+type Busy = 'test' | 'refresh' | 'disable'
 
 export function formatDate(iso?: string): string {
   if (!iso) return 'never'
@@ -84,24 +85,29 @@ export default function AccountSettings({
 }) {
   const [probe, setProbe] = useState<ProbeResult | null>(null)
   const { busy, error, setError, run: act } = useAction<Busy>()
+  const confirm = useConfirm()
   const [reconnecting, setReconnecting] = useState(false)
 
   // Reconnecting is the fix for a dead refresh token and the only cure for an
   // expiring one, so it leads the actions when either is the case.
   const reauthDue = account.needs_reauth === true || account.needs_reauth_soon === true
 
-  const run = async (what: Exclude<Busy, 'delete'>, fn: () => Promise<unknown>) => {
+  const run = async (what: Busy, fn: () => Promise<unknown>) => {
     await act(what, fn)
     onChanged()
   }
 
-  const runDelete = async () => {
-    if (!window.confirm(`Remove ${account.email}? The stored credentials are destroyed.`)) return
-    await act('delete', async () => {
-      await api.deleteAccount(account.id)
-      onRemoved()
+  const runDelete = () =>
+    confirm({
+      title: `Remove ${account.email}?`,
+      body: 'The stored credentials are destroyed.',
+      confirmLabel: 'Remove account',
+      tone: 'danger',
+      action: async () => {
+        await api.deleteAccount(account.id)
+        onRemoved()
+      },
     })
-  }
 
   if (section === 'models') {
     return (
@@ -226,7 +232,6 @@ export default function AccountSettings({
           stays in the history, under its email.
         </Note>
         <OutlinedButton onClick={() => void runDelete()} disabled={busy !== ''} tone="error">
-          {busy === 'delete' && <Spinner />}
           Remove {account.email}
         </OutlinedButton>
       </Card>

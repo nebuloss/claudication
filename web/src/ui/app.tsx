@@ -22,6 +22,7 @@ import {
 import {
   BrandMark,
   Breadcrumbs,
+  ConfirmProvider,
   NavRail,
   IconLink,
   Spinner,
@@ -204,96 +205,98 @@ export default function App() {
 
   return (
     <SessionProvider onExpired={expired}>
-      <div className="min-h-dvh">
-        {/* z-30 rather than z-10: this is the app's chrome and everything on a
-            screen scrolls under it. At z-10 it tied with the sticky line-number
-            gutter in a code block and with a capped table's sticky heading, and
-            a tie is won by whichever comes later in the document — which is
-            always the content, so both rode over the tab bar. */}
-        <header className="sticky top-0 z-30 bg-surface/85 backdrop-blur-md">
-          <div
-            className={`mx-auto flex ${measure} items-center justify-between gap-4 px-4 pt-4 sm:px-6`}
-          >
-            {/* One line, the height of the controls beside it: the name, and the
-                running build, which is asked for right after a deploy. */}
-            <div className="flex min-w-0 items-center gap-3">
-              <BrandMark />
-              <h1 className="m-0 flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
-                claudication gateway
-                <Version />
-              </h1>
+      <ConfirmProvider>
+        <div className="min-h-dvh">
+          {/* z-30 rather than z-10: this is the app's chrome and everything on a
+              screen scrolls under it. At z-10 it tied with the sticky line-number
+              gutter in a code block and with a capped table's sticky heading, and
+              a tie is won by whichever comes later in the document — which is
+              always the content, so both rode over the tab bar. */}
+          <header className="sticky top-0 z-30 bg-surface/85 backdrop-blur-md">
+            <div
+              className={`mx-auto flex ${measure} items-center justify-between gap-4 px-4 pt-4 sm:px-6`}
+            >
+              {/* One line, the height of the controls beside it: the name, and the
+                  running build, which is asked for right after a deploy. */}
+              <div className="flex min-w-0 items-center gap-3">
+                <BrandMark />
+                <h1 className="m-0 flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
+                  claudication gateway
+                  <Version />
+                </h1>
+              </div>
+              <div className="flex items-center gap-2">
+                {docsURL !== '' && (
+                  // Opens in a tab of its own: it is a different page on a
+                  // different address, and the person reading it is usually
+                  // copying out of it while doing something else here.
+                  <TextLink href={docsURL}>Docs</TextLink>
+                )}
+                <IconLink label="Source on GitHub" href={REPO}>
+                  <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+                </IconLink>
+                <LiveToggle />
+                <ThemeToggle />
+                <TextButton onClick={() => void signOut()}>Sign out</TextButton>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              {docsURL !== '' && (
-                // Opens in a tab of its own: it is a different page on a
-                // different address, and the person reading it is usually
-                // copying out of it while doing something else here.
-                <TextLink href={docsURL}>Docs</TextLink>
-              )}
-              <IconLink label="Source on GitHub" href={REPO}>
-                <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-              </IconLink>
-              <LiveToggle />
-              <ThemeToggle />
-              <TextButton onClick={() => void signOut()}>Sign out</TextButton>
+
+            {/* Where this page is: every level above it a link. The tabs that
+                used to be here are the rail's top level now. */}
+            <div className={`mx-auto ${measure} px-4 pt-3 pb-3 sm:px-6`}>
+              <Breadcrumbs trail={trail} />
             </div>
-          </div>
+          </header>
 
-          {/* Where this page is: every level above it a link. The tabs that
-              used to be here are the rail's top level now. */}
-          <div className={`mx-auto ${measure} px-4 pt-3 pb-3 sm:px-6`}>
-            <Breadcrumbs trail={trail} />
-          </div>
-        </header>
-
-        {/* One navigation for every page: the trail above, and beside the page
-            the choices of its own level with the way up. A row above the page
-            on a narrow screen. */}
-        {/* The top padding is the row's, once, and both sides start at the
-            row's top: padded separately, the rail's panel sat 6px below the
-            page's first card. */}
-        <div className={`mx-auto ${measure} px-4 sm:px-6 md:flex md:items-start md:gap-8 md:pt-6`}>
-          <aside className="hidden w-52 shrink-0 md:sticky md:top-32 md:block">
-            <NavRail level={level} />
-          </aside>
-          <div className="pt-4 md:hidden">
-            <NavRail level={level} row />
-          </div>
-          <main className="min-w-0 flex-1 pt-6 pb-16 md:pt-0">
-            {tab === 'overview' && <Overview docsURL={docsURL} />}
-            {/* Keyed by the item, so moving from one account's page to another's
-                starts clean rather than showing the last one's state. */}
-            {tab === 'accounts' &&
-              (item === '' ? (
-                <Accounts />
-              ) : (
-                <AccountPage key={item} id={item} page={page} />
-              ))}
-            {tab === 'keys' &&
-              (item === '' ? (
-                <Keys />
-              ) : (
-                <KeyPage
-                  key={item}
-                  id={item}
-                  page={page}
-                  config={config.data}
+          {/* One navigation for every page: the trail above, and beside the page
+              the choices of its own level with the way up. A row above the page
+              on a narrow screen. */}
+          {/* The top padding is the row's, once, and both sides start at the
+              row's top: padded separately, the rail's panel sat 6px below the
+              page's first card. */}
+          <div className={`mx-auto ${measure} px-4 sm:px-6 md:flex md:items-start md:gap-8 md:pt-6`}>
+            <aside className="hidden w-52 shrink-0 md:sticky md:top-32 md:block">
+              <NavRail level={level} />
+            </aside>
+            <div className="pt-4 md:hidden">
+              <NavRail level={level} row />
+            </div>
+            <main className="min-w-0 flex-1 pt-6 pb-16 md:pt-0">
+              {tab === 'overview' && <Overview docsURL={docsURL} />}
+              {/* Keyed by the item, so moving from one account's page to another's
+                  starts clean rather than showing the last one's state. */}
+              {tab === 'accounts' &&
+                (item === '' ? (
+                  <Accounts />
+                ) : (
+                  <AccountPage key={item} id={item} page={page} />
+                ))}
+              {tab === 'keys' &&
+                (item === '' ? (
+                  <Keys />
+                ) : (
+                  <KeyPage
+                    key={item}
+                    id={item}
+                    page={page}
+                    config={config.data}
+                  />
+                ))}
+              {tab === 'activity' && <Activity page={item} />}
+              {tab === 'settings' && (
+                <Settings
+                  section={item}
+                  session={state.session}
+                  onSessionChanged={() => void probe()}
+                  config={config}
+                  onConfigChanged={() => void config.reload()}
                 />
-              ))}
-            {tab === 'activity' && <Activity page={item} />}
-            {tab === 'settings' && (
-              <Settings
-                section={item}
-                session={state.session}
-                onSessionChanged={() => void probe()}
-                config={config}
-                onConfigChanged={() => void config.reload()}
-              />
-            )}
-          </main>
-        </div>
+              )}
+            </main>
+          </div>
 
-      </div>
+        </div>
+      </ConfirmProvider>
     </SessionProvider>
   )
 }

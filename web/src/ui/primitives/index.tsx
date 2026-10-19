@@ -25,6 +25,7 @@ export type { Placement } from './popover'
 export { BrandMark, Breadcrumbs, NavRail, follow } from './nav'
 export { AddButton, ListRow, ListToolbar, RowBadge } from './list'
 export { UsageBar } from './meter'
+export { ConfirmDialog, ConfirmProvider, useConfirm, type ConfirmRequest } from './confirm'
 export type { Tone } from '../styles/tone'
 export { Help, InfoTip, Note } from './info'
 import { Help } from './info'
@@ -161,12 +162,15 @@ export function FilledButton({
   disabled,
   onClick,
   type = 'submit',
+  tone,
   className = '',
 }: {
   children: ReactNode
   disabled?: boolean
   onClick?: () => void
   type?: 'submit' | 'button'
+  /** 'error' for the button that destroys something, so it does not read as the safe default. */
+  tone?: 'error'
   className?: string
 }) {
   return (
@@ -174,7 +178,9 @@ export function FilledButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`state-layer inline-flex h-10 items-center gap-2 rounded-[var(--radius-md3-full)] bg-primary px-6 text-sm font-medium text-on-primary disabled:pointer-events-none disabled:opacity-40 ${className}`}
+      className={`state-layer inline-flex h-10 items-center gap-2 rounded-[var(--radius-md3-full)] px-6 text-sm font-medium disabled:pointer-events-none disabled:opacity-40 ${
+        tone === 'error' ? 'bg-error text-on-error' : 'bg-primary text-on-primary'
+      } ${className}`}
     >
       {children}
     </button>
@@ -248,11 +254,14 @@ export function TextButton({
   tone,
   size = 'md',
   type = 'button',
+  autoFocus = false,
 }: {
   children: ReactNode
   onClick?: () => void
   disabled?: boolean
   tone?: 'error'
+  /** Where a Modal puts focus when it opens, instead of on the dialog itself. */
+  autoFocus?: boolean
   /**
    * 'sm' for a control inside a table row.
    *
@@ -269,6 +278,7 @@ export function TextButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      data-autofocus={autoFocus ? '' : undefined}
       className={`state-layer inline-flex items-center rounded-[var(--radius-md3-full)] border border-outline font-medium disabled:pointer-events-none disabled:opacity-40 ${
         size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-10 px-3 text-sm'
       } ${tone === 'error' ? 'text-error' : 'text-primary'}`}
@@ -1696,8 +1706,12 @@ export function Modal({
   useEffect(() => {
     const returnTo = document.activeElement as HTMLElement | null
     // Focus the panel rather than its first control: the operator should hear
-    // the dialog's name before its buttons.
-    panel.current?.focus()
+    // the dialog's name before its buttons. A dialog that marks a control
+    // data-autofocus gets that instead — a confirmation's Cancel, so a key
+    // pressed by reflex does not destroy anything. The name is still read
+    // out, because focus is entering the labelled dialog.
+    const preferred = panel.current?.querySelector<HTMLElement>('[data-autofocus]')
+    ;(preferred ?? panel.current)?.focus()
     return () => returnTo?.focus?.()
   }, [])
 

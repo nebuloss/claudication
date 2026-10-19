@@ -13,6 +13,7 @@ import {
   Segmented,
   Spinner,
   TextButton,
+  useConfirm,
 } from '../primitives'
 import { CodeViewer } from '../primitives/code'
 import { Catalog } from './docs/catalog'
@@ -156,23 +157,26 @@ export function KeySecret({ apiKey: k, onChanged }: { apiKey: ApiKey; onChanged:
     { deps: [k.id, k.secret_kept, k.display] },
   )
   const { pending: busy, error, run } = useAction()
+  const confirm = useConfirm()
   const plaintext = secret.data?.plaintext ?? ''
 
-  const regenerate = async () => {
-    if (
-      k.secret_kept &&
-      !window.confirm(
-        `Regenerate the key for ${k.name}? The current one stops working immediately, ` +
-          'so every client using it needs its configuration again.',
-      )
-    )
-      return
-    await run('rotate', async () => {
-      await api.rotateKey(k.id)
-      onChanged()
-      await secret.reload()
-    })
+  const rotate = async () => {
+    await api.rotateKey(k.id)
+    onChanged()
+    await secret.reload()
   }
+  // Asked only when there is a working secret to lose: a key whose secret was
+  // never kept has nothing a client could still be using.
+  const regenerate = () =>
+    k.secret_kept
+      ? confirm({
+          title: `Regenerate the key for ${k.name}?`,
+          body: 'The current one stops working immediately, so every client using it needs its configuration again.',
+          confirmLabel: 'Regenerate',
+          tone: 'danger',
+          action: rotate,
+        })
+      : run('rotate', rotate)
 
   return (
     <Card>
