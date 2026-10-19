@@ -74,7 +74,7 @@ function TitleEditor({
         onKeyDown={(e) => {
           if (e.key === 'Escape') onCancel()
         }}
-        className="w-full rounded-[var(--radius-md3-xs)] border border-primary bg-surface-lowest px-1 py-0.5 font-medium text-on-surface outline-none"
+        className="w-full rounded-md3-xs border border-primary bg-surface-lowest px-1 py-0.5 font-medium text-on-surface outline-none"
       />
       <span className="text-xs text-on-surface-variant">Enter to save · Esc to cancel</span>
     </form>
@@ -132,7 +132,7 @@ function RequestLink({
         e.preventDefault()
         navigate(href)
       }}
-      className={`state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 ${
+      className={`state-layer rounded-md3-xs px-1 underline decoration-dotted underline-offset-2 ${
         tone === 'error' ? 'text-error' : 'hover:text-primary'
       }`}
     >
@@ -322,7 +322,7 @@ export default function ChatsPanel({
                       rename.setError('')
                       setMenu({ id: c.id, x: e.clientX, y: e.clientY })
                     }}
-                    className="state-layer flex w-full min-w-0 flex-col rounded-[var(--radius-md3-xs)] text-left"
+                    className="state-layer flex w-full min-w-0 flex-col rounded-md3-xs text-left"
                   >
                     <span className="truncate font-medium text-on-surface" title={c.title}>
                       {open === c.id ? '▾ ' : '▸ '}

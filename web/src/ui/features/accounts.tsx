@@ -198,7 +198,7 @@ export default function Accounts() {
                           setDragging(null)
                           setOver(null)
                         }}
-                        className={`rounded-[var(--radius-md3-l)] transition-[opacity,box-shadow] ${
+                        className={`rounded-md3-l transition-[opacity,box-shadow] ${
                           mine && dragging?.at === i ? 'opacity-40' : ''
                         } ${mine && over === i && dragging?.at !== i ? 'ring-2 ring-primary' : ''}`}
                       >

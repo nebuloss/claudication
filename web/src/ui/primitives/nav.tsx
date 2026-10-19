@@ -44,7 +44,7 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
   return (
     <nav
       aria-label="Breadcrumb"
-      className="min-w-0 overflow-x-auto rounded-[var(--radius-md3-full)] bg-primary-container p-1 text-on-primary-container"
+      className="min-w-0 overflow-x-auto rounded-md3-full bg-primary-container p-1 text-on-primary-container"
     >
       <ol className="m-0 flex min-w-max list-none items-center gap-0.5 p-0 text-sm">
         {trail.map((c, i) => {
@@ -66,7 +66,7 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
                 aria-current={last ? 'page' : undefined}
                 aria-label={i === 0 ? c.label : undefined}
                 title={i === 0 ? c.label : undefined}
-                className={`state-layer block truncate rounded-[var(--radius-md3-full)] py-1.5 font-medium ${
+                className={`state-layer block truncate rounded-md3-full py-1.5 font-medium ${
                   i === 0 ? 'px-2' : 'px-3'
                 } ${last ? 'max-w-[28ch] bg-surface-lowest text-on-surface shadow-sm' : 'max-w-[24ch]'}`}
               >
@@ -94,7 +94,7 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
  */
 export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean }) {
   const item = (on: boolean) =>
-    `state-layer flex h-10 shrink-0 items-center rounded-[var(--radius-md3-full)] px-4 text-sm font-medium whitespace-nowrap ${
+    `state-layer flex h-10 shrink-0 items-center rounded-md3-full px-4 text-sm font-medium whitespace-nowrap ${
       on
         ? 'bg-primary-container text-on-primary-container'
         : 'text-on-surface-variant hover:text-on-surface'
@@ -104,8 +104,8 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
       aria-label="Navigation"
       className={`bg-surface-container ${
         row
-          ? 'overflow-x-auto rounded-[var(--radius-md3-full)] p-1'
-          : 'flex flex-col gap-1 rounded-[var(--radius-md3-xl)] p-2'
+          ? 'overflow-x-auto rounded-md3-full p-1'
+          : 'flex flex-col gap-1 rounded-md3-xl p-2'
       }`}
     >
       <ul className={`m-0 flex list-none gap-1 p-0 ${row ? 'min-w-max items-center' : 'flex-col'}`}>
@@ -115,7 +115,7 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
               href={level.back.href}
               onClick={follow(level.back.href)}
               title={`Back to ${level.back.label}`}
-              className="state-layer flex h-10 min-w-0 items-center gap-2 rounded-[var(--radius-md3-full)] bg-surface-lowest pr-4 pl-2 text-sm font-medium text-on-surface"
+              className="state-layer flex h-10 min-w-0 items-center gap-2 rounded-md3-full bg-surface-lowest pr-4 pl-2 text-sm font-medium text-on-surface"
             >
               <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
                 <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
@@ -151,7 +151,7 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
  */
 export function BrandMark() {
   return (
-    <span className="grid size-10 shrink-0 place-items-center rounded-[var(--radius-md3-m)] bg-primary-container text-on-primary-container">
+    <span className="grid size-10 shrink-0 place-items-center rounded-md3-m bg-primary-container text-on-primary-container">
       <svg viewBox="0 0 32 32" className="size-5" aria-hidden>
         <g fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
           <path d="M3 8c6.5 0 6.5 6 10 6s3.5-6 10-6" />

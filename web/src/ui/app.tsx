@@ -343,7 +343,7 @@ function LiveToggle() {
           ? 'Panels are keeping themselves up to date. Click to stop.'
           : 'Panels only update when you ask. Click to resume.'
       }
-      className={`state-layer inline-flex h-10 items-center gap-2 rounded-[var(--radius-md3-full)] border border-outline px-3 text-sm font-medium ${
+      className={`state-layer inline-flex h-10 items-center gap-2 rounded-md3-full border border-outline px-3 text-sm font-medium ${
         live ? 'text-primary' : 'text-on-surface-variant'
       }`}
     >

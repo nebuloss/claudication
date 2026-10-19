@@ -208,7 +208,7 @@ export default function AccountSettings({
 function ProbeReport({ probe }: { probe: ProbeResult }) {
   if (!probe.ok) {
     return (
-      <div className="mt-4 rounded-[var(--radius-md3-m)] bg-error-container p-4">
+      <div className="mt-4 rounded-md3-m bg-error-container p-4">
         <p className="mt-0 mb-2 text-sm font-medium text-on-error-container">
           Failed — HTTP {probe.status} in {probe.latency_ms} ms
           {probe.request_id ? ` · ${probe.request_id}` : ''}
@@ -224,7 +224,7 @@ function ProbeReport({ probe }: { probe: ProbeResult }) {
     `${probe.latency_ms} ms`,
   ]
   return (
-    <div className="mt-4 rounded-[var(--radius-md3-m)] bg-success-container p-4">
+    <div className="mt-4 rounded-md3-m bg-success-container p-4">
       <p className="mt-0 mb-2 text-sm font-medium text-on-success-container">
         Works — {facts.join(' · ')}
       </p>

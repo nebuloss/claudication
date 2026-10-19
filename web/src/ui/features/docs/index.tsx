@@ -270,7 +270,7 @@ function Contents() {
       aria-label="On this page"
       // The admin rail's panel: filled, rounded, the section being read in
       // the primary container colour.
-      className="order-first mb-5 rounded-[var(--radius-md3-xl)] bg-surface-container p-2 lg:sticky lg:top-24 lg:order-none lg:mb-0"
+      className="order-first mb-5 rounded-md3-xl bg-surface-container p-2 lg:sticky lg:top-24 lg:order-none lg:mb-0"
     >
       <p className="mx-3 mt-2 mb-2 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
         On this page
@@ -284,7 +284,7 @@ function Contents() {
               // where you are, and a reader who cannot see the border should
               // not have to infer it from the scroll position.
               aria-current={s.id === current ? 'true' : undefined}
-              className={`state-layer flex h-10 items-center rounded-[var(--radius-md3-full)] px-4 text-sm font-medium ${
+              className={`state-layer flex h-10 items-center rounded-md3-full px-4 text-sm font-medium ${
                 s.id === current
                   ? 'bg-primary-container text-on-primary-container'
                   : 'text-on-surface-variant hover:text-on-surface'

@@ -37,7 +37,7 @@ export function ListRow({
   return (
     <div
       onClick={openRow(href)}
-      className={`state-layer flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-[var(--radius-md3-l)] px-4 py-3 ${
+      className={`state-layer flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-md3-l px-4 py-3 ${
         highlight ? 'bg-secondary-container' : 'bg-surface-lowest'
       }`}
     >

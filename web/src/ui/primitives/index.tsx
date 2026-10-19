@@ -59,7 +59,7 @@ export function Card({
 }) {
   return (
     <section
-      className={`rounded-[var(--radius-md3-xl)] bg-surface-container p-6 [&_p]:max-w-[80ch] ${className}`}
+      className={`rounded-md3-xl bg-surface-container p-6 [&_p]:max-w-[80ch] ${className}`}
     >
       {info !== undefined && <Help className="mb-4">{info}</Help>}
       {children}
@@ -102,7 +102,7 @@ export function outlinedField(focused = false, top: 'label' | 'dots' = 'label'):
   // x-height, well below the middle of the line, and with the same room they
   // rode at the bottom of the field: they take less, which centres them.
   const pad = top === 'dots' ? 'pt-1' : 'pt-4'
-  return `h-14 w-full rounded-[var(--radius-md3-m)] bg-transparent ${pad} text-on-surface outline-none transition-colors ${edge}`
+  return `h-14 w-full rounded-md3-m bg-transparent ${pad} text-on-surface outline-none transition-colors ${edge}`
 }
 
 /**
@@ -111,7 +111,7 @@ export function outlinedField(focused = false, top: 'label' | 'dots' = 'label'):
  * outlines are for controls — fields and outlined buttons — that need an edge
  * to be found.
  */
-export const tile = 'rounded-[var(--radius-md3-l)] bg-surface-lowest'
+export const tile = 'rounded-md3-l bg-surface-lowest'
 
 /** MD3 outlined text field, with the label riding up out of the way. */
 export function Field({
@@ -178,7 +178,7 @@ export function FilledButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`state-layer inline-flex h-10 items-center gap-2 rounded-[var(--radius-md3-full)] px-6 text-sm font-medium disabled:pointer-events-none disabled:opacity-40 ${
+      className={`state-layer inline-flex h-10 items-center gap-2 rounded-md3-full px-6 text-sm font-medium disabled:pointer-events-none disabled:opacity-40 ${
         tone === 'error' ? 'bg-error text-on-error' : 'bg-primary text-on-primary'
       } ${className}`}
     >
@@ -205,7 +205,7 @@ export function TonalButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`state-layer inline-flex h-10 items-center gap-2 rounded-[var(--radius-md3-full)] bg-secondary-container px-5 text-sm font-medium text-on-secondary-container disabled:pointer-events-none disabled:opacity-40 ${className}`}
+      className={`state-layer inline-flex h-10 items-center gap-2 rounded-md3-full bg-secondary-container px-5 text-sm font-medium text-on-secondary-container disabled:pointer-events-none disabled:opacity-40 ${className}`}
     >
       {children}
     </button>
@@ -228,7 +228,7 @@ export function OutlinedButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`state-layer inline-flex h-10 items-center gap-2 rounded-[var(--radius-md3-full)] border border-outline px-5 text-sm font-medium disabled:pointer-events-none disabled:opacity-40 ${
+      className={`state-layer inline-flex h-10 items-center gap-2 rounded-md3-full border border-outline px-5 text-sm font-medium disabled:pointer-events-none disabled:opacity-40 ${
         tone === 'error' ? 'text-error' : 'text-on-surface-variant'
       }`}
     >
@@ -279,7 +279,7 @@ export function TextButton({
       onClick={onClick}
       disabled={disabled}
       data-autofocus={autoFocus ? '' : undefined}
-      className={`state-layer inline-flex items-center rounded-[var(--radius-md3-full)] border border-outline font-medium disabled:pointer-events-none disabled:opacity-40 ${
+      className={`state-layer inline-flex items-center rounded-md3-full border border-outline font-medium disabled:pointer-events-none disabled:opacity-40 ${
         size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-10 px-3 text-sm'
       } ${tone === 'error' ? 'text-error' : 'text-primary'}`}
     >
@@ -356,7 +356,7 @@ export function Freshness({
 export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: Tone }) {
   return (
     <span
-      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-md3-s)] px-2.5 text-xs font-medium ${toneContainer[tone]}`}
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md3-s px-2.5 text-xs font-medium ${toneContainer[tone]}`}
     >
       {children}
     </span>
@@ -384,7 +384,7 @@ export function Banner({
     <div
       role={tone === 'error' ? 'alert' : 'status'}
       aria-live={tone === 'error' ? 'assertive' : 'polite'}
-      className={`rounded-[var(--radius-md3-m)] px-4 py-3 text-sm ${toneContainer[tone]} ${className}`}
+      className={`rounded-md3-m px-4 py-3 text-sm ${toneContainer[tone]} ${className}`}
     >
       {children}
     </div>
@@ -458,12 +458,12 @@ export function Switch({
         aria-label={label}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-8 w-13 shrink-0 items-center rounded-[var(--radius-md3-full)] border-2 transition-colors disabled:pointer-events-none disabled:opacity-40 ${
+        className={`relative inline-flex h-8 w-13 shrink-0 items-center rounded-md3-full border-2 transition-colors disabled:pointer-events-none disabled:opacity-40 ${
           checked ? 'border-primary bg-primary' : 'border-outline bg-surface-high'
         }`}
       >
         <span
-          className={`absolute rounded-[var(--radius-md3-full)] transition-all ${
+          className={`absolute rounded-md3-full transition-all ${
             checked
               ? 'left-[calc(100%-1.75rem)] size-6 bg-on-primary'
               : 'left-1 size-4 bg-outline'
@@ -520,7 +520,7 @@ export function StepSlider({
         aria-label={label}
         aria-valuetext={format(value)}
         onChange={(e) => onChange(steps[Number(e.target.value)])}
-        className="h-2 w-full cursor-pointer appearance-none rounded-[var(--radius-md3-full)] bg-surface-high accent-primary"
+        className="h-2 w-full cursor-pointer appearance-none rounded-md3-full bg-surface-high accent-primary"
       />
     </div>
   )
@@ -528,7 +528,7 @@ export function StepSlider({
 
 export function Empty({ children }: { children: ReactNode }) {
   return (
-    <p className="rounded-[var(--radius-md3-m)] border border-dashed border-outline-variant px-4 py-10 text-center text-sm text-on-surface-variant">
+    <p className="rounded-md3-m border border-dashed border-outline-variant px-4 py-10 text-center text-sm text-on-surface-variant">
       {children}
     </p>
   )
@@ -560,7 +560,7 @@ export function KeyValue({ items }: { items: [string, ReactNode][] }) {
  */
 export function Verbatim({ children }: { children: string }) {
   return (
-    <pre className="m-0 max-h-56 overflow-auto rounded-[var(--radius-md3-m)] bg-surface-lowest p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-on-surface">
+    <pre className="m-0 max-h-56 overflow-auto rounded-md3-m bg-surface-lowest p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-on-surface">
       {children}
     </pre>
   )
@@ -707,7 +707,7 @@ export function CopyField({
       <div className="flex items-center gap-2">
         {/* Solid rather than translucent: at 60% the fill landed between two
             near-identical surfaces and the block had no edge at all. */}
-        <code className="min-w-0 flex-1 overflow-x-auto rounded-[var(--radius-md3-m)] bg-surface-lowest px-3 py-2 font-mono text-xs leading-6 whitespace-pre text-on-surface">
+        <code className="min-w-0 flex-1 overflow-x-auto rounded-md3-m bg-surface-lowest px-3 py-2 font-mono text-xs leading-6 whitespace-pre text-on-surface">
           {shown ? (
             value
           ) : conceal !== '' ? (
@@ -779,7 +779,7 @@ function SelectedValue({ value }: { value: string }) {
       readOnly
       rows={Math.min(6, value.split('\n').length)}
       value={value}
-      className="w-full resize-y rounded-[var(--radius-md3-s)] border border-outline bg-surface-lowest px-3 py-2 font-mono text-xs leading-6 text-on-surface"
+      className="w-full resize-y rounded-md3-s border border-outline bg-surface-lowest px-3 py-2 font-mono text-xs leading-6 text-on-surface"
     />
   )
 }
@@ -1373,7 +1373,7 @@ export function IconButton({
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className={`state-layer grid size-9 shrink-0 place-items-center rounded-[var(--radius-md3-full)] border border-outline disabled:pointer-events-none disabled:opacity-30 ${
+      className={`state-layer grid size-9 shrink-0 place-items-center rounded-md3-full border border-outline disabled:pointer-events-none disabled:opacity-30 ${
         tone === 'error' ? 'text-error' : 'text-on-surface-variant'
       }`}
     >
@@ -1409,7 +1409,7 @@ export function IconLink({
       // noreferrer as well as noopener: the opened page has no business
       // knowing which gateway sent it.
       rel="noopener noreferrer"
-      className="state-layer grid size-10 shrink-0 place-items-center rounded-[var(--radius-md3-full)] border border-outline text-on-surface-variant"
+      className="state-layer grid size-10 shrink-0 place-items-center rounded-md3-full border border-outline text-on-surface-variant"
     >
       <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
         {children}
@@ -1486,7 +1486,7 @@ export function TextLink({ href, children }: { href: string; children: ReactNode
       // noreferrer as well as noopener: the opened page has no business
       // knowing which gateway sent it.
       rel="noopener noreferrer"
-      className="state-layer inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[var(--radius-md3-full)] border border-outline px-4 text-sm font-medium text-on-surface-variant"
+      className="state-layer inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md3-full border border-outline px-4 text-sm font-medium text-on-surface-variant"
     >
       {children}
       <svg viewBox="0 0 24 24" aria-hidden className="size-3.5 shrink-0 fill-current">
@@ -1519,7 +1519,7 @@ export function SmallButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className="state-layer inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-md3-full)] border border-outline bg-surface px-3 text-xs font-medium text-on-surface disabled:pointer-events-none disabled:opacity-40"
+      className="state-layer inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md3-full border border-outline bg-surface px-3 text-xs font-medium text-on-surface disabled:pointer-events-none disabled:opacity-40"
     >
       {children}
     </button>
@@ -1551,7 +1551,7 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="inline-flex overflow-hidden rounded-[var(--radius-md3-full)] border border-outline"
+      className="inline-flex overflow-hidden rounded-md3-full border border-outline"
     >
       {options.map((o, i) => (
         <button
@@ -1622,7 +1622,7 @@ export function SubNav<T extends string>({
             // text-xs they were set smaller than the table rows underneath
             // them, which inverts the hierarchy: the labels mattered more and
             // looked like a footnote.
-            className={`state-layer relative rounded-t-[var(--radius-md3-s)] px-3.5 py-2.5 text-sm font-medium whitespace-nowrap ${
+            className={`state-layer relative rounded-t-md3-s px-3.5 py-2.5 text-sm font-medium whitespace-nowrap ${
               value === o.id ? 'text-primary' : 'text-on-surface-variant'
             }`}
           >
@@ -1716,7 +1716,7 @@ export function Modal({
         onKeyDown={trap}
         className={`relative my-auto w-full ${
           size === 'lg' ? 'max-w-xl' : 'max-w-md'
-        } rounded-[var(--radius-md3-xl)] bg-surface-high p-6 shadow-xl outline-none`}
+        } rounded-md3-xl bg-surface-high p-6 shadow-xl outline-none`}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 id={titleId} className="m-0 text-xl leading-7 font-normal text-on-surface">

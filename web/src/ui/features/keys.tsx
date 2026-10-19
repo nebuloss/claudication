@@ -625,7 +625,7 @@ function LimitControl({
       : 'border-tertiary/40 bg-tertiary-container/30'
     : 'border-outline-variant bg-surface-low'
   return (
-    <div className={`flex flex-col gap-3 rounded-[var(--radius-md3-m)] border p-4 ${skin}`}>
+    <div className={`flex flex-col gap-3 rounded-md3-m border p-4 ${skin}`}>
       <Switch checked={on} onChange={(v) => onChange(v ? whenOn : 0)} label={label} />
       {on ? (
         <>

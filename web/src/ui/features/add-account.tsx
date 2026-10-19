@@ -266,7 +266,7 @@ export default function AddAccount({
               role="radio"
               aria-checked={on}
               onClick={() => setProvider(p.id)}
-              className={`state-layer flex flex-col items-start gap-1 rounded-[var(--radius-md3-m)] border p-4 text-left ${
+              className={`state-layer flex flex-col items-start gap-1 rounded-md3-m border p-4 text-left ${
                 on
                   ? 'border-2 border-primary bg-secondary-container p-[15px] text-on-secondary-container'
                   : 'border-outline text-on-surface'

@@ -502,7 +502,7 @@ function RecentRequests({
             the reason to download rather than select and copy. */}
         <a
           href={`/admin/requests/export${downloadQuery}`}
-          className="state-layer inline-flex h-10 items-center rounded-[var(--radius-md3-full)] border border-outline px-3 text-sm font-medium text-primary"
+          className="state-layer inline-flex h-10 items-center rounded-md3-full border border-outline px-3 text-sm font-medium text-primary"
         >
           Download CSV
         </a>
@@ -527,7 +527,7 @@ function RecentRequests({
               type="button"
               onClick={c.clear}
               title={c.title}
-              className="state-layer inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-md3-s)] border border-outline px-2.5 text-xs font-medium text-on-surface-variant"
+              className="state-layer inline-flex h-7 items-center gap-1.5 rounded-md3-s border border-outline px-2.5 text-xs font-medium text-on-surface-variant"
             >
               {c.label}
               <span aria-hidden className="text-base leading-none">
@@ -1101,8 +1101,8 @@ function Filterable({
       }}
       className={
         plain
-          ? 'state-layer rounded-[var(--radius-md3-s)]'
-          : 'state-layer rounded-[var(--radius-md3-xs)] px-1 underline decoration-dotted underline-offset-2 hover:text-primary'
+          ? 'state-layer rounded-md3-s'
+          : 'state-layer rounded-md3-xs px-1 underline decoration-dotted underline-offset-2 hover:text-primary'
       }
     >
       {children}
