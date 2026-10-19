@@ -54,7 +54,7 @@ export const RATE_PERIODS = [
   { id: '60', label: 'minute', seconds: 60 },
   { id: '3600', label: 'hour', seconds: 3600 },
   { id: '86400', label: 'day', seconds: 86_400 },
-]
+] as const
 
 export const DEFAULT_BUDGET = 1_000_000
 

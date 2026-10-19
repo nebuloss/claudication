@@ -262,7 +262,8 @@ export class Palette {
 
   /** The colour this entity owns, for a caller building its own mark. */
   colour(label: string): string {
-    return SERIES_COLOURS[(this.slots.get(label) ?? 0) % SERIES_COLOURS.length]
+    // The modulo keeps the index in range; the fallback is only for the type.
+    return SERIES_COLOURS[(this.slots.get(label) ?? 0) % SERIES_COLOURS.length] ?? 'currentColor'
   }
 
   /** A filled mark in that colour. */

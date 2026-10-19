@@ -65,7 +65,7 @@ export class Catalog {
 
   /** The newest model of a line, or of anything when the line has none. */
   private newest(line: string): string {
-    return (this.models.find((m) => lineOf(m) === line) ?? this.models[0]).id
+    return (this.models.find((m) => lineOf(m) === line) ?? this.models[0])?.id ?? ''
   }
 
   /** The model role of this name, when the gateway lists it. */
@@ -120,6 +120,8 @@ export function tailorCrush(body: string, catalog: Catalog): string {
     models?: Record<string, { model?: string }>
   }
   const provider = Object.values(json.providers)[0]
+  // A committed file with no provider has nothing to rewrite; hand it out as it is.
+  if (provider === undefined) return body
   provider.models = catalog.models.map((m) => {
     const window = m.max_input_tokens ?? 200_000
     const efforts = catalog.efforts(m)
@@ -159,6 +161,8 @@ export function tailorCrush(body: string, catalog: Catalog): string {
 export function tailorCodexCatalog(body: string, catalog: Catalog): string {
   const json = JSON.parse(body) as { models: Record<string, unknown>[] }
   const template = json.models[0]
+  // Every entry is written from the committed first one; without one, there is no shape to copy.
+  if (template === undefined) return body
   json.models = catalog.models.map((m, i) => ({
     ...template,
     slug: m.id,

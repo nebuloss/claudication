@@ -262,6 +262,7 @@ export function Table({
                 its own border along, a row's border stays where it started. */}
             {head.map((entry, i) => {
               const col: Column = typeof entry === 'string' ? { label: entry } : entry
+              const key = labels[i] ?? col.label
               // A sortable heading has no padding of its own: the button
               // carries it, so the whole cell is the target rather than just
               // the few words in the middle of it.
@@ -319,7 +320,7 @@ export function Table({
                       role="separator"
                       aria-orientation="vertical"
                       aria-label={`Resize ${col.label}`}
-                      onPointerDown={onDown(labels[i])}
+                      onPointerDown={onDown(key)}
                       onPointerMove={onMove}
                       onPointerUp={onUp}
                       onPointerCancel={onUp}
@@ -327,7 +328,7 @@ export function Table({
                         // Back to content width: the escape hatch for a column
                         // dragged to something unreadable.
                         setWidths((w) => {
-                          const { [labels[i]]: _drop, ...rest } = w
+                          const { [key]: _drop, ...rest } = w
                           if (resizable !== undefined) saveWidths(resizable, rest)
                           return rest
                         })

@@ -24,7 +24,7 @@ import { compact } from '../../format'
 
 export type Dimension = 'model' | 'key' | 'account' | 'status'
 
-const TABS: {
+type TabSpec = {
   id: Dimension
   label: string
   unit: string
@@ -32,12 +32,14 @@ const TABS: {
   tokens?: boolean
   /** False where the failures are the lines, so a total would double-count. */
   failureLine?: boolean
-}[] = [
+}
+
+const TABS = [
   { id: 'model', label: 'Models', unit: 'model' },
   { id: 'key', label: 'API keys', unit: 'key' },
   { id: 'account', label: 'Accounts', unit: 'account' },
   { id: 'status', label: 'Status', unit: 'code', tokens: false, failureLine: false },
-]
+] as const satisfies readonly TabSpec[]
 
 /** Past this many lines the key stops being readable; the tail becomes one. */
 const LIMIT = 6
@@ -110,7 +112,7 @@ export function Traffic({
   const [log, setLog] = useState(true)
   const [hovered, setHovered] = useState<number | null>(null)
 
-  const current = tabs.find((t) => t.id === tab) ?? tabs[0]
+  const current: TabSpec = tabs.find((t) => t.id === tab) ?? tabs[0] ?? TABS[0]
   const cells = cross?.[current.id] ?? []
   // Tokens is not merely empty on the status tab, it has never been recorded;
   // offering the control there would be a button that does nothing.

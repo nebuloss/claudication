@@ -175,7 +175,9 @@ const known = (list: readonly Section[], id: string | undefined) =>
 export function canonical(pathname: string): string {
   const [top, a, b, c] = segments(pathname)
   if (top === undefined) return '/'
-  if (top in MOVED && a === undefined) return MOVED[top]
+  // Own keys only: /constructor is not a screen that moved.
+  const moved = Object.prototype.hasOwnProperty.call(MOVED, top) ? MOVED[top] : undefined
+  if (moved !== undefined && a === undefined) return moved
   switch (top) {
     case 'overview':
       return '/'
@@ -196,7 +198,7 @@ export function canonical(pathname: string): string {
     case 'settings': {
       // /settings itself is the admin account — what was its Advanced
       // section — and where any section that is not one lands.
-      const section = (a !== undefined && RENAMED.settings[a]) || a
+      const section = (a !== undefined && RENAMED.settings?.[a]) || a
       return known(GATEWAY_SETTINGS, section) ? pathOf('settings', section!) : pathOf('settings')
     }
   }

@@ -89,9 +89,11 @@ export default function Accounts() {
     if (to < 0 || to >= group.length || from === to) return
     const reordered = group.map((a) => a.id)
     const [moved] = reordered.splice(from, 1)
+    if (moved === undefined) return
     reordered.splice(to, 0, moved)
     let next = 0
-    const ids = accounts.map((a) => (a.provider === provider ? reordered[next++] : a.id))
+    // The group's slots, refilled in its new order: as many as it had.
+    const ids = accounts.map((a) => (a.provider === provider ? (reordered[next++] ?? a.id) : a.id))
 
     await order.run('order', async () => {
       await api.accounts.reorder(ids)

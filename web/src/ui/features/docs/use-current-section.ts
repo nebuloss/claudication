@@ -40,9 +40,10 @@ export function useCurrentSection(sections: Section[]): string {
       const present = ids
         .map((id) => document.getElementById(id))
         .filter((el): el is HTMLElement => el !== null)
-      if (present.length === 0) return
+      const first = present[0]
+      if (first === undefined) return
 
-      let active = present[0].id
+      let active = first.id
       for (const el of present) {
         if (el.getBoundingClientRect().top > CURRENT_LINE) break
         active = el.id
@@ -52,7 +53,7 @@ export function useCurrentSection(sections: Section[]): string {
       // list would never mark the section you end on.
       const atBottom =
         window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2
-      setCurrent(atBottom ? present[present.length - 1].id : active)
+      setCurrent(atBottom ? (present[present.length - 1]?.id ?? active) : active)
     }
 
     // Throttled to one read per frame. A scroll handler that measures on every
