@@ -37,3 +37,49 @@ func TestFacetCacheServesOneReadingAMinute(t *testing.T) {
 		t.Errorf("an expired reading was served again: %d reads", reads)
 	}
 }
+
+// A screen that leaves while the menus are being read does not cancel the
+// reading for the screens waiting on it, and they share the one scan.
+func TestFacetCacheOutlivesTheScreenThatAsked(t *testing.T) {
+	var c facetCache
+	reads := 0
+	release := make(chan struct{})
+	read := func(ctx context.Context) (store.RequestFacets, error) {
+		reads++
+		<-release
+		if err := ctx.Err(); err != nil {
+			return store.RequestFacets{}, err
+		}
+		return store.RequestFacets{Models: []store.FacetValue{{Value: "m", Count: 1}}}, nil
+	}
+
+	leaving, leave := context.WithCancel(context.Background())
+	gone := make(chan error, 1)
+	go func() {
+		_, err := c.get(leaving, read)
+		gone <- err
+	}()
+	for {
+		c.mu.Lock()
+		started := c.reading != nil
+		c.mu.Unlock()
+		if started {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	leave()
+	if err := <-gone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("the screen that left got %v, want context.Canceled", err)
+	}
+
+	waited := make(chan store.RequestFacets, 1)
+	go func() {
+		f, _ := c.get(context.Background(), read)
+		waited <- f
+	}()
+	close(release)
+	if f := <-waited; len(f.Models) != 1 || reads != 1 {
+		t.Errorf("waiter got %v after %d reads, want one reading from one scan", f.Models, reads)
+	}
+}

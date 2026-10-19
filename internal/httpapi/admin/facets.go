@@ -17,25 +17,67 @@ import (
 // read the admin UI makes.
 const facetsFor = 60 * time.Second
 
-// facetCache holds the last reading. The lock is held while computing, so
-// several screens opening at once wait for one scan rather than each running
-// their own.
+// facetsTimeout bounds one reading, which runs on past the request that
+// started it.
+const facetsTimeout = 30 * time.Second
+
+// facetCache holds the last reading, and the one being taken.
+//
+// Several screens opening at once wait for one scan rather than each running
+// their own. The scan does not run under the context of whoever started it:
+// an operator who opens the log and leaves at once would otherwise cancel it,
+// and every screen waiting on it would then scan again in turn. Each waiter
+// can still give up on its own context.
 type facetCache struct {
-	mu     sync.Mutex
-	at     time.Time
-	facets store.RequestFacets
+	mu      sync.Mutex
+	at      time.Time
+	facets  store.RequestFacets
+	reading chan struct{} // closed when the reading under way is done; nil if none
+	lastErr error         // how the last reading ended
 }
 
 func (c *facetCache) get(ctx context.Context, read func(context.Context) (store.RequestFacets, error)) (store.RequestFacets, error) {
 	c.mu.Lock()
+	if c.fresh() {
+		f := c.facets
+		c.mu.Unlock()
+		return f, nil
+	}
+	if c.reading == nil {
+		done := make(chan struct{})
+		c.reading = done
+		go c.take(context.WithoutCancel(ctx), read, done)
+	}
+	done := c.reading
+	c.mu.Unlock()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return store.RequestFacets{}, ctx.Err()
+	}
+	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.at.IsZero() && time.Since(c.at) < facetsFor {
+	if c.fresh() {
 		return c.facets, nil
 	}
+	return store.RequestFacets{}, c.lastErr
+}
+
+func (c *facetCache) take(ctx context.Context, read func(context.Context) (store.RequestFacets, error), done chan struct{}) {
+	ctx, cancel := context.WithTimeout(ctx, facetsTimeout)
+	defer cancel()
 	f, err := read(ctx)
-	if err != nil {
-		return store.RequestFacets{}, err
+	c.mu.Lock()
+	if err == nil {
+		c.facets, c.at = f, time.Now()
 	}
-	c.facets, c.at = f, time.Now()
-	return f, nil
+	c.lastErr = err
+	c.reading = nil
+	c.mu.Unlock()
+	close(done)
+}
+
+func (c *facetCache) fresh() bool {
+	return !c.at.IsZero() && time.Since(c.at) < facetsFor
 }
