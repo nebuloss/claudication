@@ -331,10 +331,16 @@ function DeviceFlow({
         .catch((err: unknown) => {
           if (cancelled || session.report(err)) return
           setError(messageOf(err))
-          // Spent, refused as someone else, or expired: back to the start,
-          // where a new code is one click away.
-          if (err instanceof ApiError && err.type !== 'exchange_failed') setStart(null)
-          else timer = setTimeout(ask, (start.interval_s ?? DEFAULT_POLL_S) * 1000)
+          // exchange_failed is a poll that failed before anyone approved —
+          // the network — and is asked again. Anything else ends the
+          // attempt: expired, approved but not redeemed (sign_in_failed),
+          // refused as someone else. Back to the start, where a new code is
+          // one click away.
+          if (err instanceof ApiError && err.type === 'exchange_failed') {
+            timer = setTimeout(ask, (start.interval_s ?? DEFAULT_POLL_S) * 1000)
+          } else {
+            setStart(null)
+          }
         })
     }
     timer = setTimeout(ask, (start.interval_s ?? DEFAULT_POLL_S) * 1000)

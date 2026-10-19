@@ -469,7 +469,7 @@ func TestDeviceFlow(t *testing.T) {
 
 	expired := d
 	expired.ExpiresAt = time.Now().Add(-time.Second)
-	if _, _, err := PollDevice(context.Background(), c, expired); err == nil {
+	if _, _, err := PollDevice(context.Background(), c, expired); !errors.Is(err, oauth.ErrDeviceSpent) {
 		t.Error("an expired code was polled")
 	}
 }

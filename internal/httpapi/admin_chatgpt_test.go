@@ -29,6 +29,11 @@ type fakeChatGPT struct {
 	accountID, email, plan string
 	revoked                []string
 	exchanges              []url.Values
+	// exchangeFails refuses the code exchange, and redeemed is the device
+	// code having been handed over: asked again, the endpoint answers as for
+	// a code nobody approved, which is what it does upstream.
+	exchangeFails bool
+	redeemed      bool
 }
 
 func unsignedJWT(claims map[string]any) string {
@@ -48,14 +53,20 @@ func (f *fakeChatGPT) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"device_auth_id":"dev-1","user_code":"WXYZ-0001","interval":"5"}`)
 	case "auth.openai.com/api/accounts/deviceauth/token":
 		f.polls++
-		if f.polls <= f.approved {
+		if f.polls <= f.approved || f.redeemed {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
+		f.redeemed = true
 		_, _ = io.WriteString(w, `{"authorization_code":"code-1","code_verifier":"verifier-1"}`)
 	case "auth.openai.com/oauth/token":
 		form, _ := url.ParseQuery(string(body))
 		f.exchanges = append(f.exchanges, form)
+		if f.exchangeFails {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":"invalid_grant"}`)
+			return
+		}
 		id := unsignedJWT(map[string]any{"email": f.email, "https://api.openai.com/auth": map[string]any{
 			"chatgpt_account_id": f.accountID, "chatgpt_plan_type": f.plan}})
 		_, _ = fmt.Fprintf(w, `{"access_token":"chatgpt-access-%s","refresh_token":"chatgpt-refresh-%s","id_token":%q,"expires_in":3600}`,
@@ -149,7 +160,7 @@ func TestChatGPTAccountConnectsByDeviceCode(t *testing.T) {
 
 	// The same address signing in to another workspace is another account.
 	fake.mu.Lock()
-	fake.polls, fake.approved, fake.accountID, fake.plan = 0, 0, "acct-team", "team"
+	fake.polls, fake.approved, fake.accountID, fake.plan, fake.redeemed = 0, 0, "acct-team", "team", false
 	fake.mu.Unlock()
 	_, body = call(t, base, http.MethodPost, "/admin/accounts/oauth/start", `{"provider":"openai"}`, c)
 	_, body = poll(decode[deviceStart](t, body).State)
@@ -162,7 +173,7 @@ func TestChatGPTAccountConnectsByDeviceCode(t *testing.T) {
 
 	// And the first, signed in again, is renewed in place.
 	fake.mu.Lock()
-	fake.polls, fake.accountID, fake.plan = 0, "acct-personal", "pro"
+	fake.polls, fake.accountID, fake.plan, fake.redeemed = 0, "acct-personal", "pro", false
 	fake.mu.Unlock()
 	_, body = call(t, base, http.MethodPost, "/admin/accounts/oauth/start", `{"provider":"openai"}`, c)
 	_, body = poll(decode[deviceStart](t, body).State)
@@ -211,7 +222,7 @@ func TestChatGPTReconnectAsAnotherWorkspaceChangesNothing(t *testing.T) {
 	}](t, body).Account
 
 	fake.mu.Lock()
-	fake.polls, fake.accountID = 0, "acct-personal"
+	fake.polls, fake.accountID, fake.redeemed = 0, "acct-personal", false
 	fake.mu.Unlock()
 	_, body = call(t, base, http.MethodPost, "/admin/accounts/oauth/start",
 		`{"provider":"openai","account_id":"`+first.ID+`"}`, c)
@@ -230,4 +241,29 @@ func must[T any](v T, err error) T {
 		panic(err)
 	}
 	return v
+}
+
+// A code approved and then not redeemed cannot be finished by asking again —
+// the endpoint answers as for a code nobody approved — so the attempt ends at
+// once with a refusal the UI stops on, rather than spinning until it expires.
+func TestChatGPTFailedExchangeEndsTheSignIn(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	fake := &fakeChatGPT{accountID: "acct-1", email: "me@example.com", exchangeFails: true}
+	fake.install(srv)
+	base, c := adminAPI(t, srv)
+	_, body := call(t, base, http.MethodPost, "/admin/accounts/oauth/start", `{"provider":"openai"}`, c)
+	state := decode[deviceStart](t, body).State
+	poll := func() (int, []byte) {
+		return call(t, base, http.MethodPost, "/admin/accounts/oauth/poll",
+			`{"provider":"openai","state":"`+state+`"}`, c)
+	}
+	if status, body := poll(); status != http.StatusBadGateway || errType(t, body) != "sign_in_failed" {
+		t.Errorf("failed exchange: %d %s, want 502 sign_in_failed", status, body)
+	}
+	if status, body := poll(); status != http.StatusBadRequest || errType(t, body) != "unknown_state" {
+		t.Errorf("asked again: %d %s, want the attempt gone", status, body)
+	}
+	if n := len(must(st.ListAccounts(context.Background()))); n != 0 {
+		t.Errorf("%d accounts stored", n)
+	}
 }

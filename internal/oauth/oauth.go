@@ -22,6 +22,14 @@ import (
 // it is not patience, it is a loop — only a human at a browser can fix it.
 var ErrInvalidGrant = errors.New("the refresh token is no longer valid")
 
+// ErrDeviceSpent is a device-code sign-in that cannot be finished by asking
+// again: the code expired, or it was approved and the provider has handed its
+// authorization code over already, so a failed exchange has spent it. Asking
+// again would only be told "not approved" — which is how the provider answers
+// a code it no longer knows — until the code expires. A new sign-in is the
+// fix.
+var ErrDeviceSpent = errors.New("this sign-in cannot be finished; start again")
+
 // PKCE is a verifier/challenge pair (RFC 7636, S256).
 type PKCE struct {
 	Verifier  string

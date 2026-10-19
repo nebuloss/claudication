@@ -91,7 +91,7 @@ func interval(raw json.RawMessage) time.Duration {
 // the code's interval.
 func PollDevice(ctx context.Context, client *http.Client, d oauth.Device) (oauth.Result, bool, error) {
 	if !d.ExpiresAt.IsZero() && time.Now().After(d.ExpiresAt) {
-		return oauth.Result{}, false, errors.New("the code expired before it was approved; start again")
+		return oauth.Result{}, false, fmt.Errorf("%w: the code expired before it was approved", oauth.ErrDeviceSpent)
 	}
 	raw, status, err := postJSON(ctx, client, deviceTokenURL, map[string]string{
 		"device_auth_id": d.ID,
@@ -113,10 +113,19 @@ func PollDevice(ctx context.Context, client *http.Client, d oauth.Device) (oauth
 		CodeVerifier      string `json:"code_verifier"`
 	}
 	if err := json.Unmarshal(raw, &got); err != nil || got.AuthorizationCode == "" {
-		return oauth.Result{}, false, errors.New("the device-code endpoint approved the code but sent no authorization code")
+		return oauth.Result{}, false, fmt.Errorf("%w: the code was approved but no authorization code came with it",
+			oauth.ErrDeviceSpent)
 	}
+	// Past here the approval is spent: the endpoint has handed its code over,
+	// and asked again it answers as for a code nobody approved. So a failed
+	// exchange ends the attempt rather than leaving it to be asked about
+	// until it expires.
 	res, err := exchangeCode(ctx, client, got.AuthorizationCode, got.CodeVerifier, deviceRedirect)
-	return res, false, err
+	if err != nil {
+		return oauth.Result{}, false, fmt.Errorf("%w: the code was approved but could not be redeemed: %v",
+			oauth.ErrDeviceSpent, err)
+	}
+	return res, false, nil
 }
 
 func postJSON(ctx context.Context, client *http.Client, url string, body any) ([]byte, int, error) {

@@ -169,14 +169,17 @@ func (s *Admin) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	res, pending, err := device.PollDevice(r.Context(), s.httpClient, attempt.Device)
 	switch {
+	case errors.Is(err, oauth.ErrDeviceSpent):
+		// Expired, or approved and then not redeemed: asking again cannot
+		// finish it, so the attempt ends here and the UI offers a new one.
+		s.pending.Consume(body.State)
+		s.log.Warn("device sign-in ended", "provider", body.Provider, "err", err)
+		httpx.WriteError(w, http.StatusBadGateway, "sign_in_failed", err.Error())
+		return
 	case err != nil:
-		// An expired code cannot finish, and a new one is the fix; anything
-		// else may have been the network, and the attempt stays for the UI
-		// to ask again.
-		if !attempt.Device.ExpiresAt.IsZero() && time.Now().After(attempt.Device.ExpiresAt) {
-			s.pending.Consume(body.State)
-		}
-		s.log.Warn("device sign-in failed", "provider", body.Provider, "err", err)
+		// Before any approval: the network, or the endpoint having a bad
+		// minute. The attempt stays, and the UI asks again at the interval.
+		s.log.Warn("device sign-in poll failed", "provider", body.Provider, "err", err)
 		httpx.WriteError(w, http.StatusBadGateway, "exchange_failed", err.Error())
 		return
 	case pending:
