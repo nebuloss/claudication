@@ -32,7 +32,7 @@ type Site struct {
 	store       *store.Store
 	docs        *settings.Switch
 	surfaces    *surfaces.Surfaces
-	fetchModels func(ctx context.Context) ([]byte, error)
+	models      Models
 	// files holds the built UI under webdist/.
 	files fs.FS
 
@@ -42,6 +42,12 @@ type Site struct {
 	docsModels modelCache
 }
 
+// Models is the model list as the public page shows it: as a key bound to
+// nothing sees it.
+type Models interface {
+	Public(ctx context.Context) ([]byte, error)
+}
+
 // Deps is what a Site is built from. Every field is required.
 type Deps struct {
 	Config   *config.Config
@@ -49,8 +55,8 @@ type Deps struct {
 	Store    *store.Store
 	Docs     *settings.Switch
 	Surfaces *surfaces.Surfaces
-	// Models is the upstream model list, as the client-facing API reads it.
-	Models func(ctx context.Context) ([]byte, error)
+	// Models is the model list the public page shows.
+	Models Models
 	// Files is the embedded build, with the UI under webdist/.
 	Files fs.FS
 }
@@ -59,7 +65,7 @@ type Deps struct {
 func New(d Deps) *Site {
 	return &Site{
 		cfg: d.Config, log: d.Log, store: d.Store, docs: d.Docs,
-		surfaces: d.Surfaces, fetchModels: d.Models, files: d.Files,
+		surfaces: d.Surfaces, models: d.Models, files: d.Files,
 	}
 }
 

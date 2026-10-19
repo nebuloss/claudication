@@ -187,9 +187,7 @@ func (s *Site) HandleDocsInfo(w http.ResponseWriter, r *http.Request) {
 	// that tells you how to configure a client.
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	if body := s.docsModels.get(ctx, func(c context.Context) ([]byte, error) {
-		return s.fetchModels(c)
-	}); body != nil {
+	if body := s.docsModels.get(ctx, s.models.Public); body != nil {
 		var parsed any
 		if err := json.Unmarshal(body, &parsed); err == nil {
 			out["models"] = parsed

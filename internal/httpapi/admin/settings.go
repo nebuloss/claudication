@@ -46,13 +46,13 @@ func (s *Admin) handleConfig(w http.ResponseWriter, _ *http.Request) {
 //
 // The same upstream list /v1/models proxies, but reachable with an admin
 // session instead of an API key, because the Setup screen needs it and the
-// browser has a cookie rather than a key. Reusing fetchModels keeps one answer
+// browser has a cookie rather than a key. Reusing the same list keeps one answer
 // to "which models exist" rather than a second, drifting copy of it in the UI.
 func (s *Admin) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	body, err := s.fetchModels(ctx)
+	body, err := s.models.List(ctx)
 	if err != nil {
 		s.log.Warn("could not read the upstream model list", "err", err)
 		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,

@@ -90,9 +90,9 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		virtual := ""
 		rewrote := false
 		key, _ := httpx.APIKey(r.Context())
-		if s.isAlias(r.Context(), model) {
+		if s.models.IsAlias(r.Context(), model) {
 			role := store.ModelKey(model)
-			target, why := s.RoleTarget(r.Context(), key, role)
+			target, why := s.models.RoleTarget(r.Context(), key, role)
 			if why != "" {
 				ev := rejection(r, key, http.StatusNotFound, why)
 				ev.Model, ev.VirtualModel, ev.Path = target, role, route

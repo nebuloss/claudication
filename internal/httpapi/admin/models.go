@@ -33,7 +33,7 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	body, err := s.accountModels(ctx, id, "limit=1000")
+	body, err := s.models.ListFor(ctx, id, "limit=1000")
 	if err != nil {
 		s.log.Warn("could not read an account's models", "account", id, "err", err)
 		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,
@@ -86,7 +86,7 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	body, err := s.fetchModels(ctx)
+	body, err := s.models.List(ctx)
 	if err != nil {
 		s.log.Warn("could not read the gateway's models", "err", err)
 		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,

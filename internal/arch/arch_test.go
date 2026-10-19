@@ -43,6 +43,7 @@ var layers = map[string]int{
 	"internal/relay": 3,
 
 	"internal/service/titles": 4,
+	"internal/service/models": 4,
 
 	"internal/httpapi/httpx": 5,
 

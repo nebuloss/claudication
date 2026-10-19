@@ -1,4 +1,4 @@
-package gateway
+package models
 
 import (
 	"context"
@@ -61,7 +61,8 @@ type catalogModel struct {
 	MaxOutput   int
 }
 
-type catalog struct {
+// catalogCache is the catalogue as last read, and the read in flight.
+type catalogCache struct {
 	mu sync.Mutex
 	// models is each provider's models by the provider's models.dev id —
 	// "anthropic" for the accounts there are today — newest release first.
@@ -76,7 +77,7 @@ type catalog struct {
 // A stale catalogue is answered as it stands while a fresh read runs. Only
 // when there is nothing yet does a caller wait for the read, and no longer
 // than its own context allows.
-func (s *Gateway) catalogModels(ctx context.Context, provider string) []catalogModel {
+func (s *Catalog) catalogModels(ctx context.Context, provider string) []catalogModel {
 	url := s.cfg.ModelsCatalog
 	if url == "" || url == "off" {
 		return nil
@@ -108,7 +109,7 @@ func (s *Gateway) catalogModels(ctx context.Context, provider string) []catalogM
 
 // readCatalog reads the catalogue once and keeps what it found. A failed
 // read keeps what an earlier one found.
-func (s *Gateway) readCatalog(url string, done chan struct{}) {
+func (s *Catalog) readCatalog(url string, done chan struct{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), catalogWait)
 	defer cancel()
 	models, err := s.fetchCatalog(ctx, url)
@@ -126,7 +127,7 @@ func (s *Gateway) readCatalog(url string, done chan struct{}) {
 }
 
 // fetchCatalog fetches the catalogue.
-func (s *Gateway) fetchCatalog(ctx context.Context, url string) (map[string][]catalogModel, error) {
+func (s *Catalog) fetchCatalog(ctx context.Context, url string) (map[string][]catalogModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -239,7 +240,7 @@ func modelList(data []map[string]any) []byte {
 // account uses — the one its upstream answers to. Models the list names and
 // the catalogue does not know follow, as the list has them. With no
 // catalogue the list is returned as it was.
-func (s *Gateway) matchCatalog(ctx context.Context, provider string, body []byte) []byte {
+func (s *Catalog) matchCatalog(ctx context.Context, provider string, body []byte) []byte {
 	models := s.catalogModels(ctx, provider)
 	if models == nil {
 		return body

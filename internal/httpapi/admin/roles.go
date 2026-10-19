@@ -48,7 +48,7 @@ func (s *Admin) handleModelRoles(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	aliases, err := s.aliases(ctx)
+	aliases, err := s.models.Aliases(ctx)
 	if err != nil {
 		s.log.Error("model aliases", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the model aliases")
@@ -67,7 +67,7 @@ func (s *Admin) handleModelRoles(w http.ResponseWriter, r *http.Request) {
 				j.Model = b.Model
 			}
 		}
-		j.Serving, j.Problem = s.roleTarget(ctx, key, a.Name)
+		j.Serving, j.Problem = s.models.RoleTarget(ctx, key, a.Name)
 		out = append(out, j)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"roles": out})
@@ -151,7 +151,7 @@ func (s *Admin) handleKeyOfferedModels(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	body, err := s.keyModels(ctx, key)
+	body, err := s.models.For(ctx, key)
 	if err != nil {
 		s.log.Warn("could not read a key's model list", "err", err)
 		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream, "could not reach the upstream model list")

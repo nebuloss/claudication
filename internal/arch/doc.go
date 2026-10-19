@@ -11,7 +11,7 @@
 //	2  accounts       pool provider/anthropic service/accounts service/usage
 //	                  service/surfaces
 //	3  relay          relay
-//	4  services       service/titles
+//	4  services       service/titles service/models
 //	5  HTTP plumbing  httpapi/httpx
 //	6  HTTP surfaces  httpapi/gateway httpapi/admin httpapi/web
 //	7  composition    httpapi

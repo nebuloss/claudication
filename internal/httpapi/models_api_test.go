@@ -218,7 +218,7 @@ func TestModelListIsTheUnionOfAccounts(t *testing.T) {
 
 	ids := func() []string {
 		t.Helper()
-		body, err := srv.gateway.FetchModels(context.Background())
+		body, err := srv.models.List(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}

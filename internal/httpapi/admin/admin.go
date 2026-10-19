@@ -43,11 +43,7 @@ type Admin struct {
 	trustedProxies []*net.IPNet
 	startedAt      time.Time
 	sessions       *sessions
-	fetchModels    func(ctx context.Context) ([]byte, error)
-	accountModels  func(ctx context.Context, accountID, rawQuery string) ([]byte, error)
-	keyModels      func(ctx context.Context, key store.APIKey) ([]byte, error)
-	roleTarget     func(ctx context.Context, key store.APIKey, role string) (string, string)
-	aliases        func(ctx context.Context) ([]store.Alias, error)
+	models         Models
 	install        *install.Links
 }
 
@@ -69,20 +65,27 @@ type Deps struct {
 	Budgets        *limits.Budgets
 	TrustedProxies []*net.IPNet
 	StartedAt      time.Time
-	// Models is the upstream model list, as the client-facing API reads it.
-	Models func(ctx context.Context) ([]byte, error)
-	// AccountModels is the upstream model list as one account sees it.
-	AccountModels func(ctx context.Context, accountID, rawQuery string) ([]byte, error)
-	// KeyModels is the model list one key is offered, model roles included:
-	// what /v1/models answers it, and what its configs are written from.
-	KeyModels func(ctx context.Context, key store.APIKey) ([]byte, error)
-	// RoleTarget is the real model a role serves for a key, and why not when
-	// it cannot; the gateway's own rule, so the screen says what a request gets.
-	RoleTarget func(ctx context.Context, key store.APIKey, role string) (string, string)
-	// Aliases is every model alias the gateway answers to now.
-	Aliases func(ctx context.Context) ([]store.Alias, error)
+	// Models is the gateway's model list and its aliases.
+	Models Models
 	// Install keeps the one-time install bundles the relay serves.
 	Install *install.Links
+}
+
+// Models is what the admin screens read of the gateway's model list: the same
+// answers /v1/models gives, so a screen says what a request would get.
+type Models interface {
+	// List is every model the gateway serves.
+	List(ctx context.Context) ([]byte, error)
+	// ListFor is the upstream list as one account sees it, unfiltered.
+	ListFor(ctx context.Context, accountID, rawQuery string) ([]byte, error)
+	// For is the list one key is offered, model roles included: what
+	// /v1/models answers it, and what its configs are written from.
+	For(ctx context.Context, key store.APIKey) ([]byte, error)
+	// RoleTarget is the real model a role serves for a key, and why not when
+	// it cannot.
+	RoleTarget(ctx context.Context, key store.APIKey, role string) (target, why string)
+	// Aliases is every model alias the gateway answers to now.
+	Aliases(ctx context.Context) ([]store.Alias, error)
 }
 
 // New builds an Admin with no session open.
@@ -93,9 +96,7 @@ func New(d Deps) *Admin {
 		docs: d.Docs, surfaces: d.Surfaces, protocols: d.Protocols,
 		httpClient: d.HTTPClient, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
-		sessions: newSessions(), fetchModels: d.Models, accountModels: d.AccountModels,
-		keyModels: d.KeyModels, roleTarget: d.RoleTarget, aliases: d.Aliases,
-		install: d.Install,
+		sessions: newSessions(), models: d.Models, install: d.Install,
 	}
 }
 

@@ -42,6 +42,7 @@ import (
 	accountsvc "claudication/internal/service/accounts"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
+	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/settings"
 	"claudication/internal/service/surfaces"
 	"claudication/internal/service/titles"
@@ -87,6 +88,9 @@ type Server struct {
 	surfaces  *surfaces.Surfaces
 	images    *settings.Switch
 	docs      *settings.Switch
+
+	// models is the model list and its aliases, which all three surfaces read.
+	models *modelsvc.Catalog
 
 	// The handler sets, one per surface. See the package comment.
 	gateway *gateway.Gateway
@@ -285,12 +289,15 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	// Install links live a quarter of an hour: long enough to copy a command
 	// to another machine, short enough that one never run is soon gone.
 	installs := install.New(15 * time.Minute)
+	s.models = modelsvc.New(modelsvc.Deps{
+		Config: cfg, Log: log, Store: st, Pool: s.pool, Relay: s.relay, HTTPClient: s.httpClient,
+	})
 	s.gateway = gateway.New(gateway.Deps{
 		Config: cfg, Log: log, Store: st,
 		KeyLimiter: s.keyLimiter, AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		Recorder: s.recorder, Pool: s.pool, Relay: s.relay, Titles: titler,
 		Trimmer: s.trimmer, Surfaces: s.surfaces, Protocols: s.protocols,
-		HTTPClient: s.httpClient, Install: installs,
+		Install: installs, Models: s.models,
 	})
 	s.admin = admin.New(admin.Deps{
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
@@ -299,19 +306,11 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Protocols: s.protocols, HTTPClient: s.httpClient,
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
-		Models: s.gateway.FetchModels, AccountModels: s.gateway.FetchModelsFor,
-		KeyModels: s.gateway.ModelsFor, RoleTarget: s.gateway.RoleTarget, Aliases: s.gateway.Aliases,
-		Install: installs,
+		Models: s.models, Install: installs,
 	})
 	s.web = web.New(web.Deps{
 		Config: cfg, Log: log, Store: st, Docs: s.docs, Surfaces: s.surfaces,
-		// The model list with the gateway's model roles first, as a key that
-		// binds neither sees it: the docs page writes its configs from this,
-		// and they should ask for the roles as every other config does.
-		Models: func(ctx context.Context) ([]byte, error) {
-			return s.gateway.ModelsFor(ctx, store.APIKey{})
-		},
-		Files: webdist,
+		Models: s.models, Files: webdist,
 	})
 }
 
