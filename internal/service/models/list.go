@@ -323,7 +323,7 @@ func (s *Catalog) RoleTarget(ctx context.Context, key store.APIKey, role string)
 	if !key.Allows(target) {
 		return target, role + " is " + target + ", which this API key may not use"
 	}
-	if !s.pool.Offers(ctx, "anthropic", target) {
+	if !s.pool.Offers(ctx, s.relay.Wire.ID(), target) {
 		return target, role + " is " + target + ", which no connected account has on"
 	}
 	return target, ""
@@ -464,7 +464,7 @@ func (s *Catalog) list(ctx context.Context) (body []byte, fromCatalog bool, err 
 		lastErr error
 	)
 	for _, a := range accounts {
-		if a.Provider != "anthropic" || a.Disabled() {
+		if a.Provider != s.relay.Wire.ID() || a.Disabled() {
 			continue
 		}
 		body, err := s.ListFor(ctx, a.ID, "limit=1000")

@@ -73,7 +73,7 @@ func stallRelay(srv *httptest.Server, p AccountPool, timeout time.Duration) *Rel
 func doStream(r *Relay) (Result, string) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
 	rec := httptest.NewRecorder()
-	res := r.Do(rec, req, "anthropic", "/v1/messages", []byte(`{"stream":true}`), request.Prologue{})
+	res := r.Do(rec, req, "/v1/messages", []byte(`{"stream":true}`), request.Prologue{})
 	return res, rec.Body.String()
 }
 

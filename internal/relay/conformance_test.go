@@ -57,7 +57,7 @@ func relayThrough(t *testing.T, clientReq *http.Request, body []byte, upstream h
 		BaseURL: srv.URL,
 	}
 	f.rec = httptest.NewRecorder()
-	f.res = r.Do(f.rec, clientReq, "anthropic", "/v1/messages", body, request.Peek(body))
+	f.res = r.Do(f.rec, clientReq, "/v1/messages", body, request.Peek(body))
 	return f
 }
 
@@ -170,7 +170,7 @@ func relayThroughAttributed(t *testing.T, clientReq *http.Request, body []byte, 
 		BaseURL: srv.URL,
 	}
 	f.rec = httptest.NewRecorder()
-	f.res = r.Do(f.rec, clientReq, "anthropic", "/v1/messages", body, request.Peek(body))
+	f.res = r.Do(f.rec, clientReq, "/v1/messages", body, request.Peek(body))
 	return f
 }
 
@@ -293,7 +293,7 @@ func TestContractDoesNotBufferTheResponse(t *testing.T) {
 		BaseURL: upstreamSrv.URL,
 	}
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		r.Do(w, req, "anthropic", "/v1/messages", []byte("{}"), request.Prologue{})
+		r.Do(w, req, "/v1/messages", []byte("{}"), request.Prologue{})
 	}))
 	defer gateway.Close()
 

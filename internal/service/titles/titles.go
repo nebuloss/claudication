@@ -788,7 +788,7 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 	sink := &captureWriter{body: &answer, header: http.Header{}}
 
 	started := time.Now()
-	res := relayed.Do(sink, req, "anthropic", "/v1/messages?beta=true", body, request.Peek(body))
+	res := relayed.Do(sink, req, "/v1/messages?beta=true", body, request.Peek(body))
 	// Recorded whatever came of it, once an account was used: a call that was
 	// refused, or that answered with no usable title, spent as much as one
 	// that named the chat — and those wasted calls are the ones the operator

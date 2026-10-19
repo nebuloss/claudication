@@ -59,7 +59,7 @@ func TestARefusalReachesTheClientVerbatim(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
-	res := relay.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), request.Prologue{})
+	res := relay.Do(rec, req, "/v1/messages", []byte("{}"), request.Prologue{})
 
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want the upstream's 429 (a substituted error is the bug)", rec.Code)
@@ -90,7 +90,7 @@ func TestNoAccountStillErrors(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
-	res := relay.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), request.Prologue{})
+	res := relay.Do(rec, req, "/v1/messages", []byte("{}"), request.Prologue{})
 
 	if res.Err == nil {
 		t.Fatal("no accounts reported as success")

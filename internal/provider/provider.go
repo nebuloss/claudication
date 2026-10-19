@@ -51,6 +51,10 @@ type Reading struct {
 
 // Wire is the relay's view of a provider.
 type Wire interface {
+	// ID names the provider as accounts are stored under it and as the pool
+	// is asked for them.
+	ID() string
+
 	// BaseURL is where requests go, without a trailing slash.
 	BaseURL() string
 

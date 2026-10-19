@@ -45,7 +45,7 @@ func TestA401RefreshesAndRetriesTheSameAccount(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
 	rec := httptest.NewRecorder()
-	res := r.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), request.Prologue{})
+	res := r.Do(rec, req, "/v1/messages", []byte("{}"), request.Prologue{})
 
 	if res.Status != http.StatusOK {
 		t.Fatalf("status = %d, want 200: the refreshed account must serve the retry, body = %s",
@@ -84,7 +84,7 @@ func TestARepeated401StopsAfterOneRefresh(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
 	rec := httptest.NewRecorder()
-	res := r.Do(rec, req, "anthropic", "/v1/messages", []byte("{}"), request.Prologue{})
+	res := r.Do(rec, req, "/v1/messages", []byte("{}"), request.Prologue{})
 
 	if p.refreshes != 1 {
 		t.Errorf("refreshes = %d, want 1", p.refreshes)

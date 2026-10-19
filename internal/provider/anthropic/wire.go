@@ -60,6 +60,12 @@ type Provider struct{}
 
 var _ provider.Wire = Provider{}
 
+// ID is the provider name accounts are stored under.
+const ID = "anthropic"
+
+// ID implements provider.Wire.
+func (Provider) ID() string { return ID }
+
 // BaseURL implements provider.Wire.
 func (Provider) BaseURL() string { return BaseURL }
 

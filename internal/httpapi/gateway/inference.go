@@ -176,7 +176,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		}
 
 		started := time.Now()
-		res := s.relay.Do(sink, r, "anthropic", upstreamPath, outbound, prologue)
+		res := s.relay.Do(sink, r, upstreamPath, outbound, prologue)
 		elapsed := time.Since(started)
 
 		// The protocol's last word, before anything else answers. A dialect
@@ -307,7 +307,7 @@ func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Pro
 			"model "+model+" is turned off on this gateway for every connected account; "+
 				"an administrator can turn it on under Accounts")
 	case errors.Is(err, pool.ErrAllCoolingUp):
-		if wait := s.pool.RetryAfter(r.Context(), "anthropic", model); wait > 0 {
+		if wait := s.pool.RetryAfter(r.Context(), s.relay.Wire.ID(), model); wait > 0 {
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		}
 		p.WriteError(w, http.StatusServiceUnavailable, api.KindOverloaded,

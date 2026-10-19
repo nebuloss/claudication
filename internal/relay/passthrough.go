@@ -180,7 +180,10 @@ func truncate(s string) string {
 // Retries can only happen before anything is written to the client; once the
 // first byte is relayed the response is committed, which is the price of not
 // buffering.
-func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamPath string, body []byte, p request.Prologue) Result {
+//
+// The accounts are the wire's provider's: a relay speaks to one provider, so
+// which accounts can serve it is not the caller's to say.
+func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string, body []byte, p request.Prologue) Result {
 	base := r.BaseURL
 	if base == "" {
 		base = r.Wire.BaseURL()
@@ -208,7 +211,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, provider, upstreamP
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		res.Attempts = attempt
 
-		lease, err := r.Pool.Acquire(req.Context(), provider, p.Model, tried)
+		lease, err := r.Pool.Acquire(req.Context(), r.Wire.ID(), p.Model, tried)
 		if err != nil {
 			// Nothing left to try. If an upstream already refused this
 			// request, that refusal is the answer: it names the limit and

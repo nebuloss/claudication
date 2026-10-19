@@ -48,7 +48,7 @@ func TestALongRefusalIsBoundedOnlyInTheLog(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	res := relayTo(srv, &recordingPool{}).Do(rec, req, "anthropic", "/v1/messages", []byte(`{}`), request.Prologue{})
+	res := relayTo(srv, &recordingPool{}).Do(rec, req, "/v1/messages", []byte(`{}`), request.Prologue{})
 	if rec.Body.String() != "  "+long+"  " {
 		t.Errorf("client got %d bytes, want the upstream's body byte for byte", rec.Body.Len())
 	}
@@ -73,7 +73,7 @@ func TestAReplayedRefusalIsBoundedOnlyInTheLog(t *testing.T) {
 	p := &recordingPool{}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	res := relayTo(srv, p).Do(rec, req, "anthropic", "/v1/messages", []byte(`{}`), request.Prologue{})
+	res := relayTo(srv, p).Do(rec, req, "/v1/messages", []byte(`{}`), request.Prologue{})
 	if rec.Code != http.StatusTooManyRequests || rec.Body.String() != long {
 		t.Errorf("client got %d and %d bytes, want the 429 verbatim", rec.Code, rec.Body.Len())
 	}
@@ -100,7 +100,7 @@ func TestNetworkFailureCountsAgainstTheAccountButCancellationDoesNot(t *testing.
 
 	p := &recordingPool{}
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	res := relayTo(srv, p).Do(httptest.NewRecorder(), req, "anthropic", "/v1/messages", []byte(`{}`), request.Prologue{})
+	res := relayTo(srv, p).Do(httptest.NewRecorder(), req, "/v1/messages", []byte(`{}`), request.Prologue{})
 	if res.Err == nil || p.failures != 1 || res.Attempts != 2 {
 		t.Errorf("err=%v failures=%d attempts=%d, want the account reported and the next attempt finding none",
 			res.Err, p.failures, res.Attempts)
@@ -110,7 +110,7 @@ func TestNetworkFailureCountsAgainstTheAccountButCancellationDoesNot(t *testing.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	req = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(ctx)
-	res = relayTo(srv, p).Do(httptest.NewRecorder(), req, "anthropic", "/v1/messages", []byte(`{}`), request.Prologue{})
+	res = relayTo(srv, p).Do(httptest.NewRecorder(), req, "/v1/messages", []byte(`{}`), request.Prologue{})
 	if res.Err == nil || p.failures != 0 || res.Attempts != 1 {
 		t.Errorf("err=%v failures=%d attempts=%d, want a cancelled caller blamed on nobody", res.Err, p.failures, res.Attempts)
 	}
@@ -145,7 +145,7 @@ func TestRewrittenToolNamesAreRestoredOnTheWayBack(t *testing.T) {
 	}}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	res := r.Do(rec, req, "anthropic", "/v1/messages", []byte(`{"stream":true}`), request.Prologue{})
+	res := r.Do(rec, req, "/v1/messages", []byte(`{"stream":true}`), request.Prologue{})
 	got := rec.Body.String()
 	if strings.Contains(got, "todowrite_") || strings.Count(got, `"name":"todowrite"`) != 2 {
 		t.Errorf("client got %q, want both names restored, the unterminated tail included", got)
