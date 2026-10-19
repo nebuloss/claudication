@@ -36,6 +36,8 @@ type Store struct {
 	// keysUsed and accountsUsed hold TouchKey and MarkAccountUsed to one
 	// write a minute per id; see lastUse.
 	keysUsed, accountsUsed lastUse
+	// compactErr is what reclaim returned when the store was opened.
+	compactErr error
 }
 
 // Open connects to the database at path and brings the schema up to date.
@@ -60,10 +62,17 @@ func Open(ctx context.Context, dbPath string, sealer *secret.Sealer) (*Store, er
 		return nil, fmt.Errorf("connect to database %s: %w", dbPath, err)
 	}
 
-	if err := migrate(ctx, db); err != nil {
+	// Whichever command opens the store first after an update runs the
+	// upgrade, and the short commands carry short deadlines: login-url has
+	// 15 s. A rebuild of a large usage table outlasts that, and cutting it off
+	// gains nothing — the transaction rolls back and the next command starts
+	// it again from the top. So the upgrade runs to the end once begun.
+	mctx := context.WithoutCancel(ctx)
+	if err := migrate(mctx, db); err != nil {
 		db.Close()
 		return nil, err
 	}
+	compactErr := reclaim(mctx, db)
 
 	// SQLite creates the file honouring umask, which typically yields 0644.
 	// It holds sealed credentials, so tighten it: the 0700 state directory is
@@ -73,8 +82,13 @@ func Open(ctx context.Context, dbPath string, sealer *secret.Sealer) (*Store, er
 		return nil, fmt.Errorf("secure database file: %w", err)
 	}
 
-	return &Store{db: db, sealer: sealer}, nil
+	return &Store{db: db, sealer: sealer, compactErr: compactErr}, nil
 }
+
+// CompactErr is why handing back the space an upgrade freed failed when this
+// store was opened, or nil. It is not a reason to refuse to serve: the data is
+// current, and the next open tries again.
+func (s *Store) CompactErr() error { return s.compactErr }
 
 // dsn is how every connection to the database at dbPath is opened.
 func dsn(dbPath string) string {
@@ -147,8 +161,8 @@ const includeSchema = "-- include schema.sql"
 //   - At schemaVersion: nothing.
 //   - From oldestUpgradable up: each step in migrations/ after the recorded
 //     version, NNN_*.sql taking the database to version NNN, each in its own
-//     transaction, which a foreign key it left dangling rolls back. Then the
-//     space the rebuild freed is handed back before the gateway serves.
+//     transaction, which a foreign key it left dangling rolls back. Open then
+//     hands back the space the rebuild freed (reclaim).
 //   - Anything else — older than oldestUpgradable, newer than this binary, or
 //     tables with no version at all — is refused with the reason, untouched.
 func migrate(ctx context.Context, db *sql.DB) error {
@@ -179,7 +193,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
-	return reclaim(ctx, db)
+	return nil
 }
 
 // schemaVersionOf reads the recorded version. empty is a database with no
@@ -309,9 +323,10 @@ func applyStep(ctx context.Context, db *sql.DB, st upgradeStep) error {
 	return nil
 }
 
-// reclaim hands back what an upgrade freed, before the gateway serves. A
-// rebuild copies every table, so the file holds the old and the new until
-// this runs.
+// reclaim hands back what an upgrade freed, on every open, before the gateway
+// serves. A rebuild copies every table, so the file holds the old and the new
+// until this runs. On a file that is already incremental with nothing free it
+// costs two pragmas.
 //
 // VACUUM when the file is not in incremental auto-vacuum: it is the only thing
 // that applies the mode the DSN asks for to a file created before it, and that
@@ -319,9 +334,12 @@ func applyStep(ctx context.Context, db *sql.DB, st upgradeStep) error {
 // gives its free pages back without a rewrite. Then the WAL, which holds a
 // copy of every page the rebuild wrote, is checkpointed and truncated.
 //
-// A failure here is reported, not undone: the upgrade is committed, so the
-// next start finds the database current and serves, and `claudication vacuum`
-// retries the compaction. VACUUM wants about the database's size again free.
+// A failure here is reported (CompactErr), not fatal: the upgrade is committed
+// and the data current, and refusing to start would make an installer roll
+// back to a binary that cannot read the new schema. It runs on every open
+// rather than only the one that upgraded, so a VACUUM that failed — it wants
+// about the database's size again free — is retried by the next start instead
+// of leaving the file without auto-vacuum for good.
 func reclaim(ctx context.Context, db *sql.DB) error {
 	// One connection throughout, so VACUUM is not raced by another statement
 	// and the checkpoint sees what it wrote.
@@ -340,8 +358,8 @@ func reclaim(ctx context.Context, db *sql.DB) error {
 		_, err = conn.ExecContext(ctx, `PRAGMA incremental_vacuum`)
 	}
 	if err != nil {
-		return fmt.Errorf("the upgrade is done, but reclaiming the space it freed failed "+
-			"(the next start serves; claudication vacuum retries): %w", err)
+		return fmt.Errorf("reclaiming the space the upgrade freed failed "+
+			"(serving anyway; the next start retries): %w", err)
 	}
 	if _, err := conn.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		return fmt.Errorf("checkpoint: %w", err)
