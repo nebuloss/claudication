@@ -318,6 +318,13 @@ func TestConsiderNamesAChatOnItsOwnAccount(t *testing.T) {
 
 	h.titler.Consider(h.ev())
 	r := h.waitRecorded(t)
+	// The call is recorded as soon as it returns, before its answer is read
+	// and stored, so the title has to be waited for on its own.
+	select {
+	case <-h.st.titled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the title was never stored")
+	}
 
 	title, model, ok := h.st.title("chat-1")
 	if !ok || title != "Fix the SSE parser" || model != "claude-sonnet-5" {
