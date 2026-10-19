@@ -336,7 +336,7 @@ func TestOAuthConnectsAnAccount(t *testing.T) {
 	base, c := adminAPI(t, srv)
 
 	if status, body := call(t, base, http.MethodPost, "/admin/accounts/oauth/start",
-		`{"provider":"openai"}`, c); status != http.StatusBadRequest || errType(t, body) != "unsupported_provider" {
+		`{"provider":"gemini"}`, c); status != http.StatusBadRequest || errType(t, body) != "unsupported_provider" {
 		t.Errorf("unsupported provider: %d %s", status, body)
 	}
 	if status, _ := call(t, base, http.MethodPost, "/admin/accounts/oauth/start", `{`, c); status != http.StatusBadRequest {
@@ -595,6 +595,7 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodPost, "/admin/accounts/order"},
 		{http.MethodPost, "/admin/accounts/oauth/start"},
 		{http.MethodPost, "/admin/accounts/oauth/complete"},
+		{http.MethodPost, "/admin/accounts/oauth/poll"},
 		{http.MethodPost, "/admin/accounts/x/test"},
 		{http.MethodPost, "/admin/accounts/x/refresh"},
 		{http.MethodPost, "/admin/accounts/x/usage"},

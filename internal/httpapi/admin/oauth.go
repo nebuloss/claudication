@@ -54,10 +54,17 @@ func (s *Admin) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		target = acct
 	}
 
+	// A provider that signs in with a device code does so: nothing has to
+	// come back from the operator's browser, which is what a gateway on
+	// another machine needs.
+	if device, ok := prov.(provider.DeviceLogin); ok {
+		s.startDevice(w, r, body.Provider, device, target)
+		return
+	}
 	paste, ok := prov.(provider.PasteLogin)
 	if !ok {
 		httpx.WriteError(w, http.StatusBadRequest, "unsupported_provider",
-			"the "+body.Provider+" provider signs in another way")
+			"the "+body.Provider+" provider has no sign-in this gateway can run")
 		return
 	}
 
@@ -88,6 +95,99 @@ func (s *Admin) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		out["email"] = target.Email
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// startDevice begins a device-code sign-in: the provider hands out a short
+// code, the operator enters it on the provider's own page wherever they are
+// signed in, and the UI asks /oauth/poll until it is approved.
+func (s *Admin) startDevice(w http.ResponseWriter, r *http.Request, providerID string,
+	device provider.DeviceLogin, target store.Account) {
+	d, err := device.StartDevice(r.Context(), s.httpClient)
+	if err != nil {
+		s.log.Warn("could not start a device sign-in", "provider", providerID, "err", err)
+		httpx.WriteError(w, http.StatusBadGateway, "exchange_failed", err.Error())
+		return
+	}
+	state, err := oauth.NewState()
+	if err != nil {
+		httpx.Internal(w, s.log, "start the sign-in", err)
+		return
+	}
+	expires := s.pending.StartDevice(providerID, state, d, target.ID)
+	out := map[string]any{
+		"provider":         providerID,
+		"flow":             "device",
+		"state":            state,
+		"user_code":        d.UserCode,
+		"verification_uri": d.VerificationURI,
+		"interval_s":       int(d.Interval.Seconds()),
+		"expires_at":       expires.UTC().Format(time.RFC3339),
+		"instructions": "Open the link, sign in to the account to connect, and enter the code. " +
+			"This page notices when you have.",
+	}
+	if target.ID != "" {
+		out["account_id"] = target.ID
+		out["email"] = target.Email
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// handleOAuthPoll asks the provider once whether a device code has been
+// approved: 202 while it has not, and once it has, the account stored as a
+// pasted code's would be, with the same answer.
+//
+// One question per call, made by the UI at the code's interval, rather than a
+// request held open until the operator gets round to it: a held request is a
+// connection a proxy may cut, and asking at the interval is what the provider
+// asks for.
+func (s *Admin) handleOAuthPoll(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Provider string `json:"provider"`
+		State    string `json:"state"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	prov, ok := s.providerFor(w, body.Provider)
+	if !ok {
+		return
+	}
+	device, ok := prov.(provider.DeviceLogin)
+	if !ok {
+		httpx.WriteError(w, http.StatusBadRequest, "unsupported_provider",
+			"the "+body.Provider+" provider does not sign in with a device code")
+		return
+	}
+	attempt, err := s.pending.Peek(body.Provider, body.State)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "unknown_state", err.Error())
+		return
+	}
+	if attempt.Device.ID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "unknown_state", "that sign-in is not a device-code one")
+		return
+	}
+	res, pending, err := device.PollDevice(r.Context(), s.httpClient, attempt.Device)
+	switch {
+	case err != nil:
+		// An expired code cannot finish, and a new one is the fix; anything
+		// else may have been the network, and the attempt stays for the UI
+		// to ask again.
+		if !attempt.Device.ExpiresAt.IsZero() && time.Now().After(attempt.Device.ExpiresAt) {
+			s.pending.Consume(body.State)
+		}
+		s.log.Warn("device sign-in failed", "provider", body.Provider, "err", err)
+		httpx.WriteError(w, http.StatusBadGateway, "exchange_failed", err.Error())
+		return
+	case pending:
+		httpx.WriteJSON(w, http.StatusAccepted, map[string]any{
+			"status":     "pending",
+			"interval_s": int(attempt.Device.Interval.Seconds()),
+		})
+		return
+	}
+	s.pending.Consume(body.State)
+	s.storeConsent(w, r, prov, attempt, res)
 }
 
 // loginHint is the address to pre-fill on the provider's sign-in page, or
