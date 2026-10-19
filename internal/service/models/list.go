@@ -160,7 +160,7 @@ func (s *Catalog) For(ctx context.Context, key store.APIKey, client string) ([]b
 		// connected — the configs written now are the ones that will be
 		// used then.
 		target, why := s.RoleTarget(ctx, key, client, a.Name)
-		if fromCatalog && target != "" && key.Allows(target) && s.ProviderOf(ctx, target) == s.defaultProvider() {
+		if fromCatalog && target != "" && key.Allows(target) && s.servingProvider(ctx, target) == s.defaultProvider() {
 			why = ""
 		}
 		if why != "" {
@@ -528,7 +528,7 @@ func (s *Catalog) RoleTarget(ctx context.Context, key store.APIKey, client, role
 	if !key.Allows(target) {
 		return target, role + " is " + target + chose + ", which this API key may not use"
 	}
-	if !s.pool.Offers(ctx, s.ProviderOf(ctx, target), target) {
+	if !s.pool.Offers(ctx, s.servingProvider(ctx, target), target) {
 		return target, role + " is " + target + chose + ", which no connected account has on"
 	}
 	return target, ""

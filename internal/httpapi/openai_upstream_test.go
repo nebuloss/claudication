@@ -397,3 +397,25 @@ func TestAKeyKeptOffAnAliasCannotReachItByFallback(t *testing.T) {
 		t.Errorf("%d turns reached Anthropic", n)
 	}
 }
+
+// An alias bound to a model no list names is sent to the default provider, as
+// it was before there was a second one, and is not refused as unserved: where
+// it goes and whether an account there can take it are one answer.
+func TestAnAliasBoundToAnUnlistedModelIsServedByTheDefault(t *testing.T) {
+	_, st, base, key, claude, chatgpt := twoUpstreams(t)
+	if err := st.SetModelRole(context.Background(), "", "team-mystery", "mystery-7"); err != nil {
+		t.Fatal(err)
+	}
+	resp, body := send(t, base+"/v1/messages", key, "claude-cli/2.1.274 (external, sdk-cli)",
+		`{"model":"team-mystery","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	turns := claude.turns()
+	if len(turns) != 1 || !strings.Contains(string(turns[0].body), `"model":"mystery-7"`) {
+		t.Errorf("Anthropic was sent %d turns: %v", len(turns), turns)
+	}
+	if n := len(chatgpt.turns()); n != 0 {
+		t.Errorf("ChatGPT was sent %d turns", n)
+	}
+}

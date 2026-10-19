@@ -61,11 +61,19 @@ func (s *Catalog) Route(ctx context.Context, key store.APIKey, client, requested
 
 func (s *Catalog) aliasRoute(ctx context.Context, key store.APIKey, client, alias string) Route {
 	target, why := s.RoleTarget(ctx, key, client, alias)
-	p := s.ProviderOf(ctx, target)
-	if p == "" {
-		p = s.defaultProvider()
+	return Route{Provider: s.servingProvider(ctx, target), Model: target, Alias: alias, Why: why}
+}
+
+// servingProvider is the provider an alias's target is sent to: the one whose
+// accounts list it, else the default provider, which is where a bound model
+// no list names was sent before there was a second provider. One answer for
+// where the request goes and for whether an account there can take it
+// (RoleTarget), so the two cannot disagree.
+func (s *Catalog) servingProvider(ctx context.Context, model string) string {
+	if p := s.ProviderOf(ctx, model); p != "" {
+		return p
 	}
-	return Route{Provider: p, Model: target, Alias: alias, Why: why}
+	return s.defaultProvider()
 }
 
 // prefixes say which provider an id belongs to when a list cannot: always for
