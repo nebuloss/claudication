@@ -4,7 +4,6 @@ import { useAction, useLoader } from '../hooks'
 import {
   Button,
   Card,
-  CodeViewer,
   CopyField,
   ErrorBanner,
   ErrorState,
@@ -16,6 +15,7 @@ import {
   useConfirm,
 } from '../primitives'
 import { Catalog } from './docs/catalog'
+import { ClientBody } from './docs/client-body'
 import { CLIENTS } from './docs/content'
 import { EXAMPLE_BASE } from './docs/model'
 import { relayAddress } from './key-configs'
@@ -113,35 +113,18 @@ export default function KeyClients({
               )
             }
           />
-          {CLIENTS.map((client) => {
-            const missing = client.missingSurfaces(config?.surfaces ?? [])
-            return (
-              <Card key={client.id} title={client.label}>
-                <div className="mb-4">
-                  <CopyField label="Base URL" value={client.baseURL(gateway)} />
-                </div>
-                <p className="mb-4 text-sm leading-relaxed text-on-surface">{client.lead}</p>
-                {missing.length > 0 && (
-                  <Note tone="warn" className="mb-4">
-                    {client.label} needs the {missing.map((s) => s.title).join(' and ')}, which is
-                    switched off on this gateway. Until it is on, this configuration answers 404.
-                  </Note>
-                )}
-                <Stack>
-                  {client.files(gateway, plaintext, catalog).map((f) => (
-                    <CodeViewer
-                      key={f.filename}
-                      label={f.label}
-                      filename={f.filename}
-                      lang={f.lang}
-                      value={f.body}
-                      conceal={plaintext}
-                    />
-                  ))}
-                </Stack>
-              </Card>
-            )
-          })}
+          {CLIENTS.map((client) => (
+            <Card key={client.id} title={client.label}>
+              <ClientBody
+                client={client}
+                gateway={gateway}
+                secret={plaintext}
+                catalog={catalog}
+                surfaces={config?.surfaces ?? []}
+                notes={false}
+              />
+            </Card>
+          ))}
         </>
       )}
     </>

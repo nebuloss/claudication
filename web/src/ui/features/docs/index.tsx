@@ -5,17 +5,16 @@ import {
   Banner,
   Card,
   Chip,
-  CodeViewer,
   CopyField,
   Loading,
   Note,
   Overline,
-  Stack,
   Tile,
   railItem,
   tile,
 } from '../../primitives'
 import { Catalog } from './catalog'
+import { ClientBody, Prose } from './client-body'
 import { CLIENTS, SECTIONS, TROUBLESHOOTING } from './content'
 import { EXAMPLE_BASE, type ClientRecipe } from './model'
 import { useCurrentSection } from './use-current-section'
@@ -85,17 +84,17 @@ export default function Docs() {
             </Note>
           )}
 
-          <P>You need two things, and they are the same for every client.</P>
+          <Prose>You need two things, and they are the same for every client.</Prose>
 
           <div className="my-5">
             <CopyField label="Base URL" value={gateway} />
           </div>
 
-          <P>
+          <Prose>
             And an <strong className="font-medium text-on-surface">API key</strong>, which whoever
             runs this gateway issues from its admin UI. One key works on both APIs — nothing needs
             to look like an OpenAI key, and you do not need a Claude account of your own.
-          </P>
+          </Prose>
 
           <Note>
             <strong className="font-medium">
@@ -118,12 +117,12 @@ export default function Docs() {
         ))}
 
         <Section id="models" title="Models">
-          <P>
+          <Prose>
             Everything this gateway will serve, read from upstream. Clients that ask for the list
             discover these on their own; crush and Codex need them written into their config, and
             the files above are written from this list — so when a model is released, the files
             here have it the next time this page loads.
-          </P>
+          </Prose>
           {models.length === 0 ? (
             <Note>
               The model list could not be read just now. The configurations above do not depend on
@@ -143,10 +142,10 @@ export default function Docs() {
         </Section>
 
         <Section id="troubleshooting" title="Troubleshooting">
-          <P>
+          <Prose>
             Most of these are the client rather than the gateway, and most of them arrive with a
             message that points somewhere else.
-          </P>
+          </Prose>
           <DefinitionList
             items={TROUBLESHOOTING.map((t) => ({
               key: t.symptom,
@@ -175,39 +174,9 @@ function ClientSection({
   surfaces: DocsInfo['surfaces']
   catalog: Catalog
 }) {
-  const missing = client.missingSurfaces(surfaces)
   return (
     <Section id={client.id} title={client.label}>
-      <div className="mb-4">
-        <CopyField label="Base URL" value={client.baseURL(gateway)} />
-      </div>
-      <P>{client.lead}</P>
-
-      {missing.length > 0 && (
-        <Note tone="warn" className="my-4">
-          {client.label} needs the {missing.map((s) => s.title).join(' and ')}, which is currently
-          switched off on this gateway. Until it is turned back on, this configuration will answer
-          404.
-        </Note>
-      )}
-
-      <div className="my-5">
-        <Stack>
-          {client.files(gateway, '', catalog).map((f) => (
-            <CodeViewer
-              key={f.filename}
-              label={f.label}
-              filename={f.filename}
-              lang={f.lang}
-              value={f.body}
-            />
-          ))}
-        </Stack>
-      </div>
-
-      {client.notes.map((n, i) => (
-        <P key={i}>{n}</P>
-      ))}
+      <ClientBody client={client} gateway={gateway} surfaces={surfaces} catalog={catalog} />
     </Section>
   )
 }
@@ -257,11 +226,6 @@ function DefinitionList({
       ))}
     </dl>
   )
-}
-
-/** Body prose, at the one measure and rhythm the page uses. */
-function P({ children }: { children: ReactNode }) {
-  return <p className="mb-4 text-sm leading-relaxed text-on-surface">{children}</p>
 }
 
 /**
