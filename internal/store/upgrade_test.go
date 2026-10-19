@@ -416,6 +416,27 @@ func TestUpgradeKeepsTheData(t *testing.T) {
 		t.Errorf("%d quota rows, want the fetched account's alone", n)
 	}
 
+	// 031: every row an account served was Anthropic's, the only provider
+	// there was; a refusal no account served names none. Nothing has a plan
+	// or reasoning tokens yet.
+	if n := count(`SELECT COUNT(*) FROM usage_events WHERE account_id <> '' AND provider <> 'anthropic'`); n != 0 {
+		t.Errorf("%d served rows not filed as anthropic", n)
+	}
+	if n := count(`SELECT COUNT(*) FROM usage_events WHERE account_id = '' AND provider <> ''`); n != 0 {
+		t.Errorf("%d unserved rows given a provider", n)
+	}
+	if a.Plan != "" || count(`SELECT COUNT(*) FROM usage_events WHERE reasoning_tokens <> 0`) != 0 {
+		t.Errorf("the upgrade invented a plan or reasoning: %q", a.Plan)
+	}
+	// And the upgraded table takes a second account at the same address with
+	// another provider account id — a Team workspace beside a personal one.
+	other, err := st.UpsertAccount(ctx, Account{Provider: "anthropic", Email: "one@example.com",
+		AccountUUID: "u2", Plan: "team", ExpiresAt: time.Now().Add(time.Hour)},
+		Tokens{AccessToken: "a", RefreshToken: "r"})
+	if err != nil || other.ID == f.account || other.Plan != "team" {
+		t.Errorf("second workspace at the same address = %+v, %v", other, err)
+	}
+
 	// Roles: the gateway's as NULL, the key's kept, the orphan gone, none of
 	// them a client's.
 	roles, err := st.ModelRoles(ctx)

@@ -112,10 +112,12 @@ func sameAccount(a store.Account, uuid, email string) bool {
 // handleOAuthComplete redeems the code and stores what it bought.
 //
 // Three outcomes. A reconnect whose tokens belong to its account renews that
-// account in place. An add whose address is already stored is the same
-// renewal, reached the long way round — it used to be the only way, and it
+// account in place. An add of an account already stored — the same provider
+// account id, or the same address where no id was ever stored — is the same
+// renewal, reached the long way round; it used to be the only way, and it
 // still must not create a second row. Anything else is a new account, last in
-// the priority list.
+// the priority list: the same address with a different account id is a
+// different account (one ChatGPT sign-in, a personal and a Team workspace).
 //
 // A reconnect that comes back as someone else is refused, and the tokens are
 // handed back to the provider rather than kept. The browser decides who
@@ -194,6 +196,7 @@ func (s *Admin) storeConsent(w http.ResponseWriter, r *http.Request, prov provid
 		Provider:         providerID,
 		Email:            email,
 		AccountUUID:      res.AccountUUID,
+		Plan:             res.Plan,
 		ExpiresAt:        res.ExpiresAt,
 		RefreshExpiresAt: res.RefreshTokenExpiresAt,
 	}
@@ -224,7 +227,7 @@ func (s *Admin) storeConsent(w http.ResponseWriter, r *http.Request, prov provid
 					"private window, sign in as "+target.Email+", and start the reconnect again.")
 			return
 		}
-	} else if existing, err := s.store.AccountByEmail(r.Context(), providerID, email); err == nil {
+	} else if existing, err := s.store.AccountByIdentity(r.Context(), providerID, res.AccountUUID, email); err == nil {
 		target = existing
 	}
 

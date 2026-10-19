@@ -97,9 +97,11 @@ type Result struct {
 	Status       int
 	AccountID    string
 	AccountEmail string
-	Attempts     int
-	BytesOut     int64
-	Usage        provider.Usage
+	// Provider is whose account AccountID is: the wire's, set with it.
+	Provider string
+	Attempts int
+	BytesOut int64
+	Usage    provider.Usage
 	// StreamError is set when the upstream reported an error mid-stream, after
 	// a 200. Without this a failed stream is indistinguishable from a
 	// successful one and gets recorded as a success.
@@ -244,6 +246,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		}
 		res.AccountID = lease.Account.ID
 		res.AccountEmail = lease.Account.Email
+		res.Provider = r.Wire.ID()
 
 		cred := provider.Credential{Token: lease.AccessToken, AccountID: lease.Account.AccountUUID}
 		upstreamReq, err := r.build(req, base+upstreamPath, body, cred)

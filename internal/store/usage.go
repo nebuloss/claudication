@@ -21,7 +21,10 @@ type UsageEvent struct {
 	KeyName      string
 	AccountID    string
 	AccountEmail string
-	Model        string
+	// Provider is whose account served the request: anthropic, openai. Kept
+	// on the row, like the names, so it outlives the account.
+	Provider string
+	Model    string
 	// VirtualModel is the alias the client asked for, when it asked for one;
 	// Model is then the real model that served it. The column is alias.
 	VirtualModel string
@@ -39,7 +42,10 @@ type UsageEvent struct {
 	OutputTokens     int
 	CacheReadTokens  int
 	CacheWriteTokens int
-	Duration         time.Duration
+	// ReasoningTokens is the part of OutputTokens the model spent reasoning,
+	// where the provider says. Already counted in OutputTokens.
+	ReasoningTokens int
+	Duration        time.Duration
 	// FirstToken is how long a streamed request waited for its first token,
 	// or zero when that was not measured.
 	FirstToken time.Duration
@@ -145,15 +151,15 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 		}
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO usage_events (at, kind, key_id, account_id, model, alias, path,
+		`INSERT INTO usage_events (at, kind, key_id, account_id, provider, model, alias, path,
 		                           conversation_id, client, ip, status, streaming,
 		                           input_tokens, output_tokens,
-		                           cache_read_tokens, cache_write_tokens,
+		                           cache_read_tokens, cache_write_tokens, reasoning_tokens,
 		                           duration_ms, first_token_ms, error_code, error)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ms(e.At), e.kind(), e.KeyID, e.AccountID, e.Model, e.VirtualModel, e.Path,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ms(e.At), e.kind(), e.KeyID, e.AccountID, e.Provider, e.Model, e.VirtualModel, e.Path,
 		e.ConversationID, e.Client, e.IP, e.Status, e.Streaming,
-		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens,
+		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens, e.ReasoningTokens,
 		e.Duration.Milliseconds(), e.FirstToken.Milliseconds(), e.ErrorCode, e.Error,
 	)
 	if err != nil {
@@ -178,7 +184,7 @@ var usageEventColumns = `id, at, key_id, COALESCE(` + nameOf(nameKey, "usage_eve
 	conversation_id, client,
 	status, streaming, input_tokens, output_tokens,
 	cache_read_tokens, cache_write_tokens, duration_ms, first_token_ms, error,
-	error_code, kind, ip, alias`
+	error_code, kind, ip, alias, provider, reasoning_tokens`
 
 // scanUsageEvent reads one row selected with usageEventColumns.
 func scanUsageEvent(sc scanner) (UsageEvent, error) {
@@ -188,7 +194,8 @@ func scanUsageEvent(sc scanner) (UsageEvent, error) {
 	if err := sc.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
 		&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
 		&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
-		&durMS, &firstMS, &e.Error, &e.ErrorCode, &kind, &e.IP, &e.VirtualModel); err != nil {
+		&durMS, &firstMS, &e.Error, &e.ErrorCode, &kind, &e.IP, &e.VirtualModel,
+		&e.Provider, &e.ReasoningTokens); err != nil {
 		return UsageEvent{}, err
 	}
 	e.At = fromMS(at)

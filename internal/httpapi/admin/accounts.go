@@ -13,9 +13,12 @@ import (
 
 // AccountJSON is one connected account as the admin API reports it.
 type AccountJSON struct {
-	ID            string `json:"id"`
-	Provider      string `json:"provider"`
-	Email         string `json:"email"`
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	Email    string `json:"email"`
+	// Plan is the subscription the sign-in named (ChatGPT's plus, pro,
+	// team); omitted when it named none.
+	Plan          string `json:"plan,omitempty"`
 	ExpiresAt     string `json:"expires_at"`
 	CreatedAt     string `json:"created_at"`
 	LastRefreshAt string `json:"last_refresh_at,omitempty"`
@@ -75,6 +78,7 @@ func toAccountJSON(a store.Account, prov provider.Accounts) AccountJSON {
 		ID:        a.ID,
 		Provider:  a.Provider,
 		Email:     a.Email,
+		Plan:      a.Plan,
 		ExpiresAt: a.ExpiresAt.UTC().Format(time.RFC3339),
 		CreatedAt: a.CreatedAt.UTC().Format(time.RFC3339),
 		LastError: a.LastError,

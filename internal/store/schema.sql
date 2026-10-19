@@ -1,5 +1,5 @@
 -- claudication's schema, whole: what a fresh database is created with, and
--- what migrations/ brings an older one to. Version 30 (schemaVersion in
+-- what migrations/ brings an older one to. Version 31 (schemaVersion in
 -- store.go).
 --
 -- Written as if from scratch. Migrations 001-028 grew it a column at a time;
@@ -111,7 +111,12 @@ CREATE TABLE accounts (
     id                 TEXT    PRIMARY KEY,
     provider           TEXT    NOT NULL,
     email              TEXT    NOT NULL,
+    -- The provider's own id for the account. For ChatGPT it is the
+    -- chatgpt_account_id every request carries, naming the workspace billed.
     account_uuid       TEXT    NOT NULL DEFAULT '',
+    -- The subscription, in the provider's word (ChatGPT's chatgpt_plan_type:
+    -- plus, pro, team), as the sign-in said; '' when it did not.
+    plan               TEXT    NOT NULL DEFAULT '',
     access_token       BLOB    NOT NULL,
     refresh_token      BLOB    NOT NULL,
     expires_at         INTEGER NOT NULL,
@@ -140,13 +145,19 @@ CREATE TABLE accounts (
     -- auth2api derives the email from every refresh response, so a refresh
     -- that omits the account object renames the row to "unknown", orphaning
     -- its stats and spawning a phantom duplicate on restart.
-    UNIQUE (provider, email)
+    --
+    -- The provider's account id is part of it (031): one ChatGPT sign-in
+    -- reaches a personal workspace and a Team one under the same address,
+    -- each billed apart, and they are two accounts.
+    UNIQUE (provider, email, account_uuid)
 );
 
--- What /api/oauth/usage last said about an account: the figures `/usage`
--- prints in the client. Polled rather than read off relayed responses' rate
--- limit headers, which showed nothing until an account had served a request
--- and carried only the two headline windows.
+-- What the provider last said about an account's subscription windows. For
+-- Anthropic, /api/oauth/usage: the figures `/usage` prints in the client,
+-- polled rather than read off relayed responses' rate limit headers, which
+-- showed nothing until an account had served a request and carried only the
+-- two headline windows. For ChatGPT, /wham/usage and the x-codex-* headers
+-- every answer carries. The windows are put in the columns by their length.
 --
 -- Its own table because the poller is its only writer and it changes every
 -- poll, while the row beside it holds the credentials. No row is never
@@ -163,8 +174,9 @@ CREATE TABLE account_quota (
     seven_day_util   REAL,
     seven_day_reset  INTEGER,
     seven_day_status TEXT    NOT NULL DEFAULT '',
-    -- The normalised `limits` array verbatim, per-model weekly rows included,
-    -- for the UI to render exactly what `/usage` prints.
+    -- The provider's own rows: for Anthropic the normalised `limits` array
+    -- verbatim, per-model weekly rows included, for the UI to render exactly
+    -- what `/usage` prints; for ChatGPT one per window, by its length.
     detail           TEXT    NOT NULL DEFAULT ''
 );
 
@@ -217,6 +229,11 @@ CREATE TABLE usage_events (
     kind               INTEGER NOT NULL DEFAULT 0 CHECK (kind IN (0, 1, 2)),
     key_id             TEXT    NOT NULL DEFAULT '',
     account_id         TEXT    NOT NULL DEFAULT '',
+    -- Whose account served it: anthropic, openai. Kept with the row because,
+    -- like the names, it has to outlive the account. Empty when no account
+    -- did (031 filed every earlier relayed row as anthropic, the only one
+    -- there was).
+    provider           TEXT    NOT NULL DEFAULT '',
     -- The real model that served it: what was spent, and what reports group
     -- by. alias is what the client asked for when that was an alias.
     model              TEXT    NOT NULL DEFAULT '',
@@ -245,6 +262,9 @@ CREATE TABLE usage_events (
     output_tokens      INTEGER NOT NULL DEFAULT 0,
     cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    -- The part of output_tokens spent reasoning, where the provider says
+    -- (OpenAI does). Inside output_tokens already: shown, never added.
+    reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
     duration_ms        INTEGER NOT NULL DEFAULT 0,
     -- To the first event carrying content, stalled-and-retried attempts
     -- included; 0 is not measured. Duration alone cannot tell a long answer

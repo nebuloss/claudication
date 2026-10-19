@@ -212,11 +212,11 @@ func TestChatEventsReturnEveryRecordedField(t *testing.T) {
 	want := UsageEvent{
 		At:    time.Date(2026, 10, 19, 9, 14, 3, 250_000_000, time.UTC),
 		KeyID: "k1", KeyName: "laptop",
-		AccountID: "a1", AccountEmail: "op@example.com",
+		AccountID: "a1", AccountEmail: "op@example.com", Provider: "anthropic",
 		Model: "claude-opus-5", VirtualModel: "claude-large",
 		Path: "/v1/messages", ConversationID: "c1", Client: "Claude Code",
 		Status: 429, Streaming: true,
-		InputTokens: 1, OutputTokens: 2, CacheReadTokens: 3, CacheWriteTokens: 4,
+		InputTokens: 1, OutputTokens: 2, CacheReadTokens: 3, CacheWriteTokens: 4, ReasoningTokens: 1,
 		Duration: 1500 * time.Millisecond, FirstToken: 250 * time.Millisecond,
 		Error: "slow down", ErrorCode: "rate_limit_error",
 		Rejected: true, IP: "192.0.2.7",

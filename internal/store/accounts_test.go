@@ -102,7 +102,7 @@ func TestUpsertAccountReloginClearsFailureState(t *testing.T) {
 
 	refreshBy := time.Now().Add(30 * 24 * time.Hour).UTC().Truncate(time.Second)
 	again, err := st.UpsertAccount(ctx,
-		Account{ID: "ignored", Provider: "anthropic", Email: "a@example.com",
+		Account{ID: "ignored", Provider: "anthropic", Email: "a@example.com", AccountUUID: "uuid-a@example.com",
 			ExpiresAt: time.Now().Add(time.Hour), RefreshExpiresAt: refreshBy},
 		Tokens{AccessToken: "new-at", RefreshToken: "new-rt"})
 	if err != nil {
@@ -424,5 +424,47 @@ func TestAccountTokensWithTheWrongKey(t *testing.T) {
 	defer other.Close()
 	if _, err := other.AccountTokens(ctx, a.ID); err == nil {
 		t.Error("AccountTokens with another key succeeded")
+	}
+}
+
+// An account is its provider's account id as much as its address: one ChatGPT
+// sign-in reaches a personal workspace and a Team one under the same address,
+// and they are two accounts. One stored before ids were — an older release's
+// Anthropic row — is still found by its address.
+func TestAccountByIdentity(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	add := func(uuid, plan string) Account {
+		t.Helper()
+		a, err := st.UpsertAccount(ctx, Account{Provider: "openai", Email: "a@example.com", AccountUUID: uuid,
+			Plan: plan, ExpiresAt: time.Now().Add(time.Hour)}, Tokens{AccessToken: "at", RefreshToken: "rt"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	personal, team := add("acct-personal", "plus"), add("acct-team", "team")
+	if personal.ID == team.ID || personal.Plan != "plus" || team.Plan != "team" {
+		t.Fatalf("two workspaces = %+v and %+v", personal, team)
+	}
+	if got, err := st.AccountByIdentity(ctx, "openai", "acct-team", "a@example.com"); err != nil || got.ID != team.ID {
+		t.Errorf("by id = %s, %v; want the team workspace", got.ID, err)
+	}
+	if _, err := st.AccountByIdentity(ctx, "openai", "acct-other", "a@example.com"); !errors.Is(err, ErrAccountNotFound) {
+		t.Errorf("a third workspace = %v, want not found", err)
+	}
+	// A sign-in again keeps the plan it last said when it says none.
+	again := add("acct-team", "")
+	if again.ID != team.ID || again.Plan != "team" {
+		t.Errorf("signed in again = %+v", again)
+	}
+
+	legacy, err := st.UpsertAccount(ctx, Account{Provider: "anthropic", Email: "old@example.com",
+		ExpiresAt: time.Now().Add(time.Hour)}, Tokens{AccessToken: "at", RefreshToken: "rt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.AccountByIdentity(ctx, "anthropic", "uuid-now-known", "old@example.com"); err != nil || got.ID != legacy.ID {
+		t.Errorf("an account stored without its id = %s, %v; want it found by address", got.ID, err)
 	}
 }

@@ -19,7 +19,10 @@ type Account struct {
 	Provider    string
 	Email       string
 	AccountUUID string
-	ExpiresAt   time.Time
+	// Plan is the subscription, in the provider's word, as the sign-in said;
+	// empty when it did not.
+	Plan      string
+	ExpiresAt time.Time
 	// RefreshExpiresAt is when re-authorisation becomes unavoidable. Zero when
 	// the provider did not say.
 	RefreshExpiresAt time.Time
@@ -212,7 +215,7 @@ func (s *Store) sealTokens(tok Tokens) (access, refresh []byte, err error) {
 }
 
 // UpsertAccount stores a freshly authorised account, or replaces the tokens of
-// one that already exists for this provider and email.
+// one that already exists for this provider, email and account id.
 //
 // Identity (email, uuid) is set at login and never changed afterwards by a
 // refresh; see the note on accounts in schema.sql.
@@ -238,12 +241,13 @@ func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Ac
 	// update list.
 	if err := s.inTx(ctx, "store account", func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO accounts (id, provider, email, account_uuid, access_token, refresh_token,
+			INSERT INTO accounts (id, provider, email, account_uuid, plan, access_token, refresh_token,
 			                      expires_at, refresh_expires_at, created_at, last_refresh_at,
 			                      position)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 			        (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts))
-			ON CONFLICT (provider, email) DO UPDATE SET
+			ON CONFLICT (provider, email, account_uuid) DO UPDATE SET
+				plan               = COALESCE(NULLIF(excluded.plan, ''), plan),
 				access_token       = excluded.access_token,
 				refresh_token      = excluded.refresh_token,
 				expires_at         = excluded.expires_at,
@@ -254,15 +258,16 @@ func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Ac
 				-- A successful consent flow is exactly the human intervention a
 				-- dead refresh token was waiting for.
 				refresh_dead_at    = NULL`,
-			acct.ID, acct.Provider, acct.Email, acct.AccountUUID,
+			acct.ID, acct.Provider, acct.Email, acct.AccountUUID, acct.Plan,
 			sealedAccess, sealedRefresh,
 			ms(acct.ExpiresAt), nullMS(acct.RefreshExpiresAt), ms(now), ms(now)); err != nil {
 			return fmt.Errorf("store account: %w", err)
 		}
 		// The row that took the write, which is not acct.ID on a reconnect.
 		var id string
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM accounts WHERE provider = ? AND email = ?`,
-			acct.Provider, acct.Email).Scan(&id); err != nil {
+		if err := tx.QueryRowContext(ctx,
+			`SELECT id FROM accounts WHERE provider = ? AND email = ? AND account_uuid = ?`,
+			acct.Provider, acct.Email, acct.AccountUUID).Scan(&id); err != nil {
 			return fmt.Errorf("store account: %w", err)
 		}
 		return rememberName(ctx, tx, nameAccount, id, acct.Email)
@@ -270,14 +275,14 @@ func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Ac
 		return Account{}, err
 	}
 
-	return s.AccountByEmail(ctx, acct.Provider, acct.Email)
+	return s.AccountByIdentity(ctx, acct.Provider, acct.AccountUUID, acct.Email)
 }
 
 // accountColumns is every column an Account is read from, in scanAccount's
 // order, selected FROM accountsWithQuota. The quota has its own table, joined
 // rather than subqueried column by column; it shares no column name with
 // accounts, so the statements' own WHERE and ORDER BY stay unqualified.
-const accountColumns = `accounts.id, provider, email, account_uuid, expires_at, refresh_expires_at,
+const accountColumns = `accounts.id, provider, email, account_uuid, plan, expires_at, refresh_expires_at,
                         created_at, last_refresh_at, last_used_at, last_error, disabled_at,
                         refresh_dead_at,
                         q.updated_at, q.five_hour_util, q.five_hour_reset, COALESCE(q.five_hour_status, ''),
@@ -298,7 +303,7 @@ func scanAccount(sc scanner) (Account, error) {
 		util5h, util7d                  sql.NullFloat64
 		modelsOff                       string
 	)
-	if err := sc.Scan(&a.ID, &a.Provider, &a.Email, &a.AccountUUID, &expiresAt, &refreshExpires,
+	if err := sc.Scan(&a.ID, &a.Provider, &a.Email, &a.AccountUUID, &a.Plan, &expiresAt, &refreshExpires,
 		&createdAt, &lastRefresh, &lastUsed, &a.LastError, &disabled, &refreshDead,
 		&quotaUpdated, &util5h, &reset5h, &a.Quota.FiveHourStatus,
 		&util7d, &reset7d, &a.Quota.SevenDayStatus, &a.Position,
@@ -369,9 +374,48 @@ func (s *Store) Account(ctx context.Context, id string) (Account, error) {
 	return a, nil
 }
 
+// AccountByIdentity is the stored account a sign-in names: the provider's own
+// account id where it gave one, and the address otherwise. The id first,
+// because one ChatGPT sign-in reaches a personal workspace and a Team one under
+// the same address and they are two accounts; and an account renamed upstream
+// is still itself. An account stored before its provider's id was known — an
+// Anthropic one from an older release — is found by address, as it always
+// was.
+func (s *Store) AccountByIdentity(ctx context.Context, provider, uuid, email string) (Account, error) {
+	if uuid != "" {
+		row := s.db.QueryRowContext(ctx,
+			`SELECT `+accountColumns+` FROM `+accountsWithQuota+` WHERE provider = ? AND account_uuid = ?
+			  ORDER BY position LIMIT 1`, provider, uuid)
+		a, err := scanAccount(row)
+		if err == nil {
+			return a, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return Account{}, fmt.Errorf("load account: %w", err)
+		}
+		// Not yet known by its id: an account from before ids were stored,
+		// at the same address, is the same one.
+		row = s.db.QueryRowContext(ctx,
+			`SELECT `+accountColumns+` FROM `+accountsWithQuota+`
+			  WHERE provider = ? AND email = ? AND account_uuid = ''`, provider, email)
+		a, err = scanAccount(row)
+		if errors.Is(err, sql.ErrNoRows) {
+			return Account{}, ErrAccountNotFound
+		}
+		if err != nil {
+			return Account{}, fmt.Errorf("load account: %w", err)
+		}
+		return a, nil
+	}
+	return s.AccountByEmail(ctx, provider, email)
+}
+
+// AccountByEmail is the account a provider knows by this address, the first
+// in the priority list when several workspaces share it.
 func (s *Store) AccountByEmail(ctx context.Context, provider, email string) (Account, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT `+accountColumns+` FROM `+accountsWithQuota+` WHERE provider = ? AND email = ?`, provider, email)
+		`SELECT `+accountColumns+` FROM `+accountsWithQuota+` WHERE provider = ? AND email = ?
+		  ORDER BY position LIMIT 1`, provider, email)
 	a, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Account{}, ErrAccountNotFound
@@ -509,10 +553,11 @@ func (s *Store) RenewAccount(ctx context.Context, id string, acct Account, tok T
 			       refresh_expires_at = ?, last_refresh_at = ?,
 			       email = COALESCE(NULLIF(?, ''), email),
 			       account_uuid = COALESCE(NULLIF(?, ''), account_uuid),
+			       plan = COALESCE(NULLIF(?, ''), plan),
 			       last_error = '', disabled_at = NULL, refresh_dead_at = NULL
 			 WHERE id = ?`,
 			sealedAccess, sealedRefresh, ms(acct.ExpiresAt),
-			nullMS(acct.RefreshExpiresAt), ms(time.Now()), acct.Email, acct.AccountUUID, id)
+			nullMS(acct.RefreshExpiresAt), ms(time.Now()), acct.Email, acct.AccountUUID, acct.Plan, id)
 		if err != nil {
 			return fmt.Errorf("renew account: %w", err)
 		}

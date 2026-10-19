@@ -206,20 +206,29 @@ func (s *Server) loadSwitches(ctx context.Context) {
 func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 	cfg, st, log := s.cfg, s.store, s.log
 
-	// What each request cost, classified in the provider's vocabulary and
-	// credited to the key's budget.
+	// The providers are named here, in the composition root, and nowhere
+	// below: the pool is handed each one's token refresh, the poller each
+	// one's usage endpoint, the recorder each one's error vocabulary and the
+	// relay its wire, and none of them knows whose they are.
+	s.providers = provider.Registry{anthropic.Accounts{}}
+
+	// What each request cost, classified in the vocabulary of the provider
+	// that answered and credited to the key's budget. A request no account
+	// served is in the first provider's, which is what the gateway's own
+	// refusals were always classified in.
 	s.recorder = &usagesvc.Recorder{
 		Store:     st,
 		Retention: cfg.Usage.Retention(),
-		Classify:  anthropic.ErrorCode,
-		Budgets:   s.budgets,
-		Log:       log,
+		Classify: func(providerID string, status int, text string) string {
+			p, ok := s.providers.Find(providerID)
+			if !ok {
+				p = s.providers[0]
+			}
+			return p.ErrorCode(status, text)
+		},
+		Budgets: s.budgets,
+		Log:     log,
 	}
-	// The providers are named here, in the composition root, and nowhere
-	// below: the pool is handed each one's token refresh, the poller each
-	// one's usage endpoint and the relay its wire, and none of them knows
-	// whose they are.
-	s.providers = provider.Registry{anthropic.Accounts{}}
 	refresh := map[string]pool.RefreshFunc{}
 	for _, p := range s.providers {
 		refresh[p.ID()] = p.Refresh

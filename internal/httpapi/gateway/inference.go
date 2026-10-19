@@ -193,7 +193,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 			// is the failures that are worth having a record of.
 			s.recorder.Record(store.UsageEvent{
 				At: started, KeyID: key.ID, KeyName: key.Name,
-				AccountID: res.AccountID, AccountEmail: res.AccountEmail,
+				AccountID: res.AccountID, AccountEmail: res.AccountEmail, Provider: res.Provider,
 				Model: model, VirtualModel: virtual, Path: route, Status: 0, Streaming: streaming,
 				ConversationID: conversation, Client: client, IP: ip,
 				Duration: elapsed, Error: res.Err.Error(),
@@ -204,7 +204,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 
 		s.recorder.Record(store.UsageEvent{
 			At: started, KeyID: key.ID, KeyName: key.Name,
-			AccountID: res.AccountID, AccountEmail: res.AccountEmail,
+			AccountID: res.AccountID, AccountEmail: res.AccountEmail, Provider: res.Provider,
 			Model: model, VirtualModel: virtual, Path: route, Status: res.Status, Streaming: streaming,
 			ConversationID:   conversation,
 			Client:           client,
@@ -213,6 +213,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 			OutputTokens:     res.Usage.OutputTokens,
 			CacheReadTokens:  res.Usage.CacheReadTokens,
 			CacheWriteTokens: res.Usage.CacheCreationTokens,
+			ReasoningTokens:  res.Usage.ReasoningTokens,
 			Duration:         elapsed,
 			FirstToken:       res.FirstContent,
 			// A stream that died after its 200 is the more specific fact, so

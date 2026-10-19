@@ -37,8 +37,10 @@ type Recorder struct {
 	// Retention is how long history is kept; zero records nothing.
 	Retention time.Duration
 	// Classify names a failure in one word from its status and the upstream's
-	// text — the provider's vocabulary. Nil leaves ErrorCode as given.
-	Classify func(status int, errText string) string
+	// text, in the vocabulary of the provider that answered — the row's
+	// Provider, empty for a request no account served. Nil leaves ErrorCode
+	// as given.
+	Classify func(provider string, status int, errText string) string
 	// Budgets is credited with each request's tokens; nil for none.
 	Budgets Crediter
 	Log     *slog.Logger
@@ -65,7 +67,7 @@ func (r *Recorder) Record(e store.UsageEvent, budget int64) {
 		return
 	}
 	if r.Classify != nil {
-		e.ErrorCode = r.Classify(e.Status, e.Error)
+		e.ErrorCode = r.Classify(e.Provider, e.Status, e.Error)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

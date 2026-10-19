@@ -828,7 +828,7 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 func titleUsage(started time.Time, keyID, keyName, conversation, model string, res relay.Result) store.UsageEvent {
 	e := store.UsageEvent{
 		At: started, KeyID: keyID, KeyName: keyName,
-		AccountID: res.AccountID, AccountEmail: res.AccountEmail,
+		AccountID: res.AccountID, AccountEmail: res.AccountEmail, Provider: res.Provider,
 		Model: model, Path: store.InternalPath,
 		// No Client: this row is the gateway's own, and the column means "who
 		// was having this conversation". Stamping it here put the gateway's
@@ -841,6 +841,7 @@ func titleUsage(started time.Time, keyID, keyName, conversation, model string, r
 		OutputTokens:     res.Usage.OutputTokens,
 		CacheReadTokens:  res.Usage.CacheReadTokens,
 		CacheWriteTokens: res.Usage.CacheCreationTokens,
+		ReasoningTokens:  res.Usage.ReasoningTokens,
 		Duration:         time.Since(started),
 	}
 	switch {

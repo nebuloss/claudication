@@ -56,7 +56,7 @@ func (c credits) Add(id string, n int64) { c[id] += n }
 func TestRecordClassifiesAndCreditsTheBudget(t *testing.T) {
 	st, cr := &fakeStore{}, credits{}
 	r := &Recorder{Store: st, Retention: 24 * time.Hour, Budgets: cr,
-		Classify: func(status int, text string) string {
+		Classify: func(_ string, status int, text string) string {
 			if status >= 400 {
 				return "rate_limit_error"
 			}

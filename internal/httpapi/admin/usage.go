@@ -55,7 +55,13 @@ type RequestJSON struct {
 	At           string `json:"at"`
 	KeyName      string `json:"key_name,omitempty"`
 	AccountEmail string `json:"account_email,omitempty"`
-	Model        string `json:"model,omitempty"`
+	// Provider is whose account served it — anthropic, openai — so a row
+	// names the account's provider beside its address.
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	// ReasoningTokens is the part of OutputTokens spent reasoning, where the
+	// provider said.
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 	// VirtualModel is what the client asked for, when that was a virtual
 	// model; Model is then the real one that served it.
 	VirtualModel string `json:"virtual_model,omitempty"`
@@ -99,27 +105,29 @@ type RequestJSON struct {
 // one of them quietly starts reporting a different duration unit.
 func (s *Admin) toRequestJSON(e store.UsageEvent) RequestJSON {
 	return RequestJSON{
-		ID:           e.ID,
-		At:           e.At.UTC().Format(time.RFC3339),
-		KeyName:      e.KeyName,
-		AccountEmail: e.AccountEmail,
-		Model:        e.Model,
-		VirtualModel: e.VirtualModel,
-		Path:         e.Path,
-		Status:       e.Status,
-		Streaming:    e.Streaming,
-		InputTokens:  e.InputTokens,
-		OutputTokens: e.OutputTokens,
-		CacheTokens:  e.CacheReadTokens + e.CacheWriteTokens,
-		DurationMS:   e.Duration.Milliseconds(),
-		FirstTokenMS: e.FirstToken.Milliseconds(),
-		Error:        e.Error,
-		ErrorKind:    s.refusal("", e.Error),
-		ErrorCode:    e.ErrorCode,
-		Rejected:     e.Rejected,
-		IP:           e.IP,
-		Client:       e.Client,
-		Conversation: e.ConversationID,
+		ID:              e.ID,
+		At:              e.At.UTC().Format(time.RFC3339),
+		KeyName:         e.KeyName,
+		AccountEmail:    e.AccountEmail,
+		Provider:        e.Provider,
+		Model:           e.Model,
+		VirtualModel:    e.VirtualModel,
+		Path:            e.Path,
+		Status:          e.Status,
+		Streaming:       e.Streaming,
+		InputTokens:     e.InputTokens,
+		OutputTokens:    e.OutputTokens,
+		CacheTokens:     e.CacheReadTokens + e.CacheWriteTokens,
+		DurationMS:      e.Duration.Milliseconds(),
+		FirstTokenMS:    e.FirstToken.Milliseconds(),
+		Error:           e.Error,
+		ReasoningTokens: e.ReasoningTokens,
+		ErrorKind:       s.refusal(e.Provider, e.Error),
+		ErrorCode:       e.ErrorCode,
+		Rejected:        e.Rejected,
+		IP:              e.IP,
+		Client:          e.Client,
+		Conversation:    e.ConversationID,
 	}
 }
 
