@@ -9,12 +9,16 @@ export interface UsageLimitRow {
   severity: string
   resets_at?: string
   is_active: boolean
+  /** The window's length, when the provider reports one (ChatGPT does). */
+  window_seconds?: number
 }
 
 /**
- * What /api/oauth/usage reported — the same figures `/usage` prints. The
- * 5-hour window is what bites during a working session; the 7-day one is what
- * runs out over a heavy week. Percentages are 0-100.
+ * What the provider last reported — for Claude the same figures `/usage`
+ * prints, for ChatGPT the backend's own windows. The 5-hour window is what
+ * bites during a working session; the 7-day one is what runs out over a heavy
+ * week. Each provider's windows land in these two by their length.
+ * Percentages are 0-100.
  */
 export interface Quota {
   updated_at: string
@@ -33,6 +37,8 @@ export interface Account {
   id: string
   provider: string
   email: string
+  /** The subscription the sign-in named (ChatGPT's plus, pro, team). */
+  plan?: string
   expires_at: string
   created_at: string
   last_refresh_at?: string
@@ -87,11 +93,23 @@ export interface ProbeResult {
   error?: string
 }
 
+/**
+ * A sign-in begun. `flow` says which kind: a consent page whose code is
+ * pasted back (Claude), or a device code entered on the provider's own page
+ * while this one asks whether it has been (ChatGPT).
+ */
 export interface OAuthStart {
   provider: string
+  flow: 'paste' | 'device'
   state: string
-  auth_url: string
-  redirect_uri: string
+  /** The consent page, for a paste sign-in. */
+  auth_url?: string
+  redirect_uri?: string
+  /** The code and the page to enter it on, for a device sign-in. */
+  user_code?: string
+  verification_uri?: string
+  /** How often to ask whether it has been approved, in seconds. */
+  interval_s?: number
   expires_at: string
   instructions: string
   /** Set on a reconnect: the account being renewed, and who to sign in as. */
@@ -187,6 +205,8 @@ export interface UsageTotals {
 export interface UsageBucket {
   label: string
   id?: string
+  /** An account bucket's provider. */
+  provider?: string
   requests: number
   errors: number
   input_tokens: number
@@ -317,7 +337,11 @@ export interface RequestRow {
   at: string
   key_name?: string
   account_email?: string
+  /** Whose account served it: anthropic, openai. */
+  provider?: string
   model?: string
+  /** The part of output_tokens spent reasoning, where the provider said. */
+  reasoning_tokens?: number
   /** What the client asked for, when that was a virtual model. */
   virtual_model?: string
   path: string
@@ -467,6 +491,10 @@ export interface Model {
   virtual?: boolean
   serving?: string
   role?: string
+  /** Whose accounts serve it, when not Anthropic's: openai. */
+  provider?: string
+  /** The provider's own ranking of its models, best first (ChatGPT's). */
+  priority?: number
 }
 
 /** A model role — claude-large, claude-small — for the gateway or one key. */
@@ -477,9 +505,11 @@ export interface ModelRole {
    * newest of family); for a key, empty is "follow the gateway".
    */
   model: string
-  /** What a built-in follows while unbound; empty for a custom alias. */
+  /** What a built-in Claude alias follows while unbound; empty otherwise. */
   family: string
   builtin: boolean
+  /** Whose models a built-in alias follows while unbound: anthropic, openai. */
+  provider?: string
   /** What a request for the role gets now, and why not when it cannot. */
   serving: string
   problem?: string

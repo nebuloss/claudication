@@ -1,5 +1,6 @@
 import type { RequestRow } from '../../../api/client'
 import { compact } from '../../format'
+import { providerLabel } from '../../providers'
 import type { Tone } from '../../styles/tone'
 
 /**
@@ -91,8 +92,24 @@ export class RequestRecord {
     if (r.input_tokens + r.output_tokens === 0) return '—'
     return (
       `${compact(r.input_tokens)} in / ${compact(r.output_tokens)} out` +
+      // Part of the output, not beside it: the provider bills it as output.
+      (r.reasoning_tokens !== undefined && r.reasoning_tokens > 0
+        ? ` (${compact(r.reasoning_tokens)} reasoning)`
+        : '') +
       (r.cache_tokens > 0 ? ` / ${compact(r.cache_tokens)} cached` : '')
     )
+  }
+
+  /**
+   * The account, with whose it is: two providers' accounts can share an
+   * address, and the address alone does not say which served.
+   */
+  get accountLabel(): string {
+    const r = this.row
+    if (r.account_email === undefined || r.account_email === '') return '—'
+    return r.provider !== undefined && r.provider !== ''
+      ? `${r.account_email} · ${providerLabel(r.provider)}`
+      : r.account_email
   }
 
   /** The model, and the virtual one the client asked for when it was one. */
@@ -135,11 +152,12 @@ export class RequestRecord {
       `chat:      ${dash(r.conversation_id)}`,
       `client:    ${dash(r.client)}`,
       `key:       ${dash(r.key_name)}`,
-      `account:   ${dash(r.account_email)}`,
+      `account:   ${this.accountLabel}`,
       `ip:        ${dash(r.ip)}`,
       `path:      ${r.path}`,
       `streaming: ${r.streaming ? 'yes' : 'no'}`,
-      `tokens:    ${r.input_tokens} in / ${r.output_tokens} out / ${r.cache_tokens} cache`,
+      `tokens:    ${r.input_tokens} in / ${r.output_tokens} out / ${r.cache_tokens} cache` +
+        (r.reasoning_tokens !== undefined && r.reasoning_tokens > 0 ? ` / ${r.reasoning_tokens} reasoning` : ''),
       `duration:  ${r.duration_ms}ms`,
       `first tok: ${r.first_token_ms === undefined ? '—' : `${r.first_token_ms}ms`}`,
     ]

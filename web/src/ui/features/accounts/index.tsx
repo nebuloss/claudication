@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import AddAccount from './add'
 import { QuotaGauges } from './quota-meter'
-import { byProvider, providerLabel } from '../../providers'
+import { byProvider, planLabel, providerLabel } from '../../providers'
 import { accountHref } from '../../route'
 import { api, type Account } from '../../../api/client'
 import { useAction, useLoader } from '../../hooks'
@@ -274,7 +274,12 @@ function AccountRow({
         </>
       }
       title={a.email}
-      subtitle={`${compact(a.requests)} requests · ${compact(a.tokens)} tokens over ${windowDays}d`}
+      subtitle={[
+        planLabel(a.plan),
+        `${compact(a.requests)} requests · ${compact(a.tokens)} tokens over ${windowDays}d`,
+      ]
+        .filter((part) => part !== '')
+        .join(' · ')}
       chips={
         <>
           {a.serving && <Chip tone="ok">serving</Chip>}

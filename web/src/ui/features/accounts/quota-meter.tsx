@@ -1,7 +1,8 @@
 import type { Quota } from '../../../api/client'
-import { QuotaWindow } from '../../domain/quota'
+import { FIVE_HOURS_S, QuotaWindow, SEVEN_DAYS_S, windowShort, windowTitle } from '../../domain/quota'
 import { MeterRow, Muted, Stack, UsageBar } from '../../primitives'
 import { relative } from '../../format'
+import { providerOf } from '../../providers'
 
 /**
  * The two headline windows, short enough for a row: the account list, and the
@@ -10,12 +11,22 @@ import { relative } from '../../format'
  * Drawn from the same QuotaWindow as the full meter below, so a row and the
  * page it opens cannot colour one account differently — they used to, with
  * thresholds of their own, and the row ignored the server's severity.
+ *
+ * Labelled from the windows' length, which is what put each provider's
+ * figures in them: ChatGPT calls its windows primary and secondary, and
+ * which is which is a matter of length, not of name.
  */
 export function QuotaGauges({ quota }: { quota: Quota }) {
   return (
     <>
-      <Gauge label="5h" window={new QuotaWindow(quota.five_hour_util, quota.five_hour_status)} />
-      <Gauge label="7d" window={new QuotaWindow(quota.seven_day_util, quota.seven_day_status)} />
+      <Gauge
+        label={windowShort(FIVE_HOURS_S)}
+        window={new QuotaWindow(quota.five_hour_util, quota.five_hour_status)}
+      />
+      <Gauge
+        label={windowShort(SEVEN_DAYS_S)}
+        window={new QuotaWindow(quota.seven_day_util, quota.seven_day_status)}
+      />
     </>
   )
 }
@@ -36,20 +47,25 @@ function Gauge({ label, window: w }: { label: string; window: QuotaWindow }) {
 }
 
 /**
- * What the subscription has left — the same rows `/usage` prints in the client,
- * because they come from the same place: /api/oauth/usage.
+ * What the subscription has left — for Claude the same rows `/usage` prints in
+ * the client, because they come from the same place, /api/oauth/usage; for
+ * ChatGPT one row per window, as the backend reports them, titled by length.
  *
  * These are the subscription's own figures, so they count every client on the
  * account rather than only traffic through this gateway. Percentages arrive
- * 0-100, as the endpoint sends them.
+ * 0-100, as the endpoints send them.
  */
 export default function QuotaMeter({
   quota,
   pending,
+  provider,
 }: {
   quota: Quota | undefined
   pending: boolean
+  /** Whose figures, for saying where they come from. */
+  provider: string
 }) {
+  const from = providerOf(provider)?.usage
   if (quota === undefined) {
     return (
       <Muted size="xs">
@@ -63,20 +79,20 @@ export default function QuotaMeter({
   const rows =
     quota.limits !== undefined && quota.limits.length > 0
       ? quota.limits.map((l) => ({
-          title: l.title,
+          title: l.title !== '' ? l.title : windowTitle(l.window_seconds ?? 0),
           window: new QuotaWindow(l.percent, l.severity),
           resets: l.resets_at,
           active: l.is_active,
         }))
       : [
           {
-            title: 'Current session',
+            title: windowTitle(FIVE_HOURS_S),
             window: new QuotaWindow(quota.five_hour_util, quota.five_hour_status),
             resets: quota.five_hour_reset,
             active: false,
           },
           {
-            title: 'Current week (all models)',
+            title: windowTitle(SEVEN_DAYS_S),
             window: new QuotaWindow(quota.seven_day_util, quota.seven_day_status),
             resets: quota.seven_day_reset,
             active: false,
@@ -88,11 +104,12 @@ export default function QuotaMeter({
       {rows.map((r) => (
         <Window key={r.title} {...r} />
       ))}
-      <p className="text-[11px] text-on-surface-variant">
-        From the account's own usage endpoint, read {relative(quota.updated_at)} — the same figures
-        as <span className="font-mono">/usage</span> in Claude Code, so they include whatever else
-        uses this account.
-      </p>
+      <Muted size="xs">
+        From the account&rsquo;s own usage endpoint
+        {from !== undefined && <> at {from.source}</>}, read {relative(quota.updated_at)} — the same
+        figures as {from !== undefined ? from.client : 'its own client shows'}, so they include
+        whatever else uses this account.
+      </Muted>
     </Stack>
   )
 }

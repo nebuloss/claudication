@@ -20,6 +20,7 @@ import {
   WindowPicker,
 } from '../../primitives'
 import { compact } from '../../format'
+import { providerLabel } from '../../providers'
 
 const WINDOWS = [1, 7, 30] as const
 
@@ -56,6 +57,13 @@ function Breakdown({
 }) {
   const [all, setAll] = useState(false)
   const value = measure === 'tokens' ? tokensOf : (b: UsageBucket) => b.requests
+  // Accounts say whose they are once there is more than one provider among
+  // them: two providers' accounts can share an address.
+  const providers = new Set(buckets.map((b) => b.provider ?? '').filter((p) => p !== ''))
+  const labelOf = (b: UsageBucket) =>
+    providers.size > 1 && b.provider !== undefined && b.provider !== ''
+      ? `${b.label} · ${providerLabel(b.provider)}`
+      : b.label
   const sorted = [...buckets].sort((a, b) => value(b) - value(a))
   const shown = all ? sorted : sorted.slice(0, TOP)
   return (
@@ -70,7 +78,7 @@ function Breakdown({
           scale="log"
           format={compact}
           rows={shown.map((b) => ({
-            label: b.label,
+            label: labelOf(b),
             value: value(b),
             right:
               measure === 'tokens'

@@ -64,7 +64,7 @@ export function RequestDetail({ record, onClose }: { record: RequestRecord; onCl
             ['Chat', <Mono>{record.field('conversation_id')}</Mono>],
             ['Client', record.field('client')],
             ['Key', record.field('key_name')],
-            ['Account', record.field('account_email')],
+            ['Account', record.accountLabel],
             ['IP', <Mono>{record.field('ip')}</Mono>],
             ['Path', <Mono>{row.path}</Mono>],
             ['Tokens', record.tokensLong],

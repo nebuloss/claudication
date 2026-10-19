@@ -8,7 +8,7 @@ import ScopedUsage from '../usage'
 import { api, type Account } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { navigate, pathOf, type AccountPageId } from '../../route'
-import { providerLabel } from '../../providers'
+import { planLabel, providerLabel, providerOf } from '../../providers'
 import {
   AppLink,
   Button,
@@ -30,9 +30,9 @@ import { compact, dateTime, relative } from '../../format'
 const REFRESH_MS = 20_000
 
 /**
- * One Claude account, on its pages:
+ * One account, Claude or ChatGPT, on its pages:
  *
- *   /accounts/<id>/usage     the subscription's own windows as Anthropic
+ *   /accounts/<id>/usage     the subscription's own windows as its provider
  *                            reports them, and what this gateway sent it
  *   /accounts/<id>/chats     the conversations it served
  *   /accounts/<id>/requests  the request log, narrowed to it
@@ -54,9 +54,13 @@ export default function AccountPage({
     { refreshMs: REFRESH_MS },
   )
 
-  const accounts = data?.accounts ?? []
+  const all = data?.accounts ?? []
+  const account = all.find((a) => a.id === id)
+  // Priority is within the account's own provider: a Claude request is
+  // served by the first Claude account with room, whatever the ChatGPT ones
+  // are doing, and the list orders each provider apart.
+  const accounts = all.filter((a) => a.provider === account?.provider)
   const rank = accounts.findIndex((a) => a.id === id)
-  const account = rank >= 0 ? accounts[rank] : undefined
 
   if (loading && data === null) return <Loading />
   if (account === undefined) {
@@ -107,7 +111,13 @@ export default function AccountPage({
         kind="accounts"
         id={account.id}
         title={account.email}
-        subtitle={`Priority ${rank + 1} of ${accounts.length} · ${account.provider}`}
+        subtitle={[
+          `Priority ${rank + 1} of ${accounts.length}`,
+          providerLabel(account.provider),
+          planLabel(account.plan),
+        ]
+          .filter((part) => part !== '')
+          .join(' · ')}
         aside={
           <>
             {account.serving && <Chip tone="ok">serving</Chip>}
@@ -131,7 +141,7 @@ export default function AccountPage({
 
 /**
  * An account at a glance, on its own path: its figures, the subscription's
- * windows as Anthropic reports them, and the facts about it.
+ * windows as its provider reports them, and the facts about it.
  */
 function AccountOverview({
   account,
@@ -168,8 +178,8 @@ function AccountOverview({
         title="Subscription"
         info={
           <p>
-            As Anthropic reports it, counting every client on this account — not only this
-            gateway.
+            As {providerOf(account.provider)?.usage.source ?? account.provider} reports it, counting
+            every client on this account — not only this gateway.
           </p>
         }
         aside={
@@ -192,12 +202,15 @@ function AccountOverview({
           </Button>
         }
       >
-        <QuotaMeter quota={account.quota} pending={reading} />
+        <QuotaMeter quota={account.quota} pending={reading} provider={account.provider} />
       </Card>
       <Card>
         <KeyValue
           items={[
             ['Provider', providerLabel(account.provider)],
+            ...(account.plan !== undefined && account.plan !== ''
+              ? ([['Plan', planLabel(account.plan)]] as [string, string][])
+              : []),
             ['Priority', `${rank + 1} of ${total}`],
             ['Serving', account.disabled ? 'paused' : account.serving ? 'yes, now' : 'when its turn comes'],
             [

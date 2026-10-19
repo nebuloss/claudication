@@ -23,8 +23,11 @@ type UsageTotals struct {
 
 // UsageBucket is one group — a day, a model, a key, an account.
 type UsageBucket struct {
-	Label        string `json:"label"`
-	ID           string `json:"id,omitempty"`
+	Label string `json:"label"`
+	ID    string `json:"id,omitempty"`
+	// Provider is an account bucket's provider, so a screen naming the
+	// account can say whose it is; empty on every other breakdown.
+	Provider     string `json:"provider,omitempty"`
 	Requests     int64  `json:"requests"`
 	Errors       int64  `json:"errors"`
 	InputTokens  int64  `json:"input_tokens"`
@@ -154,10 +157,10 @@ func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) 
 		        COALESCE(NULLIF(`+nameOf(nameKey, "g.key_id")+`, ''), '(deleted key)'),
 		        account_id,
 		        COALESCE(NULLIF(`+nameOf(nameAccount, "g.account_id")+`, ''), '(unknown)'),
-		        status, requests, errors, input, output, cache_read, cache_write
+		        provider, status, requests, errors, input, output, cache_read, cache_write
 		   FROM (SELECT strftime('%Y-%m-%d', at / 1000, 'unixepoch') AS day,
 		                CASE WHEN model = '' THEN '(none)' ELSE model END AS model,
-		                key_id, account_id, status,
+		                key_id, account_id, provider, status,
 		                COUNT(*) AS requests,
 		                COALESCE(SUM(`+sqlIsError+`), 0) AS errors,
 		                COALESCE(SUM(input_tokens), 0) AS input,
@@ -165,7 +168,7 @@ func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) 
 		                COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
 		                COALESCE(SUM(cache_write_tokens), 0) AS cache_write
 		           FROM usage_events WHERE `+sqlCounted+` AND at >= ?`+narrow+`
-		          GROUP BY day, model, key_id, account_id, status) g`,
+		          GROUP BY day, model, key_id, account_id, provider, status) g`,
 		append([]any{from}, narrowArgs...)...)
 	if err != nil {
 		return rep, fmt.Errorf("usage report: %w", err)
@@ -181,12 +184,12 @@ func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) 
 
 	for rows.Next() {
 		var (
-			day, model, keyID, keyName, accountID, accountEmail string
-			status                                              int
-			requests, errCount                                  int64
-			in, out, cacheRead, cacheWrite                      int64
+			day, model, keyID, keyName, accountID, accountEmail, provider string
+			status                                                        int
+			requests, errCount                                            int64
+			in, out, cacheRead, cacheWrite                                int64
 		)
-		if err := rows.Scan(&day, &model, &keyID, &keyName, &accountID, &accountEmail,
+		if err := rows.Scan(&day, &model, &keyID, &keyName, &accountID, &accountEmail, &provider,
 			&status, &requests, &errCount, &in, &out, &cacheRead, &cacheWrite); err != nil {
 			return rep, fmt.Errorf("usage report: %w", err)
 		}
@@ -209,7 +212,7 @@ func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) 
 		byDay.add(day, "", g)
 		byModel.add(model, "", g)
 		byKey.add(keyName, keyID, g)
-		byAccount.add(accountEmail, accountID, g)
+		byAccount.add(accountEmail, accountID, g).Provider = provider
 		byStatus.add(strconv.Itoa(status), "", counts)
 
 		cross.add(CrossModel, day, model, g)
@@ -297,7 +300,7 @@ type bucketSet struct {
 
 func newBucketSet() *bucketSet { return &bucketSet{index: map[string]int{}} }
 
-func (b *bucketSet) add(label, id string, g UsageBucket) {
+func (b *bucketSet) add(label, id string, g UsageBucket) *UsageBucket {
 	k := id + "\x00" + label
 	i, ok := b.index[k]
 	if !ok {
@@ -311,6 +314,7 @@ func (b *bucketSet) add(label, id string, g UsageBucket) {
 	t.InputTokens += g.InputTokens
 	t.OutputTokens += g.OutputTokens
 	t.CacheTokens += g.CacheTokens
+	return t
 }
 
 func (b *bucketSet) sortedByLabel() []UsageBucket {

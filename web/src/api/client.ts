@@ -138,6 +138,19 @@ const accounts = {
       ...(accountId !== undefined ? { account_id: accountId } : {}),
     }),
 
+  /**
+   * Asks once whether a device code has been approved: null while it has not,
+   * the stored account once it has.
+   */
+  pollOAuth: async (provider: string, state: string): Promise<OAuthResult | null> => {
+    const res = await http.post<{ account?: Account; renewed?: boolean; status?: string }>(
+      '/admin/accounts/oauth/poll',
+      { provider, state },
+    )
+    if (res.account === undefined) return null
+    return { account: res.account, renewed: res.renewed === true }
+  },
+
   completeOAuth: async (provider: string, state: string, redirectUrl: string): Promise<OAuthResult> => {
     const res = await http.post<{ account: Account; renewed?: boolean }>(
       '/admin/accounts/oauth/complete',

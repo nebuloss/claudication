@@ -34,6 +34,29 @@ export function quotaLevel(pct: number, severity = ''): QuotaLevel {
   return 'normal'
 }
 
+/**
+ * The two windows the gateway keeps figures for, by length: each provider's
+ * windows are put in these by how long they are, not by what it calls them.
+ */
+export const FIVE_HOURS_S = 5 * 60 * 60
+export const SEVEN_DAYS_S = 7 * 24 * 60 * 60
+
+/** A window's length as a gauge says it: "5h", "7d", "90m". */
+export function windowShort(seconds: number): string {
+  if (seconds <= 0) return '—'
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`
+  if (seconds % 3_600 === 0) return `${seconds / 3_600}h`
+  return `${Math.round(seconds / 60)}m`
+}
+
+/** A window's length as a heading says it: "5-hour window", "7-day window". */
+export function windowTitle(seconds: number): string {
+  if (seconds <= 0) return 'Window'
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}-day window`
+  if (seconds % 3_600 === 0) return `${seconds / 3_600}-hour window`
+  return `${Math.round(seconds / 60)}-minute window`
+}
+
 const LEVEL_TONE: Record<QuotaLevel, Tone> = {
   unknown: 'neutral',
   normal: 'ok',

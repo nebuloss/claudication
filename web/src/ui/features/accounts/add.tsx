@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   api,
   ApiError,
@@ -11,17 +11,43 @@ import {
   Actions,
   Banner,
   Button,
+  ButtonLink,
   Card,
   CopyField,
   ErrorBanner,
   Field,
   InlineLink,
+  Muted,
+  Spinner,
   Stack,
 } from '../../primitives'
-import { PROVIDERS } from '../../providers'
+import { PROVIDERS, providerOf } from '../../providers'
 import { useSession } from '../../session'
 
 type Phase = 'idle' | 'starting' | 'waiting' | 'exchanging'
+
+/**
+ * An account's sign-in, as its provider runs it: a consent page and a pasted
+ * code for Claude, a device code for ChatGPT (see providers.ts). With
+ * `account`, the same flow reconnects that account instead of adding one.
+ */
+export function ConsentFlow({
+  account,
+  provider = account?.provider ?? 'anthropic',
+  onDone,
+  onCancel,
+}: {
+  account?: Account
+  /** Whose login: the account's own when reconnecting. */
+  provider?: string
+  onDone: (r: OAuthResult) => void
+  onCancel: () => void
+}) {
+  if (providerOf(provider)?.signIn === 'device') {
+    return <DeviceFlow account={account} provider={provider} onDone={onDone} onCancel={onCancel} />
+  }
+  return <PasteFlow account={account} provider={provider} onDone={onDone} onCancel={onCancel} />
+}
 
 /**
  * The Claude OAuth login, driven from the browser.
@@ -34,22 +60,21 @@ type Phase = 'idle' | 'starting' | 'waiting' | 'exchanging'
  * listens on the operator's machine, so that only ever produced an address bar
  * to copy from.
  *
- * With `account`, the same flow reconnects that account instead of adding one.
- * The gateway names the account to Anthropic and refuses the result if it
- * comes back as anyone else — which is what happens when the browser is signed
- * in to a different Claude account, because the browser, not the gateway,
- * decides who approves. So a reconnect says who to sign in as, and offers the
- * link to open in a private window where no one is signed in.
+ * On a reconnect the gateway names the account to Anthropic and refuses the
+ * result if it comes back as anyone else — which is what happens when the
+ * browser is signed in to a different Claude account, because the browser,
+ * not the gateway, decides who approves. So a reconnect says who to sign in
+ * as, and offers the link to open in a private window where no one is signed
+ * in.
  */
-export function ConsentFlow({
+function PasteFlow({
   account,
-  provider = account?.provider ?? 'anthropic',
+  provider,
   onDone,
   onCancel,
 }: {
   account?: Account
-  /** Whose login: the account's own when reconnecting. */
-  provider?: string
+  provider: string
   onDone: (r: OAuthResult) => void
   onCancel: () => void
 }) {
@@ -88,7 +113,7 @@ export function ConsentFlow({
           } catch {
             // Some browsers make opener read-only; navigation still works.
           }
-          tab.location.replace(s.auth_url)
+          tab.location.replace(s.auth_url ?? '')
         } else {
           setBlocked(true)
         }
@@ -185,7 +210,7 @@ export function ConsentFlow({
                   </>
                 )}{' '}
                 in the tab that just opened{' '}
-                <InlineLink href={start.auth_url} primary>
+                <InlineLink href={start.auth_url ?? ''} primary>
                   (reopen it)
                 </InlineLink>
               </li>
@@ -196,7 +221,7 @@ export function ConsentFlow({
             {who !== undefined && (
               <CopyField
                 label="Signed in as someone else? Open this in a private window"
-                value={start.auth_url}
+                value={start.auth_url ?? ''}
               />
             )}
 
@@ -233,10 +258,168 @@ export function ConsentFlow({
   )
 }
 
+/** How long a device sign-in waits between questions when the provider names no interval. */
+const DEFAULT_POLL_S = 5
+
+/**
+ * ChatGPT's: a device code. The gateway asks OpenAI for a short code; the
+ * operator enters it on OpenAI's own page, in whichever browser is signed in
+ * to the account to connect; this page asks the gateway, at the interval
+ * OpenAI named, whether it has been approved, and is done when it has.
+ *
+ * Nothing comes back from that browser to this one, so it works the same
+ * wherever the gateway runs — Codex's own browser login redirects to a
+ * listener on the machine running it, which for a gateway is nobody.
+ *
+ * With `account`, the same flow reconnects it, and the gateway refuses the
+ * result if it comes back as another workspace: one ChatGPT sign-in can reach
+ * a personal and a Team workspace under the same address, and they are two
+ * accounts here.
+ */
+function DeviceFlow({
+  account,
+  provider,
+  onDone,
+  onCancel,
+}: {
+  account?: Account
+  provider: string
+  onDone: (r: OAuthResult) => void
+  onCancel: () => void
+}) {
+  const [start, setStart] = useState<OAuthStart | null>(null)
+  const [starting, setStarting] = useState(false)
+  const [error, setError] = useState('')
+  const session = useSession()
+  const who = account?.email
+  const label = providerOf(provider)?.label ?? provider
+  // The latest callbacks, so the polling effect does not restart when the
+  // parent re-renders with new ones.
+  const done = useRef(onDone)
+  done.current = onDone
+
+  const begin = () => {
+    setStarting(true)
+    setError('')
+    api.accounts
+      .startOAuth(provider, account?.id)
+      .then((s) => setStart(s))
+      .catch((err: unknown) => {
+        if (!session.report(err)) setError(messageOf(err))
+      })
+      .finally(() => setStarting(false))
+  }
+
+  // One question at a time, each after the interval: the gateway asks
+  // OpenAI once per call, and asking faster than OpenAI said is refused.
+  useEffect(() => {
+    if (start === null) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const ask = () => {
+      api.accounts
+        .pollOAuth(provider, start.state)
+        .then((result) => {
+          if (cancelled) return
+          if (result === null) {
+            timer = setTimeout(ask, (start.interval_s ?? DEFAULT_POLL_S) * 1000)
+            return
+          }
+          setStart(null)
+          done.current(result)
+        })
+        .catch((err: unknown) => {
+          if (cancelled || session.report(err)) return
+          setError(messageOf(err))
+          // Spent, refused as someone else, or expired: back to the start,
+          // where a new code is one click away.
+          if (err instanceof ApiError && err.type !== 'exchange_failed') setStart(null)
+          else timer = setTimeout(ask, (start.interval_s ?? DEFAULT_POLL_S) * 1000)
+        })
+    }
+    timer = setTimeout(ask, (start.interval_s ?? DEFAULT_POLL_S) * 1000)
+    return () => {
+      cancelled = true
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [start, provider, session])
+
+  return (
+    <>
+      <ErrorBanner error={error} className="mb-4" />
+
+      {start === null ? (
+        <>
+          <p className="mb-4 text-sm text-on-surface-variant">
+            {who !== undefined ? (
+              <>
+                Sign in as <span className="font-medium text-on-surface">{who}</span>, in the same
+                workspace, to give this account fresh credentials. It keeps its place in the list
+                and its history.
+              </>
+            ) : (
+              <>
+                Gives you a code to enter on OpenAI&rsquo;s own page, in any browser signed in to
+                the {label} account to add. Each workspace is an account of its own: a personal one
+                and a Team one under the same address are added separately. These accounts serve
+                Codex, over the OpenAI Responses API.
+              </>
+            )}
+          </p>
+          <Button onClick={begin} busy={starting}>
+            {starting ? 'Asking OpenAI…' : who !== undefined ? 'Start reconnect' : `Start ${label} login`}
+          </Button>
+        </>
+      ) : (
+        <Stack>
+          <ol className="m-0 flex list-decimal flex-col gap-2 pl-5 text-sm text-on-surface-variant">
+            <li>
+              Open OpenAI&rsquo;s device page and sign in
+              {who !== undefined && (
+                <>
+                  {' '}
+                  as <span className="font-medium text-on-surface">{who}</span>
+                </>
+              )}
+              .
+            </li>
+            <li>Enter the code below, and approve.</li>
+            <li>This page notices on its own and adds the account.</li>
+          </ol>
+
+          <CopyField label="Your code" value={start.user_code ?? ''} />
+
+          <Actions>
+            <ButtonLink href={start.verification_uri ?? ''} external variant="filled">
+              Open the device page
+            </ButtonLink>
+            <Button
+              variant="text"
+              onClick={() => {
+                setStart(null)
+                setError('')
+                onCancel()
+              }}
+            >
+              Cancel
+            </Button>
+          </Actions>
+
+          <Muted size="xs">
+            <span className="inline-flex items-center gap-2">
+              <Spinner />
+              Waiting for the code to be entered — it works for fifteen minutes.
+            </span>
+          </Muted>
+        </Stack>
+      )}
+    </>
+  )
+}
+
 /**
  * The new-account form at the top of the Accounts page: which provider, then
- * that provider's login. One provider today, chosen already; the choice is
- * shown anyway, so it is clear what kind of account is being added.
+ * that provider's login.
  */
 export default function AddAccount({
   onAdded,

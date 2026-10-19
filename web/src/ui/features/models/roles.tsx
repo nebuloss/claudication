@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api, type ClientRole, type Model, type ModelRole } from '../../../api/client'
 import { useAction, useLoader } from '../../hooks'
+import { providerLabel } from '../../providers'
 import {
   Button,
   Card,
@@ -27,13 +28,19 @@ import {
 /**
  * Model aliases: names the gateway's configs ask for instead of real models.
  *
- * Two are roles, the two slots every client has — claude-large for the model
- * doing the work, claude-small for titles and summaries — and four are the
- * families, which is how Claude Code names its tiers. Which real model
- * answers each is decided here, once, instead of in every client: for the
- * whole gateway, per client — Codex's claude-large apart from Claude Code's —
- * and per key in its settings. A key's binding wins over its client's, and a
- * client's over the gateway's.
+ * Four are roles, the two slots every client has twice over —
+ * claude-large and gpt-large for the model doing the work, claude-small and
+ * gpt-small for titles and summaries — and the rest are the Claude families,
+ * which is how Claude Code names its tiers. Which real model answers each is
+ * decided here, once, instead of in every client: for the whole gateway, per
+ * client — Codex's claude-large apart from Claude Code's — and per key in its
+ * settings. A key's binding wins over its client's, and a client's over the
+ * gateway's.
+ *
+ * Any alias may serve any provider's model: the request goes to whichever
+ * provider's accounts serve the model it resolves to. Claude Code speaks only
+ * Anthropic's API, so an alias it uses bound to a ChatGPT model is refused to
+ * it, and the row says so before anyone meets the refusal.
  */
 
 const PURPOSE: Record<string, string> = {
@@ -43,6 +50,10 @@ const PURPOSE: Record<string, string> = {
   'claude-sonnet': 'Claude Code’s sonnet tier.',
   'claude-haiku': 'Claude Code’s haiku tier.',
   'claude-fable': 'Claude Code’s fable tier, and its “best”.',
+  'gpt-large':
+    'Codex’s main model on your ChatGPT accounts. Unbound, the backend’s own first choice of the models they list.',
+  'gpt-small':
+    'Quick calls on your ChatGPT accounts. Unbound, the last-ranked model of the first choice’s generation — its light one.',
 }
 
 /** A real model's family, from its id: claude-opus-5-5 is opus. */
@@ -50,19 +61,44 @@ function familyOf(id: string): string {
   return /^claude-([a-z]+)-/.exec(id)?.[1] ?? ''
 }
 
+/** Whose accounts serve a model: the list says, for any but Anthropic's. */
+function providerOfModel(m: Model): string {
+  return m.provider ?? 'anthropic'
+}
+
 /**
- * The models an alias can be bound to, its own family first, each in the
- * order the accounts list them — newest first. So the first entry is what an
- * alias that has not been bound serves.
+ * The models an alias can be bound to, those it follows first — its own
+ * family's, or its provider's in the provider's ranking — then the rest, each
+ * in the order the accounts list them. A model of another provider is marked
+ * as one, since binding to it moves the alias to that provider's accounts.
  */
-function choicesFor(family: string, real: Model[]): SelectOption[] {
-  const own = real.filter((m) => familyOf(m.id) === family)
-  const rest = real.filter((m) => familyOf(m.id) !== family)
+function choicesFor(r: { family: string; provider?: string }, real: Model[]): SelectOption[] {
+  const follows = (m: Model) =>
+    r.family !== '' ? familyOf(m.id) === r.family : r.provider !== undefined && providerOfModel(m) === r.provider
+  const own = real.filter(follows)
+  const rest = real.filter((m) => !follows(m))
+  const home = r.provider ?? 'anthropic'
   return [...own, ...rest].map((m) => ({
     value: m.id,
     label: m.display_name ?? m.id,
-    hint: m.id,
+    hint: providerOfModel(m) !== home ? `${m.id} · ${providerLabel(providerOfModel(m))}` : m.id,
   }))
+}
+
+/**
+ * Why a client will be refused an alias it is configured with: a Claude alias
+ * — the names Claude Code asks for — serving a ChatGPT model, which Claude
+ * Code cannot reach. Empty when nothing is wrong.
+ */
+function reachWarning(r: ModelRole, real: Model[]): string {
+  if (!r.role.startsWith('claude-') || r.serving === '') return ''
+  const served = real.find((m) => m.id === r.serving)
+  if (served === undefined || providerOfModel(served) === 'anthropic') return ''
+  return (
+    `${r.role} serves ${r.serving}, a ${providerLabel(providerOfModel(served))} model. ` +
+    'Codex can use it; Claude Code and other Anthropic API clients asking for ' +
+    `${r.role} are refused, because only an OpenAI Responses client can reach those accounts.`
+  )
 }
 
 /** The aliases as a short form: for the gateway (keyId empty) or one key. */
@@ -114,10 +150,9 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
   // the left, the model it serves on the right, and — when it cannot serve —
   // why, in the error colour where it is read rather than skimmed.
   const row = (r: ModelRole) => {
-    const choices = choicesFor(r.family, real)
-    // A key's list starts with following the gateway; the gateway's starts
-    // with the newest of the family, which is what it serves until something
-    // else is chosen.
+    const choices = choicesFor(r, real)
+    // A key's list starts with following the gateway; the gateway's shows
+    // what the alias serves until something else is chosen.
     const options =
       keyId === ''
         ? choices
@@ -129,13 +164,14 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
             },
             ...choices,
           ]
-    const value = keyId === '' ? r.model || options[0]?.value || '' : r.model
+    const value = keyId === '' ? r.model || r.serving || options[0]?.value || '' : r.model
     const purpose =
       PURPOSE[r.role] ??
       (r.builtin
         ? `The newest ${r.family} model, found from what your accounts serve.`
         : 'Your own alias.')
     const broken = r.problem !== undefined && r.problem !== ''
+    const unreachable = reachWarning(r, real)
     const perClient = keyId === '' && (r.clients ?? []).length > 0
     return (
       <li key={r.role} className={`${tile} flex flex-col gap-3 px-4 py-3`}>
@@ -185,14 +221,16 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
           </div>
         </div>
         {broken && <Note tone="error">{r.problem}</Note>}
+        {!broken && unreachable !== '' && <Note tone="warn">{unreachable}</Note>}
       </li>
     )
   }
 
-  // The two roles every client has, then one per family, then the
-  // operator's own.
+  // The roles every client has, then one per family, then the operator's
+  // own.
   const all = data.roles
-  const roles = all.filter((r) => r.role === 'claude-large' || r.role === 'claude-small')
+  const ROLES = ['claude-large', 'claude-small', 'gpt-large', 'gpt-small']
+  const roles = all.filter((r) => ROLES.includes(r.role))
   const families = all.filter((r) => r.builtin && !roles.includes(r))
   const custom = all.filter((r) => !r.builtin)
   const group = (title: string, list: ModelRole[]) => (
@@ -362,7 +400,7 @@ function NewAlias({
   onCreate: (name: string, model: string) => Promise<boolean>
 }) {
   const [name, setName] = useState('')
-  const options = choicesFor('', real)
+  const options = choicesFor({ family: '' }, real)
   const [model, setModel] = useState('')
   const chosen = model || options[0]?.value || ''
   const valid = /^[a-z0-9][a-z0-9.-]{0,63}$/.test(name)
@@ -408,8 +446,14 @@ export default function ModelsTab() {
             <p>
               Every client config this gateway hands out asks for these names instead of a real
               model, so moving every client to a new model is one change here. Each list starts with
-              the newest model of the alias&rsquo;s family, which is what the alias serves until you
-              choose.
+              what the alias follows — the newest model of a Claude family, or for{' '}
+              <code>gpt-large</code> and <code>gpt-small</code> the ChatGPT backend&rsquo;s own
+              ranking — which is what it serves until you choose.
+            </p>
+            <p>
+              Any alias can be bound to either provider&rsquo;s model, and the request goes to the
+              accounts that serve it. Codex reaches both; Claude Code reaches only Claude accounts,
+              and is refused an alias bound to a ChatGPT model.
             </p>
             <p>
               An alias can serve one client differently — Codex&rsquo;s{' '}

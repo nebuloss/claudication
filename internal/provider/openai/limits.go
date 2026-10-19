@@ -106,19 +106,29 @@ func quotaFromRows(rows []windowRow) provider.Quota {
 // limitRows reads the detail back as the accounts screen's rows, each titled
 // from its window's length — "5-hour limit", "Weekly limit" — because the
 // backend's names (primary, secondary) say nothing to an operator.
+//
+// The binding one, as Anthropic's rows mark it, is the fullest: the backend
+// does not say, and the fullest is the one that runs out first. None is while
+// nothing has been spent.
 func limitRows(detail string) []provider.Limit {
 	var rows []windowRow
 	if json.Unmarshal([]byte(detail), &rows) != nil {
 		return nil
 	}
+	binding := -1
+	for i, r := range rows {
+		if r.UsedPercent > 0 && (binding < 0 || r.UsedPercent > rows[binding].UsedPercent) {
+			binding = i
+		}
+	}
 	out := make([]provider.Limit, 0, len(rows))
-	for _, r := range rows {
+	for i, r := range rows {
 		l := provider.Limit{
 			Title:         windowTitle(r),
 			Kind:          r.Name,
 			Percent:       r.UsedPercent,
 			Severity:      severity(r.UsedPercent),
-			IsActive:      true,
+			IsActive:      i == binding,
 			WindowSeconds: r.WindowSeconds,
 		}
 		if r.ResetAt > 0 {
