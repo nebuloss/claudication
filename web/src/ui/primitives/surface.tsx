@@ -85,7 +85,9 @@ export function CardTitle({
 }) {
   return (
     <div className="mb-4 flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-4">
+      {/* Wraps rather than squeezing: on a phone a toolbar of an aside goes
+          under the title instead of beside it. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <h2 className="text-xl leading-7 font-normal text-on-surface">{children}</h2>
         {aside}
       </div>
