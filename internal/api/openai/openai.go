@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"claudication/internal/anthropicwire"
 	"claudication/internal/api"
 )
 
@@ -187,12 +188,7 @@ func (*exchange) Headers(h http.Header) {
 // still yields something a client can print, because losing the upstream's own
 // words is the failure this gateway exists to avoid.
 func anthropicErrorFields(body []byte) (kind, message string) {
-	var env struct {
-		Error struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
+	var env anthropicwire.ErrorEnvelope
 	if err := json.Unmarshal(body, &env); err == nil && env.Error.Message != "" {
 		return env.Error.Type, env.Error.Message
 	}

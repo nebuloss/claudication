@@ -4,7 +4,7 @@
 // Every package sits on a layer, and imports only from layers below its own.
 // Lowest first:
 //
-//	0  leaves         version logging memlimit secret oauth request
+//	0  leaves         version logging memlimit secret oauth request anthropicwire
 //	                  provider api service/limits service/settings
 //	                  service/install testenv
 //	1  records        store config relay/passes api/anthropic api/openai

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"claudication/internal/anthropicwire"
 	"claudication/internal/provider"
 )
 
@@ -23,11 +24,11 @@ const (
 
 func eventOf(name []byte) sseEvent {
 	switch {
-	case bytes.Equal(name, []byte("error")):
+	case string(name) == anthropicwire.EventError:
 		return evError
-	case bytes.Equal(name, []byte("message_start")):
+	case string(name) == anthropicwire.EventMessageStart:
 		return evMessageStart
-	case bytes.Equal(name, []byte("message_delta")):
+	case string(name) == anthropicwire.EventMessageDelta:
 		return evMessageDelta
 	}
 	return evOther

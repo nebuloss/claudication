@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"claudication/internal/anthropicwire"
 	"claudication/internal/api"
 )
 
@@ -202,42 +203,13 @@ func (s *Stream) frame(raw []byte) error {
 // anthropicEvent is the union of the streaming events, read loosely: fields
 // absent from a given event stay zero.
 type anthropicEvent struct {
-	Type    string `json:"type"`
-	Index   int    `json:"index"`
-	Message struct {
-		ID    string `json:"id"`
-		Model string `json:"model"`
-		Usage struct {
-			InputTokens        int `json:"input_tokens"`
-			OutputTokens       int `json:"output_tokens"`
-			CacheReadInput     int `json:"cache_read_input_tokens"`
-			CacheCreationInput int `json:"cache_creation_input_tokens"`
-		} `json:"usage"`
-	} `json:"message"`
-	ContentBlock struct {
-		Type  string          `json:"type"`
-		Text  string          `json:"text"`
-		ID    string          `json:"id"`
-		Name  string          `json:"name"`
-		Input json.RawMessage `json:"input"`
-	} `json:"content_block"`
-	Delta struct {
-		Type        string `json:"type"`
-		Text        string `json:"text"`
-		PartialJSON string `json:"partial_json"`
-		Thinking    string `json:"thinking"`
-		StopReason  string `json:"stop_reason"`
-	} `json:"delta"`
-	Usage struct {
-		OutputTokens       int `json:"output_tokens"`
-		InputTokens        int `json:"input_tokens"`
-		CacheReadInput     int `json:"cache_read_input_tokens"`
-		CacheCreationInput int `json:"cache_creation_input_tokens"`
-	} `json:"usage"`
-	Error struct {
-		Type    string `json:"type"`
-		Message string `json:"message"`
-	} `json:"error"`
+	Type         string                     `json:"type"`
+	Index        int                        `json:"index"`
+	Message      anthropicwire.Message      `json:"message"`
+	ContentBlock anthropicwire.ContentBlock `json:"content_block"`
+	Delta        anthropicwire.Delta        `json:"delta"`
+	Usage        anthropicwire.Usage        `json:"usage"`
+	Error        anthropicwire.Error        `json:"error"`
 }
 
 func (s *Stream) handle(event string, data []byte) error {
@@ -256,20 +228,20 @@ func (s *Stream) handle(event string, data []byte) error {
 	}
 
 	switch e.Type {
-	case "message_start":
+	case anthropicwire.EventMessageStart:
 		s.respID = "resp_" + strings.TrimPrefix(e.Message.ID, "msg_")
 		if e.Message.Model != "" {
 			s.model = e.Message.Model
 		}
 		u := e.Message.Usage
-		s.setInput(u.InputTokens, u.CacheReadInput, u.CacheCreationInput)
+		s.setInput(u.InputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens)
 		s.usage.OutputTokens = u.OutputTokens
 		return s.emit(evCreated, map[string]any{
 			"type":     evCreated,
 			"response": s.progress(),
 		})
 
-	case "ping":
+	case anthropicwire.EventPing:
 		// Anthropic's keepalive during a long think. It has to become a frame
 		// Codex reads and discards, not a raw comment: an idle gap fails the
 		// turn, and in_progress is on Codex's explicit ignore list.
@@ -278,16 +250,16 @@ func (s *Stream) handle(event string, data []byte) error {
 			"response": s.progress(),
 		})
 
-	case "content_block_start":
+	case anthropicwire.EventContentBlockStart:
 		return s.startBlock(e)
 
-	case "content_block_delta":
+	case anthropicwire.EventContentBlockDelta:
 		return s.deltaBlock(e)
 
-	case "content_block_stop":
+	case anthropicwire.EventContentBlockStop:
 		return s.stopBlock()
 
-	case "message_delta":
+	case anthropicwire.EventMessageDelta:
 		if e.Delta.StopReason != "" {
 			s.stopReason = e.Delta.StopReason
 		}
@@ -303,19 +275,19 @@ func (s *Stream) handle(event string, data []byte) error {
 		if u.InputTokens > 0 {
 			uncached = u.InputTokens
 		}
-		if u.CacheReadInput > 0 {
-			read = u.CacheReadInput
+		if u.CacheReadInputTokens > 0 {
+			read = u.CacheReadInputTokens
 		}
-		if u.CacheCreationInput > 0 {
-			write = u.CacheCreationInput
+		if u.CacheCreationInputTokens > 0 {
+			write = u.CacheCreationInputTokens
 		}
 		s.setInput(uncached, read, write)
 		return nil
 
-	case "message_stop":
+	case anthropicwire.EventMessageStop:
 		return s.complete()
 
-	case "error":
+	case anthropicwire.EventError:
 		// A mid-stream upstream error. Closing here would tell Codex only that
 		// the stream ended; a response.failed carries what went wrong.
 		code, msg := mapError(e.Error.Type, e.Error.Message)

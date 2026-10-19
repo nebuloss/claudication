@@ -4,28 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-)
 
-// anthropicMessage is a complete (non-streaming) Anthropic answer.
-type anthropicMessage struct {
-	ID         string `json:"id"`
-	Model      string `json:"model"`
-	StopReason string `json:"stop_reason"`
-	Content    []struct {
-		Type     string          `json:"type"`
-		Text     string          `json:"text"`
-		Thinking string          `json:"thinking"`
-		ID       string          `json:"id"`
-		Name     string          `json:"name"`
-		Input    json.RawMessage `json:"input"`
-	} `json:"content"`
-	Usage struct {
-		InputTokens        int `json:"input_tokens"`
-		OutputTokens       int `json:"output_tokens"`
-		CacheReadInput     int `json:"cache_read_input_tokens"`
-		CacheCreationInput int `json:"cache_creation_input_tokens"`
-	} `json:"usage"`
-}
+	"claudication/internal/anthropicwire"
+)
 
 // AnthropicToResponses converts a complete Anthropic answer into a complete
 // Responses one.
@@ -35,7 +16,7 @@ type anthropicMessage struct {
 // because a protocol we only half-implement is a protocol that fails in a way
 // nobody can diagnose.
 func AnthropicToResponses(body []byte, req Request) ([]byte, error) {
-	var in anthropicMessage
+	var in anthropicwire.Message
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("not an Anthropic message: %w", err)
 	}
@@ -80,8 +61,8 @@ func AnthropicToResponses(body []byte, req Request) ([]byte, error) {
 	s.items = output
 
 	usage := responsesUsage{
-		InputTokens:        in.Usage.InputTokens + in.Usage.CacheReadInput + in.Usage.CacheCreationInput,
-		InputTokensDetails: inputDetails{CachedTokens: in.Usage.CacheReadInput},
+		InputTokens:        in.Usage.InputTokens + in.Usage.CacheReadInputTokens + in.Usage.CacheCreationInputTokens,
+		InputTokensDetails: inputDetails{CachedTokens: in.Usage.CacheReadInputTokens},
 		OutputTokens:       in.Usage.OutputTokens,
 	}
 	usage.TotalTokens = usage.InputTokens + usage.OutputTokens

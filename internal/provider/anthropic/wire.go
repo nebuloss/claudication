@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strings"
 
+	"claudication/internal/anthropicwire"
 	"claudication/internal/provider"
 )
 
@@ -111,7 +112,7 @@ func (Provider) Event(name []byte) provider.EventKind {
 	switch {
 	case quietEvent(name):
 		return provider.EventQuiet
-	case string(name) == "error":
+	case string(name) == anthropicwire.EventError:
 		return provider.EventError
 	case settlingEvent(name):
 		return provider.EventSettling
@@ -123,7 +124,7 @@ func (Provider) Event(name []byte) provider.EventKind {
 // stream that has got this far is not stalled at its start.
 func settlingEvent(name []byte) bool {
 	switch string(name) {
-	case "content_block_stop", "message_delta", "message_stop":
+	case anthropicwire.EventContentBlockStop, anthropicwire.EventMessageDelta, anthropicwire.EventMessageStop:
 		return true
 	}
 	return false
@@ -133,7 +134,7 @@ func settlingEvent(name []byte) bool {
 // the upstream sends before it has produced anything.
 func quietEvent(name []byte) bool {
 	switch string(name) {
-	case "message_start", "content_block_start", "ping":
+	case anthropicwire.EventMessageStart, anthropicwire.EventContentBlockStart, anthropicwire.EventPing:
 		return true
 	}
 	return false

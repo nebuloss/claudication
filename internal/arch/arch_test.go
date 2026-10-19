@@ -27,6 +27,7 @@ var layers = map[string]int{
 	"internal/service/install":  0,
 	"internal/testenv":          0,
 	"internal/arch":             0,
+	"internal/anthropicwire":    0,
 
 	"internal/store":         1,
 	"internal/config":        1,

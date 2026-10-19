@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"claudication/internal/anthropicwire"
 	"claudication/internal/api"
 	"claudication/internal/request"
 )
@@ -59,7 +60,7 @@ func (API) WriteError(w http.ResponseWriter, status int, kind api.ErrorKind, mes
 
 // ModelEvents is message_start alone: it is the one event whose message
 // names the model, and its content is still empty when it does.
-func (API) ModelEvents() []string { return []string{"message_start"} }
+func (API) ModelEvents() []string { return []string{anthropicwire.EventMessageStart} }
 
 // ConversationID reads the chat id out of a request in this dialect.
 //

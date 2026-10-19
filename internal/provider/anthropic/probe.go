@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"claudication/internal/anthropicwire"
 )
 
 // probePath is the Messages endpoint as the official client calls it.
@@ -27,19 +29,6 @@ type ProbeResult struct {
 	RequestID    string        `json:"request_id,omitempty"`
 	Error        string        `json:"error,omitempty"`
 	latency      time.Duration `json:"-"`
-}
-
-type anthropicMessage struct {
-	Model      string `json:"model"`
-	StopReason string `json:"stop_reason"`
-	Content    []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
 }
 
 // Probe sends the smallest useful request through an OAuth credential
@@ -106,7 +95,7 @@ func Probe(ctx context.Context, client *http.Client, accessToken, model string) 
 		return out
 	}
 
-	var msg anthropicMessage
+	var msg anthropicwire.Message
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		out.Error = fmt.Sprintf("decode response: %v", err)
 		return out
