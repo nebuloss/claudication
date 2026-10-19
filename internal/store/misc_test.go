@@ -473,6 +473,7 @@ func TestClosedStoreReportsErrors(t *testing.T) {
 	_, checks["KeySpend"] = st.KeySpend(ctx, "k", since)
 	_, checks["AccountUsage"] = st.AccountUsage(ctx, since)
 	_, checks["PruneUsage"] = st.PruneUsage(ctx, time.Hour)
+	checks["Optimize"] = st.Optimize(ctx)
 	checks["Snapshot"] = st.Snapshot(ctx, filepath.Join(t.TempDir(), "snap.db"))
 	_, _, checks["Vacuum"] = st.Vacuum(ctx)
 	_, checks["AutoVacuum"] = st.AutoVacuum(ctx)

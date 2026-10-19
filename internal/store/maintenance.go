@@ -35,6 +35,21 @@ func (s *Store) PruneUsage(ctx context.Context, keep time.Duration) (int64, erro
 	return n, nil
 }
 
+// Optimize lets SQLite refresh the statistics the planner chooses indexes by,
+// for the tables whose contents have moved enough since they were last
+// gathered. Run after the daily prune, which is what moves them most.
+//
+// 0x10002 rather than the bare pragma: the bare form only considers tables
+// the connection running it has queried, and in a pool of four that is
+// whichever connection the call lands on. It is cheap when nothing changed,
+// and bounded when something did (SQLite caps how much of a table it reads).
+func (s *Store) Optimize(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `PRAGMA optimize=0x10002`); err != nil {
+		return fmt.Errorf("optimize: %w", err)
+	}
+	return nil
+}
+
 // Snapshot writes a consistent copy of the database to path, while the gateway
 // keeps serving.
 //

@@ -22,6 +22,7 @@ type Store interface {
 	PruneUsage(ctx context.Context, keep time.Duration) (int64, error)
 	PruneChatTitles(ctx context.Context) (int64, error)
 	PruneNames(ctx context.Context) (int64, error)
+	Optimize(ctx context.Context) error
 }
 
 // Crediter is told what a request cost, for a key with a budget: the budget
@@ -107,6 +108,10 @@ func (r *Recorder) Prune(ctx context.Context) {
 		r.log().Warn("could not prune names", "err", err)
 	} else if n > 0 {
 		r.log().Info("pruned names of deleted keys and accounts", "rows", n)
+	}
+	// Last, once the table has changed as much as it will today.
+	if err := r.Store.Optimize(ctx); err != nil {
+		r.log().Warn("could not optimize the database", "err", err)
 	}
 }
 

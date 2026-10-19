@@ -67,25 +67,19 @@ func (s *Store) MintLoginLink(ctx context.Context, ttl time.Duration) (string, t
 //
 // The row is deleted whether or not it was still valid, so a token cannot be
 // retried and an expired one cannot be probed twice for a different answer.
+// One statement rather than a read and a delete in a transaction: the
+// redemption that deletes the row is the one that learns its expiry, and a
+// second racing it finds nothing, with no transaction to hold or retry.
 func (s *Store) SpendLoginLink(ctx context.Context, token string) error {
 	var expiresAt int64
-	if err := s.inTx(ctx, "spend sign-in link", func(tx *sql.Tx) error {
-		err := tx.QueryRowContext(ctx,
-			`SELECT expires_at FROM login_links WHERE token = ?`, token).Scan(&expiresAt)
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrLinkInvalid
-		}
-		if err != nil {
-			return fmt.Errorf("look up sign-in link: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM login_links WHERE token = ?`, token); err != nil {
-			return fmt.Errorf("spend sign-in link: %w", err)
-		}
-		return nil
-	}); err != nil {
-		return err
+	err := s.db.QueryRowContext(ctx,
+		`DELETE FROM login_links WHERE token = ? RETURNING expires_at`, token).Scan(&expiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrLinkInvalid
 	}
-
+	if err != nil {
+		return fmt.Errorf("spend sign-in link: %w", err)
+	}
 	if !fromMS(expiresAt).After(time.Now()) {
 		return ErrLinkInvalid
 	}

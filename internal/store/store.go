@@ -90,13 +90,32 @@ func dsn(dbPath string) string {
 	// incremental does nothing until asked, and the pruner asks once a day.
 	//
 	// It only takes on an empty database. An existing one keeps whatever it was
-	// created with until it is rewritten — see Vacuum.
+	// created with until it is rewritten — see Vacuum, and reclaim, which
+	// applies it to a file an upgrade rebuilt.
+	//
+	// temp_store=memory: the sorts and groupings the reports and the filter
+	// menus cannot take from an index build their temporary B-trees in memory
+	// rather than in a file beside the database; they are a few thousand
+	// groups, not the table.
+	//
+	// journal_size_limit: a checkpoint leaves the WAL file at its peak size,
+	// and one VACUUM or a month's prune grows it to the size of what it
+	// rewrote. 64 MiB is kept for reuse and the rest truncated.
+	//
+	// _txlock=immediate: every transaction here writes, and BEGIN IMMEDIATE
+	// takes the write lock at the start, where busy_timeout waits for it. A
+	// deferred one that read first and then wrote could fail SQLITE_BUSY at
+	// the write with no wait at all, because in WAL a reader's snapshot cannot
+	// be upgraded once another writer has committed.
 	return "file:" + dbPath +
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=foreign_keys(ON)" +
 		"&_pragma=synchronous(NORMAL)" +
-		"&_pragma=auto_vacuum(incremental)"
+		"&_pragma=auto_vacuum(incremental)" +
+		"&_pragma=temp_store(memory)" +
+		"&_pragma=journal_size_limit(67108864)" +
+		"&_txlock=immediate"
 }
 
 // schemaVersion is the version schema.sql describes, and the one every
