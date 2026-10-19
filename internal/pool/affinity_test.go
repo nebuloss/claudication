@@ -121,6 +121,7 @@ func TestNoteQuotaStoresTheWindowsByLength(t *testing.T) {
 		{Seconds: 604800, UsedPercent: 12},
 		{Seconds: 18000, UsedPercent: 100, ResetAt: reset},
 	}})
+	p.quotaWrites.Wait()
 	a, err := st.Account(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +136,7 @@ func TestNoteQuotaStoresTheWindowsByLength(t *testing.T) {
 	// limited closes the account even when no figure reads full.
 	p.quotaSeen = map[string]quotaNote{}
 	p.NoteQuota(id, provider.Quota{Limited: true, Windows: []provider.Window{{Seconds: 18000, UsedPercent: 40}}})
+	p.quotaWrites.Wait()
 	if a, _ = st.Account(context.Background(), id); a.Quota.Allowed() {
 		t.Errorf("limited quota reads as allowed: %+v", a.Quota)
 	}
@@ -147,13 +149,46 @@ func TestNoteQuotaWithoutWindowsKeepsTheFigures(t *testing.T) {
 	p, st := fixture(t)
 	id := connectAs(t, p, "openai", "a@example.com")
 	p.NoteQuota(id, provider.Quota{Windows: []provider.Window{{Seconds: 18000, UsedPercent: 40}, {Seconds: 604800, UsedPercent: 9}}})
+	p.quotaWrites.Wait()
 	p.quotaSeen = map[string]quotaNote{}
 	p.NoteQuota(id, provider.Quota{Limited: true})
+	p.quotaWrites.Wait()
 	a, err := st.Account(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a.Quota.FiveHourUtil != 40 || a.Quota.SevenDayUtil != 9 || !a.Quota.Allowed() {
 		t.Errorf("quota after an empty report = %+v", a.Quota)
+	}
+}
+
+// The relay notes a quota between an answer's headers and its body, so the
+// note does not wait on the database; and notes landing while a write is in
+// flight end with the newest one stored, never an older one after it.
+func TestNoteQuotaWritesOffThePathAndEndsAtTheNewest(t *testing.T) {
+	p, st := fixture(t)
+	id := connectAs(t, p, "openai", "a@example.com")
+	// Every note due, so each one is a write: the window flips between full
+	// and not, which is what writes at once.
+	for i := 0; i < 50; i++ {
+		used := 10.0
+		if i%2 == 1 {
+			used = 100
+		}
+		p.NoteQuota(id, provider.Quota{Windows: []provider.Window{{Seconds: 18000, UsedPercent: used + float64(i)/100}}})
+	}
+	p.quotaWrites.Wait()
+	a, err := st.Account(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Quota.FiveHourUtil != 100.49 {
+		t.Errorf("stored %v, want the last note's 100.49", a.Quota.FiveHourUtil)
+	}
+	p.mu.Lock()
+	n := p.quotaSeen[id]
+	p.mu.Unlock()
+	if n.writing || n.next != nil {
+		t.Errorf("a write is still marked in flight: %+v", n)
 	}
 }

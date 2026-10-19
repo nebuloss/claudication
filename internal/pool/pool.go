@@ -115,8 +115,9 @@ type Pool struct {
 
 	// quotaSeen is what each account's live quota last wrote, so a figure
 	// read off every relayed answer is not a database write per request; see
-	// NoteQuota.
-	quotaSeen map[string]quotaNote
+	// NoteQuota. quotaWrites counts the writes in flight.
+	quotaSeen   map[string]quotaNote
+	quotaWrites sync.WaitGroup
 }
 
 // RefreshFunc trades a refresh token for new tokens at the provider. The pool

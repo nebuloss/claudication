@@ -240,9 +240,18 @@ func TestCodexAliasBoundToGPTReachesChatGPTUnchanged(t *testing.T) {
 		e.ConversationID != "sess-1" {
 		t.Errorf("recorded %+v", e)
 	}
-	a, err := st.AccountByIdentity(ctx, "openai", "acct-123", "codex@example.com")
-	if err != nil {
-		t.Fatal(err)
+	// Written off the request's path, so waited for.
+	deadline := time.Now().Add(5 * time.Second)
+	var a store.Account
+	for {
+		var err error
+		if a, err = st.AccountByIdentity(ctx, "openai", "acct-123", "codex@example.com"); err != nil {
+			t.Fatal(err)
+		}
+		if a.Quota.Known() || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if a.Quota.FiveHourUtil != 37 || a.Quota.SevenDayUtil != 12 {
 		t.Errorf("quota after the answer = %+v", a.Quota)
