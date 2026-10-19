@@ -313,7 +313,7 @@ func (s *Admin) handleOverview(w http.ResponseWriter, r *http.Request) {
 	// rows. Cooldowns are held in memory, so counting rows could not see them:
 	// every account could be sitting out a rate limit and this screen would
 	// still say the gateway was ready to serve.
-	status, err := s.pool.Status(r.Context(), "anthropic")
+	status, err := s.pool.Status(r.Context(), anthropic.ID)
 	if err != nil {
 		s.log.Error("overview pool status", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read accounts")

@@ -176,7 +176,7 @@ func (s *Admin) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	// here. This walk used to approximate pick() and could not see a cooldown
 	// at all — cooldowns are in memory, not in the row — so an account sitting
 	// out a rate limit still wore the "serving" badge.
-	status, err := s.pool.Status(r.Context(), "anthropic")
+	status, err := s.pool.Status(r.Context(), anthropic.ID)
 	if err != nil {
 		s.log.Error("account pool status", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read accounts")

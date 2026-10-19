@@ -28,9 +28,9 @@ func (s *Admin) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Provider == "" {
-		body.Provider = "anthropic"
+		body.Provider = anthropic.ID
 	}
-	if body.Provider != "anthropic" {
+	if body.Provider != anthropic.ID {
 		httpx.WriteError(w, http.StatusBadRequest, "unsupported_provider",
 			"only the anthropic provider is implemented so far")
 		return
@@ -127,7 +127,7 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Provider == "" {
-		body.Provider = "anthropic"
+		body.Provider = anthropic.ID
 	}
 
 	code, returnedState, err := oauth.ParseCallback(body.RedirectURL)
