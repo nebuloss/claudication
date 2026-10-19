@@ -98,8 +98,8 @@ type Config struct {
 	MemoryLimit string `yaml:"memory-limit"`
 	// ModelsCatalog is where the model catalogue is read from — models.dev by
 	// default: every provider's models, which the gateway's model list is
-	// matched from against what the accounts serve. See the gateway's
-	// catalog.go. "off" or empty never asks; the list is the accounts' own.
+	// matched from against what the accounts serve. See catalog.go in
+	// internal/service/models. "off" or empty never asks; the list is the accounts' own.
 	ModelsCatalog string `yaml:"models-catalog"`
 
 	// Path is the file this was read from, empty when there was none. Reported
