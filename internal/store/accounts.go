@@ -68,7 +68,9 @@ type AccountQuota struct {
 // Known reports whether the upstream has ever told us about this account.
 func (q AccountQuota) Known() bool { return q.FiveHourUtil >= 0 || q.SevenDayUtil >= 0 }
 
-// AtLimit is the percentage at which an account counts as out of room.
+// AtLimit is the percentage at which an account counts as out of room. Not
+// 100: the figure is a poll rather than a live reading, and an account at
+// 99.5% has nothing useful left before the next poll lands.
 const AtLimit = 99.0
 
 // Utilization is the binding window: whichever is fuller runs out first.

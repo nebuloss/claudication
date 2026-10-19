@@ -277,10 +277,6 @@ func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[
 	return Lease{Account: chosen, AccessToken: tokens.AccessToken}, nil
 }
 
-// exhausted is where a utilisation figure stops counting as headroom. Not
-// 100%: the figure is a poll rather than a live reading, and an account at
-// 99.5% has nothing useful left before the next poll lands.
-
 // pick returns the highest-priority account that can serve.
 //
 // Priority is the operator's explicit order, not something inferred. A personal

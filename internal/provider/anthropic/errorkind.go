@@ -24,10 +24,10 @@ const (
 	// a third-party app rather than from Claude Code. Adding usage credit does
 	// not fix it, and the same key succeeds on the next request with slightly
 	// different content — which is exactly why it reads as a flaky quota
-	// problem. Two triggers have been found and are normalised on the way out
-	// (see mcpnames.go and systemtext.go); this label exists because there
-	// will be others, and because the message will still be about billing when
-	// there are.
+	// problem. Three triggers have been found and are normalised on the way
+	// out (see toolnames.go and systemtext.go in internal/relay/passes); this
+	// label exists because there will be others, and because the message will
+	// still be about billing when there are.
 	//
 	// Worth knowing: Claude Code itself has no handling for this string
 	// anywhere in its bundle. The classification is entirely server-side and

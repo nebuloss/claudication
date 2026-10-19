@@ -58,7 +58,8 @@
 //
 // # Before adding an eighth
 //
-// Three of the five answer with the same message, and nothing in it is true:
+// Three of the triggers those five repair are refused with the same message,
+// and nothing in it is true:
 //
 //	Third-party apps now draw from your extra usage, not your plan limits.
 //	Add more at claude.ai/settings/usage and keep going.

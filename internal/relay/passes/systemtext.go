@@ -12,7 +12,7 @@ import (
 //
 // A system prompt that carries this line, but is not otherwise Claude Code's
 // prompt, is refused with the same misleading message the MCP tool-name check
-// produces — see mcpnames.go:
+// produces — see toolnames.go:
 //
 //	"Third-party apps now draw from your extra usage, not your plan limits."
 //
@@ -50,7 +50,7 @@ const (
 //     that carries nothing.
 //
 // A body needing neither is returned as the caller's own bytes, for one scan
-// of it. Like EnsureAttribution and RewriteMCPNames, this is a narrow, stated
+// of it. Like EnsureAttribution and RewriteRefusedToolNames, this is a narrow, stated
 // exception to relaying request bodies untouched: without it these requests do
 // not work at all.
 func NormaliseSystem(body []byte) []byte {
