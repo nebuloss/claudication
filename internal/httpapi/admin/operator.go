@@ -3,8 +3,6 @@ package admin
 import (
 	"errors"
 	"net/http"
-	"strings"
-	"time"
 
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/store"
@@ -144,108 +142,4 @@ func (s *Admin) handleDeleteAdminAccount(w http.ResponseWriter, r *http.Request)
 	s.log.Warn("admin account deleted; gateway is back in first-run state",
 		"ip", httpx.ClientIP(r.Context()))
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
-}
-
-// handleAdminLogin exchanges the password for a session.
-func (s *Admin) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Password string `json:"password"`
-	}
-	if !httpx.DecodeJSON(w, r, &body) {
-		return
-	}
-	if strings.TrimSpace(body.Password) == "" {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "password is required")
-		return
-	}
-
-	ip := httpx.ClientIP(r.Context())
-	if !s.anonLimiter.AllowPerMinute("admin-login:"+ip, s.cfg.Limits.AnonPerMinute) {
-		httpx.WriteError(w, http.StatusTooManyRequests, httpx.KindRateLimit, "too many attempts")
-		return
-	}
-
-	ok, err := s.store.VerifyAdmin(r.Context(), body.Password)
-	if errors.Is(err, store.ErrNoAdmin) {
-		httpx.WriteError(w, http.StatusConflict, "needs_setup",
-			"no account has been set up yet")
-		return
-	}
-	if err != nil {
-		s.log.Error("verify admin password", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not sign in")
-		return
-	}
-	if !ok {
-		// Same message and the same work either way: no oracle for whether the
-		// password merely had the wrong characters.
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", "incorrect password")
-		return
-	}
-	s.startSession(w, r, "password")
-}
-
-func (s *Admin) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(SessionCookie); err == nil {
-		s.sessions.destroy(c.Value)
-	}
-	clearSessionCookie(w)
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "signed out"})
-}
-
-func (s *Admin) handleAdminMe(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{"authenticated": true}
-	if updated, err := s.store.AdminUpdatedAt(r.Context()); err == nil {
-		out["password_updated_at"] = updated.UTC().Format(time.RFC3339)
-	}
-	httpx.WriteJSON(w, http.StatusOK, out)
-}
-
-// issueSession mints a session and sets the cookie, leaving the caller to
-// decide what the response body is — the password endpoints answer with JSON,
-// a sign-in link answers with a redirect.
-func (s *Admin) issueSession(w http.ResponseWriter, r *http.Request) (time.Time, error) {
-	token, expires, err := s.sessions.create()
-	if err != nil {
-		return time.Time{}, err
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     SessionCookie,
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Expires:  expires,
-		// Secure follows the connection rather than being fixed either way.
-		//
-		// Hard-coding it false was right for the common case and wrong for the
-		// deployment most likely to be exposed: behind a TLS-terminating proxy
-		// the browser speaks HTTPS the whole way, and the session cookie was
-		// still marked as safe to send in clear. Hard-coding it true would be
-		// worse — on a LAN or through an SSH tunnel the cookie would never be
-		// sent at all and sign-in would fail with nothing to show for it.
-		Secure: httpx.OverTLS(r, s.trustedProxies),
-	})
-	return expires, nil
-}
-
-// startSession issues the cookie and answers with when it lapses.
-func (s *Admin) startSession(w http.ResponseWriter, r *http.Request, how string) {
-	expires, err := s.issueSession(w, r)
-	if err != nil {
-		s.log.Error("create admin session", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not start a session")
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"authenticated": true,
-		"via":           how,
-		"expires_at":    expires.UTC().Format(time.RFC3339),
-	})
-}
-
-func clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
-		Name: SessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1,
-	})
 }
