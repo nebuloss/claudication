@@ -170,14 +170,15 @@ func replay(w http.ResponseWriter, f *refusal, res *Result) {
 const maxErrorText = 4096
 
 // errorText is an upstream error body as it is kept for a log line or a usage
-// row: trimmed, and cut to maxErrorText. One function for the three places
-// that keep one, which each used to cut it their own way round.
+// row: its first maxErrorText bytes, trimmed. Cut before it is copied, so a
+// megabyte of HTML is never made into a string to keep four kilobytes of it.
+// One function for the three places that keep one, which each used to cut it
+// their own way round.
 func errorText(body []byte) string {
-	s := strings.TrimSpace(string(body))
-	if len(s) > maxErrorText {
-		return s[:maxErrorText]
+	if len(body) > maxErrorText {
+		body = body[:maxErrorText]
 	}
-	return s
+	return strings.TrimSpace(string(body))
 }
 
 // Do runs the request, retrying on another account when the failure is the
