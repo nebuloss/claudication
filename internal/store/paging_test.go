@@ -197,13 +197,21 @@ func TestTheLastPageHasNoCursor(t *testing.T) {
 }
 
 func TestUsageCursorRoundTrips(t *testing.T) {
-	c := UsageCursor{At: time.Now().UTC().Truncate(time.Nanosecond), ID: 4242}
+	// To the millisecond: the cursor carries what the column holds.
+	c := UsageCursor{At: time.Now().UTC().Truncate(time.Millisecond), ID: 4242}
 	got, ok := ParseUsageCursor(c.String())
 	if !ok {
 		t.Fatalf("could not parse %q", c.String())
 	}
 	if got.ID != c.ID || !got.At.Equal(c.At) {
 		t.Errorf("round trip = %+v, want %+v", got, c)
+	}
+
+	// A cursor from before integer times, still in someone's open page.
+	old := "2026-10-19T09:14:03.250999999Z|7"
+	got, ok = ParseUsageCursor(old)
+	if want := time.Date(2026, 10, 19, 9, 14, 3, 250_999_999, time.UTC); !ok || got.ID != 7 || !got.At.Equal(want) {
+		t.Errorf("old cursor %q = %+v, %v", old, got, ok)
 	}
 
 	// Anything unparseable means "start from the top", never an error.

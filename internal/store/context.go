@@ -137,7 +137,7 @@ func (s *Store) ChatContexts(ctx context.Context, ids []string, since time.Time)
 		return out, nil
 	}
 	args := make([]any, 0, len(ids)+2)
-	args = append(args, stamp(since), InternalPath)
+	args = append(args, ms(since))
 	for _, id := range ids {
 		args = append(args, id)
 	}
@@ -145,7 +145,7 @@ func (s *Store) ChatContexts(ctx context.Context, ids []string, since time.Time)
 		`SELECT conversation_id, model, at,
 		        input_tokens + cache_read_tokens + cache_write_tokens
 		   FROM usage_events
-		  WHERE rejected = 0 AND status = 200 AND at >= ? AND path <> ?
+		  WHERE kind = 0 AND status = 200 AND at >= ?
 		    AND conversation_id IN (?`+strings.Repeat(",?", len(ids)-1)+`)
 		  ORDER BY conversation_id, at, id`, args...)
 	if err != nil {
@@ -164,8 +164,8 @@ func (s *Store) ChatContexts(ctx context.Context, ids []string, since time.Time)
 	}
 	for rows.Next() {
 		var (
-			id, model, at string
-			prompt        int64
+			id, model  string
+			at, prompt int64
 		)
 		if err := rows.Scan(&id, &model, &at, &prompt); err != nil {
 			return nil, fmt.Errorf("chat contexts: %w", err)
@@ -174,8 +174,7 @@ func (s *Store) ChatContexts(ctx context.Context, ids []string, since time.Time)
 			flush()
 			current, t = id, contextTracker{}
 		}
-		when, _ := time.Parse(time.RFC3339Nano, at)
-		t.add(model, when, prompt, false)
+		t.add(model, fromMS(at), prompt, false)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("chat contexts: %w", err)

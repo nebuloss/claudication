@@ -520,9 +520,10 @@ function KeySettings({
             )}
           </Card>
         )
-      // The secret is kept sealed beside the account tokens (migration 026),
-      // so the configs can be written again at any time. Keys from before
-      // that have only a hash, and need a new secret once.
+      // The secret is kept sealed beside the account tokens (sealed_secret in
+      // the store's schema.sql), so the configs can be written again at any
+      // time. Keys from before that have only a hash, and need a new secret
+      // once.
       case 'clients':
         return <KeyClients apiKey={k} config={config} />
       default:

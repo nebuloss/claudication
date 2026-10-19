@@ -49,7 +49,7 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-		key, value, time.Now().Unix())
+		key, value, ms(time.Now()))
 	if err != nil {
 		return fmt.Errorf("write setting %s: %w", key, err)
 	}

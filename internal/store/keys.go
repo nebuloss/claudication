@@ -32,10 +32,11 @@ type APIKey struct {
 	LastUsedAt *time.Time
 	KeyLimits
 	// ModelsOff are the models this key may not ask for, as the operator
-	// switched them; everything else is allowed. See migration 025.
+	// switched them; everything else is allowed. See api_key_models_off in
+	// schema.sql.
 	ModelsOff []string
 	// SecretKept says the secret is stored sealed and can be shown again
-	// (migration 026).
+	// (sealed_secret in schema.sql).
 	SecretKept bool
 }
 
@@ -48,7 +49,7 @@ const keyModelsOff = `COALESCE((SELECT group_concat(model, char(31)) FROM api_ke
 // usageEventColumns is for events: Key used to walk ListKeys, the titler kept
 // its own copy of that walk, and Authenticate scanned its own shorter list and
 // so never said whether the secret was kept.
-const keyColumns = `id, name, prefix, created_at, last_used_at, rpm_limit, rate_period_s, token_budget,
+const keyColumns = `id, name, prefix, created_at, last_used_at, rate_limit, rate_period_s, token_budget,
 		` + keyModelsOff + `, sealed_secret IS NOT NULL`
 
 // scanKey reads one row selected with keyColumns. lead are destinations for
@@ -56,8 +57,8 @@ const keyColumns = `id, name, prefix, created_at, last_used_at, rpm_limit, rate_
 func scanKey(sc scanner, lead ...any) (APIKey, error) {
 	var (
 		key           APIKey
-		createdAt     string
-		lastUsed      sql.NullString
+		createdAt     int64
+		lastUsed      sql.NullInt64
 		periodSeconds int64
 		modelsOff     string
 	)
@@ -69,8 +70,8 @@ func scanKey(sc scanner, lead ...any) (APIKey, error) {
 	}
 	key.ModelsOff = splitModels(modelsOff)
 	key.RatePeriod = time.Duration(periodSeconds) * time.Second
-	key.CreatedAt = parseRFC3339(createdAt)
-	key.LastUsedAt = parseOptional(lastUsed)
+	key.CreatedAt = fromMS(createdAt)
+	key.LastUsedAt = optionalMS(lastUsed)
 	return key, nil
 }
 
@@ -85,8 +86,9 @@ func splitModels(s string) []string {
 // it. Grouped because the three travel together through every layer, and a
 // fourth positional argument to CreateKey was already one too many.
 type KeyLimits struct {
-	// RPMLimit is how many requests are allowed per RatePeriod. Named for the
-	// column and for the common case; 0 means the gateway's own limit.
+	// RPMLimit is how many requests are allowed per RatePeriod; 0 means the
+	// gateway's own limit. Named for the common case and for the admin API's
+	// rpm_limit, which predates the period; the column is rate_limit.
 	RPMLimit int
 	// RatePeriod is what that number is per. Zero reads as a minute, which is
 	// what every key created before periods existed meant.
@@ -125,7 +127,7 @@ func hashKey(plaintext string) string {
 }
 
 // ErrSecretNotKept is KeySecret's answer for a key whose secret was never
-// stored: made before migration 026, or the gateway's own.
+// stored: the gateway's own, or one ReissueUnkeptKeys has not reached yet.
 var ErrSecretNotKept = errors.New("this key's secret was not kept; issue it a new one")
 
 // KeySecret opens a key's sealed secret.
@@ -152,7 +154,7 @@ func (s *Store) KeySecret(ctx context.Context, id string) (string, error) {
 // sealed, and returns the names of those it reissued. The keys in skip are left
 // alone.
 //
-// A key from before migration 026 had only its hash stored, so its Clients
+// A key from before secrets were kept had only its hash stored, so its Clients
 // page could not show it or write a configuration with it; the operator had
 // to regenerate it by hand, and the page carried a second shape for it. Run
 // once at startup, this retires that case: every key the gateway holds can be
@@ -260,8 +262,8 @@ func (s *Store) RotateKey(ctx context.Context, id string) (APIKey, string, error
 
 // CreateKey mints a credential and returns its plaintext. The secret is kept
 // sealed beside its hash, in the same INSERT, so the key's Clients page can
-// show it and its client configs again (see migration 026 for why that is
-// safe to keep).
+// show it and its client configs again (see sealed_secret in schema.sql for
+// why that is safe to keep).
 //
 // In the same statement because a key whose secret was not kept is one the
 // startup reissue (ReissueUnkeptKeys) gives a new secret — which would break
@@ -313,16 +315,23 @@ func (s *Store) createKey(ctx context.Context, name string, limits KeyLimits, ke
 		SecretKept: keep,
 	}
 
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO api_keys (id, name, prefix, hash, created_at, rpm_limit, rate_period_s, token_budget,
-		                       sealed_secret)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		key.ID, key.Name, key.Prefix, hashKey(plaintext),
-		key.CreatedAt.Format(time.RFC3339), key.RPMLimit,
-		int64(key.Period().Seconds()), key.TokenBudget, sealed,
-	); err != nil {
-		return APIKey{}, "", fmt.Errorf("insert api key: %w", err)
+	// The name with the key, so history never holds an id with no name.
+	if err := s.inTx(ctx, "insert api key", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO api_keys (id, name, prefix, hash, created_at, rate_limit, rate_period_s, token_budget,
+			                       sealed_secret)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			key.ID, key.Name, key.Prefix, hashKey(plaintext),
+			ms(key.CreatedAt), key.RPMLimit,
+			int64(key.Period().Seconds()), key.TokenBudget, sealed,
+		); err != nil {
+			return fmt.Errorf("insert api key: %w", err)
+		}
+		return rememberName(ctx, tx, nameKey, key.ID, key.Name)
+	}); err != nil {
+		return APIKey{}, "", err
 	}
+	key.CreatedAt = fromMS(ms(key.CreatedAt))
 	return key, plaintext, nil
 }
 
@@ -374,9 +383,7 @@ func (s *Store) Key(ctx context.Context, id string) (APIKey, error) {
 // TouchKey records last use. Best-effort: a failure here must never fail the
 // request it belongs to.
 func (s *Store) TouchKey(ctx context.Context, id string) {
-	_, _ = s.db.ExecContext(ctx,
-		`UPDATE api_keys SET last_used_at = ? WHERE id = ?`,
-		time.Now().UTC().Format(time.RFC3339), id)
+	_, _ = s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, ms(time.Now()), id)
 }
 
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
@@ -412,39 +419,37 @@ func (s *Store) UpdateKey(ctx context.Context, id, name string, limits KeyLimits
 	if err := limits.validate(); err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE api_keys SET name = ?, rpm_limit = ?, rate_period_s = ?, token_budget = ?
-		  WHERE id = ?`,
-		name, limits.RPMLimit, int64(limits.Period().Seconds()), limits.TokenBudget, id)
-	if err != nil {
-		return fmt.Errorf("update api key: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrKeyNotFound
-	}
-	return nil
+	return s.inTx(ctx, "update api key", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE api_keys SET name = ?, rate_limit = ?, rate_period_s = ?, token_budget = ?
+			  WHERE id = ?`,
+			name, limits.RPMLimit, int64(limits.Period().Seconds()), limits.TokenBudget, id)
+		if err != nil {
+			return fmt.Errorf("update api key: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrKeyNotFound
+		}
+		// A rename is what every past request of this key is shown under.
+		return rememberName(ctx, tx, nameKey, id, name)
+	})
 }
 
 // DeleteKey removes a key. It is the only way to withdraw one.
 //
 // There is no separate revoke: revocation was one-way, so it was a delete that
-// left a row behind. Usage rows carry their own copy of the key name, so the
-// history a revoked row was supposedly preserving survives this anyway.
+// left a row behind. The key's name outlives it in the names table, so its
+// history still reads as this key.
+//
+// Its model switches and model-role bindings go with it by foreign key, in
+// the same statement.
 func (s *Store) DeleteKey(ctx context.Context, id string) error {
-	return s.inTx(ctx, "delete api key", func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ?`, id)
-		if err != nil {
-			return fmt.Errorf("delete api key: %w", err)
-		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return ErrKeyNotFound
-		}
-		// Its model-role bindings, which have no foreign key to go with it, since
-		// the gateway's own rows belong to no key: see migration 028. In the same
-		// transaction, so a key is never gone with its roles left behind.
-		if _, err := tx.ExecContext(ctx, `DELETE FROM model_roles WHERE key_id = ?`, id); err != nil {
-			return fmt.Errorf("delete api key's model roles: %w", err)
-		}
-		return nil
-	})
+	res, err := s.db.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete api key: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrKeyNotFound
+	}
+	return nil
 }

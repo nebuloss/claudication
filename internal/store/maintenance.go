@@ -12,7 +12,7 @@ func (s *Store) PruneUsage(ctx context.Context, keep time.Duration) (int64, erro
 	if keep <= 0 {
 		return 0, nil
 	}
-	cutoff := stamp(time.Now().Add(-keep))
+	cutoff := ms(time.Now().Add(-keep))
 	res, err := s.db.ExecContext(ctx, `DELETE FROM usage_events WHERE at < ?`, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("prune usage: %w", err)

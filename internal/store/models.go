@@ -84,7 +84,7 @@ func (s *Store) SetKeyModel(ctx context.Context, id, model string, on bool) erro
 	}
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO api_key_models_off (key_id, model, off_at) VALUES (?, ?, ?)`,
-		id, model, time.Now().UTC().Format(time.RFC3339))
+		id, model, ms(time.Now()))
 	if err != nil {
 		return fmt.Errorf("set key model: %w", err)
 	}
@@ -120,7 +120,7 @@ func (s *Store) SetAccountModel(ctx context.Context, id, model string, on bool) 
 	}
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO account_models_off (account_id, model, off_at) VALUES (?, ?, ?)`,
-		id, model, time.Now().UTC().Format(time.RFC3339))
+		id, model, ms(time.Now()))
 	if err != nil {
 		return fmt.Errorf("set account model: %w", err)
 	}

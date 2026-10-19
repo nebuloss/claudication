@@ -17,7 +17,7 @@ import (
 // since — which is the behaviour anyone scrolling a live list expects.
 //
 // The pair is needed, not just the timestamp: `at` is when a request started,
-// so two requests that started inside the same nanosecond, or a long stream
+// so two requests that started inside the same millisecond, or a long stream
 // recorded out of order, would otherwise make a page boundary ambiguous and
 // silently drop a row.
 type UsageCursor struct {
@@ -25,24 +25,30 @@ type UsageCursor struct {
 	ID int64
 }
 
-// String renders a cursor for a URL. Opaque to the client, legible in a log.
+// String renders a cursor for a URL: the row's unix ms and its id. Opaque to
+// the client, legible in a log.
 func (c UsageCursor) String() string {
 	if c.ID == 0 {
 		return ""
 	}
-	return stamp(c.At) + "|" + strconv.FormatInt(c.ID, 10)
+	return strconv.FormatInt(ms(c.At), 10) + "|" + strconv.FormatInt(c.ID, 10)
 }
 
-// ParseUsageCursor reads one back. An unparseable cursor is not an error: it
-// means "start from the top", which is the only useful thing to do with a
-// bookmark from an older release or a truncated URL.
+// ParseUsageCursor reads one back: the unix-ms form String writes, or the
+// text time a release before integer times wrote, so a page open across the
+// upgrade carries on. An unparseable cursor is not an error: it means "start
+// from the top", which is the only useful thing to do with a truncated URL.
 func ParseUsageCursor(s string) (UsageCursor, bool) {
 	at, id, found := strings.Cut(s, "|")
 	if !found {
 		return UsageCursor{}, false
 	}
-	t, err := time.Parse(time.RFC3339Nano, at)
-	if err != nil {
+	var t time.Time
+	if n, err := strconv.ParseInt(at, 10, 64); err == nil {
+		t = fromMS(n)
+	} else if old, err := time.Parse(time.RFC3339Nano, at); err == nil {
+		t = old
+	} else {
 		return UsageCursor{}, false
 	}
 	n, err := strconv.ParseInt(id, 10, 64)
@@ -137,11 +143,14 @@ func (f RequestFilter) where() (string, []any) {
 	// Both ticked is every row, so it narrows nothing and says nothing — the
 	// same as neither, which is what an untouched menu means.
 	relayed, rejected := contains(f.Kinds, "relayed"), contains(f.Kinds, "rejected")
+	// "relayed" is everything that reached the upstream, the gateway's own
+	// titling included. kind = 1 is spelled as the partial index
+	// idx_usage_rejected is, which is what lets the planner use it.
 	switch {
 	case relayed && !rejected:
-		clauses = append(clauses, "rejected = 0")
+		clauses = append(clauses, "kind <> 1")
 	case rejected && !relayed:
-		clauses = append(clauses, "rejected = 1")
+		clauses = append(clauses, "kind = 1")
 	}
 	switch f.Outcome {
 	case "failed":
@@ -201,7 +210,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 	if after.ID > 0 {
 		// Row values, so the comparison is the same one the ORDER BY makes.
 		conditions = append(conditions, "(at, id) < (?, ?)")
-		params = append(params, stamp(after.At), after.ID)
+		params = append(params, ms(after.At), after.ID)
 	}
 	if narrow != "" {
 		conditions = append(conditions, narrow)

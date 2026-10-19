@@ -5,73 +5,44 @@ import (
 	"time"
 )
 
-// The store writes moments in two text forms, and reads both back here.
+// Every moment the store keeps is an INTEGER of unix milliseconds, UTC: one
+// form for every column, compared and ordered as a number. See schema.sql for
+// what the text forms before it cost.
 //
-//   - stamp: fixed-width UTC with nine fraction digits, for every column that
-//     is compared or ordered as text — usage_events.at, login links, chat
-//     titles. See stampLayout.
-//   - RFC3339 to the second, for the columns that are only ever displayed or
-//     compared in Go — when a key or an account was made, last used, last
-//     refreshed. Older than stamp, and kept: rewriting them buys nothing, and
-//     every one of them parses with the same layout.
-//
-// Reading is lenient on purpose. None of these columns is required for a key
-// or an account to work, so a value that does not parse reads as unknown
-// rather than failing the whole list it is part of.
+// Milliseconds rather than nanoseconds because nothing the gateway measures is
+// finer, and truncated the way UnixMilli truncates, so a time read back is the
+// one written to the millisecond and the conversion of old rows agrees with it.
 
-// stampLayout is how a moment is written into a column that is compared or
-// ordered as text: always UTC, always nine fraction digits.
-//
-// Fixed width is the point. SQLite compares these columns as strings, and
-// RFC3339Nano drops trailing zeros — 10:00:00.5Z is shorter than 10:00:00Z
-// and sorts before it, so a window starting on a whole second miscounted the
-// events inside that second. With every value the same width, text order is
-// time order. Go's RFC3339Nano parser reads it back unchanged.
-const stampLayout = "2006-01-02T15:04:05.000000000Z07:00"
+// ms is t for a NOT NULL column.
+func ms(t time.Time) int64 { return t.UnixMilli() }
 
-// stamp formats t for such a column.
-func stamp(t time.Time) string { return t.UTC().Format(stampLayout) }
-
-// nullTime renders an optional timestamp for SQLite: NULL when unknown, which
-// is meaningfully different from "expired at the zero time".
-func nullTime(t time.Time) any {
+// nullMS is t for a nullable column: NULL when unknown, which is meaningfully
+// different from "expired at the zero time".
+func nullMS(t time.Time) any {
 	if t.IsZero() {
 		return nil
 	}
-	return t.UTC().Format(time.RFC3339)
+	return t.UnixMilli()
 }
 
-// formatOrEmpty is nullTime for a column that is NOT NULL: empty when unknown.
-func formatOrEmpty(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
-}
+// fromMS reads a NOT NULL column back, in UTC.
+func fromMS(v int64) time.Time { return time.UnixMilli(v).UTC() }
 
-// parseRFC3339 reads a second-precision column: an unset or unreadable value
-// is the zero time. RFC3339 parsing accepts a fraction, so a stamp reads too.
-func parseRFC3339(v string) time.Time {
-	if v == "" {
+// fromNullMS reads a nullable column back as the zero time when unset.
+func fromNullMS(v sql.NullInt64) time.Time {
+	if !v.Valid {
 		return time.Time{}
 	}
-	t, err := time.Parse(time.RFC3339, v)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
+	return fromMS(v.Int64)
 }
 
-// parseOptional is parseRFC3339 for a nullable column whose absence the
-// caller keeps as nil: never used, never refreshed, not disabled.
-func parseOptional(v sql.NullString) *time.Time {
+// optionalMS reads a nullable column whose absence the caller keeps as nil:
+// never used, never refreshed, not disabled.
+func optionalMS(v sql.NullInt64) *time.Time {
 	if !v.Valid {
 		return nil
 	}
-	t, err := time.Parse(time.RFC3339, v.String)
-	if err != nil {
-		return nil
-	}
+	t := fromMS(v.Int64)
 	return &t
 }
 

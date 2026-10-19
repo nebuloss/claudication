@@ -117,7 +117,7 @@ func TestLoginLinks(t *testing.T) {
 	// Insert the admin row directly: links never look at the hash, and an
 	// scrypt derivation here would only slow the test.
 	if _, err := st.DB().ExecContext(ctx,
-		`INSERT INTO admin (id, password_hash, created_at, updated_at) VALUES (1, 'x', '', '')`); err != nil {
+		`INSERT INTO admin (id, password_hash, created_at, updated_at) VALUES (1, 'x', 0, 0)`); err != nil {
 		t.Fatal(err)
 	}
 

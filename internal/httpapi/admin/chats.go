@@ -104,7 +104,7 @@ func (s *Admin) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
 
 // handleSetChatTitle stores a title the operator typed.
 //
-// It holds against every automatic rename (migration 024), so the one name
+// It holds against every automatic rename (chat_titles.manual), so the one name
 // known to be right is not replaced by a guess. Works with generation off,
 // since nothing is spent.
 func (s *Admin) handleSetChatTitle(w http.ResponseWriter, r *http.Request) {

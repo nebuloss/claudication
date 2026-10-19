@@ -15,18 +15,18 @@ func TestChatsRollUpPerConversation(t *testing.T) {
 	// One Claude Code chat over three turns, switching model part way, with a
 	// failure in the middle.
 	record(t, st, UsageEvent{At: t0, ConversationID: "04c27413", Client: "Claude Code",
-		KeyName: "laptop", AccountEmail: "a@example.com", Model: "claude-opus-5",
+		KeyID: "k1", KeyName: "laptop", AccountID: "a1", AccountEmail: "a@example.com", Model: "claude-opus-5",
 		Status: 200, InputTokens: 100, OutputTokens: 10, CacheReadTokens: 900})
 	record(t, st, UsageEvent{At: t0.Add(time.Minute), ConversationID: "04c27413",
-		Client: "Claude Code", KeyName: "laptop", AccountEmail: "a@example.com",
+		Client: "Claude Code", KeyID: "k1", KeyName: "laptop", AccountID: "a1", AccountEmail: "a@example.com",
 		Model: "claude-opus-5", Status: 429, Error: "refused"})
 	record(t, st, UsageEvent{At: t0.Add(2 * time.Minute), ConversationID: "04c27413",
-		Client: "Claude Code", KeyName: "laptop", AccountEmail: "a@example.com",
+		Client: "Claude Code", KeyID: "k1", KeyName: "laptop", AccountID: "a1", AccountEmail: "a@example.com",
 		Model: "claude-sonnet-5", Status: 200, InputTokens: 50, OutputTokens: 5})
 
 	// A cheaper opencode chat, so ordering by spend is observable.
 	record(t, st, UsageEvent{At: t0.Add(time.Hour), ConversationID: "ses_f50990",
-		Client: "opencode", KeyName: "laptop", AccountEmail: "a@example.com",
+		Client: "opencode", KeyID: "k1", KeyName: "laptop", AccountID: "a1", AccountEmail: "a@example.com",
 		Model: "claude-sonnet-5", Status: 200, InputTokens: 10, OutputTokens: 1})
 
 	// Two requests that named nothing.
@@ -115,11 +115,11 @@ func TestTheGatewaysOwnRequestsDoNotRenameTheChat(t *testing.T) {
 	t0 := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
 
 	record(t, st, UsageEvent{At: t0, ConversationID: "457c888e", Client: "Charm-Crush",
-		KeyName: "laptop", AccountEmail: "a@example.com", Model: "claude-opus-5",
+		KeyID: "k1", KeyName: "laptop", AccountID: "a1", AccountEmail: "a@example.com", Model: "claude-opus-5",
 		Path: "/v1/messages", Status: 200, InputTokens: 100, OutputTokens: 20})
 	// Later than every real turn, which is what made it win.
 	record(t, st, UsageEvent{At: t0.Add(time.Minute), ConversationID: "457c888e",
-		KeyName: "gateway (internal)", AccountEmail: "a@example.com",
+		KeyID: "own", KeyName: "gateway (internal)", AccountID: "a1", AccountEmail: "a@example.com",
 		Model: "claude-opus-5", Path: InternalPath, Status: 200,
 		InputTokens: 4, OutputTokens: 9, CacheReadTokens: 11406})
 
@@ -227,9 +227,7 @@ func TestChatEventsReturnEveryRecordedField(t *testing.T) {
 			t.Fatalf("fixture leaves %s at its zero value, so its loss would go unnoticed", name)
 		}
 	}
-	if err := st.RecordUsage(ctx, want); err != nil {
-		t.Fatal(err)
-	}
+	record(t, st, want)
 
 	events, err := st.ChatEvents(ctx, "c1", 10)
 	if err != nil || len(events) != 1 {

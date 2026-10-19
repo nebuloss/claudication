@@ -26,9 +26,10 @@ import { relayAddress } from './key-configs'
  * downloaded. The key itself, and regenerating it, are on the overview
  * (KeySecret).
  *
- * The secret is kept sealed beside the account tokens (migration 026), so it
- * is read whenever this page opens rather than shown once in a dialog and
- * lost: a client set up next month is set up from here, with the same key.
+ * The secret is kept sealed beside the account tokens (sealed_secret in the
+ * store's schema.sql), so it is read whenever this page opens rather than
+ * shown once in a dialog and lost: a client set up next month is set up from
+ * here, with the same key.
  *
  * The files are the committed ones under configs/clients, as the public docs
  * page shows them, with this gateway's address, this key and the models this

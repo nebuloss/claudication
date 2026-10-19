@@ -76,7 +76,7 @@ type UsageReport struct {
 // row, and running the whole breakdown report to get it made the first screen
 // after sign-in the most expensive query in the process.
 func (s *Store) Totals(ctx context.Context, since time.Time) (UsageTotals, error) {
-	from := stamp(since)
+	from := ms(since)
 	var t UsageTotals
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*),
@@ -85,7 +85,7 @@ func (s *Store) Totals(ctx context.Context, since time.Time) (UsageTotals, error
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
 		        COALESCE(SUM(cache_write_tokens), 0)
-		   FROM usage_events WHERE rejected = 0 AND at >= ?`, from).
+		   FROM usage_events WHERE `+sqlCounted+` AND at >= ?`, from).
 		Scan(&t.Requests, &t.Errors, &t.InputTokens, &t.OutputTokens,
 			&t.CacheReadTokens, &t.CacheWriteTokens)
 	if err != nil {
@@ -142,26 +142,30 @@ func (sc UsageScope) where() (string, []any) {
 // UsageIn is Usage over one account's or one key's requests: the same report,
 // so a detail page and the gateway-wide view read alike.
 func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) (UsageReport, error) {
-	from := stamp(since)
+	from := ms(since)
 	rep := UsageReport{Since: since.UTC()}
 	narrow, narrowArgs := scope.where()
 
+	// Grouped by id, then named: one names lookup per group rather than per
+	// row. A day is UTC, as it was when it was the first ten characters of a
+	// text time.
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT substr(at, 1, 10) AS day,
-		        CASE WHEN model = '' THEN '(none)' ELSE model END AS model,
-		        key_id,
-		        CASE WHEN key_name = '' THEN '(deleted key)' ELSE key_name END AS key_name,
+		`SELECT day, model, key_id,
+		        COALESCE(NULLIF(`+nameOf(nameKey, "g.key_id")+`, ''), '(deleted key)'),
 		        account_id,
-		        CASE WHEN account_email = '' THEN '(unknown)' ELSE account_email END AS account_email,
-		        status,
-		        COUNT(*),
-		        COALESCE(SUM(`+sqlIsError+`), 0),
-		        COALESCE(SUM(input_tokens), 0),
-		        COALESCE(SUM(output_tokens), 0),
-		        COALESCE(SUM(cache_read_tokens), 0),
-		        COALESCE(SUM(cache_write_tokens), 0)
-		   FROM usage_events WHERE rejected = 0 AND at >= ?`+narrow+`
-		  GROUP BY day, model, key_id, key_name, account_id, account_email, status`,
+		        COALESCE(NULLIF(`+nameOf(nameAccount, "g.account_id")+`, ''), '(unknown)'),
+		        status, requests, errors, input, output, cache_read, cache_write
+		   FROM (SELECT strftime('%Y-%m-%d', at / 1000, 'unixepoch') AS day,
+		                CASE WHEN model = '' THEN '(none)' ELSE model END AS model,
+		                key_id, account_id, status,
+		                COUNT(*) AS requests,
+		                COALESCE(SUM(`+sqlIsError+`), 0) AS errors,
+		                COALESCE(SUM(input_tokens), 0) AS input,
+		                COALESCE(SUM(output_tokens), 0) AS output,
+		                COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
+		                COALESCE(SUM(cache_write_tokens), 0) AS cache_write
+		           FROM usage_events WHERE `+sqlCounted+` AND at >= ?`+narrow+`
+		          GROUP BY day, model, key_id, account_id, status) g`,
 		append([]any{from}, narrowArgs...)...)
 	if err != nil {
 		return rep, fmt.Errorf("usage report: %w", err)
@@ -326,7 +330,7 @@ func (b *bucketSet) sortedByRequests() []UsageBucket {
 	return out
 }
 
-func (s *Store) durationPercentile(ctx context.Context, from string, scope UsageScope, n int64, pct int) int64 {
+func (s *Store) durationPercentile(ctx context.Context, from int64, scope UsageScope, n int64, pct int) int64 {
 	offset := (n*int64(pct))/100 - 1
 	if offset < 0 {
 		offset = 0
@@ -335,7 +339,7 @@ func (s *Store) durationPercentile(ctx context.Context, from string, scope Usage
 	args := append(append([]any{from}, narrowArgs...), offset)
 	var ms int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT duration_ms FROM usage_events WHERE rejected = 0 AND at >= ?`+narrow+`
+		`SELECT duration_ms FROM usage_events WHERE `+sqlCounted+` AND at >= ?`+narrow+`
 		  ORDER BY duration_ms ASC LIMIT 1 OFFSET ?`, args...).Scan(&ms)
 	if err != nil {
 		return 0

@@ -137,10 +137,9 @@ func TestLinkExpires(t *testing.T) {
 	ctx := context.Background()
 	setupAdmin(t, st)
 	const token = "expired-link-fixture"
-	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)
+	past := time.Now().Add(-time.Hour).UnixMilli()
 	if _, err := st.DB().ExecContext(ctx,
-		`INSERT INTO login_links (token, created_at, expires_at) VALUES (?, ?, ?)`,
-		token, past, past); err != nil {
+		`INSERT INTO login_links (token, expires_at) VALUES (?, ?)`, token, past); err != nil {
 		t.Fatal(err)
 	}
 

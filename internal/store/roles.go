@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Model aliases: see migration 028.
+// Model aliases: see model_roles in schema.sql.
 //
 // Names the gateway's client configs ask for instead of real models, each
 // bound to one real model. Three kinds:
@@ -86,8 +86,9 @@ type ModelRole struct {
 
 // ModelRoles lists every binding: the gateway's and every key's.
 func (s *Store) ModelRoles(ctx context.Context) ([]ModelRole, error) {
+	// NULL, the gateway's, sorts first, where '' did when that was its key_id.
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT key_id, role, model, updated_at FROM model_roles ORDER BY key_id, role`)
+		`SELECT COALESCE(key_id, ''), role, model, updated_at FROM model_roles ORDER BY key_id, role`)
 	if err != nil {
 		return nil, fmt.Errorf("model roles: %w", err)
 	}
@@ -96,12 +97,12 @@ func (s *Store) ModelRoles(ctx context.Context) ([]ModelRole, error) {
 	for rows.Next() {
 		var (
 			r      ModelRole
-			update string
+			update int64
 		)
 		if err := rows.Scan(&r.KeyID, &r.Role, &r.Model, &update); err != nil {
 			return nil, fmt.Errorf("model role: %w", err)
 		}
-		r.UpdatedAt, _ = time.Parse(time.RFC3339Nano, update)
+		r.UpdatedAt = fromMS(update)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -182,11 +183,23 @@ func (s *Store) SetModelRole(ctx context.Context, keyID, role, model string) err
 			return errors.New("an alias points to a real model, not to another alias")
 		}
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO model_roles (key_id, role, model, updated_at) VALUES (?, ?, ?, ?)
-		 ON CONFLICT (key_id, role) DO UPDATE SET model = excluded.model,
-		   updated_at = excluded.updated_at`,
-		keyID, role, model, stamp(time.Now()))
+	// One upsert per partial index, since a conflict target names one. The
+	// key's row fails its foreign key for a key that does not exist, where a
+	// '' key_id used to accept anything.
+	var err error
+	if keyID == "" {
+		_, err = s.db.ExecContext(ctx,
+			`INSERT INTO model_roles (key_id, role, model, updated_at) VALUES (NULL, ?, ?, ?)
+			 ON CONFLICT (role) WHERE key_id IS NULL DO UPDATE SET model = excluded.model,
+			   updated_at = excluded.updated_at`,
+			role, model, ms(time.Now()))
+	} else {
+		_, err = s.db.ExecContext(ctx,
+			`INSERT INTO model_roles (key_id, role, model, updated_at) VALUES (?, ?, ?, ?)
+			 ON CONFLICT (key_id, role) WHERE key_id IS NOT NULL DO UPDATE SET model = excluded.model,
+			   updated_at = excluded.updated_at`,
+			keyID, role, model, ms(time.Now()))
+	}
 	if err != nil {
 		return fmt.Errorf("set model role: %w", err)
 	}

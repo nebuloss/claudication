@@ -196,8 +196,9 @@ func TestMarkRefreshDeadKeepsTheFirstTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := "2020-01-02T03:04:05Z"
+	oldAt, _ := time.Parse(time.RFC3339, old)
 	if _, err := st.DB().ExecContext(ctx,
-		`UPDATE accounts SET refresh_dead_at = ? WHERE id = ?`, old, a.ID); err != nil {
+		`UPDATE accounts SET refresh_dead_at = ? WHERE id = ?`, oldAt.UnixMilli(), a.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.MarkRefreshDead(ctx, a.ID, "second"); err != nil {

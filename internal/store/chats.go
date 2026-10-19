@@ -22,10 +22,11 @@ import (
 // InternalPath marks a request the gateway made on its own behalf rather than
 // relayed for a client — today, the call that asks a model to name a chat.
 //
-// It is the discriminator the rollup uses to answer "whose chat is this",
-// because those rows are part of the conversation's cost but say nothing about
-// who was having it. A path rather than a key name: names are editable and get
-// reused, and this has to keep working when someone renames something.
+// RecordUsage files such a row as kind 2, which is the discriminator the
+// rollup uses to answer "whose chat is this", because those rows are part of
+// the conversation's cost but say nothing about who was having it. A path
+// rather than a key name: names are editable and get reused, and this has to
+// keep working when someone renames something.
 const InternalPath = "/internal/title"
 
 // Chat is one conversation's totals.
@@ -108,14 +109,14 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 		limit = 100
 	}
 	limit = min(limit, MaxChatsPage)
-	from := stamp(since)
+	from := ms(since)
 
 	// Empty for the whole gateway, so that query is exactly what it was.
 	inScope, scopeArgs := "", []any{}
 	if narrow, narrowArgs := scope.where(); narrow != "" {
 		inScope = ` AND conversation_id IN
 		    (SELECT conversation_id FROM usage_events
-		      WHERE rejected = 0 AND at >= ? AND conversation_id <> ''` + narrow + `)`
+		      WHERE ` + sqlCounted + ` AND at >= ? AND conversation_id <> ''` + narrow + `)`
 		scopeArgs = append([]any{from}, narrowArgs...)
 	}
 
@@ -123,7 +124,7 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(DISTINCT conversation_id) FROM usage_events
-		  WHERE rejected = 0 AND at >= ? AND conversation_id <> ''`+inScope,
+		  WHERE `+sqlCounted+` AND at >= ? AND conversation_id <> ''`+inScope,
 		append([]any{from}, scopeArgs...)...).Scan(&report.Total); err != nil {
 		return ChatReport{}, fmt.Errorf("count chats: %w", err)
 	}
@@ -132,11 +133,14 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 	// the chat actually used them rather than whatever order the group happened
 	// to be scanned in. DISTINCT and ORDER BY cannot be combined in SQLite's
 	// group_concat, hence the inner SELECT.
+	//
+	// The client, key and account are the latest relayed row's (kind = 0): the
+	// gateway's own titling rows are part of the cost, not of who was talking.
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT conversation_id,
 		        COALESCE((SELECT client FROM usage_events e1
-		                   WHERE e1.conversation_id = e.conversation_id AND e1.rejected = 0 AND e1.at >= ?
-		                     AND e1.client <> '' AND e1.path <> ?
+		                   WHERE e1.conversation_id = e.conversation_id AND e1.kind = 0 AND e1.at >= ?
+		                     AND e1.client <> ''
 		                   ORDER BY e1.at DESC LIMIT 1), ''),
 		        COUNT(*),
 		        COALESCE(SUM(`+sqlIsError+`), 0),
@@ -146,28 +150,25 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 		        MIN(at), MAX(at),
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events e2
-		              WHERE e2.conversation_id = e.conversation_id AND e2.rejected = 0 AND e2.at >= ?
+		              WHERE e2.conversation_id = e.conversation_id AND e2.kind <> 1 AND e2.at >= ?
 		                AND e2.model <> ''
 		              ORDER BY e2.at)),
-		        (SELECT key_name FROM usage_events e3
-		          WHERE e3.conversation_id = e.conversation_id AND e3.rejected = 0 AND e3.at >= ?
-		            AND e3.path <> ?
-		          ORDER BY e3.at DESC LIMIT 1),
-		        (SELECT account_email FROM usage_events e4
-		          WHERE e4.conversation_id = e.conversation_id AND e4.rejected = 0 AND e4.at >= ?
-		            AND e4.path <> ?
-		          ORDER BY e4.at DESC LIMIT 1),
+		        `+nameOf(nameKey, `(SELECT e3.key_id FROM usage_events e3
+		          WHERE e3.conversation_id = e.conversation_id AND e3.kind = 0 AND e3.at >= ?
+		          ORDER BY e3.at DESC LIMIT 1)`)+`,
+		        `+nameOf(nameAccount, `(SELECT e4.account_id FROM usage_events e4
+		          WHERE e4.conversation_id = e.conversation_id AND e4.kind = 0 AND e4.at >= ?
+		          ORDER BY e4.at DESC LIMIT 1)`)+`,
 		        (SELECT title FROM chat_titles t
 		          WHERE t.conversation_id = e.conversation_id),
 		        (SELECT manual FROM chat_titles t
 		          WHERE t.conversation_id = e.conversation_id)
 		   FROM usage_events e
-		  WHERE rejected = 0 AND at >= ? AND conversation_id <> ''`+inScope+`
+		  WHERE `+sqlCounted+` AND at >= ? AND conversation_id <> ''`+inScope+`
 		  GROUP BY conversation_id
 		  ORDER BY SUM(`+sqlTokens+`) DESC
 		  LIMIT ?`,
-		append(append([]any{from, InternalPath, from, from, InternalPath, from, InternalPath, from},
-			scopeArgs...), limit)...)
+		append(append([]any{from, from, from, from, from}, scopeArgs...), limit)...)
 	if err != nil {
 		return ChatReport{}, fmt.Errorf("chats: %w", err)
 	}
@@ -210,7 +211,7 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 func scanChat(r scanner) (Chat, error) {
 	var (
 		c                   Chat
-		first, last         string
+		first, last         *int64
 		models              *string
 		key, account, title *string
 		manual              *int64
@@ -224,8 +225,12 @@ func scanChat(r scanner) (Chat, error) {
 		c.Title = *title
 	}
 	c.TitleManual = manual != nil && *manual != 0
-	c.First, _ = time.Parse(time.RFC3339Nano, first)
-	c.Last, _ = time.Parse(time.RFC3339Nano, last)
+	if first != nil {
+		c.First = fromMS(*first)
+	}
+	if last != nil {
+		c.Last = fromMS(*last)
+	}
 	c.Models = []string{}
 	if models != nil && *models != "" {
 		c.Models = strings.Split(*models, ",")
@@ -245,7 +250,7 @@ func scanChat(r scanner) (Chat, error) {
 // absence, so grouping them further would invent a structure the data does not
 // have. Requests is what matters here — it is the number that tells an
 // operator how much traffic is arriving unlabelled.
-func (s *Store) unattributed(ctx context.Context, from string, scope UsageScope) (Chat, error) {
+func (s *Store) unattributed(ctx context.Context, from int64, scope UsageScope) (Chat, error) {
 	narrow, narrowArgs := scope.where()
 	args := append(append(append([]any{from}, narrowArgs...), from), narrowArgs...)
 	row := s.db.QueryRowContext(ctx,
@@ -258,12 +263,12 @@ func (s *Store) unattributed(ctx context.Context, from string, scope UsageScope)
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(`+sqlCacheTokens+`), 0),
-		        COALESCE(MIN(at), ''), COALESCE(MAX(at), ''),
+		        MIN(at), MAX(at),
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events
-		              WHERE rejected = 0 AND conversation_id = '' AND at >= ? AND model <> ''`+narrow+`)),
+		              WHERE `+sqlCounted+` AND conversation_id = '' AND at >= ? AND model <> ''`+narrow+`)),
 		        '', '', '', 0
-		   FROM usage_events WHERE rejected = 0 AND at >= ? AND conversation_id = ''`+narrow,
+		   FROM usage_events WHERE `+sqlCounted+` AND at >= ? AND conversation_id = ''`+narrow,
 		args...)
 
 	c, err := scanChat(row)
@@ -338,10 +343,10 @@ type TitleRecord struct {
 	Title string
 	// Requests and Turns are the conversation's request count and the number
 	// of messages the user had typed when the gateway wrote this title. Zero
-	// when it did not write it: see migration 023.
+	// when it did not write it: see chat_titles in schema.sql.
 	Requests int
 	Turns    int
-	// Manual is set when an operator typed the title: see migration 024.
+	// Manual is set when an operator typed the title.
 	Manual bool
 }
 
@@ -361,7 +366,7 @@ func (s *Store) TitleRecord(ctx context.Context, id string) (TitleRecord, bool, 
 }
 
 // ConversationRequests counts the requests recorded against a conversation,
-// from idx_usage_conversation_at without touching the table.
+// from idx_usage_conversation without touching the table.
 func (s *Store) ConversationRequests(ctx context.Context, id string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx,
@@ -402,7 +407,7 @@ func (s *Store) RetitleChat(ctx context.Context, id, title, model string, basis 
 		   title = excluded.title, model = excluded.model,
 		   created_at = excluded.created_at,
 		   requests = excluded.requests, turns = excluded.turns, manual = 0`,
-		id, title, model, stamp(time.Now()), basis.Requests, basis.Turns)
+		id, title, model, ms(time.Now()), basis.Requests, basis.Turns)
 	if err != nil {
 		return fmt.Errorf("retitle chat: %w", err)
 	}
@@ -423,7 +428,7 @@ func (s *Store) SetManualTitle(ctx context.Context, id, title string) (string, e
 		 ON CONFLICT (conversation_id) DO UPDATE SET
 		   title = excluded.title, model = '',
 		   created_at = excluded.created_at, manual = 1`,
-		id, title, stamp(time.Now()))
+		id, title, ms(time.Now()))
 	if err != nil {
 		return "", fmt.Errorf("set manual title: %w", err)
 	}
@@ -444,7 +449,7 @@ func (s *Store) SetChatTitle(ctx context.Context, id, title, model string) error
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO chat_titles (conversation_id, title, model, created_at)
 		 VALUES (?, ?, ?, ?) ON CONFLICT (conversation_id) DO NOTHING`,
-		id, title, model, stamp(time.Now()))
+		id, title, model, ms(time.Now()))
 	if err != nil {
 		return fmt.Errorf("set chat title: %w", err)
 	}

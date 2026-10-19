@@ -147,7 +147,7 @@ func (s *Store) CreateAdmin(ctx context.Context, password string) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := ms(time.Now())
 
 	res, err := s.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO admin (id, password_hash, created_at, updated_at)
@@ -198,7 +198,7 @@ func (s *Store) SetAdminPassword(ctx context.Context, password string) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := ms(time.Now())
 
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO admin (id, password_hash, created_at, updated_at)
@@ -234,7 +234,7 @@ func (s *Store) DeleteAdmin(ctx context.Context) error {
 
 // AdminUpdatedAt reports when the password last changed.
 func (s *Store) AdminUpdatedAt(ctx context.Context) (time.Time, error) {
-	var updated string
+	var updated int64
 	err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM admin WHERE id = 1`).Scan(&updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return time.Time{}, ErrNoAdmin
@@ -242,6 +242,5 @@ func (s *Store) AdminUpdatedAt(ctx context.Context) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	t, _ := time.Parse(time.RFC3339, updated)
-	return t, nil
+	return fromMS(updated), nil
 }

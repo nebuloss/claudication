@@ -263,9 +263,10 @@ func TestKeySpendAndOldestSpend(t *testing.T) {
 
 	// The zero-token request three hours ago freed nothing, so the budget
 	// starts freeing up at the first one that spent.
+	// To the millisecond, which is what the store keeps.
 	oldest, ok := st.OldestSpendAt(ctx, "k", since)
-	if !ok || !oldest.Equal(now.Add(-2*time.Hour).UTC()) {
-		t.Errorf("OldestSpendAt = %v, %v; want %v", oldest, ok, now.Add(-2*time.Hour).UTC())
+	if want := now.Add(-2 * time.Hour).Truncate(time.Millisecond).UTC(); !ok || !oldest.Equal(want) {
+		t.Errorf("OldestSpendAt = %v, %v; want %v", oldest, ok, want)
 	}
 	if _, ok := st.OldestSpendAt(ctx, "idle", since); ok {
 		t.Error("OldestSpendAt reported spend for a key with none")

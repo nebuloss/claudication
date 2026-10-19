@@ -17,16 +17,26 @@ func usageStore(t *testing.T) *Store {
 	return st
 }
 
+// record files an event, and the names it carries the way creating that key
+// and account would have: these tests make their ids up, and RecordUsage
+// takes a name from nowhere but the names table.
 func record(t *testing.T, st *Store, e UsageEvent) {
 	t.Helper()
+	ctx := context.Background()
 	if e.At.IsZero() {
 		e.At = time.Now()
 	}
 	if e.Path == "" {
 		e.Path = "/v1/messages"
 	}
-	if err := st.RecordUsage(context.Background(), e); err != nil {
+	if err := st.RecordUsage(ctx, e); err != nil {
 		t.Fatalf("RecordUsage: %v", err)
+	}
+	if err := rememberName(ctx, st.db, nameKey, e.KeyID, e.KeyName); err != nil {
+		t.Fatal(err)
+	}
+	if err := rememberName(ctx, st.db, nameAccount, e.AccountID, e.AccountEmail); err != nil {
+		t.Fatal(err)
 	}
 }
 

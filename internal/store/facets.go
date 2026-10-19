@@ -23,9 +23,9 @@ type RequestFacets struct {
 	Chats    []FacetValue `json:"chats"`
 	Messages []FacetValue `json:"messages"`
 	Kinds    []FacetValue `json:"kinds"`
-	// Keys and Accounts are ids labelled with the name each was last recorded
-	// under, so a filter arriving from a key's or an account's page reads as
-	// that key or account rather than as a hex id.
+	// Keys and Accounts are ids labelled with the name each has now, so a
+	// filter arriving from a key's or an account's page reads as that key or
+	// account rather than as a hex id.
 	Keys     []FacetValue `json:"keys"`
 	Accounts []FacetValue `json:"accounts"`
 }
@@ -76,28 +76,27 @@ func (s *Store) RequestFacets(ctx context.Context, limit int) (RequestFacets, er
 	if out.Kinds, err = s.kindFacet(ctx); err != nil {
 		return RequestFacets{}, err
 	}
-	if out.Keys, err = s.namedFacet(ctx, "key_id", "key_name", limit); err != nil {
+	if out.Keys, err = s.namedFacet(ctx, "key_id", nameKey, limit); err != nil {
 		return RequestFacets{}, err
 	}
-	if out.Accounts, err = s.namedFacet(ctx, "account_id", "account_email", limit); err != nil {
+	if out.Accounts, err = s.namedFacet(ctx, "account_id", nameAccount, limit); err != nil {
 		return RequestFacets{}, err
 	}
 	return out, nil
 }
 
-// namedFacet is an id column's values labelled with the latest name recorded
-// beside each. Both columns are this package's own constants.
-func (s *Store) namedFacet(ctx context.Context, idColumn, nameColumn string, limit int) ([]FacetValue, error) {
+// namedFacet is an id column's values labelled with each one's name, looked up
+// for the page of ids only. Both arguments are this package's own constants.
+func (s *Store) namedFacet(ctx context.Context, idColumn, kind string, limit int) ([]FacetValue, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+idColumn+`,
-		       (SELECT n.`+nameColumn+` FROM usage_events n
-		         WHERE n.`+idColumn+` = e.`+idColumn+` ORDER BY n.at DESC LIMIT 1),
-		       COUNT(*)
-		FROM usage_events e
-		WHERE `+idColumn+` <> ''
-		GROUP BY `+idColumn+`
-		ORDER BY COUNT(*) DESC, `+idColumn+` ASC
-		LIMIT ?`, limit)
+		SELECT id, COALESCE(`+nameOf(kind, "g.id")+`, ''), n
+		  FROM (SELECT `+idColumn+` AS id, COUNT(*) AS n
+		          FROM usage_events
+		         WHERE `+idColumn+` <> ''
+		         GROUP BY `+idColumn+`
+		         ORDER BY COUNT(*) DESC, `+idColumn+` ASC
+		         LIMIT ?) g
+		 ORDER BY n DESC, id ASC`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("facet %s: %w", idColumn, err)
 	}
@@ -143,11 +142,12 @@ func (s *Store) facet(ctx context.Context, column string, limit int) ([]FacetVal
 // kindFacet counts what did and did not reach the upstream.
 //
 // Two rows at most, and it speaks the filter's vocabulary rather than the
-// column's storage: the table holds a boolean, the filter says "relayed" or
-// "rejected", and translating here keeps that word in one place.
+// column's storage: the table holds three kinds, the filter says "relayed" or
+// "rejected", and translating here keeps that word in one place. The
+// gateway's own requests reached the upstream, so they count as relayed.
 func (s *Store) kindFacet(ctx context.Context) ([]FacetValue, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT rejected, COUNT(*) FROM usage_events GROUP BY rejected ORDER BY COUNT(*) DESC`)
+		SELECT kind = 1 AS rejected, COUNT(*) FROM usage_events GROUP BY rejected ORDER BY COUNT(*) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("facet kinds: %w", err)
 	}

@@ -52,12 +52,11 @@ func (s *Store) MintLoginLink(ctx context.Context, ttl time.Duration) (string, t
 	expires := now.Add(ttl)
 
 	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM login_links WHERE expires_at <= ?`, stamp(now)); err != nil {
+		`DELETE FROM login_links WHERE expires_at <= ?`, ms(now)); err != nil {
 		return "", time.Time{}, fmt.Errorf("prune expired links: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO login_links (token, created_at, expires_at) VALUES (?, ?, ?)`,
-		token, stamp(now), stamp(expires),
+		`INSERT INTO login_links (token, expires_at) VALUES (?, ?)`, token, ms(expires),
 	); err != nil {
 		return "", time.Time{}, fmt.Errorf("store sign-in link: %w", err)
 	}
@@ -69,7 +68,7 @@ func (s *Store) MintLoginLink(ctx context.Context, ttl time.Duration) (string, t
 // The row is deleted whether or not it was still valid, so a token cannot be
 // retried and an expired one cannot be probed twice for a different answer.
 func (s *Store) SpendLoginLink(ctx context.Context, token string) error {
-	var expiresAt string
+	var expiresAt int64
 	if err := s.inTx(ctx, "spend sign-in link", func(tx *sql.Tx) error {
 		err := tx.QueryRowContext(ctx,
 			`SELECT expires_at FROM login_links WHERE token = ?`, token).Scan(&expiresAt)
@@ -87,8 +86,7 @@ func (s *Store) SpendLoginLink(ctx context.Context, token string) error {
 		return err
 	}
 
-	expiry, err := time.Parse(time.RFC3339Nano, expiresAt)
-	if err != nil || !expiry.After(time.Now()) {
+	if !fromMS(expiresAt).After(time.Now()) {
 		return ErrLinkInvalid
 	}
 	return nil

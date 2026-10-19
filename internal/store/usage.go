@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 )
@@ -11,15 +12,18 @@ type UsageEvent struct {
 	// ID is set on read, not on write: it is the table's own row id, and it is
 	// what makes a page boundary unambiguous when two requests share a
 	// timestamp.
-	ID           int64
-	At           time.Time
-	KeyID        string
+	ID    int64
+	At    time.Time
+	KeyID string
+	// KeyName and AccountEmail are read back from the names table: what the
+	// key and the account are called now, not when the request was made. On
+	// write they are ignored; a name is recorded where it is set (names.go).
 	KeyName      string
 	AccountID    string
 	AccountEmail string
 	Model        string
-	// VirtualModel is the name the client asked for when it was a virtual
-	// model (migration 027); Model is then the real model that served it.
+	// VirtualModel is the alias the client asked for, when it asked for one;
+	// Model is then the real model that served it. The column is alias.
 	VirtualModel string
 	Path         string
 	// ConversationID is the chat this request belonged to, as the client named
@@ -43,7 +47,7 @@ type UsageEvent struct {
 	// ErrorCode is that failure in one word, decided once when the request was
 	// recorded: the upstream's own type, "content_check" for the refusal whose
 	// message is about billing and is not, "no_answer" when nothing came back,
-	// or empty when the request worked.
+	// "other" for a failure nothing named, or empty when the request worked.
 	//
 	// Stored rather than read back out of the text, because the text ends in a
 	// request_id and so no two are equal — which makes it useless as a filter
@@ -84,11 +88,16 @@ func (e UsageEvent) Tokens() int64 {
 const (
 	// sqlIsError is a request that failed: a status the caller would call a
 	// failure, no answer at all (status 0), or a stream that died after its 200
-	// (an error text with a 2xx status).
-	sqlIsError = `(status = 0 OR status >= 400 OR error <> '')`
+	// (an error text with a 2xx status). Every such row has an error_code,
+	// because RecordUsage gives one to any failure the classifier did not
+	// name (failed), so the class column alone says it.
+	sqlIsError = `(error_code <> '')`
 	// sqlIsOK is its exact complement, so the two partition the table and a
 	// request cannot be neither.
-	sqlIsOK = `(status > 0 AND status < 400 AND error = '')`
+	sqlIsOK = `(error_code = '')`
+	// sqlCounted is a row the aggregates add up: everything that reached the
+	// upstream, the gateway's own titling included, and not what it refused.
+	sqlCounted = `kind <> 1`
 	// sqlTokens is UsageEvent.Tokens in SQL: every billed kind, cache reads
 	// included.
 	sqlTokens = `(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens)`
@@ -96,25 +105,56 @@ const (
 	sqlCacheTokens = `(cache_read_tokens + cache_write_tokens)`
 )
 
+// The kinds of row, as usage_events.kind stores them.
+const (
+	kindRelayed  = 0
+	kindRejected = 1
+	kindInternal = 2
+)
+
+// kind is which of those an event is. Refused first: a refusal of the
+// gateway's own request is still a refusal.
+func (e UsageEvent) kind() int {
+	switch {
+	case e.Rejected:
+		return kindRejected
+	case e.Path == InternalPath:
+		return kindInternal
+	}
+	return kindRelayed
+}
+
+// failed is sqlIsError's definition in Go, for the one place a row is written.
+func (e UsageEvent) failed() bool {
+	return e.Status == 0 || e.Status >= 400 || e.Error != ""
+}
+
 // RecordUsage appends one event.
 //
 // It never returns an error to the request path — see the caller. Recording is
 // bookkeeping, and a full disk should degrade the statistics, not the proxy.
+//
+// A failure the classifier left unnamed — it reads the error text, and a 500
+// with no body has none — is filed as no_answer or other, so error_code is
+// set exactly when the request failed and sqlIsError can be that one column.
 func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
+	if e.ErrorCode == "" && e.failed() {
+		e.ErrorCode = "other"
+		if e.Status == 0 {
+			e.ErrorCode = "no_answer"
+		}
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO usage_events (at, key_id, key_name, account_id, account_email,
-		                           model, path, conversation_id, client,
-		                           status, streaming,
+		`INSERT INTO usage_events (at, kind, key_id, account_id, model, alias, path,
+		                           conversation_id, client, ip, status, streaming,
 		                           input_tokens, output_tokens,
 		                           cache_read_tokens, cache_write_tokens,
-		                           duration_ms, first_token_ms, error, error_code, rejected, ip,
-		                           virtual_model)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		stamp(e.At), e.KeyID, e.KeyName, e.AccountID, e.AccountEmail,
-		e.Model, e.Path, e.ConversationID, e.Client, e.Status, e.Streaming,
+		                           duration_ms, first_token_ms, error_code, error)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ms(e.At), e.kind(), e.KeyID, e.AccountID, e.Model, e.VirtualModel, e.Path,
+		e.ConversationID, e.Client, e.IP, e.Status, e.Streaming,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens,
-		e.Duration.Milliseconds(), e.FirstToken.Milliseconds(), e.Error, e.ErrorCode, e.Rejected, e.IP,
-		e.VirtualModel,
+		e.Duration.Milliseconds(), e.FirstToken.Milliseconds(), e.ErrorCode, e.Error,
 	)
 	if err != nil {
 		return fmt.Errorf("record usage: %w", err)
@@ -128,27 +168,32 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 // One list, shared by every query that returns whole events, because each
 // query used to keep its own: ChatEvents' copy stopped at error, so the chat
 // view sent the same request rows as the request log with error_code,
-// rejected, ip and virtual_model always empty. A column added in a migration
+// rejected, ip and virtual_model always empty. A column added to the schema
 // is added here and in RecordUsage, and nowhere else.
-const usageEventColumns = `id, at, key_id, key_name, account_id, account_email, model, path,
+//
+// Selected FROM usage_events, unaliased: the names are subqueries that name
+// the table, so the statements around this keep their bare column names.
+var usageEventColumns = `id, at, key_id, COALESCE(` + nameOf(nameKey, "usage_events.key_id") + `, ''),
+	account_id, COALESCE(` + nameOf(nameAccount, "usage_events.account_id") + `, ''), model, path,
 	conversation_id, client,
 	status, streaming, input_tokens, output_tokens,
 	cache_read_tokens, cache_write_tokens, duration_ms, first_token_ms, error,
-	error_code, rejected, ip, virtual_model`
+	error_code, kind, ip, alias`
 
 // scanUsageEvent reads one row selected with usageEventColumns.
 func scanUsageEvent(sc scanner) (UsageEvent, error) {
 	var e UsageEvent
-	var at string
-	var ms, firstMS int64
+	var at, durMS, firstMS int64
+	var kind int
 	if err := sc.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
 		&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
 		&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
-		&ms, &firstMS, &e.Error, &e.ErrorCode, &e.Rejected, &e.IP, &e.VirtualModel); err != nil {
+		&durMS, &firstMS, &e.Error, &e.ErrorCode, &kind, &e.IP, &e.VirtualModel); err != nil {
 		return UsageEvent{}, err
 	}
-	e.At, _ = time.Parse(time.RFC3339Nano, at)
-	e.Duration = time.Duration(ms) * time.Millisecond
+	e.At = fromMS(at)
+	e.Rejected = kind == kindRejected
+	e.Duration = time.Duration(durMS) * time.Millisecond
 	e.FirstToken = time.Duration(firstMS) * time.Millisecond
 	return e, nil
 }
@@ -176,8 +221,8 @@ func (s *Store) usageBy(ctx context.Context, column string, since time.Time) (ma
 		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(`+sqlCacheTokens+`), 0)
-		   FROM usage_events WHERE rejected = 0 AND at >= ? GROUP BY `+column,
-		stamp(since))
+		   FROM usage_events WHERE `+sqlCounted+` AND at >= ? GROUP BY `+column,
+		ms(since))
 	if err != nil {
 		return nil, fmt.Errorf("usage by %s: %w", column, err)
 	}
@@ -212,8 +257,8 @@ func (s *Store) KeyWeights(ctx context.Context, accountID string, since time.Tim
 		`SELECT key_id,
 		        SUM(input_tokens + 5.0*output_tokens + 1.25*cache_write_tokens + 0.1*cache_read_tokens)
 		   FROM usage_events
-		  WHERE rejected = 0 AND account_id = ? AND at >= ?
-		  GROUP BY key_id`, accountID, stamp(since))
+		  WHERE `+sqlCounted+` AND account_id = ? AND at >= ?
+		  GROUP BY key_id`, accountID, ms(since))
 	if err != nil {
 		return nil, fmt.Errorf("key weights: %w", err)
 	}
@@ -243,8 +288,8 @@ func (s *Store) KeySpend(ctx context.Context, keyID string, since time.Time) (in
 	var n int64
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(`+sqlTokens+`), 0)
-		   FROM usage_events WHERE rejected = 0 AND at >= ? AND key_id = ?`,
-		stamp(since), keyID).Scan(&n)
+		   FROM usage_events WHERE `+sqlCounted+` AND at >= ? AND key_id = ?`,
+		ms(since), keyID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("key spend: %w", err)
 	}
@@ -255,18 +300,14 @@ func (s *Store) KeySpend(ctx context.Context, keyID string, since time.Time) (in
 // so a refusal can say when the budget starts freeing up rather than telling
 // the client to guess.
 func (s *Store) OldestSpendAt(ctx context.Context, keyID string, since time.Time) (time.Time, bool) {
-	var at string
+	var at sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
 		`SELECT MIN(at) FROM usage_events
-		  WHERE rejected = 0 AND at >= ? AND key_id = ?
+		  WHERE `+sqlCounted+` AND at >= ? AND key_id = ?
 		    AND `+sqlTokens+` > 0`,
-		stamp(since), keyID).Scan(&at)
-	if err != nil || at == "" {
+		ms(since), keyID).Scan(&at)
+	if err != nil || !at.Valid {
 		return time.Time{}, false
 	}
-	t, err := time.Parse(time.RFC3339Nano, at)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return t, true
+	return fromMS(at.Int64), true
 }

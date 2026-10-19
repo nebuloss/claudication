@@ -3,13 +3,12 @@ package store
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
 
-// The schema a fresh database lands on, and the index migration 011 removes.
-func TestSchemaAfterAllMigrations(t *testing.T) {
+// A fresh database is schema.sql at schemaVersion, recorded once.
+func TestFreshSchema(t *testing.T) {
 	dir := t.TempDir()
 	st, err := Open(context.Background(), filepath.Join(dir, "schema.db"), testSealer(t))
 	if err != nil {
@@ -17,12 +16,12 @@ func TestSchemaAfterAllMigrations(t *testing.T) {
 	}
 	defer st.Close()
 
-	var version int
-	if err := st.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+	var version, rows int
+	if err := st.db.QueryRow(`SELECT MAX(version), COUNT(*) FROM schema_migrations`).Scan(&version, &rows); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 28 {
-		t.Errorf("schema version = %d, want 28", version)
+	if version != schemaVersion || rows != 1 {
+		t.Errorf("schema version = %d in %d rows, want %d in one", version, rows, schemaVersion)
 	}
 
 	// Time to first token goes in and comes back out, on both reads.
@@ -43,14 +42,6 @@ func TestSchemaAfterAllMigrations(t *testing.T) {
 	}
 
 	var n int
-	if err := st.db.QueryRow(
-		`SELECT COUNT(*) FROM sqlite_master WHERE name = 'idx_usage_key_at'`).Scan(&n); err != nil {
-		t.Fatalf("look for idx_usage_key_at: %v", err)
-	}
-	if n != 0 {
-		t.Error("idx_usage_key_at survived migration 011")
-	}
-
 	// The index every report actually uses has to still be there.
 	if err := st.db.QueryRow(
 		`SELECT COUNT(*) FROM sqlite_master WHERE name = 'idx_usage_at'`).Scan(&n); err != nil {
@@ -58,18 +49,6 @@ func TestSchemaAfterAllMigrations(t *testing.T) {
 	}
 	if n != 1 {
 		t.Error("idx_usage_at is missing; every usage query depends on it")
-	}
-
-	// 015's index is partial, and the WHERE clause is the point: the rows with
-	// no conversation id are the one group nobody drills into, and they would
-	// otherwise be the largest entry in it.
-	var sql string
-	if err := st.db.QueryRow(
-		`SELECT sql FROM sqlite_master WHERE name = 'idx_usage_chat_at'`).Scan(&sql); err != nil {
-		t.Fatalf("look for idx_usage_chat_at: %v", err)
-	}
-	if !strings.Contains(sql, "WHERE") {
-		t.Errorf("idx_usage_chat_at is not partial: %s", sql)
 	}
 }
 

@@ -21,6 +21,7 @@ type Store interface {
 	RecordUsage(ctx context.Context, e store.UsageEvent) error
 	PruneUsage(ctx context.Context, keep time.Duration) (int64, error)
 	PruneChatTitles(ctx context.Context) (int64, error)
+	PruneNames(ctx context.Context) (int64, error)
 }
 
 // Crediter is told what a request cost, for a key with a budget: the budget
@@ -81,13 +82,12 @@ func (r *Recorder) Record(e store.UsageEvent, budget int64) {
 	}
 }
 
-// Prune drops history older than the retention, and the chat titles whose
-// conversations went with it.
+// Prune drops history older than the retention, and the chat titles and the
+// names of deleted keys and accounts that went with it.
 //
-// Titles are keyed on conversations that only exist as events, so they are
-// pruned here rather than on a schedule of their own: run separately they
-// would drift, and a title outliving its events is a name for something
-// nobody can look at.
+// Both are kept for events, so they are pruned here rather than on a schedule
+// of their own: run separately they would drift, and a title or a name
+// outliving its events is a name for something nobody can look at.
 func (r *Recorder) Prune(ctx context.Context) {
 	n, err := r.Store.PruneUsage(ctx, r.Retention)
 	if err != nil {
@@ -102,6 +102,11 @@ func (r *Recorder) Prune(ctx context.Context) {
 		r.log().Warn("could not prune chat titles", "err", err)
 	} else if n > 0 {
 		r.log().Info("pruned chat titles", "rows", n)
+	}
+	if n, err := r.Store.PruneNames(ctx); err != nil {
+		r.log().Warn("could not prune names", "err", err)
+	} else if n > 0 {
+		r.log().Info("pruned names of deleted keys and accounts", "rows", n)
 	}
 }
 

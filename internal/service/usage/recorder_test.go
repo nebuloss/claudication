@@ -38,6 +38,8 @@ func (f *fakeStore) PruneUsage(_ context.Context, keep time.Duration) (int64, er
 	return f.pruneRows, f.pruneErr
 }
 
+func (f *fakeStore) PruneNames(context.Context) (int64, error) { return 0, nil }
+
 func (f *fakeStore) PruneChatTitles(context.Context) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

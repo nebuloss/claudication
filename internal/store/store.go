@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -42,27 +41,7 @@ func Open(ctx context.Context, dbPath string, sealer *secret.Sealer) (*Store, er
 	if sealer == nil {
 		return nil, errors.New("open database: no sealer")
 	}
-	// WAL keeps readers from blocking the writer; busy_timeout stops a
-	// concurrent write from failing outright under load.
-	//
-	// auto_vacuum=incremental so the file can give space back. Without it
-	// SQLite keeps freed pages for reuse and the file only ever grows: pruning
-	// a month of usage events, or lowering retention-days, reclaims nothing and
-	// the database stays at its historical peak for the life of the install.
-	// "incremental" rather than "full" because full auto-vacuum reorganises on
-	// every commit, which is a cost on the write path of every relayed request;
-	// incremental does nothing until asked, and the pruner asks once a day.
-	//
-	// It only takes on an empty database. An existing one keeps whatever it was
-	// created with until it is rewritten — see Vacuum.
-	dsn := "file:" + dbPath +
-		"?_pragma=journal_mode(WAL)" +
-		"&_pragma=busy_timeout(5000)" +
-		"&_pragma=foreign_keys(ON)" +
-		"&_pragma=synchronous(NORMAL)" +
-		"&_pragma=auto_vacuum(incremental)"
-
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite", dsn(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -94,78 +73,256 @@ func Open(ctx context.Context, dbPath string, sealer *secret.Sealer) (*Store, er
 	return &Store{db: db, sealer: sealer}, nil
 }
 
-// migrate applies every embedded migration whose version is not yet recorded,
-// in ascending order, each inside its own transaction.
+// dsn is how every connection to the database at dbPath is opened.
+func dsn(dbPath string) string {
+	// WAL keeps readers from blocking the writer; busy_timeout stops a
+	// concurrent write from failing outright under load.
+	//
+	// auto_vacuum=incremental so the file can give space back. Without it
+	// SQLite keeps freed pages for reuse and the file only ever grows: pruning
+	// a month of usage events, or lowering retention-days, reclaims nothing and
+	// the database stays at its historical peak for the life of the install.
+	// "incremental" rather than "full" because full auto-vacuum reorganises on
+	// every commit, which is a cost on the write path of every relayed request;
+	// incremental does nothing until asked, and the pruner asks once a day.
+	//
+	// It only takes on an empty database. An existing one keeps whatever it was
+	// created with until it is rewritten — see Vacuum.
+	return "file:" + dbPath +
+		"?_pragma=journal_mode(WAL)" +
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=foreign_keys(ON)" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=auto_vacuum(incremental)"
+}
+
+// schemaVersion is the version schema.sql describes, and the one every
+// database is brought to before the gateway serves from it.
+//
+// How schema_migrations records it: one row per step applied since the
+// database reached a version this binary knows, and the version is the highest
+// row. A fresh database is created whole from schema.sql and records
+// schemaVersion alone; an upgraded one records each step it took. The rows for
+// 001-028 went with the files they named (see migrations/029): history that
+// no binary can replay is not history worth keeping.
+const schemaVersion = 29
+
+// oldestUpgradable is the earliest version an upgrade starts from. 001-028 were
+// folded into schema.sql, so a database from before 028 has no path from here;
+// it goes through a release that still has them first.
+const oldestUpgradable = 28
+
+//go:embed schema.sql
+var schemaSQL string
+
+// includeSchema is the line a step puts where schema.sql is to run, for a step
+// that rebuilds tables from it rather than from a copy that could drift.
+const includeSchema = "-- include schema.sql"
+
+// migrate brings the database to schemaVersion, or refuses to touch it.
+//
+//   - Empty: schema.sql, and schemaVersion recorded, in one transaction.
+//   - At schemaVersion: nothing.
+//   - From oldestUpgradable up: each step in migrations/ after the recorded
+//     version, NNN_*.sql taking the database to version NNN, each in its own
+//     transaction, which a foreign key it left dangling rolls back. Then the
+//     space the rebuild freed is handed back before the gateway serves.
+//   - Anything else — older than oldestUpgradable, newer than this binary, or
+//     tables with no version at all — is refused with the reason, untouched.
 func migrate(ctx context.Context, db *sql.DB) error {
-	if _, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS schema_migrations (
-			version    INTEGER PRIMARY KEY,
-			applied_at TEXT NOT NULL
-		)`); err != nil {
-		return fmt.Errorf("create migration table: %w", err)
-	}
-
-	applied := map[int]bool{}
-	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations`)
+	version, empty, err := schemaVersionOf(ctx, db)
 	if err != nil {
-		return fmt.Errorf("read applied migrations: %w", err)
+		return err
 	}
-	for rows.Next() {
-		var v int
-		if err := rows.Scan(&v); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan migration version: %w", err)
-		}
-		applied[v] = true
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("read applied migrations: %w", err)
+	switch {
+	case empty:
+		return createSchema(ctx, db)
+	case version == schemaVersion:
+		return nil
+	case version > schemaVersion:
+		return fmt.Errorf("the database is at schema version %d, newer than this release's %d: "+
+			"run the release that wrote it, or a later one", version, schemaVersion)
+	case version < oldestUpgradable:
+		return fmt.Errorf("the database is at schema version %d, older than this release can upgrade "+
+			"(it starts from %d): upgrade through a release that has migration %03d first, then this one",
+			version, oldestUpgradable, oldestUpgradable)
 	}
 
+	steps, err := upgradeSteps(version)
+	if err != nil {
+		return err
+	}
+	for _, st := range steps {
+		if err := applyStep(ctx, db, st); err != nil {
+			return err
+		}
+	}
+	return reclaim(ctx, db)
+}
+
+// schemaVersionOf reads the recorded version. empty is a database with no
+// tables at all, the one state migrate creates a schema in.
+func schemaVersionOf(ctx context.Context, db *sql.DB) (version int, empty bool, err error) {
+	var tables, versioned int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(SUM(name = 'schema_migrations'), 0) FROM sqlite_master
+		  WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tables, &versioned); err != nil {
+		return 0, false, fmt.Errorf("read schema: %w", err)
+	}
+	if tables == 0 {
+		return 0, true, nil
+	}
+	if versioned == 0 {
+		return 0, false, errors.New("the database has tables but no schema_migrations: " +
+			"it is not a claudication database, or not one this release can read")
+	}
+	var v sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&v); err != nil {
+		return 0, false, fmt.Errorf("read schema version: %w", err)
+	}
+	return int(v.Int64), false, nil
+}
+
+func createSchema(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if err := recordVersion(ctx, tx, schemaVersion); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	return nil
+}
+
+func recordVersion(ctx context.Context, tx *sql.Tx, version int) error {
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+		version, time.Now().UnixMilli()); err != nil {
+		return fmt.Errorf("record schema version %d: %w", version, err)
+	}
+	return nil
+}
+
+type upgradeStep struct {
+	version int
+	name    string
+	body    string
+}
+
+// upgradeSteps are the steps after from, in order. Every version from from+1
+// to schemaVersion must have one: a gap would leave a database recorded at a
+// version whose tables it does not have.
+func upgradeSteps(from int) ([]upgradeStep, error) {
 	entries, err := migrationFS.ReadDir("migrations")
 	if err != nil {
-		return fmt.Errorf("read migrations: %w", err)
+		return nil, fmt.Errorf("read migrations: %w", err)
 	}
-	names := make([]string, 0, len(entries))
+	byVersion := map[int]upgradeStep{}
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
-		version, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
-		if err != nil {
-			return fmt.Errorf("migration %s: filename must start with a version number", name)
-		}
-		if applied[version] {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".sql") {
 			continue
+		}
+		v, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
+		if err != nil {
+			return nil, fmt.Errorf("migration %s: filename must start with a version number", name)
 		}
 		body, err := migrationFS.ReadFile(path.Join("migrations", name))
 		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
+			return nil, fmt.Errorf("read migration %s: %w", name, err)
 		}
+		byVersion[v] = upgradeStep{version: v, name: name,
+			body: strings.Replace(string(body), includeSchema, schemaSQL, 1)}
+	}
+	var steps []upgradeStep
+	for v := from + 1; v <= schemaVersion; v++ {
+		st, ok := byVersion[v]
+		if !ok {
+			return nil, fmt.Errorf("no migration to schema version %d", v)
+		}
+		steps = append(steps, st)
+	}
+	return steps, nil
+}
 
-		tx, err := db.BeginTx(ctx, nil)
-		if err != nil {
-			return fmt.Errorf("begin migration %s: %w", name, err)
-		}
-		if _, err := tx.ExecContext(ctx, string(body)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("apply migration %s: %w", name, err)
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
-			version, time.Now().UTC().Format(time.RFC3339),
-		); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("record migration %s: %w", name, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit migration %s: %w", name, err)
-		}
+// applyStep runs one step and records it, all or nothing. The foreign key
+// check is inside the transaction because a rebuild that dropped a parent row
+// a child still names would otherwise commit, and every later write to that
+// child would fail.
+func applyStep(ctx context.Context, db *sql.DB, st upgradeStep) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration %s: %w", st.name, err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, st.body); err != nil {
+		return fmt.Errorf("apply migration %s: %w", st.name, err)
+	}
+	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("check migration %s: %w", st.name, err)
+	}
+	dangling := rows.Next()
+	var table string
+	if dangling {
+		_ = rows.Scan(&table)
+	}
+	rows.Close()
+	if dangling {
+		return fmt.Errorf("migration %s left a foreign key dangling in %s; nothing was changed", st.name, table)
+	}
+	if err := recordVersion(ctx, tx, st.version); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration %s: %w", st.name, err)
+	}
+	return nil
+}
+
+// reclaim hands back what an upgrade freed, before the gateway serves. A
+// rebuild copies every table, so the file holds the old and the new until
+// this runs.
+//
+// VACUUM when the file is not in incremental auto-vacuum: it is the only thing
+// that applies the mode the DSN asks for to a file created before it, and that
+// file would otherwise keep its rebuilt size for ever. An incremental file
+// gives its free pages back without a rewrite. Then the WAL, which holds a
+// copy of every page the rebuild wrote, is checkpointed and truncated.
+//
+// A failure here is reported, not undone: the upgrade is committed, so the
+// next start finds the database current and serves, and `claudication vacuum`
+// retries the compaction. VACUUM wants about the database's size again free.
+func reclaim(ctx context.Context, db *sql.DB) error {
+	// One connection throughout, so VACUUM is not raced by another statement
+	// and the checkpoint sees what it wrote.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("reclaim space: %w", err)
+	}
+	defer conn.Close()
+	var mode int
+	if err := conn.QueryRowContext(ctx, `PRAGMA auto_vacuum`).Scan(&mode); err != nil {
+		return fmt.Errorf("reclaim space: %w", err)
+	}
+	if mode != 2 {
+		_, err = conn.ExecContext(ctx, `VACUUM`)
+	} else {
+		_, err = conn.ExecContext(ctx, `PRAGMA incremental_vacuum`)
+	}
+	if err != nil {
+		return fmt.Errorf("the upgrade is done, but reclaiming the space it freed failed "+
+			"(the next start serves; claudication vacuum retries): %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return fmt.Errorf("checkpoint: %w", err)
 	}
 	return nil
 }

@@ -16,7 +16,8 @@ import (
 func TestChatContextOverTheAPI(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	base, c := adminAPI(t, srv)
-	start := time.Now().Add(-time.Hour)
+	// To the millisecond, which is what the store keeps.
+	start := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
 
 	for i, tr := range []struct {
 		model  string

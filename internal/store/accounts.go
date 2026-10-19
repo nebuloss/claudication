@@ -52,9 +52,11 @@ type Account struct {
 // windows do not cover.
 type AccountQuota struct {
 	UpdatedAt time.Time
-	// Percentages in [0,100], or -1 when never fetched. Unknown is
-	// deliberately not zero: an account we have not asked about is unknown,
-	// not idle, and the two should not route the same way.
+	// Percentages in [0,100], or -1 when never fetched or not reported.
+	// Unknown is deliberately not zero: an account we have not asked about is
+	// unknown, not idle, and the two should not route the same way. Stored as
+	// a missing row or a NULL (account_quota in schema.sql); -1 is this
+	// struct's and the admin API's spelling of it.
 	FiveHourUtil   float64
 	FiveHourReset  time.Time
 	FiveHourStatus string
@@ -145,7 +147,7 @@ func (s *Store) sealTokens(tok Tokens) (access, refresh []byte, err error) {
 // one that already exists for this provider and email.
 //
 // Identity (email, uuid) is set at login and never changed afterwards by a
-// refresh; see the note in 002_accounts.sql.
+// refresh; see the note on accounts in schema.sql.
 func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Account, error) {
 	sealedAccess, sealedRefresh, err := s.sealTokens(tok)
 	if err != nil {
@@ -166,76 +168,111 @@ func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Ac
 	// rather than by a query before it, so two accounts added at once cannot
 	// take the same place. A reconnect keeps its place: position is not in the
 	// update list.
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO accounts (id, provider, email, account_uuid, access_token, refresh_token,
-		                      expires_at, refresh_expires_at, created_at, last_refresh_at,
-		                      position)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-		        (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts))
-		ON CONFLICT (provider, email) DO UPDATE SET
-			access_token       = excluded.access_token,
-			refresh_token      = excluded.refresh_token,
-			expires_at         = excluded.expires_at,
-			refresh_expires_at = excluded.refresh_expires_at,
-			last_refresh_at    = excluded.last_refresh_at,
-			last_error         = NULL,
-			disabled_at        = NULL,
-			-- A successful consent flow is exactly the human intervention a
-			-- dead refresh token was waiting for.
-			refresh_dead_at    = NULL`,
-		acct.ID, acct.Provider, acct.Email, acct.AccountUUID,
-		sealedAccess, sealedRefresh,
-		acct.ExpiresAt.UTC().Format(time.RFC3339), nullTime(acct.RefreshExpiresAt),
-		now.Format(time.RFC3339), now.Format(time.RFC3339))
-	if err != nil {
-		return Account{}, fmt.Errorf("store account: %w", err)
+	if err := s.inTx(ctx, "store account", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO accounts (id, provider, email, account_uuid, access_token, refresh_token,
+			                      expires_at, refresh_expires_at, created_at, last_refresh_at,
+			                      position)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+			        (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts))
+			ON CONFLICT (provider, email) DO UPDATE SET
+				access_token       = excluded.access_token,
+				refresh_token      = excluded.refresh_token,
+				expires_at         = excluded.expires_at,
+				refresh_expires_at = excluded.refresh_expires_at,
+				last_refresh_at    = excluded.last_refresh_at,
+				last_error         = '',
+				disabled_at        = NULL,
+				-- A successful consent flow is exactly the human intervention a
+				-- dead refresh token was waiting for.
+				refresh_dead_at    = NULL`,
+			acct.ID, acct.Provider, acct.Email, acct.AccountUUID,
+			sealedAccess, sealedRefresh,
+			ms(acct.ExpiresAt), nullMS(acct.RefreshExpiresAt), ms(now), ms(now)); err != nil {
+			return fmt.Errorf("store account: %w", err)
+		}
+		// The row that took the write, which is not acct.ID on a reconnect.
+		var id string
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM accounts WHERE provider = ? AND email = ?`,
+			acct.Provider, acct.Email).Scan(&id); err != nil {
+			return fmt.Errorf("store account: %w", err)
+		}
+		return rememberName(ctx, tx, nameAccount, id, acct.Email)
+	}); err != nil {
+		return Account{}, err
 	}
 
 	return s.AccountByEmail(ctx, acct.Provider, acct.Email)
 }
 
-const accountColumns = `id, provider, email, account_uuid, expires_at, refresh_expires_at,
+// accountColumns is every column an Account is read from, in scanAccount's
+// order, selected FROM accountsWithQuota. The quota has its own table, joined
+// rather than subqueried column by column; it shares no column name with
+// accounts, so the statements' own WHERE and ORDER BY stay unqualified.
+const accountColumns = `accounts.id, provider, email, account_uuid, expires_at, refresh_expires_at,
                         created_at, last_refresh_at, last_used_at, last_error, disabled_at,
                         refresh_dead_at,
-                        quota_updated_at, quota_5h_util, quota_5h_reset, quota_5h_status,
-                        quota_7d_util, quota_7d_reset, quota_7d_status, position, usage_json,
+                        q.updated_at, q.five_hour_util, q.five_hour_reset, COALESCE(q.five_hour_status, ''),
+                        q.seven_day_util, q.seven_day_reset, COALESCE(q.seven_day_status, ''),
+                        position, COALESCE(q.detail, ''),
                         COALESCE((SELECT group_concat(model, char(31)) FROM account_models_off o
                                    WHERE o.account_id = accounts.id), '')`
 
+const accountsWithQuota = `accounts LEFT JOIN account_quota q ON q.account_id = accounts.id`
+
 func scanAccount(sc scanner) (Account, error) {
 	var (
-		a                                                        Account
-		expiresAt, createdAt                                     string
-		refreshExpires, lastRefresh, lastUsed, lastErr, disabled sql.NullString
-		refreshDead                                              sql.NullString
-		quotaUpdated, reset5h, reset7d                           string
-		modelsOff                                                string
+		a                               Account
+		expiresAt, createdAt            int64
+		refreshExpires, lastRefresh     sql.NullInt64
+		lastUsed, disabled, refreshDead sql.NullInt64
+		quotaUpdated, reset5h, reset7d  sql.NullInt64
+		util5h, util7d                  sql.NullFloat64
+		modelsOff                       string
 	)
 	if err := sc.Scan(&a.ID, &a.Provider, &a.Email, &a.AccountUUID, &expiresAt, &refreshExpires,
-		&createdAt, &lastRefresh, &lastUsed, &lastErr, &disabled, &refreshDead,
-		&quotaUpdated, &a.Quota.FiveHourUtil, &reset5h, &a.Quota.FiveHourStatus,
-		&a.Quota.SevenDayUtil, &reset7d, &a.Quota.SevenDayStatus, &a.Position,
+		&createdAt, &lastRefresh, &lastUsed, &a.LastError, &disabled, &refreshDead,
+		&quotaUpdated, &util5h, &reset5h, &a.Quota.FiveHourStatus,
+		&util7d, &reset7d, &a.Quota.SevenDayStatus, &a.Position,
 		&a.Quota.Detail, &modelsOff); err != nil {
 		return Account{}, err
 	}
 	a.ModelsOff = splitModels(modelsOff)
-	a.Quota.UpdatedAt = parseRFC3339(quotaUpdated)
-	a.Quota.FiveHourReset = parseRFC3339(reset5h)
-	a.Quota.SevenDayReset = parseRFC3339(reset7d)
-	a.ExpiresAt = parseRFC3339(expiresAt)
-	a.RefreshExpiresAt = parseRFC3339(refreshExpires.String)
-	a.CreatedAt = parseRFC3339(createdAt)
-	a.LastError = lastErr.String
-	a.LastRefreshAt = parseOptional(lastRefresh)
-	a.LastUsedAt = parseOptional(lastUsed)
-	a.DisabledAt = parseOptional(disabled)
-	a.RefreshDeadAt = parseOptional(refreshDead)
+	a.Quota.UpdatedAt = fromNullMS(quotaUpdated)
+	a.Quota.FiveHourUtil = utilOrUnknown(util5h)
+	a.Quota.SevenDayUtil = utilOrUnknown(util7d)
+	a.Quota.FiveHourReset = fromNullMS(reset5h)
+	a.Quota.SevenDayReset = fromNullMS(reset7d)
+	a.ExpiresAt = fromMS(expiresAt)
+	a.RefreshExpiresAt = fromNullMS(refreshExpires)
+	a.CreatedAt = fromMS(createdAt)
+	a.LastRefreshAt = optionalMS(lastRefresh)
+	a.LastUsedAt = optionalMS(lastUsed)
+	a.DisabledAt = optionalMS(disabled)
+	a.RefreshDeadAt = optionalMS(refreshDead)
 	return a, nil
+}
+
+// utilOrUnknown is a stored percentage, or -1 for no row or a window the
+// endpoint did not report.
+func utilOrUnknown(v sql.NullFloat64) float64 {
+	if !v.Valid {
+		return -1
+	}
+	return v.Float64
+}
+
+// utilOrNull is the reverse: anything below zero is not a percentage.
+func utilOrNull(v float64) any {
+	if v < 0 {
+		return nil
+	}
+	return v
 }
 
 func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+accountColumns+` FROM accounts ORDER BY position, created_at, id`)
+		`SELECT `+accountColumns+` FROM `+accountsWithQuota+` ORDER BY position, created_at, accounts.id`)
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
 	}
@@ -253,7 +290,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 }
 
 func (s *Store) Account(ctx context.Context, id string) (Account, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT `+accountColumns+` FROM accounts WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT `+accountColumns+` FROM `+accountsWithQuota+` WHERE accounts.id = ?`, id)
 	a, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Account{}, ErrAccountNotFound
@@ -266,7 +303,7 @@ func (s *Store) Account(ctx context.Context, id string) (Account, error) {
 
 func (s *Store) AccountByEmail(ctx context.Context, provider, email string) (Account, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT `+accountColumns+` FROM accounts WHERE provider = ? AND email = ?`, provider, email)
+		`SELECT `+accountColumns+` FROM `+accountsWithQuota+` WHERE provider = ? AND email = ?`, provider, email)
 	a, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Account{}, ErrAccountNotFound
@@ -307,16 +344,24 @@ func (s *Store) SetAccountOrder(ctx context.Context, ids []string) error {
 //
 // Best-effort by design: this is a status poll, and failing to write a figure
 // must never affect whether the account can serve.
+//
+// A poll that lands as the account is deleted writes nothing: the SELECT finds
+// no account, where an INSERT would fail the foreign key.
 func (s *Store) SetAccountQuota(ctx context.Context, id string, q AccountQuota) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE accounts SET quota_updated_at = ?,
-		                     quota_5h_util = ?, quota_5h_reset = ?, quota_5h_status = ?,
-		                     quota_7d_util = ?, quota_7d_reset = ?, quota_7d_status = ?,
-		                     usage_json = ?
-		  WHERE id = ?`,
-		time.Now().UTC().Format(time.RFC3339),
-		q.FiveHourUtil, formatOrEmpty(q.FiveHourReset), q.FiveHourStatus,
-		q.SevenDayUtil, formatOrEmpty(q.SevenDayReset), q.SevenDayStatus,
+		`INSERT INTO account_quota (account_id, updated_at,
+		                            five_hour_util, five_hour_reset, five_hour_status,
+		                            seven_day_util, seven_day_reset, seven_day_status, detail)
+		 SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM accounts WHERE id = ?
+		 ON CONFLICT (account_id) DO UPDATE SET
+		   updated_at = excluded.updated_at,
+		   five_hour_util = excluded.five_hour_util, five_hour_reset = excluded.five_hour_reset,
+		   five_hour_status = excluded.five_hour_status,
+		   seven_day_util = excluded.seven_day_util, seven_day_reset = excluded.seven_day_reset,
+		   seven_day_status = excluded.seven_day_status, detail = excluded.detail`,
+		ms(time.Now()),
+		utilOrNull(q.FiveHourUtil), nullMS(q.FiveHourReset), q.FiveHourStatus,
+		utilOrNull(q.SevenDayUtil), nullMS(q.SevenDayReset), q.SevenDayStatus,
 		q.Detail, id)
 	if err != nil {
 		return fmt.Errorf("record account usage: %w", err)
@@ -355,15 +400,14 @@ func (s *Store) UpdateAccountTokens(ctx context.Context, id string, tok Tokens, 
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE accounts
 		   SET access_token = ?, refresh_token = ?, expires_at = ?,
 		       refresh_expires_at = COALESCE(?, refresh_expires_at),
-		       last_refresh_at = ?, last_error = NULL
+		       last_refresh_at = ?, last_error = ''
 		 WHERE id = ?`,
-		sealedAccess, sealedRefresh, expiresAt.UTC().Format(time.RFC3339),
-		nullTime(refreshExpiresAt), now, id)
+		sealedAccess, sealedRefresh, ms(expiresAt),
+		nullMS(refreshExpiresAt), ms(time.Now()), id)
 	if err != nil {
 		return fmt.Errorf("update tokens: %w", err)
 	}
@@ -390,22 +434,27 @@ func (s *Store) RenewAccount(ctx context.Context, id string, acct Account, tok T
 	if err != nil {
 		return Account{}, err
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE accounts
-		   SET access_token = ?, refresh_token = ?, expires_at = ?,
-		       refresh_expires_at = ?, last_refresh_at = ?,
-		       email = COALESCE(NULLIF(?, ''), email),
-		       account_uuid = COALESCE(NULLIF(?, ''), account_uuid),
-		       last_error = NULL, disabled_at = NULL, refresh_dead_at = NULL
-		 WHERE id = ?`,
-		sealedAccess, sealedRefresh, acct.ExpiresAt.UTC().Format(time.RFC3339),
-		nullTime(acct.RefreshExpiresAt), now, acct.Email, acct.AccountUUID, id)
-	if err != nil {
-		return Account{}, fmt.Errorf("renew account: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return Account{}, ErrAccountNotFound
+	if err := s.inTx(ctx, "renew account", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE accounts
+			   SET access_token = ?, refresh_token = ?, expires_at = ?,
+			       refresh_expires_at = ?, last_refresh_at = ?,
+			       email = COALESCE(NULLIF(?, ''), email),
+			       account_uuid = COALESCE(NULLIF(?, ''), account_uuid),
+			       last_error = '', disabled_at = NULL, refresh_dead_at = NULL
+			 WHERE id = ?`,
+			sealedAccess, sealedRefresh, ms(acct.ExpiresAt),
+			nullMS(acct.RefreshExpiresAt), ms(time.Now()), acct.Email, acct.AccountUUID, id)
+		if err != nil {
+			return fmt.Errorf("renew account: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrAccountNotFound
+		}
+		// A new address is a rename, and the account's history follows it.
+		return rememberName(ctx, tx, nameAccount, id, acct.Email)
+	}); err != nil {
+		return Account{}, err
 	}
 	return s.Account(ctx, id)
 }
@@ -416,8 +465,8 @@ func (s *Store) MarkAccountError(ctx context.Context, id, msg string) {
 }
 
 func (s *Store) MarkAccountUsed(ctx context.Context, id string) {
-	_, _ = s.db.ExecContext(ctx, `UPDATE accounts SET last_used_at = ?, last_error = NULL WHERE id = ?`,
-		time.Now().UTC().Format(time.RFC3339), id)
+	_, _ = s.db.ExecContext(ctx, `UPDATE accounts SET last_used_at = ?, last_error = '' WHERE id = ?`,
+		ms(time.Now()), id)
 }
 
 // MarkRefreshDead records that the refresh token was refused for good.
@@ -428,7 +477,7 @@ func (s *Store) MarkRefreshDead(ctx context.Context, id, detail string) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE accounts SET refresh_dead_at = COALESCE(refresh_dead_at, ?), last_error = ?
 		  WHERE id = ?`,
-		time.Now().UTC().Format(time.RFC3339), detail, id)
+		ms(time.Now()), detail, id)
 	if err != nil {
 		return fmt.Errorf("mark refresh dead: %w", err)
 	}
@@ -450,8 +499,7 @@ func (s *Store) SetAccountDisabled(ctx context.Context, id string, disabled bool
 	var err error
 	if disabled {
 		res, err = s.db.ExecContext(ctx,
-			`UPDATE accounts SET disabled_at = ? WHERE id = ?`,
-			time.Now().UTC().Format(time.RFC3339), id)
+			`UPDATE accounts SET disabled_at = ? WHERE id = ?`, ms(time.Now()), id)
 	} else {
 		res, err = s.db.ExecContext(ctx,
 			`UPDATE accounts SET disabled_at = NULL WHERE id = ?`, id)
