@@ -41,7 +41,10 @@ export function ListRow({
         highlight ? 'bg-secondary-container' : 'bg-surface-lowest'
       }`}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+      {/* basis-48: the name's share before the row wraps. With none, the
+          figures beside it fitted on a phone by squeezing the name to
+          nothing, so a list of keys showed no key names. */}
+      <div className="flex min-w-0 flex-1 basis-48 items-center gap-3">
         {leading}
         <div className="min-w-0">
           {/* A link for the keyboard and for opening in a new tab, drawn as a
