@@ -1,4 +1,8 @@
-# Working on claudication
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Working on claudication
 
 A gateway that proxies Claude subscription accounts over OAuth, with an
 embedded admin UI. Go, no CGO; the UI is built into the binary with
@@ -78,10 +82,27 @@ it costs hours every time someone meets it fresh.
 
 ## Commands
 
-    make check        # fmt-check, vet, test, typecheck, web build — run this
+    make check        # fmt-check, vet, test, typecheck, test-web, web build — what CI runs
     make build        # binary at dist/claudication, UI embedded
-    make test         # Go tests only
-    make typecheck    # tsc over web/
+    make test         # Go tests only, with -race (needs cgo)
+    make test-norace  # the same without cgo, for musl or scratch toolchains
+    make test-web     # the chart scales and the UI's pure modules, under node
+    make typecheck    # tsc over web/ — vite strips types without checking them
+    make repro        # build twice and prove the bytes match; CI runs it too
+
+One Go test: `go test ./internal/relay/passes -run TestName -race -count=1`.
+
+The Makefile pins `GOTOOLCHAIN` to the `go` directive in `go.mod`, so a plain
+`go` command may resolve a different compiler than `make` does. CI also fails
+on `go mod tidy -diff`.
+
+The UI is embedded from `internal/httpapi/webdist`, which only `make web`
+fills (git holds just a `.gitkeep`); a bare `go build` ships no UI. For UI
+work, `make dev-api` runs the gateway with debug logging and `make dev` runs
+Vite on :5173 proxying the API to it.
+
+The binary's subcommands are `serve`, `keys`, `login-url`, `passwd`,
+`vacuum`, `backup` and `restore` (`cmd/claudication`).
 
 The tests do not need credentials or a network. Anything that probes the real
 API is a script under `scripts/`, run by hand, and says so.
