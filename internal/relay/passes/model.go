@@ -109,9 +109,14 @@ func NewModelRenamer(w http.ResponseWriter, name string, events []string) *Model
 }
 
 // WriteHeader drops a Content-Length, which describes a body whose model name
-// is about to change length.
+// is about to change length, and says the alias back in an OpenAI-Model
+// header, the one header a provider names its model in (ChatGPT's backend;
+// Codex reads it, codex-rs/core/src/client.rs). Anthropic sends none.
 func (m *ModelRenamer) WriteHeader(status int) {
 	m.Header().Del("Content-Length")
+	if m.Header().Get("OpenAI-Model") != "" {
+		m.Header().Set("OpenAI-Model", string(m.to))
+	}
 	m.ResponseWriter.WriteHeader(status)
 }
 

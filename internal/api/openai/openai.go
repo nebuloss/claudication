@@ -101,13 +101,17 @@ func (API) ModelEvents() []string {
 // It sends both, with the same UUID in each: session_id names the CLI session
 // and conversation_id the thread within it. session_id is taken first because
 // it is the one Codex sends on every request, conversation_id only once the
-// thread exists.
+// thread exists. That is 0.154.0, measured. Codex main sends them hyphenated,
+// session-id and thread-id (codex-api/src/requests/headers.rs, read
+// 2026-10-19, not measured), and those are read after the measured ones.
 //
-// Both are in dialectHeaders and so are stripped before the request goes
-// upstream — which is exactly why this reads the caller's own headers, before
-// the relay clones the request. Reading them afterwards finds nothing.
+// Both are in dialectHeaders and so are stripped before a translated request
+// goes upstream — which is exactly why this reads the caller's own headers,
+// before the relay clones the request. Reading them afterwards finds nothing.
+// The id is also what keeps a conversation on the ChatGPT account that served
+// it last (internal/pool), which is why the newer spelling matters.
 func (API) ConversationID(h http.Header, _ []byte) string {
-	return api.HeaderID(h, "Session_id", "Conversation_id")
+	return api.HeaderID(h, "Session_id", "Conversation_id", "Session-Id", "Thread-Id")
 }
 
 // exchange is one Responses request in flight. It is also the api.Reshaper for
@@ -169,6 +173,8 @@ var dialectHeaders = []string{
 	"Originator",
 	"Session_id",
 	"Conversation_id",
+	"Session-Id",
+	"Thread-Id",
 }
 
 func (*exchange) Headers(h http.Header) {

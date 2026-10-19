@@ -180,7 +180,8 @@ func TestModelRolesOverTheAPI(t *testing.T) {
 	}
 
 	// The families are the accounts' own: claude-opus and claude-haiku exist
-	// because models of them are listed, and nothing else does.
+	// because models of them are listed, and nothing else does. The roles,
+	// GPT ones included, are there whatever is listed.
 	_, body = call(t, base, http.MethodGet, "/admin/model-roles", "", c)
 	var listed struct {
 		Roles []struct {
@@ -194,7 +195,7 @@ func TestModelRolesOverTheAPI(t *testing.T) {
 	for _, r := range listed.Roles {
 		names = append(names, r.Role)
 	}
-	if strings.Join(names, ",") != "claude-large,claude-small,claude-opus,claude-haiku" {
+	if strings.Join(names, ",") != "claude-large,claude-small,gpt-large,gpt-small,claude-opus,claude-haiku" {
 		t.Errorf("aliases = %v", names)
 	}
 

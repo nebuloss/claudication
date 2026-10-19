@@ -20,12 +20,30 @@
 //  6. [ShrinkImages] — an image over 2000 px on a side in a request carrying
 //     more than twenty of them, which the upstream refuses by name.
 //
-// The seventh is [SetModel]: a request naming a model role (claude-large,
-// claude-small) has the real model it is bound to put in its model field, and
-// [ModelRenamer] says the role back in the answer. It is not in Default,
+// The seventh is [SetModel]: a request naming a model alias (claude-large,
+// gpt-small, ...) has the real model it resolves to put in its model field,
+// and [ModelRenamer] says the alias back in the answer. It is not in Default,
 // because it needs a decision only the gateway can make — which real model
-// the role is bound to for this key — and it runs only when one is named.
-// See model.go.
+// the alias is bound to for this key and client — and it runs only when one
+// is named. See model.go.
+//
+// # The OpenAI wire
+//
+// A request the gateway relays to a ChatGPT account is an OpenAI Responses
+// body, sent on as Codex wrote it, and its pipeline is [OpenAI]: the first
+// pass alone. The rest repair an Anthropic envelope and have nothing to repair
+// in this one. Measured against the backend on 2026-10-19
+// (internal/provider/openai/doc.go has the record):
+//
+//	request                      answer   so
+//	a lone \ud800 in the text     400      FixLoneSurrogates runs here too
+//	max_output_tokens: 256       200      not stripped, though crush strips it
+//	no originator header         200      the gateway adds its own name only
+//	                                      when the caller sent none
+//
+// SetModel and ModelRenamer apply as on any wire: both work on the top-level
+// model field, which a Responses body and its events have where a Messages
+// one does.
 //
 // The sixth is Default's only optional pass, and its only one off by default.
 // The other five repair an envelope the upstream rejects over its shape, and

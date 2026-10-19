@@ -20,10 +20,14 @@ type RoleJSON struct {
 	// Model is what this scope binds it to: for the gateway, empty is
 	// following the newest of Family; for a key, empty is "the gateway's".
 	Model string `json:"model"`
-	// Family is what a built-in alias follows while unbound; empty for a
-	// custom one.
+	// Family is what a built-in Claude alias follows while unbound; empty
+	// for a custom one and for the GPT roles, which follow a ranking.
 	Family  string `json:"family"`
 	Builtin bool   `json:"builtin"`
+	// Provider is whose models a built-in alias follows while unbound —
+	// anthropic, openai — and empty for a custom one. Bound, any alias is
+	// served by whichever provider serves the model it is bound to.
+	Provider string `json:"provider,omitempty"`
 	// Serving is what a request for the alias gets now, and Problem why it
 	// cannot be served, when it cannot.
 	Serving string `json:"serving"`
@@ -76,7 +80,7 @@ func (s *Admin) handleModelRoles(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]RoleJSON, 0, len(aliases))
 	for _, a := range aliases {
-		j := RoleJSON{Role: a.Name, Family: a.Family, Builtin: a.Builtin}
+		j := RoleJSON{Role: a.Name, Family: a.Family, Builtin: a.Builtin, Provider: store.AliasProvider(a.Name)}
 		for _, b := range all {
 			if b.Role != a.Name {
 				continue
@@ -156,7 +160,7 @@ func (s *Admin) handleSetModelRole(w http.ResponseWriter, r *http.Request) {
 	if body.KeyID != "" || body.Client != "" {
 		// A key or a client binds an alias the gateway has, not a name of
 		// its own.
-		if store.AliasFamily(body.Role) == "" {
+		if !store.IsBuiltinAlias(body.Role) {
 			custom, err := s.store.CustomAliases(r.Context())
 			if err != nil {
 				httpx.Internal(w, s.log, "read the aliases", err)

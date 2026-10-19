@@ -13,6 +13,7 @@ import (
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	"claudication/internal/request"
+	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/titles"
 	"claudication/internal/store"
 )
@@ -20,17 +21,18 @@ import (
 // inference is the one path every client-facing dialect takes.
 //
 // Everything that is the same for all of them lives here — reading the body,
-// gunzipping it, the timeout, the relay, usage accounting, the log line — and
-// everything that differs lives behind api.Protocol. The Anthropic surface is
-// the identity protocol, so this function has no idea which dialect it is
-// serving, and adding a third surface does not change it.
+// gunzipping it, choosing the upstream, the timeout, the relay, usage
+// accounting, the log line — and everything that differs lives behind
+// api.Protocol. The Anthropic surface is the identity protocol, so this
+// function has no idea which dialect it is serving, and adding a third surface
+// does not change it.
 //
 // It still does almost nothing to the request itself. It does not reshape the
 // system array, filter events, normalise errors or inspect capabilities: every
 // one of those would break something the gateway contract requires, and most
 // of them are the defects found in auth2api. The body is read only because a
 // retry on another account has to replay it.
-func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.HandlerFunc {
+func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Counted, so memory is only handed back once nothing is in flight.
 		defer s.trimmer.Begin()()
@@ -55,65 +57,96 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 			return
 		}
 
-		// For the Anthropic surface this only peeks at the model and stream
-		// flag. For a translating one it builds a different request entirely,
-		// and a body it cannot read is the caller's fault, not the upstream's.
-		ex, err := p.Decode(body)
+		// The caller's request as it came, read for its model before anything
+		// is translated: which upstream serves it is decided by that model,
+		// and a request going to an upstream that speaks its dialect is not
+		// translated at all. For the Anthropic surface this is the exchange
+		// itself, which only peeks at the model and stream flag.
+		first, err := decodeNative(p, body)
 		if err != nil {
 			p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, err.Error())
 			return
 		}
-
-		outbound := ex.Request()
-		model, streaming := ex.Model(), ex.Streaming()
+		requested, streaming := first.Model(), first.Streaming()
 
 		// A model this key has been kept off, refused before anything is spent
 		// and recorded under the key, because it is a client to reconfigure
 		// rather than a stranger. 403 permission_error, as Anthropic answers a
 		// credential not allowed something: a client stops there rather than
 		// retrying, and the message says who can change it.
-		if key, ok := httpx.APIKey(r.Context()); ok && !key.Allows(model) {
+		if key, ok := httpx.APIKey(r.Context()); ok && !key.Allows(requested) {
 			ev := rejection(r, key, http.StatusForbidden, "model not allowed for this API key")
-			ev.Model, ev.Path = model, route
+			ev.Model, ev.Path = requested, route
 			s.recorder.Record(ev, 0)
 			p.WriteError(w, http.StatusForbidden, api.KindPermission,
-				"this API key may not use model "+model+
+				"this API key may not use model "+requested+
 					"; an administrator can allow it on the key's Models page")
 			return
 		}
 
-		// A model role — claude-large, claude-small — becomes the real model
-		// it is bound to for this key, else for this client, else for the
-		// gateway, else the newest of its family; the answer is renamed back
-		// on its way out. One model, no fallback: when it cannot serve, the
-		// request is refused saying which one to change. See passes.SetModel.
+		// Where it goes. A model alias — claude-large, gpt-small, one of the
+		// operator's — becomes the real model it is bound to for this key,
+		// else for this client, else for the gateway, else what it follows;
+		// the answer is renamed back on its way out. One model, no fallback:
+		// when it cannot serve, the request is refused saying which one to
+		// change. The provider is the one whose accounts serve that model.
+		// See modelsvc.Route.
 		//
 		// The client is the one the User-Agent names, as the request log
 		// records it, so a binding made for "Codex" is the one the log's
 		// Codex rows were served by.
-		virtual := ""
-		rewrote := false
 		key, _ := httpx.APIKey(r.Context())
 		client := api.ClientName(r.UserAgent())
-		if s.models.IsAlias(r.Context(), model) {
-			role := store.ModelKey(model)
-			target, why := s.models.RoleTarget(r.Context(), key, client, role)
-			if why != "" {
-				ev := rejection(r, key, http.StatusNotFound, why)
-				ev.Model, ev.VirtualModel, ev.Path = target, role, route
-				s.recorder.Record(ev, 0)
-				p.WriteError(w, http.StatusNotFound, api.KindNotFound,
-					why+"; an administrator can change "+role+" in Settings › Aliases")
+		dest := s.models.Route(r.Context(), key, client, requested, fallbackFor(p, requested))
+		model, virtual := dest.Model, dest.Alias
+		if dest.Why != "" {
+			ev := rejection(r, key, http.StatusNotFound, dest.Why)
+			ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Alias, route
+			s.recorder.Record(ev, 0)
+			p.WriteError(w, http.StatusNotFound, api.KindNotFound,
+				dest.Why+"; an administrator can change "+dest.Alias+" in Settings › Aliases")
+			return
+		}
+		up, known := s.upstreams[dest.Provider]
+		upstreamPath, reachable := up.Paths[route]
+		if !known || !reachable {
+			// The model is served, but not to this API: a ChatGPT model asked
+			// for over Anthropic Messages. Translating Messages into
+			// Responses is a mapping of its own, with its own pitfalls, and
+			// not one this gateway has; refusing with what to change beats
+			// sending a Claude Code turn somewhere that cannot read it.
+			why := unreachable(p, up, dest, requested)
+			ev := rejection(r, key, http.StatusBadRequest, why)
+			ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Alias, route
+			s.recorder.Record(ev, 0)
+			p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, why)
+			return
+		}
+
+		// The request as it goes upstream: as it came, to an upstream that
+		// speaks the caller's dialect; translated, to one that does not.
+		ex := first
+		if up.Native != p.ID() {
+			if ex, err = p.Decode(body); err != nil {
+				p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, err.Error())
 				return
 			}
-			replaced, ok := passes.SetModel(outbound, target)
+		}
+		outbound := ex.Request()
+		rewrote := false
+		if virtual != "" {
+			replaced, ok := passes.SetModel(outbound, model)
 			if !ok {
 				p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, "the request names no model to map")
 				return
 			}
-			outbound, virtual, model, rewrote = replaced, role, target, true
-			s.log.Debug("model role", "role", role, "serving", target, "client", client,
-				"request_id", httpx.RequestID(r.Context()))
+			outbound, rewrote = replaced, true
+			s.log.Debug("model alias", "alias", virtual, "serving", model, "provider", dest.Provider,
+				"client", client, "request_id", httpx.RequestID(r.Context()))
+		} else if up.Native != p.ID() {
+			// Translated without an alias: the dialect chose the model it
+			// sends, and that is the one served and recorded.
+			model = ex.Model()
 		}
 
 		// Read before the clone, and before Headers strips anything.
@@ -133,6 +166,10 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 
 		ctx, cancel := httpx.TimeoutContext(r, relay.Timeout(streaming))
 		defer cancel()
+		// Named for the pool, which keeps a conversation on the account that
+		// served it last where the provider wants that (ChatGPT does: see
+		// internal/pool, affinity.go).
+		ctx = pool.WithConversation(ctx, conversation)
 		// Cloned rather than re-contexted, because the protocol is about to
 		// edit the headers and they must not be the caller's own map.
 		r = r.Clone(ctx)
@@ -162,7 +199,8 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// other request is untouched, and the tee never gates the write.
 		sink := ex.Sink(w)
 		var captured *titles.CaptureSink
-		if conversation != "" && s.titles.Capturing() && titles.IsClientTitleRequest(outbound) {
+		if conversation != "" && s.titles.Capturing() && s.titles.Serves(dest.Provider) &&
+			titles.IsClientTitleRequest(outbound) {
 			captured = &titles.CaptureSink{Sink: sink}
 			sink = captured
 		}
@@ -175,12 +213,12 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// has no name yet, so for nearly every request this is nil and the
 		// body can go as soon as the upstream has it.
 		var titleBody []byte
-		if conversation != "" && s.titles.On() {
+		if conversation != "" && s.titles.On() && s.titles.Serves(dest.Provider) {
 			titleBody = outbound
 		}
 
 		started := time.Now()
-		res := s.relay.Do(sink, r, upstreamPath, outbound, prologue)
+		res := up.Relay.Do(sink, r, upstreamPath, outbound, prologue)
 		elapsed := time.Since(started)
 
 		// The protocol's last word, before anything else answers. A dialect
@@ -198,7 +236,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 				ConversationID: conversation, Client: client, IP: ip,
 				Duration: elapsed, Error: res.Err.Error(),
 			}, key.TokenBudget)
-			s.relayFailure(w, r, p, model, res.Err)
+			s.relayFailure(w, r, p, up, model, res.Err)
 			return
 		}
 
@@ -233,11 +271,13 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 			Conversation: conversation,
 			Model:        model,
 			AccountID:    res.AccountID,
+			Provider:     res.Provider,
 			Body:         titleBody,
 		})
 
 		attrs := []any{
 			"api", p.ID(),
+			"provider", dest.Provider,
 			"model", model,
 			"stream", streaming,
 			"status", res.Status,
@@ -297,11 +337,12 @@ func firstNonEmpty(vs ...string) string {
 // relayFailure answers when no bytes reached the client. The shape is the
 // caller's own error envelope, because an error a client cannot parse is an
 // error it cannot act on.
-func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Protocol, model string, err error) {
+func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Protocol, up Upstream, model string, err error) {
 	switch {
 	case errors.Is(err, pool.ErrNoAccounts):
 		p.WriteError(w, http.StatusServiceUnavailable, api.KindNoAccounts,
-			"no Claude account is connected; add one in the admin UI")
+			"model "+model+" is served by "+up.Title+" accounts, and no "+up.Title+
+				" account is connected; add one in the admin UI")
 	case errors.Is(err, pool.ErrModelOff):
 		// 404 and not_found_error, as Anthropic answers a model it does not
 		// serve: that is what this is, from the client's side, and it stops
@@ -312,7 +353,7 @@ func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Pro
 			"model "+model+" is turned off on this gateway for every connected account; "+
 				"an administrator can turn it on under Accounts")
 	case errors.Is(err, pool.ErrAllCoolingUp):
-		if wait := s.pool.RetryAfter(r.Context(), s.relay.Wire.ID(), model); wait > 0 {
+		if wait := s.pool.RetryAfter(r.Context(), up.Relay.Wire.ID(), model); wait > 0 {
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		}
 		p.WriteError(w, http.StatusServiceUnavailable, api.KindOverloaded,
@@ -338,4 +379,58 @@ func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Pro
 type peekedExchange interface {
 	api.Exchange
 	Prologue() request.Prologue
+}
+
+// nativeDecoder is a dialect that can hand a request on as it came, to an
+// upstream that speaks it: the OpenAI surface, to ChatGPT's backend. One that
+// cannot — the Anthropic surface, whose Decode is already the identity — is
+// decoded the ordinary way.
+type nativeDecoder interface {
+	DecodeNative(body []byte) (api.Exchange, error)
+}
+
+func decodeNative(p api.Protocol, body []byte) (api.Exchange, error) {
+	if n, ok := p.(nativeDecoder); ok {
+		return n.DecodeNative(body)
+	}
+	return p.Decode(body)
+}
+
+// fallbacker is a dialect that sends a model no provider lists to an alias of
+// its own — the OpenAI surface, whose clients name ids that are not Claude's
+// (Codex's own defaults). One that is not sends such a name on as it came.
+type fallbacker interface {
+	FallbackFor(model string) string
+}
+
+func fallbackFor(p api.Protocol, model string) string {
+	if f, ok := p.(fallbacker); ok {
+		return f.FallbackFor(model)
+	}
+	return ""
+}
+
+// unreachable says why a request was routed to an upstream its API cannot
+// reach, and what to change: the alias it named and where it is bound, or
+// the API to use instead.
+func unreachable(p api.Protocol, up Upstream, dest modelsvc.Route, requested string) string {
+	title := up.Title
+	if title == "" {
+		title = dest.Provider
+	}
+	what := "model " + dest.Model
+	if dest.Alias != "" {
+		what = dest.Alias + " (" + dest.Model + ")"
+	}
+	msg := what + " is served by a " + title + " account, which the " + p.Title() +
+		" cannot reach on this gateway"
+	if up.Native != "" {
+		msg += "; ask for it over the API that account speaks, as Codex does over /v1/responses"
+	}
+	if dest.Alias != "" {
+		msg += ", or have an administrator bind " + dest.Alias + " to a model this API can reach in Settings › Aliases"
+	} else if requested != "" {
+		msg += ", or ask for a model this API can reach"
+	}
+	return msg
 }

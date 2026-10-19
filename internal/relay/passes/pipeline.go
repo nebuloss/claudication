@@ -106,23 +106,7 @@ func Default(o Options) Pipeline {
 		log = slog.New(slog.DiscardHandler)
 	}
 	return Pipeline{
-		{
-			Name: "surrogates",
-			Apply: func(body []byte, st *State) []byte {
-				fixed, n := FixLoneSurrogates(body)
-				if n == 0 {
-					return body
-				}
-				// The prologue was read from the bytes just replaced and holds
-				// the system array by reference; attribution rebuilds from it,
-				// which would put the broken escape straight back.
-				st.Prologue = request.Peek(fixed)
-				log.Warn("repaired unpaired surrogate escapes in the request body; "+
-					"something upstream of this gateway is cutting text mid-character",
-					"replaced", n)
-				return fixed
-			},
-		},
+		surrogates(log),
 		{
 			Name:    "attribution",
 			Enabled: func() bool { return o.Attribution },
@@ -173,6 +157,52 @@ func Default(o Options) Pipeline {
 					"images", n, "max_edge", MaxEdge)
 				return fitted
 			},
+		},
+	}
+}
+
+// OpenAI is the pipeline for the ChatGPT Codex backend: lone surrogates
+// repaired, and nothing else.
+//
+// The other five of Default's passes repair an Anthropic Messages envelope —
+// Claude Code's identity block, the system array, empty text blocks, tool
+// names Anthropic refuses, its image rules — and on a Responses body they
+// would either do nothing or put Anthropic's fields into a request that has
+// none. Surrogates are the one refusal measured on both: a lone \ud800 in the
+// text is a 400 here too ({"detail":"Bad Request"}, 2026-10-19,
+// internal/provider/openai/testdata/surrogate.json), and the repair is a
+// byte-level one that does not care whose envelope it is in.
+//
+// Not stripped, though crush strips it as refused: max_output_tokens.
+// Measured the same day, a request carrying max_output_tokens: 256 was
+// answered 200 (testdata/max-output.json), so there is nothing to repair.
+// The model is set by SetModel as on every wire, when a request names an
+// alias; that is not a pass.
+func OpenAI(o Options) Pipeline {
+	log := o.Log
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	return Pipeline{surrogates(log)}
+}
+
+// surrogates is FixLoneSurrogates as a pass, the same on every pipeline.
+func surrogates(log *slog.Logger) Pass {
+	return Pass{
+		Name: "surrogates",
+		Apply: func(body []byte, st *State) []byte {
+			fixed, n := FixLoneSurrogates(body)
+			if n == 0 {
+				return body
+			}
+			// The prologue was read from the bytes just replaced and holds
+			// the system array by reference; attribution rebuilds from it,
+			// which would put the broken escape straight back.
+			st.Prologue = request.Peek(fixed)
+			log.Warn("repaired unpaired surrogate escapes in the request body; "+
+				"something upstream of this gateway is cutting text mid-character",
+				"replaced", n)
+			return fixed
 		},
 	}
 }

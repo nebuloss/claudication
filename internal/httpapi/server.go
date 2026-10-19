@@ -38,6 +38,7 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/provider"
 	"claudication/internal/provider/anthropic"
+	chatgpt "claudication/internal/provider/openai"
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	accountsvc "claudication/internal/service/accounts"
@@ -74,8 +75,11 @@ type Server struct {
 	adminAddr      string
 	stopSweeper    chan struct{}
 	pool           *pool.Pool
-	relay          *relay.Relay
-	httpClient     *http.Client
+	// relay is Anthropic's, and relays every provider's by id; see
+	// buildServices.
+	relay      *relay.Relay
+	relays     map[string]*relay.Relay
+	httpClient *http.Client
 	// poller keeps each account's subscription usage current, faster while
 	// the admin UI is open. See internal/service/accounts.
 	poller *accountsvc.Poller
@@ -210,7 +214,7 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 	// below: the pool is handed each one's token refresh, the poller each
 	// one's usage endpoint, the recorder each one's error vocabulary and the
 	// relay its wire, and none of them knows whose they are.
-	s.providers = provider.Registry{anthropic.Accounts{}}
+	s.providers = provider.Registry{anthropic.Accounts{}, chatgpt.Accounts{}}
 
 	// What each request cost, classified in the vocabulary of the provider
 	// that answered and credited to the key's budget. A request no account
@@ -234,6 +238,10 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 		refresh[p.ID()] = p.Refresh
 	}
 	s.pool = pool.New(st, s.httpClient, log, refresh)
+	// A ChatGPT conversation stays on the account that served it last: its
+	// encrypted reasoning was made there, and whether another account can
+	// read it is not measured. See internal/pool, affinity.go.
+	s.pool.PreferLastAccount(chatgpt.ID)
 	s.poller = &accountsvc.Poller{
 		Store:  st,
 		Tokens: s.pool,
@@ -252,6 +260,9 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 		Watched: cfg.Usage.PollWatched.D(),
 		Log:     log,
 	}
+	// One relay per provider, each with its own wire and passes, and one
+	// connection pool between them.
+	relayClient := newRelayClient()
 	s.relay = &relay.Relay{
 		Wire: anthropic.Provider{},
 		Pool: s.pool,
@@ -263,8 +274,21 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 			Log:         log,
 		}),
 		StallTimeout: cfg.Passthrough.StallTimeout.D(),
-		Client:       newRelayClient(),
+		Client:       relayClient,
 	}
+	openaiRelay := &relay.Relay{
+		Wire:   chatgpt.Provider{},
+		Pool:   s.pool,
+		Log:    log,
+		Passes: passes.OpenAI(passes.Options{Log: log}),
+		// No stall hold. It was measured on Anthropic's streams, which carry
+		// thinking as deltas; a ChatGPT reasoning model with summaries off —
+		// the backend's default — sends nothing until its reasoning is done,
+		// and a hold would resend a turn that was only thinking.
+		StallTimeout: 0,
+		Client:       relayClient,
+	}
+	s.relays = map[string]*relay.Relay{anthropic.ID: s.relay, chatgpt.ID: openaiRelay}
 
 	// Chat titles, once the relay and the recorder they use exist. A failure
 	// to read the switches leaves titling off, because it is the one thing
@@ -313,12 +337,14 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	// to another machine, short enough that one never run is soon gone.
 	installs := install.New(15 * time.Minute)
 	s.models = modelsvc.New(modelsvc.Deps{
-		Config: cfg, Log: log, Store: st, Pool: s.pool, Relay: s.relay, HTTPClient: s.httpClient,
+		Config: cfg, Log: log, Store: st, Pool: s.pool,
+		Relays:     []*relay.Relay{s.relays[anthropic.ID], s.relays[chatgpt.ID]},
+		HTTPClient: s.httpClient,
 	})
 	s.gateway = gateway.New(gateway.Deps{
 		Config: cfg, Log: log, Store: st,
 		KeyLimiter: s.keyLimiter, AnonLimiter: s.anonLimiter, Budgets: s.budgets,
-		Recorder: s.recorder, Pool: s.pool, Relay: s.relay, Titles: titler,
+		Recorder: s.recorder, Pool: s.pool, Upstreams: s.upstreams(), Titles: titler,
 		Trimmer: s.trimmer, Surfaces: s.surfaces, Protocols: s.protocols,
 		Install: installs, Models: s.models,
 	})
@@ -335,6 +361,37 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Config: cfg, Log: log, Store: st, Docs: s.docs, Surfaces: s.surfaces,
 		Models: s.models, Files: webdist,
 	})
+}
+
+// upstreams are the providers as the gateway reaches them: which client
+// routes may, and where each goes.
+//
+//	                  Anthropic                  ChatGPT
+//	/v1/messages      /v1/messages?beta=true     refused
+//	…/count_tokens    …/count_tokens?beta=true   refused
+//	/v1/responses     /v1/messages?beta=true     /responses
+//	                  (translated)               (as it came)
+//
+// The ?beta=true is the official client's own, and the Responses dialect
+// reaches Anthropic translated, as it always has. Messages does not reach
+// ChatGPT at all: that translation is a mapping of its own and not one this
+// gateway has, so a Claude client asking for a model only ChatGPT serves is
+// refused, saying which alias to change.
+func (s *Server) upstreams() map[string]gateway.Upstream {
+	return map[string]gateway.Upstream{
+		anthropic.ID: {
+			Relay: s.relays[anthropic.ID], Title: "Claude", Native: anthropicapi.ID,
+			Paths: map[string]string{
+				"/v1/messages":              "/v1/messages?beta=true",
+				"/v1/messages/count_tokens": "/v1/messages/count_tokens?beta=true",
+				"/v1/responses":             "/v1/messages?beta=true",
+			},
+		},
+		chatgpt.ID: {
+			Relay: s.relays[chatgpt.ID], Title: "ChatGPT", Native: openai.ID,
+			Paths: map[string]string{"/v1/responses": "/responses"},
+		},
+	}
 }
 
 // listener is one address the gateway serves, what it serves there, and the

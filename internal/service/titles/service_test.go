@@ -296,7 +296,8 @@ func newHarness(t *testing.T) *harness {
 }
 
 func (h *harness) ev() Request {
-	return Request{Conversation: "chat-1", Model: "claude-sonnet-5", AccountID: "a2", Body: []byte(chatBody)}
+	return Request{Conversation: "chat-1", Model: "claude-sonnet-5", AccountID: "a2", Provider: "anthropic",
+		Body: []byte(chatBody)}
 }
 
 func (h *harness) waitRecorded(t *testing.T) recorded {
@@ -414,7 +415,14 @@ func TestConsiderDeclinesWithoutStartingAnything(t *testing.T) {
 		"no body":           {true, Request{Conversation: "c", Model: "m", AccountID: "a2"}},
 		"a title request":   {true, Request{Conversation: "c", Model: "m", AccountID: "a2", Body: []byte(titleRequest)}},
 		"already in flight": {true, Request{Conversation: "busy", Model: "m", AccountID: "a2", Body: []byte(chatBody)}},
+		// A chat a ChatGPT account served: a title request is an Anthropic
+		// body on that account's cache, neither of which it has.
+		"a ChatGPT chat": {true, Request{Conversation: "c", Model: "gpt-6-luna", AccountID: "a2", Provider: "openai",
+			Body: []byte(chatBody)}},
 	} {
+		if c.ev.Provider == "" {
+			c.ev.Provider = "anthropic"
+		}
 		h := newHarness(t)
 		_ = h.titler.Set(context.Background(), SettingGenerate, c.on)
 		h.titler.claim("busy")

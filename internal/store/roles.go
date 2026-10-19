@@ -15,24 +15,33 @@ import (
 // Names the gateway's client configs ask for instead of real models, each
 // bound to one real model. Three kinds:
 //
-//   - the two roles, claude-large and claude-small: the model doing the work
-//     and the one for titles and summaries, the two slots every client has;
-//   - one per model family the accounts serve — claude-opus, claude-haiku,
-//     whatever families exist — found from the model list rather than
-//     written down here, so a family Anthropic adds next year has an alias
-//     the day an account lists it;
+//   - the roles: the model doing the work and the one for titles and
+//     summaries, the two slots every client has. claude-large and
+//     claude-small, and gpt-large and gpt-small for the ChatGPT accounts;
+//   - one per Claude model family the accounts serve — claude-opus,
+//     claude-haiku, whatever families exist — found from the model list
+//     rather than written down here, so a family Anthropic adds next year
+//     has an alias the day an account lists it;
 //   - custom ones an operator creates.
 //
-// A built-in alias left unbound follows the newest model of its family. A
-// custom one is always bound: it has no family to follow. Every name is
-// claude-* for the built-ins because two clients key on it — opencode applies
-// its Claude handling only to an id containing "claude", and Claude Code's
-// model picker lists only such names.
+// A built-in alias left unbound follows a model its provider's list names:
+// the newest of its family for a Claude one, the backend's own ranking for a
+// GPT one (see internal/service/models). A custom one is always bound: it has
+// no default to follow. The Claude built-ins are claude-* because two clients
+// key on it — opencode applies its Claude handling only to an id containing
+// "claude", and Claude Code's model picker lists only such names.
+//
+// Any alias may be bound to any provider's model: what serves a request is
+// the provider whose accounts serve the model the alias resolves to. A client
+// whose API cannot reach that provider is refused, saying which alias to
+// change (internal/httpapi/gateway).
 
-// The two role aliases.
+// The role aliases.
 const (
-	RoleLarge = "claude-large"
-	RoleSmall = "claude-small"
+	RoleLarge    = "claude-large"
+	RoleSmall    = "claude-small"
+	RoleGPTLarge = "gpt-large"
+	RoleGPTSmall = "gpt-small"
 )
 
 // Alias is one alias as the gateway knows it.
@@ -44,10 +53,41 @@ type Alias struct {
 	Builtin bool
 }
 
-// IsRoleName reports whether a name is one of the two role aliases.
+// IsRoleName reports whether a name is one of the role aliases.
 func IsRoleName(name string) bool {
+	switch ModelKey(name) {
+	case RoleLarge, RoleSmall, RoleGPTLarge, RoleGPTSmall:
+		return true
+	}
+	return false
+}
+
+// isGPTRole reports whether a name is one of the GPT roles, which follow a
+// ranking rather than a family.
+func isGPTRole(name string) bool {
 	k := ModelKey(name)
-	return k == RoleLarge || k == RoleSmall
+	return k == RoleGPTLarge || k == RoleGPTSmall
+}
+
+// IsBuiltinAlias reports whether a name is an alias the gateway makes itself:
+// a role, or a Claude family's. Those cannot be deleted, cannot be a binding's
+// target, and are never custom.
+func IsBuiltinAlias(name string) bool {
+	return AliasFamily(name) != "" || isGPTRole(name)
+}
+
+// AliasProvider is the provider whose models a built-in alias follows while
+// unbound: openai for the GPT roles, anthropic for the Claude ones, and empty
+// for a custom alias, which follows nothing. A bound alias is served by
+// whichever provider serves the model it is bound to.
+func AliasProvider(name string) string {
+	switch {
+	case isGPTRole(name):
+		return "openai"
+	case AliasFamily(name) != "":
+		return "anthropic"
+	}
+	return ""
 }
 
 // familyAlias is the shape of a family's alias: claude- and the family, with
@@ -126,7 +166,7 @@ func (s *Store) CustomAliases(ctx context.Context) ([]string, error) {
 	}
 	var out []string
 	for _, r := range all {
-		if r.KeyID == "" && r.Client == "" && AliasFamily(r.Role) == "" {
+		if r.KeyID == "" && r.Client == "" && !IsBuiltinAlias(r.Role) {
 			out = append(out, r.Role)
 		}
 	}
@@ -203,7 +243,7 @@ func (s *Store) SetModelRole(ctx context.Context, keyID, role, model string) err
 		}
 		return nil
 	}
-	if model == "" && AliasFamily(role) == "" {
+	if model == "" && !IsBuiltinAlias(role) {
 		return invalidRole("a custom alias needs a model to point to")
 	}
 	// One upsert per partial index, since a conflict target names one. The
@@ -296,7 +336,7 @@ func (s *Store) checkBinding(ctx context.Context, role, model string) (string, s
 	if err != nil {
 		return "", "", err
 	}
-	if AliasFamily(model) != "" || slices.Contains(custom, ModelKey(model)) {
+	if IsBuiltinAlias(model) || slices.Contains(custom, ModelKey(model)) {
 		return "", "", invalidRole("an alias points to a real model, not to another alias")
 	}
 	return role, model, nil
@@ -309,7 +349,7 @@ var ErrBuiltinAlias = errors.New("a built-in alias cannot be deleted; bind it in
 // client.
 func (s *Store) DeleteAlias(ctx context.Context, name string) error {
 	name = ModelKey(name)
-	if AliasFamily(name) != "" {
+	if IsBuiltinAlias(name) {
 		return ErrBuiltinAlias
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM model_roles WHERE role = ?`, name)

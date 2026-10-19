@@ -5,6 +5,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -38,7 +39,7 @@ type Gateway struct {
 	budgets     *limits.Budgets
 	recorder    *usagesvc.Recorder
 	pool        *pool.Pool
-	relay       *relay.Relay
+	upstreams   map[string]Upstream
 	titles      *titles.Titler
 	trimmer     *memlimit.Trimmer
 	surfaces    *surfaces.Surfaces
@@ -67,11 +68,13 @@ type Deps struct {
 	Budgets     *limits.Budgets
 	Recorder    *usagesvc.Recorder
 	Pool        *pool.Pool
-	Relay       *relay.Relay
-	Titles      *titles.Titler
-	Trimmer     *memlimit.Trimmer
-	Surfaces    *surfaces.Surfaces
-	Protocols   api.Registry
+	// Upstreams are the providers, by id, each with the relay that reaches
+	// it and the client routes that may.
+	Upstreams map[string]Upstream
+	Titles    *titles.Titler
+	Trimmer   *memlimit.Trimmer
+	Surfaces  *surfaces.Surfaces
+	Protocols api.Registry
 	// Install keeps the one-time install bundles /install serves.
 	Install *install.Links
 	// Models is the model list /v1/models answers, and the aliases a request
@@ -79,12 +82,27 @@ type Deps struct {
 	Models *modelsvc.Catalog
 }
 
+// Upstream is one provider as the gateway relays to it.
+type Upstream struct {
+	Relay *relay.Relay
+	// Title names its accounts for a person: "Claude", "ChatGPT".
+	Title string
+	// Native is the client dialect it speaks itself (an api.Protocol's ID),
+	// whose requests go to it as they came. A request in any other dialect
+	// that reaches it is translated by that dialect's exchange.
+	Native string
+	// Paths is where each client route goes on it. A route missing here
+	// cannot reach it: a request routed to it from there is refused, saying
+	// which alias to change, rather than sent somewhere that cannot answer.
+	Paths map[string]string
+}
+
 // New builds a Gateway.
 func New(d Deps) *Gateway {
 	return &Gateway{
 		cfg: d.Config, log: d.Log, store: d.Store,
 		keyLimiter: d.KeyLimiter, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
-		recorder: d.Recorder, pool: d.Pool, relay: d.Relay, titles: d.Titles,
+		recorder: d.Recorder, pool: d.Pool, upstreams: d.Upstreams, titles: d.Titles,
 		trimmer: d.Trimmer, surfaces: d.Surfaces, protocols: d.Protocols,
 		install: d.Install, models: d.Models,
 	}
@@ -95,9 +113,8 @@ func New(d Deps) *Gateway {
 // Each is an api.Protocol and each is gated on its own switch, so one can be
 // turned off without touching the other and both can be turned off at once.
 //
-// The upstream path is the same for both, because there is only one thing on
-// the other end: /v1/messages is what a subscription account answers,
-// whatever shape the caller asked in.
+// Which upstream a request reaches is decided per request, from the model it
+// names (see inference); where on that upstream is the Upstream's Paths.
 func (s *Gateway) Routes(mux *http.ServeMux) {
 	messages, _ := s.protocols.Find(anthropicapi.ID)
 	responses, _ := s.protocols.Find(openai.ID)
@@ -114,8 +131,7 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /v1/models",
 		s.surface(messages, s.requireAPIKey(messages, s.handleModels(messages))))
 	mux.Handle("POST /v1/messages",
-		s.surface(messages, s.requireAPIKey(messages,
-			s.inference(messages, "/v1/messages", "/v1/messages?beta=true"))))
+		s.surface(messages, s.requireAPIKey(messages, s.inference(messages, "/v1/messages"))))
 
 	// Serving count_tokens matters, and the client says so in its own
 	// code: when a gateway answers 501 here, it falls back to measuring
@@ -124,13 +140,10 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 	// arithmetic, once per measurement. Removing this route because
 	// "nothing seems to call it" would turn that on silently.
 	mux.Handle("POST /v1/messages/count_tokens",
-		s.surface(messages, s.requireAPIKey(messages,
-			s.inference(messages, "/v1/messages/count_tokens",
-				"/v1/messages/count_tokens?beta=true"))))
+		s.surface(messages, s.requireAPIKey(messages, s.inference(messages, "/v1/messages/count_tokens"))))
 
 	mux.Handle("POST /v1/responses",
-		s.surface(responses, s.requireAPIKey(responses,
-			s.inference(responses, "/v1/responses", "/v1/messages?beta=true"))))
+		s.surface(responses, s.requireAPIKey(responses, s.inference(responses, "/v1/responses"))))
 }
 
 // handleModels answers the discovery request by relaying Anthropic's own model
@@ -164,8 +177,62 @@ func (s *Gateway) handleModels(p api.Protocol) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(body)
+		_, _ = w.Write(s.reachableFrom("/v1/messages", body))
 	}
+}
+
+// reachableFrom is a model list less the models a client on route could not
+// use: a model, or an alias serving one, whose provider that route cannot
+// reach. A Claude client offered a GPT model would only meet it as a
+// refusal. An entry is a provider's when it says so ("provider", which every
+// provider but the default one's list sets); one that does not is the
+// default's. A list it cannot read is returned as it was.
+func (s *Gateway) reachableFrom(route string, body []byte) []byte {
+	var list map[string]json.RawMessage
+	if json.Unmarshal(body, &list) != nil {
+		return body
+	}
+	var data []json.RawMessage
+	if json.Unmarshal(list["data"], &data) != nil {
+		return body
+	}
+	kept := make([]json.RawMessage, 0, len(data))
+	var ids []string
+	for _, e := range data {
+		var m struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+		}
+		if json.Unmarshal(e, &m) == nil && m.Provider != "" {
+			if _, ok := s.upstreams[m.Provider].Paths[route]; !ok {
+				continue
+			}
+		}
+		kept = append(kept, e)
+		ids = append(ids, m.ID)
+	}
+	if len(kept) == len(data) {
+		return body
+	}
+	set := func(field string, v any) {
+		if raw, err := json.Marshal(v); err == nil {
+			list[field] = raw
+		}
+	}
+	set("data", kept)
+	// The paging fields name what is in it now.
+	if len(ids) > 0 {
+		set("first_id", ids[0])
+		set("last_id", ids[len(ids)-1])
+	} else {
+		delete(list, "first_id")
+		delete(list, "last_id")
+	}
+	out, err := json.Marshal(list)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // surface gates a route on its API being switched on.

@@ -507,6 +507,20 @@ func (t *Titler) On() bool { return t.generate.On() }
 // Capturing reports whether names clients ask for are read as they go past.
 func (t *Titler) Capturing() bool { return t.capture.On() }
 
+// Serves reports whether a chat served by the given provider's accounts can
+// be named: only the provider of the titler's own relay, which is Anthropic.
+//
+// A title request is an Anthropic Messages body, pinned to the account that
+// served the chat so it reads that account's prompt cache, and both halves of
+// that are Anthropic's: a ChatGPT account would be sent a body in a dialect
+// its backend does not speak, on a cache it does not have. And the answer a
+// client's own title request gets is read as a Messages answer
+// (CaptureTitle). So a ChatGPT-served chat is left unnamed, as one on a
+// gateway with titling off is.
+func (t *Titler) Serves(provider string) bool {
+	return t.deps.Relay != nil && provider == t.deps.Relay.Wire.ID()
+}
+
 // IsOwnKey reports whether an id is the key the gateway issued itself, so the
 // keys screen can leave the Delete off that row.
 func (t *Titler) IsOwnKey(id string) bool {
@@ -627,7 +641,7 @@ func renameDue(current store.TitleRecord, turns int) bool {
 // convenience, and an operator whose log filled with warnings because a model
 // declined to name something would rightly turn it off.
 func (t *Titler) Consider(ev Request) {
-	if !t.On() || ev.Conversation == "" || ev.AccountID == "" || ev.Model == "" {
+	if !t.On() || ev.Conversation == "" || ev.AccountID == "" || ev.Model == "" || !t.Serves(ev.Provider) {
 		return
 	}
 	if len(ev.Body) == 0 {
@@ -687,6 +701,8 @@ type Request struct {
 	Conversation string
 	Model        string
 	AccountID    string
+	// Provider is whose account served the chat; see Serves.
+	Provider string
 	// Body is the request as it went upstream, which for a translating dialect
 	// is not the one that arrived. It has to be that one: the cached prefix is
 	// what the upstream saw.
