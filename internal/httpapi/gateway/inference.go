@@ -69,21 +69,6 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		}
 		requested, streaming := first.Model(), first.Streaming()
 
-		// A model this key has been kept off, refused before anything is spent
-		// and recorded under the key, because it is a client to reconfigure
-		// rather than a stranger. 403 permission_error, as Anthropic answers a
-		// credential not allowed something: a client stops there rather than
-		// retrying, and the message says who can change it.
-		if key, ok := httpx.APIKey(r.Context()); ok && !key.Allows(requested) {
-			ev := rejection(r, key, http.StatusForbidden, "model not allowed for this API key")
-			ev.Model, ev.Path = requested, route
-			s.recorder.Record(ev, 0)
-			p.WriteError(w, http.StatusForbidden, api.KindPermission,
-				"this API key may not use model "+requested+
-					"; an administrator can allow it on the key's Models page")
-			return
-		}
-
 		// Where it goes. A model alias — claude-large, gpt-small, one of the
 		// operator's — becomes the real model it is bound to for this key,
 		// else for this client, else for the gateway, else what it follows;
@@ -99,6 +84,30 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		client := api.ClientName(r.UserAgent())
 		dest := s.models.Route(r.Context(), key, client, requested, fallbackFor(p, requested))
 		model, virtual := dest.Model, dest.Alias
+
+		// A model this key has been kept off, refused before anything is spent
+		// and recorded under the key, because it is a client to reconfigure
+		// rather than a stranger. 403 permission_error, as Anthropic answers a
+		// credential not allowed something: a client stops there rather than
+		// retrying, and the message says who can change it.
+		//
+		// Both the name asked for and the alias it was sent to: a Responses
+		// request naming a model no list knows is served as claude-large, and
+		// a key kept off claude-large must not reach it by asking for
+		// gpt-5-codex. The model the alias serves is the alias's own check
+		// (RoleTarget), and its refusal says which binding chose it.
+		for _, name := range []string{requested, virtual} {
+			if name == "" || key.Allows(name) {
+				continue
+			}
+			ev := rejection(r, key, http.StatusForbidden, "model not allowed for this API key")
+			ev.Model, ev.Path = name, route
+			s.recorder.Record(ev, 0)
+			p.WriteError(w, http.StatusForbidden, api.KindPermission,
+				"this API key may not use model "+name+
+					"; an administrator can allow it on the key's Models page")
+			return
+		}
 		if dest.Why != "" {
 			ev := rejection(r, key, http.StatusNotFound, dest.Why)
 			ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Alias, route

@@ -372,3 +372,28 @@ func nthEvent(t *testing.T, st *store.Store, n int) store.UsageEvent {
 	t.Fatalf("fewer than %d requests were recorded", n)
 	return store.UsageEvent{}
 }
+
+// A key kept off an alias does not reach it by naming a model no list knows,
+// which the Responses API serves as claude-large: the alias a request is sent
+// to is held to the key as the name it sent is.
+func TestAKeyKeptOffAnAliasCannotReachItByFallback(t *testing.T) {
+	_, st, base, _, claude, _ := twoUpstreams(t)
+	ctx := context.Background()
+	if err := st.SetModelRole(ctx, "", store.RoleLarge, "claude-sonnet-5"); err != nil {
+		t.Fatal(err)
+	}
+	k, plain, err := st.CreateKey(ctx, "kept-off", store.KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetKeyModel(ctx, k.ID, store.RoleLarge, false); err != nil {
+		t.Fatal(err)
+	}
+	resp, body := send(t, base+"/v1/responses", plain, codexUA, codexTurn("gpt-5-codex"), nil)
+	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(body), "claude-large") {
+		t.Errorf("status = %d: %s, want 403 naming claude-large", resp.StatusCode, body)
+	}
+	if n := len(claude.turns()); n != 0 {
+		t.Errorf("%d turns reached Anthropic", n)
+	}
+}
