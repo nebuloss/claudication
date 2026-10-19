@@ -199,11 +199,14 @@ func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) 
 			InputTokens: in, OutputTokens: out,
 			CacheTokens: cacheRead + cacheWrite,
 		}
+		// The status breakdown never carried token counts: a status is an
+		// outcome, and the tokens are on the other breakdowns already.
+		counts := UsageBucket{Requests: requests, Errors: errCount}
 		byDay.add(day, "", g)
 		byModel.add(model, "", g)
 		byKey.add(keyName, keyID, g)
 		byAccount.add(accountEmail, accountID, g)
-		byStatus.add(strconv.Itoa(status), "", g)
+		byStatus.add(strconv.Itoa(status), "", counts)
 
 		cross.add(CrossModel, day, model, g)
 		// Folded by name rather than by id, because two keys minted, used and
@@ -211,7 +214,7 @@ func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) 
 		// a chart with three lines all labelled "surrtest" says nothing.
 		cross.add(CrossKey, day, keyName, g)
 		cross.add(CrossAccount, day, accountEmail, g)
-		cross.add(CrossStatus, day, strconv.Itoa(status), g)
+		cross.add(CrossStatus, day, strconv.Itoa(status), counts)
 	}
 	if err := rows.Err(); err != nil {
 		return rep, fmt.Errorf("usage report: %w", err)
@@ -233,19 +236,6 @@ func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) 
 	rep.ByStatus = byStatus.sortedByRequests()
 
 	rep.Cross = cross.sorted()
-	// The status cross-tab never carried token counts either; see below.
-	for i := range rep.Cross[CrossStatus] {
-		rep.Cross[CrossStatus][i].InputTokens = 0
-		rep.Cross[CrossStatus][i].OutputTokens = 0
-		rep.Cross[CrossStatus][i].CacheTokens = 0
-	}
-
-	// The status breakdown never carried token counts.
-	for i := range rep.ByStatus {
-		rep.ByStatus[i].InputTokens = 0
-		rep.ByStatus[i].OutputTokens = 0
-		rep.ByStatus[i].CacheTokens = 0
-	}
 	return rep, nil
 }
 
