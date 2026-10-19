@@ -81,7 +81,7 @@ export default function Keys({
   // its Clients page, where its configurations are.
   const [created, setCreated] = useState<{ key: ApiKey; plaintext: string } | null>(null)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
-    () => api.listKeys(),
+    (signal) => api.listKeys(signal),
     onExpired,
     [],
     REFRESH_MS,
@@ -321,7 +321,7 @@ export function KeyPage({
   // Not on the settings page: the form is filled from the loaded key, and a
   // poll landing mid-edit would reset the fields under the cursor.
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
-    () => api.listKeys(),
+    (signal) => api.listKeys(signal),
     onExpired,
     [],
     SETTINGS_PAGES.has(page) ? 0 : REFRESH_MS,

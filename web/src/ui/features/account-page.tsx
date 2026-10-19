@@ -52,7 +52,7 @@ export default function AccountPage({
 }) {
   const [reading, setReading] = useState(false)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
-    () => api.listAccounts(),
+    (signal) => api.listAccounts(signal),
     onExpired,
     [],
     REFRESH_MS,

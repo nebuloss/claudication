@@ -634,10 +634,26 @@ export function messageOf(err: unknown): string {
  */
 const REQUEST_TIMEOUT_MS = 30_000
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+/**
+ * One call to the admin API.
+ *
+ * `signal` is the caller's way of saying the answer is no longer wanted — a
+ * panel whose inputs changed, or one that has gone away. It is folded into the
+ * timeout's own controller, and an abort it asked for is rethrown as the
+ * AbortError it is rather than reported as the gateway failing to answer.
+ */
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
   let response: Response
   const abort = new AbortController()
   const timer = window.setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS)
+  const cancel = () => abort.abort()
+  if (signal?.aborted) abort.abort()
+  signal?.addEventListener('abort', cancel, { once: true })
   try {
     response = await fetch(path, {
       method,
@@ -647,6 +663,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       signal: abort.signal,
     })
   } catch (cause) {
+    if (signal?.aborted) throw new DOMException('The request was cancelled.', 'AbortError')
     if (abort.signal.aborted) {
       throw new ApiError(
         0,
@@ -657,6 +674,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(0, 'network_error', `Could not reach the gateway: ${String(cause)}`)
   } finally {
     window.clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
   }
 
   const text = await response.text()
@@ -705,8 +723,8 @@ export const api = {
   deleteAdminAccount: (password: string) =>
     request<unknown>('POST', '/admin/account/delete', { password }),
 
-  listAccounts: async (): Promise<AccountList> => {
-    const res = await request<AccountListWire>('GET', '/admin/accounts')
+  listAccounts: async (signal?: AbortSignal): Promise<AccountList> => {
+    const res = await request<AccountListWire>('GET', '/admin/accounts', undefined, signal)
     return toAccountList(res)
   },
 
@@ -737,17 +755,21 @@ export const api = {
   },
 
   /** The models one account serves, each with whether it may serve it. */
-  accountModels: (id: string) =>
+  accountModels: (id: string, signal?: AbortSignal) =>
     request<{ account_id: string; models: AccountModel[] }>(
       'GET',
       `/admin/accounts/${encodeURIComponent(id)}/models`,
+      undefined,
+      signal,
     ),
 
   /** Every model the gateway serves, each with whether this key may ask for it. */
-  keyModels: (id: string) =>
+  keyModels: (id: string, signal?: AbortSignal) =>
     request<{ key_id: string; models: AccountModel[] }>(
       'GET',
       `/admin/keys/${encodeURIComponent(id)}/models`,
+      undefined,
+      signal,
     ),
 
   setKeyModel: (id: string, model: string, enabled: boolean) =>
@@ -794,24 +816,31 @@ export const api = {
   deleteAccount: (id: string) =>
     request<unknown>('DELETE', `/admin/accounts/${encodeURIComponent(id)}`),
 
-  overview: () => request<Overview>('GET', '/admin/overview'),
+  overview: (signal?: AbortSignal) =>
+    request<Overview>('GET', '/admin/overview', undefined, signal),
 
-  config: () => request<GatewayConfig>('GET', '/admin/config'),
+  config: (signal?: AbortSignal) =>
+    request<GatewayConfig>('GET', '/admin/config', undefined, signal),
 
-  models: () => request<{ data: Model[] | null }>('GET', '/admin/models'),
+  models: (signal?: AbortSignal) =>
+    request<{ data: Model[] | null }>('GET', '/admin/models', undefined, signal),
 
   /** What one key is offered — /v1/models as it sees it, the roles first. */
-  keyOfferedModels: (keyId: string) =>
+  keyOfferedModels: (keyId: string, signal?: AbortSignal) =>
     request<{ data: Model[] | null }>(
       'GET',
       `/admin/keys/${encodeURIComponent(keyId)}/offered-models`,
+      undefined,
+      signal,
     ),
 
   /** The model roles for the gateway, or for one key. */
-  modelRoles: (keyId = '') =>
+  modelRoles: (keyId = '', signal?: AbortSignal) =>
     request<{ roles: ModelRole[] }>(
       'GET',
       keyId === '' ? '/admin/model-roles' : `/admin/model-roles?key=${encodeURIComponent(keyId)}`,
+      undefined,
+      signal,
     ),
 
   /**
@@ -840,7 +869,9 @@ export const api = {
       change,
     ),
 
-  listKeys: async (): Promise<{
+  listKeys: async (
+    signal?: AbortSignal,
+  ): Promise<{
     keys: ApiKey[]
     windowDays: number
     budgetHours: number
@@ -851,7 +882,7 @@ export const api = {
       window_days: number
       budget_hours: number
       default_rpm: number
-    }>('GET', '/admin/keys')
+    }>('GET', '/admin/keys', undefined, signal)
     return {
       keys: res.keys ?? [],
       windowDays: res.window_days,
@@ -873,8 +904,13 @@ export const api = {
    * A key's secret again, for its client configs. 409 secret_not_kept for a
    * key made before secrets were kept: those need a new one, once.
    */
-  keySecret: (id: string) =>
-    request<{ plaintext: string }>('GET', `/admin/keys/${encodeURIComponent(id)}/secret`),
+  keySecret: (id: string, signal?: AbortSignal) =>
+    request<{ plaintext: string }>(
+      'GET',
+      `/admin/keys/${encodeURIComponent(id)}/secret`,
+      undefined,
+      signal,
+    ),
 
   /**
    * A new secret for an existing key. The old secret stops working at once;
@@ -911,14 +947,15 @@ export const api = {
   deleteKey: (id: string) => request<unknown>('DELETE', `/admin/keys/${encodeURIComponent(id)}`),
 
   /** The usage report, gateway-wide or narrowed to one account or one key. */
-  usage: (days?: number, scope: UsageScope = {}) =>
-    request<Usage>('GET', `/admin/usage${scopedQuery(days, scope)}`),
+  usage: (days?: number, scope: UsageScope = {}, signal?: AbortSignal) =>
+    request<Usage>('GET', `/admin/usage${scopedQuery(days, scope)}`, undefined, signal),
 
-  chats: (days?: number, scope: UsageScope = {}) =>
-    request<Chats>('GET', `/admin/chats${scopedQuery(days, scope)}`),
+  chats: (days?: number, scope: UsageScope = {}, signal?: AbortSignal) =>
+    request<Chats>('GET', `/admin/chats${scopedQuery(days, scope)}`, undefined, signal),
 
   /** One conversation's latest requests, oldest first — the drill-down behind a row. */
-  chat: (id: string) => request<ChatDetail>('GET', `/admin/chats/${encodeURIComponent(id)}`),
+  chat: (id: string, signal?: AbortSignal) =>
+    request<ChatDetail>('GET', `/admin/chats/${encodeURIComponent(id)}`, undefined, signal),
 
   /** A title typed by hand, held against automatic renames. */
   setChatTitle: (id: string, title: string) =>
@@ -928,7 +965,7 @@ export const api = {
       { title },
     ),
 
-  docsInfo: () => request<DocsInfo>('GET', '/api/docs'),
+  docsInfo: (signal?: AbortSignal) => request<DocsInfo>('GET', '/api/docs', undefined, signal),
 
   setDocs: (enabled: boolean) =>
     request<{ docs_enabled: boolean }>('POST', '/admin/docs', { enabled }),
@@ -940,6 +977,7 @@ export const api = {
     limit = 50,
     after = '',
     filter: Record<string, string | string[]> = {},
+    signal?: AbortSignal,
   ): Promise<{ rows: RequestRow[]; nextCursor: string }> => {
     const query = new URLSearchParams({ limit: String(limit) })
     if (after !== '') query.set('after', after)
@@ -961,6 +999,8 @@ export const api = {
     const res = await request<{ requests: RequestRow[] | null; next_cursor?: string }>(
       'GET',
       `/admin/requests?${query.toString()}`,
+      undefined,
+      signal,
     )
     return { rows: res.requests ?? [], nextCursor: res.next_cursor ?? '' }
   },

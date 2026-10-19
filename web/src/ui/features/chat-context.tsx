@@ -46,7 +46,7 @@ export default function ChatContextDetail({
   onExpired: () => void
 }) {
   const { data, error, loading, reload } = useLoader<ChatDetail>(
-    () => api.chat(id),
+    (signal) => api.chat(id, signal),
     onExpired,
     [id],
     DETAIL_REFRESH_MS,

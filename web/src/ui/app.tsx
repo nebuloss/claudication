@@ -97,7 +97,7 @@ export default function App() {
   // so it 401'd, set an error, and never tried again once a session existed.
   // Settings then rendered "Could not read the configuration" at a signed-in
   // operator forever.
-  const config = useLoader<GatewayConfig>(() => api.config(), undefined, [state.phase])
+  const config = useLoader<GatewayConfig>((signal) => api.config(signal), undefined, [state.phase])
   // A deploy since this tab loaded is taken without asking, at the first
   // moment it loses nothing: at once when nothing is being typed or shown, or
   // else on the next move to another page, or when the tab is left with
@@ -306,7 +306,7 @@ const REPO = 'https://github.com/nebuloss/claudication'
  * header that reflows the moment the request lands.
  */
 function Version() {
-  const { data } = useLoader<OverviewData>(() => api.overview())
+  const { data } = useLoader<OverviewData>((signal) => api.overview(signal))
   if (data === null) return null
   return (
     <span className="truncate font-mono text-xs text-on-surface-variant">{data.version}</span>

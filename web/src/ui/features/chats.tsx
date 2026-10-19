@@ -221,7 +221,7 @@ export default function ChatsPanel({
   // chart that follows its chat while open.
   const [open, setOpen] = useState<string | null>(null)
   const { data, error, loading, reload } = useLoader<Chats>(
-    () => api.chats(days, scope),
+    (signal) => api.chats(days, scope, signal),
     onExpired,
     [days, scope.account, scope.key],
     // A chat gains requests as it is being held, and this panel is the one an

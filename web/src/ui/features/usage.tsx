@@ -124,7 +124,7 @@ export default function ScopedUsage({
 }) {
   const [days, setDays] = useState<number>(7)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<Usage>(
-    () => api.usage(days, scope),
+    (signal) => api.usage(days, scope, signal),
     onExpired,
     [days, scope.account, scope.key],
     REPORT_REFRESH_MS,

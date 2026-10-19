@@ -28,7 +28,7 @@ function ModelSwitches({
   onChanged,
   deps,
 }: {
-  load: () => Promise<{ models: AccountModel[] }>
+  load: (signal: AbortSignal) => Promise<{ models: AccountModel[] }>
   set: (model: string, enabled: boolean) => Promise<unknown>
   loadingText: string
   explain: (on: number, total: number) => ReactNode
@@ -149,7 +149,7 @@ export default function AccountModels({
 }) {
   return (
     <ModelSwitches
-      load={() => api.accountModels(account.id)}
+      load={(signal) => api.accountModels(account.id, signal)}
       set={(model, enabled) => api.setAccountModel(account.id, model, enabled)}
       loadingText="Reading this account’s models…"
       explain={(on, total) =>
@@ -170,7 +170,7 @@ export default function AccountModels({
 export function KeyModels({ apiKey, onChanged }: { apiKey: ApiKey; onChanged: () => void }) {
   return (
     <ModelSwitches
-      load={() => api.keyModels(apiKey.id)}
+      load={(signal) => api.keyModels(apiKey.id, signal)}
       set={(model, enabled) => api.setKeyModel(apiKey.id, model, enabled)}
       loadingText="Reading the models this gateway serves…"
       explain={(on, total) =>

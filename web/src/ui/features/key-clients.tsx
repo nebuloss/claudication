@@ -45,7 +45,7 @@ export default function KeyClients({
   config: GatewayConfig | null
 }) {
   const secret = useLoader(
-    () => (k.secret_kept ? api.keySecret(k.id) : Promise.resolve({ plaintext: '' })),
+    (signal) => (k.secret_kept ? api.keySecret(k.id, signal) : Promise.resolve({ plaintext: '' })),
     undefined,
     [k.id, k.secret_kept, k.display],
     0,
@@ -53,7 +53,7 @@ export default function KeyClients({
   // What this key is offered — /v1/models as it sees it, the aliases first,
   // each with the facts of the model it serves for this key. Without it the
   // files are the committed ones, which are complete.
-  const offered = useLoader(() => api.keyOfferedModels(k.id), undefined, [k.id], 0)
+  const offered = useLoader((signal) => api.keyOfferedModels(k.id, signal), undefined, [k.id], 0)
   const catalog = useMemo(() => new Catalog(offered.data?.data), [offered.data])
   const address = relayAddress(config)
   const gateway = address !== '' ? address : EXAMPLE_BASE
@@ -154,7 +154,7 @@ export default function KeyClients({
  */
 export function KeySecret({ apiKey: k, onChanged }: { apiKey: ApiKey; onChanged: () => void }) {
   const secret = useLoader(
-    () => (k.secret_kept ? api.keySecret(k.id) : Promise.resolve({ plaintext: '' })),
+    (signal) => (k.secret_kept ? api.keySecret(k.id, signal) : Promise.resolve({ plaintext: '' })),
     undefined,
     [k.id, k.secret_kept, k.display],
     0,

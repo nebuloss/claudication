@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ApiError,
   api,
@@ -27,6 +27,7 @@ import {
 } from '../primitives'
 import { useLive } from '../hooks'
 import { pathOf } from '../route'
+import { Runs } from '../runs'
 
 /**
  * Every request that reached the gateway, newest first.
@@ -222,7 +223,8 @@ function RecentRequests({
   const [refreshing, setRefreshing] = useState(false)
   const [updatedAt, setUpdatedAt] = useState(0)
   const [live] = useLive()
-  const busy = useRef(false)
+  const [runs] = useState(() => new Runs())
+  useEffect(() => () => runs.cancel(), [runs])
 
   // What the column menus can offer, counted over the whole log rather than
   // the page on screen — a menu built from fifty rows can only offer what you
@@ -341,33 +343,47 @@ function RecentRequests({
     </>
   )
 
+  // A first page — a new filter, or Refresh — pre-empts whatever is in
+  // flight, because the old filter's rows are not wanted any more; Load more
+  // pre-empts only a poll. See runs.ts.
   const load = useCallback(
     async (after: string) => {
-      if (busy.current) return
-      busy.current = true
       const first = after === ''
-      first ? setLoading(true) : setLoadingMore(true)
+      const run = runs.begin(first ? 'replace' : 'append')
+      if (run === null) return
+      // Whatever this pre-empted will not settle its own spinner.
+      setRefreshing(false)
+      if (first) {
+        setLoading(true)
+        setLoadingMore(false)
+      } else {
+        setLoadingMore(true)
+      }
       setError('')
       try {
-        const page = await api.recentRequests(PAGE, after, filter)
+        const page = await api.recentRequests(PAGE, after, filter, run.signal)
+        if (!runs.owns(run)) return
         // Append when paging, replace when refreshing, so Refresh cannot leave
         // a stale tail below freshly loaded rows.
         setRows((prev) => (first ? page.rows : [...prev, ...page.rows]))
         setCursor(page.nextCursor)
         setUpdatedAt(Date.now())
       } catch (err) {
+        if (!runs.owns(run)) return
         if (err instanceof ApiError && err.isUnauthenticated) {
           onExpired()
           return
         }
         setError(messageOf(err))
       } finally {
-        busy.current = false
-        first ? setLoading(false) : setLoadingMore(false)
+        if (runs.end(run)) {
+          setLoading(false)
+          setLoadingMore(false)
+        }
       }
     },
     // filter is part of the query, so a change to it makes a different list.
-    [onExpired, filter],
+    [onExpired, filter, runs],
   )
 
   /**
@@ -384,11 +400,16 @@ function RecentRequests({
    * sorted by duration still gains new rows in the right place.
    */
   const poll = useCallback(async () => {
-    if (busy.current || document.visibilityState !== 'visible') return
-    busy.current = true
+    if (document.visibilityState !== 'visible') return
+    const run = runs.begin('background')
+    if (run === null) return
     setRefreshing(true)
     try {
-      const page = await api.recentRequests(PAGE, '', filter)
+      const page = await api.recentRequests(PAGE, '', filter, run.signal)
+      // Checked before merging: a poll that a new filter overtook holds the
+      // old filter's rows, and merging them would put them under the new
+      // filter's chips.
+      if (!runs.owns(run)) return
       setRows((prev) => {
         if (prev.length === 0) return page.rows
         const newest = prev.reduce((m, r) => Math.max(m, new Date(r.at).getTime()), 0)
@@ -404,10 +425,9 @@ function RecentRequests({
       // Keep what is on screen; the next tick tries again. Only a refresh the
       // operator asked for is worth reporting as a failure.
     } finally {
-      busy.current = false
-      setRefreshing(false)
+      if (runs.end(run)) setRefreshing(false)
     }
-  }, [filter, loadFacets])
+  }, [filter, loadFacets, runs])
 
   useEffect(() => {
     if (!live) return

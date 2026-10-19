@@ -26,7 +26,7 @@ export default function Docs() {
   // One request, and a public one. The in-app version of this screen read
   // /admin/overview, /admin/config and /admin/models — an inventory of the
   // deployment, for four facts. This asks for the four.
-  const { data, error, loading } = useLoader<DocsInfo>(() => api.docsInfo())
+  const { data, error, loading } = useLoader<DocsInfo>((signal) => api.docsInfo(signal))
 
   if (loading && data === null) {
     return (

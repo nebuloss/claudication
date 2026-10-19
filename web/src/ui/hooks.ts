@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, messageOf } from '../api/client'
 import { canonical, segments } from './route'
+import { Runs } from './runs'
 
 /**
  * Where we are: the path's segments, after canonical() has completed it to a
@@ -106,12 +107,14 @@ export function useLive(): [boolean, (on: boolean) => void] {
  *     backlog of them at once; becoming visible re-fetches instead.
  *   - Only one request is ever in flight. A poll that outlives its interval —
  *     the usage report over a slow link — must not queue a second behind it.
+ *     A change of `deps` or a reload is different: it is a new question, so
+ *     it aborts whatever is in flight and asks it (see runs.ts).
  *   - A background failure does not replace the panel with an error. It keeps
  *     the last good figures on screen and lets the next tick recover, because
  *     one dropped poll is not worth losing what you were reading.
  */
 export function useLoader<T>(
-  load: () => Promise<T>,
+  load: (signal: AbortSignal) => Promise<T>,
   onUnauthenticated?: () => void,
   deps: unknown[] = [],
   refreshMs = 0,
@@ -120,7 +123,7 @@ export function useLoader<T>(
   loadRef.current = load
   const authRef = useRef(onUnauthenticated)
   authRef.current = onUnauthenticated
-  const inFlight = useRef(false)
+  const [runs] = useState(() => new Runs())
 
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState('')
@@ -131,8 +134,8 @@ export function useLoader<T>(
   const [live] = useLive()
 
   const run = useCallback(async (background: boolean) => {
-    if (inFlight.current) return
-    inFlight.current = true
+    const ticket = runs.begin(background ? 'background' : 'replace')
+    if (ticket === null) return
     // Cleared first, so a retry does not render the last failure while it is
     // in flight. Anything that reloads is saying "try again", and showing the
     // previous error until the new answer lands reads as the retry having
@@ -141,10 +144,15 @@ export function useLoader<T>(
     if (background) setRefreshing(true)
     else setError('')
     try {
-      setData(await loadRef.current())
+      const value = await loadRef.current(ticket.signal)
+      // A newer run has the turn, so this answer is to a question nobody is
+      // asking any more.
+      if (!runs.owns(ticket)) return
+      setData(value)
       setError('')
       setUpdatedAt(Date.now())
     } catch (err) {
+      if (!runs.owns(ticket)) return
       // A 401 means the session lapsed while the tab was open. Only the shell
       // can show a sign-in screen, so it decides what happens next.
       if (authRef.current !== undefined && err instanceof ApiError && err.isUnauthenticated) {
@@ -153,11 +161,14 @@ export function useLoader<T>(
       }
       if (!background) setError(messageOf(err))
     } finally {
-      inFlight.current = false
-      setLoading(false)
-      setRefreshing(false)
+      // Only the run that still holds the turn settles the panel: one that was
+      // pre-empted must not take the spinner off its successor.
+      if (runs.end(ticket)) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
-  }, [])
+  }, [runs])
 
   const reload = useCallback(() => run(false), [run])
 
@@ -165,6 +176,8 @@ export function useLoader<T>(
     void run(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
+
+  useEffect(() => () => runs.cancel(), [runs])
 
   useEffect(() => {
     if (refreshMs <= 0 || !live) return

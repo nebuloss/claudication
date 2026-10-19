@@ -57,8 +57,8 @@ function choicesFor(family: string, real: Model[]): SelectOption[] {
 
 /** The aliases as a short form: for the gateway (keyId empty) or one key. */
 export function RolesEditor({ keyId = '' }: { keyId?: string }) {
-  const { data, error, loading, reload } = useLoader(() => api.modelRoles(keyId), undefined, [keyId], 0)
-  const { data: models } = useLoader(() => api.models(), undefined, [], 0)
+  const { data, error, loading, reload } = useLoader((signal) => api.modelRoles(keyId, signal), undefined, [keyId], 0)
+  const { data: models } = useLoader((signal) => api.models(signal), undefined, [], 0)
   const real = (models?.data ?? []).filter((m) => m.virtual !== true)
   const [busy, setBusy] = useState('')
   const [failure, setFailure] = useState('')

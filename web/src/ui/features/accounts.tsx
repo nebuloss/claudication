@@ -59,7 +59,7 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
   const [pollMs, setPollMs] = useState(FALLBACK_REFRESH_MS)
 
   const { data, error, loading, reload, setError, refreshing, updatedAt, live } = useLoader(
-    () => api.listAccounts(),
+    (signal) => api.listAccounts(signal),
     onExpired,
     [],
     settled ? pollMs : 0,
