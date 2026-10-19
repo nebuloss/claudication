@@ -132,9 +132,9 @@ function RankedBar({
           row.label
         )}
       </div>
-      <div className="h-5 min-w-0 flex-1 rounded-[var(--radius-md3-s)] bg-surface-high">
+      <div className="h-5 min-w-0 flex-1 rounded-md3-s bg-surface-high">
         <div
-          className="h-full rounded-[var(--radius-md3-s)]"
+          className="h-full rounded-md3-s"
           // fill(), not swatch(): swatch is a whole legend square and carries
           // a 10px width, which spread over this one replaced the width the
           // scale just computed. Every bar came out 10px, and no change to the
@@ -188,7 +188,7 @@ export function CompositionBar({
 
   return (
     <div>
-      <div className="flex h-7 w-full overflow-hidden rounded-[var(--radius-md3-s)]">
+      <div className="flex h-7 w-full overflow-hidden rounded-md3-s">
         {head.map((row) => (
           <div
             key={row.label}

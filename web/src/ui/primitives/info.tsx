@@ -32,7 +32,7 @@ export function Help({
   return (
     <div
       className={`text-sm leading-relaxed text-on-surface ${BULLETS} ${
-        plain ? '' : 'rounded-[var(--radius-md3-l)] bg-surface-lowest px-4 py-3'
+        plain ? '' : 'rounded-md3-l bg-surface-lowest px-4 py-3'
       } ${className}`}
     >
       {children}
@@ -122,7 +122,7 @@ export function Note({
   const t = NOTE_TONES[tone]
   return (
     <div
-      className={`flex items-start gap-2.5 rounded-[var(--radius-md3-m)] px-3 py-2.5 text-sm leading-relaxed ${t.box} ${className}`}
+      className={`flex items-start gap-2.5 rounded-md3-m px-3 py-2.5 text-sm leading-relaxed ${t.box} ${className}`}
     >
       <svg viewBox="0 0 24 24" aria-hidden className="mt-0.5 size-[18px] shrink-0 fill-current">
         <path d={t.icon} />

@@ -15,7 +15,22 @@
 // landed where the scale said it would is a great deal of machinery to re-test
 // arithmetic that is already checked here.
 
-const OUT = process.env.OUT ?? new URL('../web/.charts-check', import.meta.url).pathname
+// tsc leaves a relative import as it was written, without the .js an ES
+// module needs, so a pure module that imports another (the request filter
+// builds its paths with route.ts's pathOf) would not load here as compiled.
+// The browser never sees these files — Vite resolves them — so the extension
+// is added here rather than written into the sources.
+import { register } from 'node:module'
+register(
+  'data:text/javascript,' +
+    encodeURIComponent(
+      'export async function resolve(s, c, next) {' +
+        " if (s.startsWith('.') && !/\\.[cm]?js$/.test(s)) return next(s + '.js', c);" +
+        ' return next(s, c) }',
+    ),
+)
+
+const OUT = process.env.OUT ?? new URL('../web/.charts-check/ui', import.meta.url).pathname
 const { niceTicks, LinearScale, LogScale, BandScale, edgeAnchor } =
   await import(`${OUT}/charts/scale.js`)
 const { Stack } = await import(`${OUT}/charts/stack.js`)
@@ -270,7 +285,7 @@ console.log('\n— model catalog: the configs are written from the live list —
     tailorCodexConfig,
     tailorClaudeCode,
     tailorOpencode,
-  } = await import(`${OUT}/features/docs/catalog.js`)
+  } = await import(`${OUT}/clients/catalog.js`)
   const { readFileSync } = await import('node:fs')
   const committed = (name) =>
     readFileSync(new URL(`../configs/clients/${name}`, import.meta.url), 'utf8')
@@ -364,6 +379,47 @@ console.log('\n— model catalog: the configs are written from the live list —
   check('crush asks for the roles, listed first', [rcrush.models.large.model, rcrush.models.small.model, Object.values(rcrush.providers)[0].models[0].id],
     ['claude-large', 'claude-small', 'claude-large'])
   check('codex.toml asks for the large role', /^model = "claude-large"$/m.test(tailorCodexConfig(committed('codex.toml'), roles)), true)
+}
+
+console.log('\n— RequestFilter: the URL is the filter, and survives the trip —')
+{
+  const { RequestFilter, requestsHref } = await import(`${OUT}/features/requests/filter.js`)
+  // The bug the class was made for: the parser knew only "failed", so the
+  // Status menu's "Successful only" was dropped on reload and on Back.
+  check('successful only survives a reload', RequestFilter.fromSearch('?status=ok').status, 'ok')
+  check('failed only too', RequestFilter.fromSearch('?status=failed').status, 'failed')
+  check('an edited status reads as unfiltered', RequestFilter.fromSearch('?status=nope').status, '')
+  const f = RequestFilter.fromSearch('?model=a&model=b&model=&ip=10.0.0.1')
+  check('a set is a repeated parameter, empty member and all', f.values('model'), ['a', 'b', ''])
+  check('and goes back out the way it came', f.query(), 'model=a&model=b&model=&ip=10.0.0.1')
+  check('a tick toggles one value', f.toggled('model', 'a').values('model'), ['b', ''])
+  check('and back', f.toggled('model', 'a').toggled('model', 'a').values('model'), ['b', '', 'a'])
+  check('changing one leaves the original alone', f.values('model'), ['a', 'b', ''])
+  check('the outcome toggles off', RequestFilter.none.toggledStatus('ok').toggledStatus('ok').status, '')
+  check('the outcome funnels the Status column', RequestFilter.none.withStatus('failed').narrows('code'), true)
+  check('one account opens its own Requests page',
+    requestsHref({ account: ['acc 1'], status: 'failed' }), '/accounts/acc%201/requests?status=failed')
+  check('one key too', requestsHref({ key: ['k'] }), '/keys/k/requests')
+  check('both stay on Activity', requestsHref({ key: ['k'], account: ['a'] }), '/activity/requests?key=k&account=a')
+  const scope = { key: 'k' }
+  const scoped = RequestFilter.of({ model: ['m'] }).scopedTo(scope)
+  check('a scope is applied', scoped.values('key'), ['k'])
+  check('and never written into the query', scoped.outside(scope).pathIn(scope), '/keys/k/requests?model=m')
+}
+
+console.log('\n— RequestLogPager: polling must not undo paging —')
+{
+  const { RequestLogPager, PAGE } = await import(`${OUT}/features/requests/pager.js`)
+  const at = (m) => ({ at: new Date(Date.UTC(2026, 9, 19, 12, m)).toISOString() })
+  const held = RequestLogPager.first({ rows: [at(5), at(4)], nextCursor: 'c1' }).more({ rows: [at(3)], nextCursor: 'c2' })
+  check('load more appends and moves the cursor', [held.rows.length, held.cursor], [3, 'c2'])
+  const polled = held.merged({ rows: [at(7), at(6), at(5), at(4)], nextCursor: 'p' })
+  check('a poll adds only what is newer, on top', polled.rows.map((r) => r.at.slice(14, 16)), ['07', '06', '05', '04', '03'])
+  check('and keeps the paging cursor', polled.cursor, 'c2')
+  check('a quiet poll changes nothing', held.merged({ rows: [at(5)], nextCursor: 'p' }), held)
+  const flood = Array.from({ length: PAGE }, (_, i) => at(10 + i)).reverse()
+  const over = held.merged({ rows: flood, nextCursor: 'p' })
+  check('a whole page of new rows starts over rather than leave a hole', [over.rows.length, over.cursor], [PAGE, 'p'])
 }
 
 console.log('\n— every axis covers its data —')

@@ -278,8 +278,6 @@ body {
 @utility state-layer {
   position: relative;
   isolation: isolate;
-}
-@utility state-layer {
   &::after {
     content: "";
     position: absolute;

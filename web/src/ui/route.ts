@@ -27,6 +27,13 @@
 /** A page in a list of them: its path segment and how the nav names it. */
 export type Section = { id: string; label: string }
 
+/**
+ * An account's or a key's page, and which half of its pages it is in: what it
+ * did (`traffic`), or changing it (`settings`). The half decides more than
+ * the order — a settings page holds a form, so it must not poll under it.
+ */
+export type ItemPage = Section & { kind: 'traffic' | 'settings' }
+
 /** The top-level screens, in the order the app bar lists them. */
 export const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -44,14 +51,17 @@ export type Tab = (typeof TABS)[number]['id']
  * settings was a click and a Back more than they are worth.
  */
 export const ACCOUNT_PAGES = [
-  { id: 'usage', label: 'Usage' },
-  { id: 'chats', label: 'Chats' },
-  { id: 'requests', label: 'Requests' },
-  { id: 'models', label: 'Models' },
-  { id: 'connection', label: 'Connection' },
+  { id: 'usage', label: 'Usage', kind: 'traffic' },
+  { id: 'chats', label: 'Chats', kind: 'traffic' },
+  { id: 'requests', label: 'Requests', kind: 'traffic' },
+  { id: 'models', label: 'Models', kind: 'settings' },
+  { id: 'connection', label: 'Connection', kind: 'settings' },
   // Pausing and removing: the two ways out of use.
-  { id: 'advanced', label: 'Advanced' },
-] as const satisfies readonly Section[]
+  { id: 'advanced', label: 'Advanced', kind: 'settings' },
+] as const satisfies readonly ItemPage[]
+
+/** An account's page, or '' for its overview — the only values its page dispatches on. */
+export type AccountPageId = (typeof ACCOUNT_PAGES)[number]['id'] | ''
 
 /**
  * A key's pages under /keys/<id>, the same way. Clients comes first of its
@@ -59,17 +69,34 @@ export const ACCOUNT_PAGES = [
  * may use and what its aliases serve are one page.
  */
 export const KEY_PAGES = [
-  { id: 'usage', label: 'Usage' },
-  { id: 'chats', label: 'Chats' },
-  { id: 'requests', label: 'Requests' },
-  { id: 'clients', label: 'Clients' },
-  { id: 'models', label: 'Models' },
-  { id: 'general', label: 'General' },
-  { id: 'advanced', label: 'Advanced' },
-] as const satisfies readonly Section[]
+  { id: 'usage', label: 'Usage', kind: 'traffic' },
+  { id: 'chats', label: 'Chats', kind: 'traffic' },
+  { id: 'requests', label: 'Requests', kind: 'traffic' },
+  { id: 'clients', label: 'Clients', kind: 'settings' },
+  { id: 'models', label: 'Models', kind: 'settings' },
+  { id: 'general', label: 'General', kind: 'settings' },
+  { id: 'advanced', label: 'Advanced', kind: 'settings' },
+] as const satisfies readonly ItemPage[]
+
+/** A key's page, or '' for its overview. */
+export type KeyPageId = (typeof KEY_PAGES)[number]['id'] | ''
+
+/**
+ * A path segment as one of a registry's page ids, or '' — the item's overview
+ * — for anything else. canonical() has already completed the path, so '' here
+ * is the overview and never a page that went missing.
+ */
+export function pageIdOf<P extends readonly Section[]>(pages: P, segment: string): P[number]['id'] | '' {
+  return pages.find((p) => p.id === segment)?.id ?? ''
+}
+
+/** Whether a page is one of an item's settings pages. */
+export function isSettingsPage(pages: readonly ItemPage[], id: string): boolean {
+  return pages.some((p) => p.id === id && p.kind === 'settings')
+}
 
 /** The pages of one kind of item. */
-export function pagesOf(kind: 'accounts' | 'keys'): readonly Section[] {
+export function pagesOf(kind: 'accounts' | 'keys'): readonly ItemPage[] {
   return kind === 'accounts' ? ACCOUNT_PAGES : KEY_PAGES
 }
 
@@ -77,6 +104,7 @@ export const ACTIVITY_PAGES = [
   { id: 'chats', label: 'Chats' },
   { id: 'requests', label: 'Requests' },
 ] as const satisfies readonly Section[]
+export type ActivityPageId = (typeof ACTIVITY_PAGES)[number]['id']
 
 export const GATEWAY_SETTINGS = [
   { id: 'aliases', label: 'Aliases' },
@@ -86,6 +114,8 @@ export const GATEWAY_SETTINGS = [
   { id: 'documentation', label: 'Documentation' },
   { id: 'configuration', label: 'Configuration' },
 ] as const satisfies readonly Section[]
+/** A Settings section, or '' for /settings itself: the admin account. */
+export type SettingsSectionId = (typeof GATEWAY_SETTINGS)[number]['id'] | ''
 
 /** Where screens used to be, so a bookmark still lands on its screen. */
 const MOVED: Record<string, string> = {
@@ -129,6 +159,10 @@ export function pathOf(...parts: string[]): string {
   return '/' + parts.map(encodeURIComponent).join('/')
 }
 
+/** Where an account's or a key's own page lives. */
+export const accountHref = (id: string) => pathOf('accounts', id)
+export const keyHref = (id: string) => pathOf('keys', id)
+
 const known = (list: readonly Section[], id: string | undefined) =>
   id !== undefined && list.some((s) => s.id === id)
 
@@ -141,7 +175,9 @@ const known = (list: readonly Section[], id: string | undefined) =>
 export function canonical(pathname: string): string {
   const [top, a, b, c] = segments(pathname)
   if (top === undefined) return '/'
-  if (top in MOVED && a === undefined) return MOVED[top]
+  // Own keys only: /constructor is not a screen that moved.
+  const moved = Object.prototype.hasOwnProperty.call(MOVED, top) ? MOVED[top] : undefined
+  if (moved !== undefined && a === undefined) return moved
   switch (top) {
     case 'overview':
       return '/'
@@ -162,7 +198,7 @@ export function canonical(pathname: string): string {
     case 'settings': {
       // /settings itself is the admin account — what was its Advanced
       // section — and where any section that is not one lands.
-      const section = (a !== undefined && RENAMED.settings[a]) || a
+      const section = (a !== undefined && RENAMED.settings?.[a]) || a
       return known(GATEWAY_SETTINGS, section) ? pathOf('settings', section!) : pathOf('settings')
     }
   }

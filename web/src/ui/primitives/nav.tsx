@@ -1,5 +1,6 @@
-import type { MouseEvent } from 'react'
-import { navigate, type NavLevel, type NavLink } from '../route'
+import type { ReactNode } from 'react'
+import type { NavLevel, NavLink } from '../route'
+import { follow } from './link'
 
 /**
  * The app's navigation: one trail across the top, one rail down the side,
@@ -7,16 +8,6 @@ import { navigate, type NavLevel, type NavLink } from '../route'
  * links — the browser can open any of them in a new tab or copy it — with the
  * click intercepted only so the app is not rebuilt to change a path.
  */
-
-/** Follow an in-app link without a reload; leave modified clicks to the browser. */
-export function follow(href: string) {
-  return (e: MouseEvent) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
-    e.preventDefault()
-    navigate(href)
-    window.scrollTo(0, 0)
-  }
-}
 
 const chevron = 'M9.3 6.7 10.7 5.3 17.4 12l-6.7 6.7-1.4-1.4 5.3-5.3z'
 
@@ -44,7 +35,7 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
   return (
     <nav
       aria-label="Breadcrumb"
-      className="min-w-0 overflow-x-auto rounded-[var(--radius-md3-full)] bg-primary-container p-1 text-on-primary-container"
+      className="min-w-0 overflow-x-auto rounded-md3-full bg-primary-container p-1 text-on-primary-container"
     >
       <ol className="m-0 flex min-w-max list-none items-center gap-0.5 p-0 text-sm">
         {trail.map((c, i) => {
@@ -66,7 +57,7 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
                 aria-current={last ? 'page' : undefined}
                 aria-label={i === 0 ? c.label : undefined}
                 title={i === 0 ? c.label : undefined}
-                className={`state-layer block truncate rounded-[var(--radius-md3-full)] py-1.5 font-medium ${
+                className={`state-layer block truncate rounded-md3-full py-1.5 font-medium ${
                   i === 0 ? 'px-2' : 'px-3'
                 } ${last ? 'max-w-[28ch] bg-surface-lowest text-on-surface shadow-sm' : 'max-w-[24ch]'}`}
               >
@@ -78,6 +69,16 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
       </ol>
     </nav>
   )
+}
+
+/**
+ * One entry of a rail: the admin app's, and the docs page's contents, which
+ * borrow it so the two pages navigate alike. `on` for the page being read.
+ */
+export function railItem(on: boolean): string {
+  return `state-layer flex h-10 shrink-0 items-center rounded-md3-full px-4 text-sm font-medium whitespace-nowrap ${
+    on ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
+  }`
 }
 
 /**
@@ -93,19 +94,13 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
  * page. Back is a raised chip, the way out rather than one more entry.
  */
 export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean }) {
-  const item = (on: boolean) =>
-    `state-layer flex h-10 shrink-0 items-center rounded-[var(--radius-md3-full)] px-4 text-sm font-medium whitespace-nowrap ${
-      on
-        ? 'bg-primary-container text-on-primary-container'
-        : 'text-on-surface-variant hover:text-on-surface'
-    }`
   return (
     <nav
       aria-label="Navigation"
       className={`bg-surface-container ${
         row
-          ? 'overflow-x-auto rounded-[var(--radius-md3-full)] p-1'
-          : 'flex flex-col gap-1 rounded-[var(--radius-md3-xl)] p-2'
+          ? 'overflow-x-auto rounded-md3-full p-1'
+          : 'flex flex-col gap-1 rounded-md3-xl p-2'
       }`}
     >
       <ul className={`m-0 flex list-none gap-1 p-0 ${row ? 'min-w-max items-center' : 'flex-col'}`}>
@@ -115,7 +110,7 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
               href={level.back.href}
               onClick={follow(level.back.href)}
               title={`Back to ${level.back.label}`}
-              className="state-layer flex h-10 min-w-0 items-center gap-2 rounded-[var(--radius-md3-full)] bg-surface-lowest pr-4 pl-2 text-sm font-medium text-on-surface"
+              className="state-layer flex h-10 min-w-0 items-center gap-2 rounded-md3-full bg-surface-lowest pr-4 pl-2 text-sm font-medium text-on-surface"
             >
               <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
                 <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
@@ -132,7 +127,7 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
                 href={l.href}
                 onClick={follow(l.href)}
                 aria-current={on ? 'page' : undefined}
-                className={item(on)}
+                className={railItem(on)}
               >
                 {l.label}
               </a>
@@ -151,7 +146,7 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
  */
 export function BrandMark() {
   return (
-    <span className="grid size-10 shrink-0 place-items-center rounded-[var(--radius-md3-m)] bg-primary-container text-on-primary-container">
+    <span className="grid size-10 shrink-0 place-items-center rounded-md3-m bg-primary-container text-on-primary-container">
       <svg viewBox="0 0 32 32" className="size-5" aria-hidden>
         <g fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
           <path d="M3 8c6.5 0 6.5 6 10 6s3.5-6 10-6" />
@@ -161,4 +156,26 @@ export function BrandMark() {
       </svg>
     </span>
   )
+}
+
+/**
+ * The product's name beside its mark, with the running build after it: the
+ * left of both the admin header and the sign-in screen's, so signing in and
+ * being signed in read as one product.
+ */
+export function AppTitle({ version }: { version?: ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <BrandMark />
+      <h1 className="flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
+        claudication gateway
+        {version}
+      </h1>
+    </div>
+  )
+}
+
+/** A build string, set small after the product's name. */
+export function VersionTag({ children }: { children: string }) {
+  return <span className="truncate font-mono text-xs text-on-surface-variant">{children}</span>
 }

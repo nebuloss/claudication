@@ -2,14 +2,16 @@ import { useState } from 'react'
 import { api, messageOf } from '../../api/client'
 import ThemeToggle from './theme-toggle'
 import {
-  Banner,
-  BrandMark,
+  AppTitle,
+  Button,
+  ButtonLink,
   Card,
+  ErrorBanner,
   Field,
-  FilledButton,
+  InlineLink,
   Note,
-  Spinner,
-  TextLink,
+  Stack,
+  VersionTag,
 } from '../primitives'
 
 /**
@@ -60,7 +62,7 @@ export default function SignIn({
     setBusy(true)
     setError('')
     try {
-      await (setup ? api.setup(password) : api.signIn(password))
+      await (setup ? api.session.setup(password) : api.session.signIn(password))
       onSignedIn()
     } catch (err) {
       setError(messageOf(err))
@@ -73,55 +75,52 @@ export default function SignIn({
       {/* The admin header's shape, so signing in and being signed in are one
           product: the mark and name, and on the right the docs and the theme. */}
       <header className="mx-auto flex w-full max-w-[110rem] items-center justify-between gap-4 px-4 pt-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          <BrandMark />
-          <h1 className="m-0 flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
-            claudication gateway
-            {version !== '' && (
-              <span className="truncate font-mono text-xs text-on-surface-variant">{version}</span>
-            )}
-          </h1>
-        </div>
+        <AppTitle version={version !== '' ? <VersionTag>{version}</VersionTag> : undefined} />
         <div className="flex items-center gap-2">
-          {docsURL !== '' && <TextLink href={docsURL}>Docs</TextLink>}
+          {docsURL !== '' && (
+            <ButtonLink href={docsURL} external>
+              Docs
+            </ButtonLink>
+          )}
           <ThemeToggle />
         </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-4 px-4 py-10">
         <Card>
-          <h2 className="mt-0 mb-1 text-2xl leading-8 font-normal text-on-surface">
+          <h2 className="mb-1 text-2xl leading-8 font-normal text-on-surface">
             {setup ? 'Claim this gateway' : 'Sign in'}
           </h2>
-          <p className="mt-0 mb-6 text-sm text-on-surface">
+          <p className="mb-6 text-sm text-on-surface">
             {setup
               ? 'Nobody has claimed it yet. Choose the admin password.'
               : 'To manage its accounts, keys and settings.'}
           </p>
 
-          <form className="flex flex-col gap-4" onSubmit={submit}>
-            <Field
-              label="Password"
-              type="password"
-              value={password}
-              onChange={setPassword}
-              autoFocus
-              autoComplete={setup ? 'new-password' : 'current-password'}
-            />
-            {setup && (
+          <form onSubmit={submit}>
+            <Stack>
               <Field
-                label="Repeat password"
+                label="Password"
                 type="password"
-                value={confirm}
-                onChange={setConfirm}
-                autoComplete="new-password"
+                value={password}
+                onChange={setPassword}
+                autoFocus
+                autoComplete={setup ? 'new-password' : 'current-password'}
               />
-            )}
-            {error !== '' && <Banner tone="error">{error}</Banner>}
-            <FilledButton disabled={busy} className="justify-center">
-              {busy && <Spinner />}
-              {busy ? (setup ? 'Setting up…' : 'Signing in…') : setup ? 'Set password' : 'Sign in'}
-            </FilledButton>
+              {setup && (
+                <Field
+                  label="Repeat password"
+                  type="password"
+                  value={confirm}
+                  onChange={setConfirm}
+                  autoComplete="new-password"
+                />
+              )}
+              <ErrorBanner error={error} />
+              <Button type="submit" busy={busy}>
+                {busy ? (setup ? 'Setting up…' : 'Signing in…') : setup ? 'Set password' : 'Sign in'}
+              </Button>
+            </Stack>
           </form>
 
           {setup ? (
@@ -132,7 +131,7 @@ export default function SignIn({
           ) : (
             <Note className="mt-6">
               Forgotten it? On the host that runs the gateway, run{' '}
-              <code className="font-mono font-medium">claudication passwd</code>.
+              <code className="font-medium">claudication passwd</code>.
             </Note>
           )}
         </Card>
@@ -140,16 +139,11 @@ export default function SignIn({
         {/* Someone who reached the admin address wanting to set up a client
             is looking for this page, not that one. */}
         {docsURL !== '' && (
-          <p className="m-0 text-center text-sm text-on-surface">
+          <p className="text-center text-sm text-on-surface">
             Configuring a client?{' '}
-            <a
-              href={docsURL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-primary underline underline-offset-2"
-            >
+            <InlineLink href={docsURL} primary>
               Read the documentation
-            </a>
+            </InlineLink>
           </p>
         )}
       </main>

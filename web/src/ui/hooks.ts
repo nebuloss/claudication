@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, messageOf } from '../api/client'
+import { messageOf } from '../api/client'
 import { canonical, segments } from './route'
+import { Runs } from './runs'
+import { useSession } from './session'
 
 /**
  * Where we are: the path's segments, after canonical() has completed it to a
@@ -87,6 +89,40 @@ export function useLive(): [boolean, (on: boolean) => void] {
 }
 
 /**
+ * Call `tick` every `everyMs` while the tab is visible and Live is on, and as
+ * soon as the tab becomes visible again; says whether Live is on.
+ *
+ * A hidden tab does not poll. Browsers throttle background timers anyway, and
+ * a laptop that wakes after a night asleep would otherwise fire a backlog of
+ * them at once; coming back to the tab should show current figures, not wait
+ * out an interval that has been stalled for however long it was hidden.
+ *
+ * `tick` is read through a ref, so a caller passes a fresh closure each render
+ * without restarting the interval. Shared by useLoader and the request log,
+ * which had each written it out.
+ */
+export function usePoll(tick: () => void, everyMs: number): boolean {
+  const [live] = useLive()
+  const tickRef = useRef(tick)
+  tickRef.current = tick
+
+  useEffect(() => {
+    if (everyMs <= 0 || !live) return
+    const fire = () => {
+      if (document.visibilityState === 'visible') tickRef.current()
+    }
+    const timer = window.setInterval(fire, everyMs)
+    document.addEventListener('visibilitychange', fire)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', fire)
+    }
+  }, [everyMs, live])
+
+  return live
+}
+
+/**
  * Load something, with the three states every panel needs.
  *
  * `load` is held in a ref so `reload` stays stable across renders — a panel can
@@ -101,26 +137,23 @@ export function useLive(): [boolean, (on: boolean) => void] {
  * Pass `refreshMs` and the panel keeps itself current. Three things keep that
  * from being a nuisance:
  *
- *   - A hidden tab does not poll. Browsers throttle background timers anyway,
- *     and a laptop that wakes after a night asleep would otherwise fire a
- *     backlog of them at once; becoming visible re-fetches instead.
+ *   - A hidden tab does not poll, and becoming visible re-fetches (usePoll).
  *   - Only one request is ever in flight. A poll that outlives its interval —
  *     the usage report over a slow link — must not queue a second behind it.
+ *     A change of `deps` or a reload is different: it is a new question, so
+ *     it aborts whatever is in flight and asks it (see runs.ts).
  *   - A background failure does not replace the panel with an error. It keeps
  *     the last good figures on screen and lets the next tick recover, because
  *     one dropped poll is not worth losing what you were reading.
  */
 export function useLoader<T>(
-  load: () => Promise<T>,
-  onUnauthenticated?: () => void,
-  deps: unknown[] = [],
-  refreshMs = 0,
+  load: (signal: AbortSignal) => Promise<T>,
+  { deps = [], refreshMs = 0 }: { deps?: unknown[]; refreshMs?: number } = {},
 ) {
   const loadRef = useRef(load)
   loadRef.current = load
-  const authRef = useRef(onUnauthenticated)
-  authRef.current = onUnauthenticated
-  const inFlight = useRef(false)
+  const session = useSession()
+  const [runs] = useState(() => new Runs())
 
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState('')
@@ -128,11 +161,9 @@ export function useLoader<T>(
   const [refreshing, setRefreshing] = useState(false)
   const [updatedAt, setUpdatedAt] = useState(0)
 
-  const [live] = useLive()
-
   const run = useCallback(async (background: boolean) => {
-    if (inFlight.current) return
-    inFlight.current = true
+    const ticket = runs.begin(background ? 'background' : 'replace')
+    if (ticket === null) return
     // Cleared first, so a retry does not render the last failure while it is
     // in flight. Anything that reloads is saying "try again", and showing the
     // previous error until the new answer lands reads as the retry having
@@ -141,23 +172,28 @@ export function useLoader<T>(
     if (background) setRefreshing(true)
     else setError('')
     try {
-      setData(await loadRef.current())
+      const value = await loadRef.current(ticket.signal)
+      // A newer run has the turn, so this answer is to a question nobody is
+      // asking any more.
+      if (!runs.owns(ticket)) return
+      setData(value)
       setError('')
       setUpdatedAt(Date.now())
     } catch (err) {
+      if (!runs.owns(ticket)) return
       // A 401 means the session lapsed while the tab was open. Only the shell
       // can show a sign-in screen, so it decides what happens next.
-      if (authRef.current !== undefined && err instanceof ApiError && err.isUnauthenticated) {
-        authRef.current()
-        return
-      }
+      if (session.report(err)) return
       if (!background) setError(messageOf(err))
     } finally {
-      inFlight.current = false
-      setLoading(false)
-      setRefreshing(false)
+      // Only the run that still holds the turn settles the panel: one that was
+      // pre-empted must not take the spinner off its successor.
+      if (runs.end(ticket)) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
-  }, [])
+  }, [runs, session])
 
   const reload = useCallback(() => run(false), [run])
 
@@ -166,24 +202,90 @@ export function useLoader<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 
-  useEffect(() => {
-    if (refreshMs <= 0 || !live) return
+  useEffect(() => () => runs.cancel(), [runs])
 
-    const tick = () => {
-      if (document.visibilityState === 'visible') void run(true)
-    }
-    const timer = window.setInterval(tick, refreshMs)
-    // Coming back to the tab should show current figures, not wait out an
-    // interval that has been stalled for however long it was hidden.
-    document.addEventListener('visibilitychange', tick)
-    return () => {
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', tick)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshMs, live, run, ...deps])
+  const live = usePoll(() => void run(true), refreshMs)
 
   return { data, error, loading, reload, setError, refreshing, updatedAt, live }
+}
+
+/**
+ * A write, with the two states every button that makes one needs: which one
+ * is in flight, and what went wrong.
+ *
+ * About fifteen mutations wrote this out by hand and each got a different part
+ * of it wrong. Some reset the busy state only on the error path, which is fine
+ * until success re-renders rather than unmounts — Change password sat on
+ * "Changing…" for ever that way, with both passwords still on screen. Some
+ * spelled the message their own way rather than through messageOf, and only
+ * one of them sent a lapsed session to the sign-in screen instead of printing
+ * "session has expired" in a banner.
+ *
+ * So `run(key, fn)` always clears the busy state, however `fn` ends; reports a
+ * failure through messageOf; and hands a lapsed session to the shell. It says
+ * whether `fn` succeeded, for the callers that undo an optimistic change.
+ *
+ * `key` names which of a panel's actions is running, so one row can show a
+ * spinner while the others are merely disabled; a panel with one action
+ * passes any name and reads `pending`.
+ *
+ * `asksPassword` is for the two writes that check the password again. Their
+ * 401 means it was mistyped, and signing the operator out over a typo would be
+ * the wrong answer to it.
+ */
+export function useAction<K extends string = string>({
+  asksPassword = false,
+}: { asksPassword?: boolean } = {}) {
+  const session = useSession()
+  const [busy, setBusy] = useState<K | ''>('')
+  const [error, setError] = useState('')
+
+  const run = useCallback(
+    async (key: K, fn: () => Promise<unknown>): Promise<boolean> => {
+      setBusy(key)
+      setError('')
+      try {
+        await fn()
+        return true
+      } catch (err) {
+        if (!asksPassword && session.report(err)) return false
+        setError(messageOf(err))
+        return false
+      } finally {
+        setBusy('')
+      }
+    },
+    [asksPassword, session],
+  )
+
+  return { busy, pending: busy !== '', error, setError, run }
+}
+
+/**
+ * A value the operator just changed, shown changed before the server agrees.
+ *
+ * The settings switches were driven straight off the reloaded config, so
+ * flipping one did nothing until the write and the refetch had both come back
+ * — a visible pause in which the control sits where you did not put it, which
+ * reads as the click having missed. Four cards then each wrote the fix out by
+ * hand. `apply(next, write)` moves it at once and moves it back if `write`
+ * (a useAction run) reports a failure; whenever the server's `value` changes —
+ * the reload landing, or someone else changing it — that is what is shown.
+ *
+ * `value` must be a primitive: it is compared by identity to know when the
+ * server has spoken.
+ */
+export function useOptimistic<T extends string | number | boolean>(value: T) {
+  const [shown, setShown] = useState(value)
+  useEffect(() => setShown(value), [value])
+  const apply = useCallback(
+    async (next: T, write: () => Promise<boolean>) => {
+      setShown(next)
+      if (!(await write())) setShown(value)
+    },
+    [value],
+  )
+  return [shown, apply] as const
 }
 
 /**

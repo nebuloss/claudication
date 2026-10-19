@@ -1,16 +1,5 @@
-import claudeCodeSh from '#configs/clients/claude-code.sh?raw'
-import codexToml from '#configs/clients/codex.toml?raw'
-import codexModels from '#configs/clients/codex-models.json?raw'
-import crushJson from '#configs/clients/crush.json?raw'
-import opencodeJsonc from '#configs/clients/opencode.jsonc?raw'
-import {
-  tailorClaudeCode,
-  tailorCodexCatalog,
-  tailorCodexConfig,
-  tailorCrush,
-  tailorOpencode,
-} from './catalog'
-import { ClientRecipe, type Section, type Symptom } from './model'
+import type { ReactNode } from 'react'
+import { CLIENTS } from '../../clients/recipes'
 
 /**
  * What the docs page says, with no idea how any of it is drawn.
@@ -18,127 +7,14 @@ import { ClientRecipe, type Section, type Symptom } from './model'
  * Separate from the view because they change for unrelated reasons and at
  * unrelated rates: a new client or a newly understood failure is a change
  * here, and nothing in here should have to be read to change a heading level
- * or a column. The config files themselves are not here either — they are the
- * committed ones under configs/clients, imported as text, so there is one copy
- * of each rather than a second set pasted into a component.
+ * or a column. The clients themselves are ui/clients/recipes.tsx, shared with a
+ * key's Clients page.
  */
-export const CLIENTS: ClientRecipe[] = [
-  new ClientRecipe({
-    id: 'claude-code',
-    label: 'Claude Code',
-    surface: 'anthropic',
-    versioned: false,
-    lead: (
-      <>
-        Claude Code appends <code className="font-mono">/v1</code> to whatever base URL it is
-        given, so the address here carries none. Source the file, or put its contents in your
-        shell profile.
-      </>
-    ),
-    files: [
-      {
-        label: 'claudication.sh',
-        filename: 'claude-code.sh',
-        lang: 'sh',
-        body: claudeCodeSh,
-        tailor: tailorClaudeCode,
-        install: { path: '.config/claudication/claude-code.sh', env: true },
-      },
-    ],
-  }),
-  new ClientRecipe({
-    id: 'codex',
-    label: 'Codex CLI',
-    surface: 'openai',
-    versioned: true,
-    lead: (
-      <>
-        The only client here that goes through the OpenAI Responses API rather than the Anthropic
-        one — so the gateway translates, and Codex never learns it is talking to Claude. Two files:
-        the config, and a model catalog Codex reads instead of asking.
-      </>
-    ),
-    files: [
-      {
-        label: '~/.codex/config.toml',
-        filename: 'config.toml',
-        lang: 'toml',
-        body: codexToml,
-        tailor: tailorCodexConfig,
-        install: { path: '.codex/config.toml' },
-      },
-      {
-        label: '~/.codex/claude-models.json',
-        filename: 'claude-models.json',
-        lang: 'json',
-        body: codexModels,
-        tailor: tailorCodexCatalog,
-        install: { path: '.codex/claude-models.json' },
-      },
-    ],
-    notes: [
-      <>
-        Codex needs <code className="font-mono">bubblewrap</code> installed before it can run any
-        shell command. Without it the first tool call panics, and the model then explains —
-        convincingly — that nothing works.
-      </>,
-      <>
-        The catalog carries a short stand-in for Codex&rsquo;s own system prompt, because Codex
-        refuses an entry without one and its real prompt lives inside its binary. The stand-in is
-        about nine thousand tokens cheaper per turn, and less good at editing.{' '}
-        <code className="font-mono">scripts/codex-model-catalog.py</code> clones the real one out
-        of your own Codex if you would rather have that.
-      </>,
-    ],
-  }),
-  new ClientRecipe({
-    id: 'opencode',
-    label: 'opencode',
-    surface: 'anthropic',
-    versioned: true,
-    lead: (
-      <>
-        This overrides opencode&rsquo;s built-in Anthropic provider rather than declaring a new
-        one, so every model the gateway serves is available without listing any of them.
-      </>
-    ),
-    files: [
-      {
-        label: '~/.config/opencode/opencode.jsonc',
-        filename: 'opencode.jsonc',
-        lang: 'jsonc',
-        body: opencodeJsonc,
-        tailor: tailorOpencode,
-        install: { path: '.config/opencode/opencode.jsonc' },
-      },
-    ],
-  }),
-  new ClientRecipe({
-    id: 'crush',
-    label: 'crush',
-    surface: 'anthropic',
-    versioned: false,
-    lead: (
-      <>
-        Every model is spelled out here, and that is deliberate: crush never calls{' '}
-        <code className="font-mono">/v1/models</code>, so a model missing from this file cannot be
-        selected however well the gateway serves it. The list is the gateway&rsquo;s own, read
-        from Anthropic when this page loaded, so download it again when a model is released.
-      </>
-    ),
-    files: [
-      {
-        label: '~/.config/crush/crush.json',
-        filename: 'crush.json',
-        lang: 'json',
-        body: crushJson,
-        tailor: tailorCrush,
-        // crush reads %LOCALAPPDATA%\crush on Windows, not ~/.config.
-        install: { path: '.config/crush/crush.json', windowsPath: 'AppData/Local/crush/crush.json' },
-      },
-    ],
-  }),
-]
+/** One thing that goes wrong, and what is actually behind it. */
+export type Symptom = { symptom: string; cause: ReactNode }
+
+/** A section of the page, for its heading's anchor and the contents rail. */
+export type Section = { id: string; title: string }
 
 /** What goes wrong, and what is actually behind it. */
 export const TROUBLESHOOTING: Symptom[] = [
@@ -146,7 +22,7 @@ export const TROUBLESHOOTING: Symptom[] = [
     symptom: '404 on every request',
     cause: (
       <>
-        Almost always the <code className="font-mono">/v1</code> question. Claude Code and crush
+        Almost always the <code>/v1</code> question. Claude Code and crush
         want the base URL without it; opencode and Codex want it with. No client says so when it
         is wrong — it just gets nothing.
       </>
@@ -162,8 +38,8 @@ export const TROUBLESHOOTING: Symptom[] = [
     cause: (
       <>
         The key is wrong, withdrawn, or in a header this client does not send. Either{' '}
-        <code className="font-mono">x-api-key</code> or an{' '}
-        <code className="font-mono">Authorization: Bearer</code> token works, on either API.
+        <code>x-api-key</code> or an{' '}
+        <code>Authorization: Bearer</code> token works, on either API.
       </>
     ),
   },

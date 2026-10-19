@@ -191,7 +191,7 @@ export function useContainedScroll(panel: RefObject<HTMLElement>, enabled: boole
  * it.
  */
 export const menuSurface =
-  'fixed z-50 overflow-y-auto overscroll-contain rounded-[var(--radius-md3-l)] bg-surface-container p-1.5 text-sm normal-case elevation-2'
+  'fixed z-50 overflow-y-auto overscroll-contain rounded-md3-l bg-surface-container p-1.5 text-sm normal-case elevation-2'
 
 /** One row of a menu or a list: a rounded state layer, a 40px target. */
 export function menuItem({ active = false, selected = false } = {}): string {
@@ -200,7 +200,7 @@ export function menuItem({ active = false, selected = false } = {}): string {
     : active
       ? 'bg-on-surface/8 text-on-surface'
       : 'text-on-surface'
-  return `state-layer flex min-h-10 w-full cursor-pointer items-center gap-3 rounded-[var(--radius-md3-m)] px-3 py-2 text-left text-sm font-normal tracking-normal ${tone}`
+  return `state-layer flex min-h-10 w-full cursor-pointer items-center gap-3 rounded-md3-m px-3 py-2 text-left text-sm font-normal tracking-normal ${tone}`
 }
 
 /** A line between groups of a menu's items. */

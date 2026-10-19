@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import { FilledButton, openRow } from './index'
-import { follow } from './nav'
+import { Button } from './button'
+import { follow, openRow } from './link'
 
 /**
  * One item of a list that opens a page per item: an account, an API key.
@@ -37,7 +37,7 @@ export function ListRow({
   return (
     <div
       onClick={openRow(href)}
-      className={`state-layer flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-[var(--radius-md3-l)] px-4 py-3 ${
+      className={`state-layer flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-md3-l px-4 py-3 ${
         highlight ? 'bg-secondary-container' : 'bg-surface-lowest'
       }`}
     >
@@ -84,6 +84,16 @@ export function ListToolbar({ action, children }: { action?: ReactNode; children
   )
 }
 
+/**
+ * A figure about the whole list, at the toolbar's far end: on a wide screen
+ * only, since on a phone the list is right under it saying the same.
+ */
+export function ListSummary({ children }: { children: ReactNode }) {
+  return (
+    <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">{children}</span>
+  )
+}
+
 /** A list's add action: filled, with a plus, so it reads as the way to grow the list. */
 export function AddButton({
   onClick,
@@ -95,12 +105,9 @@ export function AddButton({
   children: ReactNode
 }) {
   return (
-    <FilledButton type="button" onClick={onClick} disabled={disabled} className="pl-4">
-      <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
-        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-      </svg>
+    <Button onClick={onClick} disabled={disabled} icon="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z">
       {children}
-    </FilledButton>
+    </Button>
   )
 }
 

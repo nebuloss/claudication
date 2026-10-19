@@ -10,7 +10,7 @@
  */
 export type Provider = { id: string; label: string; detail: string }
 
-export const PROVIDERS: Provider[] = [
+export const PROVIDERS: [Provider, ...Provider[]] = [
   {
     id: 'anthropic',
     label: 'Claude',
