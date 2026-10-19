@@ -104,10 +104,12 @@ type QuotaWindow struct {
 	Status      string
 }
 
-// The window lengths the quota has columns for.
+// The window lengths the quota has columns for, in seconds: the one
+// definition a provider reporting those windows names them by. (The admin UI
+// has its own, in web/src/ui/domain/quota.ts, being TypeScript.)
 const (
-	fiveHourSeconds = 5 * 60 * 60
-	sevenDaySeconds = 7 * 24 * 60 * 60
+	FiveHourSeconds = 5 * 60 * 60
+	SevenDaySeconds = 7 * 24 * 60 * 60
 )
 
 // near reports whether a window is the given length, give or take a tenth: a
@@ -141,9 +143,9 @@ func QuotaFromWindows(at time.Time, windows []QuotaWindow, limited bool, detail 
 			status = "allowed"
 		}
 		switch {
-		case near(w.Seconds, fiveHourSeconds):
+		case near(w.Seconds, FiveHourSeconds):
 			q.FiveHourUtil, q.FiveHourReset, q.FiveHourStatus = w.UsedPercent, w.ResetAt.UTC(), status
-		case near(w.Seconds, sevenDaySeconds):
+		case near(w.Seconds, SevenDaySeconds):
 			q.SevenDayUtil, q.SevenDayReset, q.SevenDayStatus = w.UsedPercent, w.ResetAt.UTC(), status
 		}
 	}

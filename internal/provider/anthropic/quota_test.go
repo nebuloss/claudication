@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"claudication/internal/pool"
 )
 
 func strp(s string) *string { return &s }
@@ -16,7 +18,8 @@ func TestQuotaFromUsage(t *testing.T) {
 		Limits:    []UsageLimit{{Kind: "session", Percent: 29}},
 		FetchedAt: at,
 	}
-	q := u.Quota()
+	// Through the mapping the poller stores it with, every provider's.
+	q := pool.StoredQuota(u.Usage())
 	if q.UpdatedAt != at || q.FiveHourUtil != 29 || q.SevenDayUtil != 45 {
 		t.Errorf("figures: %+v", q)
 	}
@@ -36,7 +39,7 @@ func TestQuotaFromUsage(t *testing.T) {
 
 // A window the endpoint left out is unknown, not idle.
 func TestQuotaMarksMissingWindowsUnknown(t *testing.T) {
-	q := AccountUsage{}.Quota()
+	q := pool.StoredQuota(AccountUsage{}.Usage())
 	if q.FiveHourUtil != -1 || q.SevenDayUtil != -1 || q.Known() {
 		t.Errorf("missing windows: %+v", q)
 	}

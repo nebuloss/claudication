@@ -8,12 +8,6 @@ import (
 	"claudication/internal/store"
 )
 
-// The two headline windows, by the length the endpoint names them for.
-const (
-	fiveHourSeconds = 5 * 60 * 60
-	sevenDaySeconds = 7 * 24 * 60 * 60
-)
-
 // Usage is the usage figures as every provider reports them: the windows by
 // their length, the limits array as the detail.
 //
@@ -28,7 +22,7 @@ func (u AccountUsage) Usage() provider.Quota {
 	for _, w := range []struct {
 		seconds int64
 		win     *UsageWindow
-	}{{fiveHourSeconds, u.FiveHour}, {sevenDaySeconds, u.SevenDay}} {
+	}{{store.FiveHourSeconds, u.FiveHour}, {store.SevenDaySeconds, u.SevenDay}} {
 		if w.win == nil {
 			continue
 		}
@@ -43,18 +37,6 @@ func (u AccountUsage) Usage() provider.Quota {
 		q.Detail = string(raw)
 	}
 	return q
-}
-
-// Quota is the usage figures as the store keeps them: what the pool routes on
-// and the accounts screen shows. The same mapping every provider's windows go
-// through (store.QuotaFromWindows), so Anthropic is not a special case of it.
-func (u AccountUsage) Quota() store.AccountQuota {
-	q := u.Usage()
-	windows := make([]store.QuotaWindow, len(q.Windows))
-	for i, w := range q.Windows {
-		windows[i] = store.QuotaWindow(w)
-	}
-	return store.QuotaFromWindows(q.At, windows, q.Limited, q.Detail)
 }
 
 func parseUsageTime(v *string) time.Time {
