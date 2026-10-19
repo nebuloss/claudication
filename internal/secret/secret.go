@@ -77,20 +77,72 @@ func resolveKey(stateDir string) ([]byte, error) {
 		return nil, fmt.Errorf("generate instance key: %w", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString(key)
-	// O_EXCL: if two processes start at once, exactly one creates the key and
-	// the loser re-reads rather than silently overwriting live credentials.
+	switch err := createKeyFile(stateDir, path, encoded); {
+	case errors.Is(err, os.ErrExist):
+		// Another process starting at the same moment created it first: its
+		// key is the one in use, so read it rather than overwrite it.
+		return resolveKey(stateDir)
+	case err != nil:
+		return nil, err
+	}
+	return key, nil
+}
+
+// createKeyFile puts the encoded key at path, whole or not at all, and fails
+// with os.ErrExist when something is already there.
+//
+// Whole or not at all because the file was created empty and written after,
+// so a crash between the two left an empty key file — which the next start
+// refuses as corrupt, with every stored credential sealed under the key that
+// was never written down. So the key is written and synced under a temporary
+// name and linked into place. A link, unlike a rename, refuses to replace a
+// name that exists, which keeps the rule O_EXCL gave: if two processes start
+// at once, exactly one creates the key and the other reads it.
+//
+// A filesystem that cannot link falls back to creating the file in place with
+// O_EXCL, which is what it did before.
+func createKeyFile(dir, path, encoded string) error {
+	tmp, err := os.CreateTemp(dir, keyFile+".new-*")
+	if err != nil {
+		return fmt.Errorf("create %s: %w", path, err)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(encoded); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+
+	switch err := os.Link(tmp.Name(), path); {
+	case err == nil:
+		// The name itself has to survive a crash too.
+		if d, err := os.Open(dir); err == nil {
+			_ = d.Sync()
+			d.Close()
+		}
+		return nil
+	case errors.Is(err, os.ErrExist):
+		return err
+	}
+
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return resolveKey(stateDir)
+			return err
 		}
-		return nil, fmt.Errorf("create %s: %w", path, err)
+		return fmt.Errorf("create %s: %w", path, err)
 	}
 	defer f.Close()
 	if _, err := f.WriteString(encoded); err != nil {
-		return nil, fmt.Errorf("write %s: %w", path, err)
+		return fmt.Errorf("write %s: %w", path, err)
 	}
-	return key, nil
+	return f.Sync()
 }
 
 // Seal encrypts plaintext, returning nonce||ciphertext.
