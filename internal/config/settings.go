@@ -40,81 +40,99 @@ type Setting struct {
 	Doc string `json:"doc"`
 }
 
-// definitions is the order and the prose. One list, so a setting cannot be
-// added to the loader and quietly go missing from the screen that reports it.
+// definitions is the order, the prose and the environment overrides. One
+// list, so a setting cannot be added to the loader and quietly go missing from
+// the screen that reports it, and an override cannot be named on that screen
+// and not be read — applyEnv used to repeat every variable name by hand.
 var definitions = []struct {
 	key string
 	env string
 	doc string
 	get func(Config) string
+	// set applies the environment's value, reporting whether it took it. Nil
+	// exactly when env is empty. A value it cannot read is not taken, so the
+	// file's value stays in effect and on screen rather than a zero.
+	set func(*Config, string) bool
 }{
 	{"listen", "CLAUDICATION_LISTEN",
 		"Where the relay binds.",
-		func(c Config) string { return c.Listen }},
+		func(c Config) string { return c.Listen },
+		func(c *Config, v string) bool { c.Listen = v; return true }},
 	{"admin-listen", "CLAUDICATION_ADMIN_LISTEN",
 		"Puts the admin API and UI on their own address. Empty shares one listener with the relay, which publishes the admin surface alongside it.",
-		func(c Config) string { return c.AdminListen }},
+		func(c Config) string { return c.AdminListen },
+		func(c *Config, v string) bool { c.AdminListen = v; return true }},
 	{"docs-listen", "CLAUDICATION_DOCS_LISTEN",
 		"Also serves the public docs page on an address of its own. Empty is fine: with the switch on, the relay serves it at the root it otherwise 404s.",
-		func(c Config) string { return c.DocsListen }},
+		func(c Config) string { return c.DocsListen },
+		func(c *Config, v string) bool { c.DocsListen = v; return true }},
 	{"docs-url", "CLAUDICATION_DOCS_URL",
 		"What that page is published as, when docs-listen puts it somewhere of its own. Empty means it is at public-url, where the relay serves it.",
-		func(c Config) string { return c.DocsURL }},
+		func(c Config) string { return c.DocsURL },
+		func(c *Config, v string) bool { c.DocsURL = v; return true }},
 	{"public-url", "CLAUDICATION_PUBLIC_URL",
 		"What clients are told to point at. Needed once the listeners are split, because this page is then on a different address from the relay.",
-		func(c Config) string { return c.PublicURL }},
+		func(c Config) string { return c.PublicURL },
+		func(c *Config, v string) bool { c.PublicURL = v; return true }},
 	{"state-dir", "CLAUDICATION_STATE_DIR",
 		"Holds the database and the sealing key. As sensitive as every connected Claude account.",
-		func(c Config) string { return c.StateDir }},
+		func(c Config) string { return c.StateDir },
+		func(c *Config, v string) bool { c.StateDir = v; return true }},
 	{"trusted-proxies", "CLAUDICATION_TRUSTED_PROXIES",
 		"Addresses whose X-Forwarded-For is believed. Empty behind a proxy puts every client in one rate-limit bucket and stops the session cookie being marked Secure.",
-		func(c Config) string { return strings.Join(c.TrustedProxies, ", ") }},
+		func(c Config) string { return strings.Join(c.TrustedProxies, ", ") },
+		setTrustedProxies},
 
 	{"log.level", "CLAUDICATION_LOG_LEVEL", "debug, info, warn or error.",
-		func(c Config) string { return c.Log.Level }},
+		func(c Config) string { return c.Log.Level },
+		func(c *Config, v string) bool { c.Log.Level = v; return true }},
 	{"log.format", "CLAUDICATION_LOG_FORMAT", "json or text.",
-		func(c Config) string { return c.Log.Format }},
+		func(c Config) string { return c.Log.Format },
+		func(c *Config, v string) bool { c.Log.Format = v; return true }},
 
 	{"limits.requests-per-minute", "CLAUDICATION_REQUESTS_PER_MINUTE",
 		"Default per-key allowance. A key with its own limit ignores this.",
-		func(c Config) string { return strconv.Itoa(c.Limits.RequestsPerMinute) }},
+		func(c Config) string { return strconv.Itoa(c.Limits.RequestsPerMinute) },
+		setRequestsPerMinute},
 	{"limits.anon-per-minute", "",
 		"Unauthenticated requests per IP, which is also what bounds guessing at the admin password.",
-		func(c Config) string { return strconv.Itoa(c.Limits.AnonPerMinute) }},
+		func(c Config) string { return strconv.Itoa(c.Limits.AnonPerMinute) }, nil},
 	{"limits.max-body-bytes", "",
 		"Largest request accepted. The body is held in memory so a retry can replay it.",
-		func(c Config) string { return strconv.FormatInt(c.Limits.MaxBodyBytes, 10) }},
+		func(c Config) string { return strconv.FormatInt(c.Limits.MaxBodyBytes, 10) }, nil},
 
 	{"passthrough.claude-code-attribution", "CLAUDICATION_CLAUDE_CODE_ATTRIBUTION",
 		"Adds Claude Code's identity block when a client did not. Off means non-Claude-Code clients reach haiku and nothing above it.",
-		func(c Config) string { return strconv.FormatBool(c.Passthrough.ClaudeCodeAttribution) }},
+		func(c Config) string { return strconv.FormatBool(c.Passthrough.ClaudeCodeAttribution) },
+		setAttribution},
 	{"passthrough.stall-timeout", "",
 		"How long a streaming answer may produce nothing before it is sent again, before the client has seen any of it. 0 is off.",
-		func(c Config) string { return c.Passthrough.StallTimeout.D().String() }},
+		func(c Config) string { return c.Passthrough.StallTimeout.D().String() }, nil},
 
 	{"usage.retention-days", "",
 		"How long per-request history is kept. 0 records nothing at all.",
-		func(c Config) string { return strconv.Itoa(c.Usage.RetentionDays) }},
+		func(c Config) string { return strconv.Itoa(c.Usage.RetentionDays) }, nil},
 	{"usage.report-days", "",
 		"Default reporting window, clamped to retention.",
-		func(c Config) string { return strconv.Itoa(c.Usage.ReportDays) }},
+		func(c Config) string { return strconv.Itoa(c.Usage.ReportDays) }, nil},
 	{"usage.poll-idle", "",
 		"How often each account's subscription usage is re-read upstream while nobody has this UI open.",
-		func(c Config) string { return c.Usage.PollIdle.D().String() }},
+		func(c Config) string { return c.Usage.PollIdle.D().String() }, nil},
 	{"usage.poll-watched", "",
 		"The same while this UI is open. One upstream call per account per tick, on your own subscriptions; at least 10s.",
-		func(c Config) string { return c.Usage.PollWatched.D().String() }},
+		func(c Config) string { return c.Usage.PollWatched.D().String() }, nil},
 
 	{"memory-limit", "",
 		"Memory this process may use, e.g. 512MiB. Needed where the container cannot see its own limit; empty detects it where it can.",
-		func(c Config) string { return c.MemoryLimit }},
+		func(c Config) string { return c.MemoryLimit }, nil},
 	{"models-catalog", "CLAUDICATION_MODELS_CATALOG",
 		"The model catalogue, read every few hours: names, dates and context windows of every model, matched against what the accounts list. Listed as it stands until an account can be asked. off uses the accounts' lists alone.",
-		func(c Config) string { return c.ModelsCatalog }},
+		func(c Config) string { return c.ModelsCatalog },
+		func(c *Config, v string) bool { c.ModelsCatalog = v; return true }},
 
 	{"shutdown.grace", "",
 		"How long in-flight requests may finish after a signal. Streams are long-lived, so this is generous.",
-		func(c Config) string { return c.Shutdown.Grace.D().String() }},
+		func(c Config) string { return c.Shutdown.Grace.D().String() }, nil},
 }
 
 // Settings reports every value and where it came from, in a fixed order.
@@ -179,4 +197,44 @@ func fileKeys(data []byte) map[string]bool {
 	}
 	walk("", doc)
 	return keys
+}
+
+// setTrustedProxies reads a comma-separated list. Nothing but separators names
+// no proxy, so it is not taken: taking it would wipe the file's list and
+// report the environment as the reason.
+//
+// An override at all because the installed service ships no config file and
+// this is the setting a proxied deployment most needs. Without one the only
+// way to set it is to hand-write a config that nothing told the operator they
+// needed — for the one option whose absence silently collapses every client
+// into a single rate-limit bucket.
+func setTrustedProxies(c *Config, v string) bool {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return false
+	}
+	c.TrustedProxies = out
+	return true
+}
+
+// setRequestsPerMinute takes a whole number and ignores anything else, rather
+// than reading it as 0.
+func setRequestsPerMinute(c *Config, v string) bool {
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return false
+	}
+	c.Limits.RequestsPerMinute = n
+	return true
+}
+
+// setAttribution is on unless the value is 0 or false.
+func setAttribution(c *Config, v string) bool {
+	c.Passthrough.ClaudeCodeAttribution = v != "0" && !strings.EqualFold(v, "false")
+	return true
 }

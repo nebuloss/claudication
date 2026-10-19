@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -286,71 +285,13 @@ func Load(path string) (Config, error) {
 // screen next to a different one in effect.
 func applyEnv(cfg *Config) map[string]bool {
 	took := map[string]bool{}
-	if v := os.Getenv("CLAUDICATION_LISTEN"); v != "" {
-		cfg.Listen = v
-		took["listen"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_ADMIN_LISTEN"); v != "" {
-		cfg.AdminListen = v
-		took["admin-listen"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_DOCS_LISTEN"); v != "" {
-		cfg.DocsListen = v
-		took["docs-listen"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_DOCS_URL"); v != "" {
-		cfg.DocsURL = v
-		took["docs-url"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_PUBLIC_URL"); v != "" {
-		cfg.PublicURL = v
-		took["public-url"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_STATE_DIR"); v != "" {
-		cfg.StateDir = v
-		took["state-dir"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_LOG_LEVEL"); v != "" {
-		cfg.Log.Level = v
-		took["log.level"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_LOG_FORMAT"); v != "" {
-		cfg.Log.Format = v
-		took["log.format"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_CLAUDE_CODE_ATTRIBUTION"); v != "" {
-		cfg.Passthrough.ClaudeCodeAttribution = v != "0" && !strings.EqualFold(v, "false")
-		took["passthrough.claude-code-attribution"] = true
-	}
-	if v := os.Getenv("CLAUDICATION_REQUESTS_PER_MINUTE"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Limits.RequestsPerMinute = n
-			took["limits.requests-per-minute"] = true
+	for _, d := range definitions {
+		if d.env == "" {
+			continue
 		}
-	}
-	// Comma-separated, because the installed service ships no config file and
-	// this is the setting a proxied deployment most needs. Without an override
-	// the only way to set it is to hand-write a config that nothing told the
-	// operator they needed — for the one option whose absence silently collapses
-	// every client into a single rate-limit bucket.
-	if v := os.Getenv("CLAUDICATION_TRUSTED_PROXIES"); v != "" {
-		var out []string
-		for _, p := range strings.Split(v, ",") {
-			if p = strings.TrimSpace(p); p != "" {
-				out = append(out, p)
-			}
+		if v := os.Getenv(d.env); v != "" && d.set(cfg, v) {
+			took[d.key] = true
 		}
-		// Nothing but separators names no proxy. Taking it would wipe the
-		// file's list and report the environment as the reason, the same
-		// way an unparseable number above is ignored rather than read as 0.
-		if len(out) > 0 {
-			cfg.TrustedProxies = out
-			took["trusted-proxies"] = true
-		}
-	}
-	if v := os.Getenv("CLAUDICATION_MODELS_CATALOG"); v != "" {
-		cfg.ModelsCatalog = v
-		took["models-catalog"] = true
 	}
 	return took
 }
@@ -371,6 +312,19 @@ func (c Config) validate() error {
 	// guess which of the two the operator meant.
 	if c.DocsListen != "" && (c.DocsListen == c.Listen || c.DocsListen == c.AdminListen) {
 		return errors.New("docs-listen must differ from listen and admin-listen, or be empty for no docs page")
+	}
+	// Checked rather than read leniently: the logger falls back to info and
+	// json for anything it does not know, so a typo here used to mean a
+	// gateway quietly logging at a level nobody chose.
+	switch strings.ToLower(c.Log.Level) {
+	case "", "debug", "info", "warn", "warning", "error":
+	default:
+		return fmt.Errorf("log.level must be debug, info, warn or error, not %q", c.Log.Level)
+	}
+	switch strings.ToLower(c.Log.Format) {
+	case "", "json", "text":
+	default:
+		return fmt.Errorf("log.format must be json or text, not %q", c.Log.Format)
 	}
 	if c.Limits.MaxBodyBytes <= 0 {
 		return errors.New("limits.max-body-bytes must be positive")

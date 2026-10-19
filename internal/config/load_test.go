@@ -149,6 +149,8 @@ func TestValidationErrors(t *testing.T) {
 		"short stall timeout": {"passthrough:\n  stall-timeout: \"5s\"\n", "stall-timeout"},
 		"zero grace":          {"shutdown:\n  grace: \"0s\"\n", "grace"},
 		"blank proxy entry":   {"trusted-proxies: [\"10.0.0.0/8\", \" \"]\n", "trusted-proxies"},
+		"bad log level":       {"log:\n  level: \"loud\"\n", "log.level"},
+		"bad log format":      {"log:\n  format: \"xml\"\n", "log.format"},
 		"bad yaml":            {"listen: [\n", "parse"},
 		"duration not string": {"shutdown:\n  grace: {a: 1}\n", "duration"},
 		"duration nonsense":   {"shutdown:\n  grace: \"soon\"\n", "invalid duration"},
@@ -450,6 +452,23 @@ func TestTrustedProxiesEnvOfOnlySeparatorsIsIgnored(t *testing.T) {
 	for _, s := range cfg.Settings() {
 		if s.Key == "trusted-proxies" && s.Origin != FromFile {
 			t.Errorf("trusted-proxies from %q, want file", s.Origin)
+		}
+	}
+}
+
+// The overrides are read from the definitions, so a variable named on the
+// settings screen is one the loader reads, and this suite clears every one.
+func TestEveryOverrideIsReadFromTheTable(t *testing.T) {
+	cleared := map[string]bool{}
+	for _, v := range envVars {
+		cleared[v] = true
+	}
+	for _, d := range definitions {
+		if (d.env == "") != (d.set == nil) {
+			t.Errorf("%s: env %q but set present = %v", d.key, d.env, d.set != nil)
+		}
+		if d.env != "" && !cleared[d.env] {
+			t.Errorf("%s: %s is not in envVars, so the suite does not clear it", d.key, d.env)
 		}
 	}
 }
