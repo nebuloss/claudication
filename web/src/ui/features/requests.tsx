@@ -99,9 +99,11 @@ export function filterFromSearch(search: string): RequestFilter {
   // getAll, because a set travels as a repeated parameter: a model name is not
   // ours to reserve a comma in.
   for (const field of SET_FIELDS) out[field] = q.getAll(field)
-  // Only one value means anything today; anything else reads as unfiltered
-  // rather than as an error, because a URL is something people edit.
-  out.status = q.get('status') === 'failed' ? 'failed' : ''
+  // Two values mean anything, the two the Status menu writes; anything else
+  // reads as unfiltered rather than as an error, because a URL is something
+  // people edit.
+  const status = q.get('status')
+  out.status = status === 'failed' || status === 'ok' ? status : ''
   return out
 }
 
