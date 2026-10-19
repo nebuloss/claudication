@@ -162,14 +162,20 @@ func replay(w http.ResponseWriter, f *refusal, res *Result) {
 	n, _ := w.Write(f.body)
 	res.Status = f.status
 	res.BytesOut = int64(n)
-	res.UpstreamError = truncate(strings.TrimSpace(string(f.body)))
+	res.UpstreamError = errorText(f.body)
 }
 
-// truncate bounds error text kept for a log line or a usage row. An error
+// maxErrorText bounds error text kept for a log line or a usage row. An error
 // envelope is a few hundred bytes; this is the guard for a body that is not.
-func truncate(s string) string {
-	if len(s) > 4096 {
-		return s[:4096]
+const maxErrorText = 4096
+
+// errorText is an upstream error body as it is kept for a log line or a usage
+// row: trimmed, and cut to maxErrorText. One function for the three places
+// that keep one, which each used to cut it their own way round.
+func errorText(body []byte) string {
+	s := strings.TrimSpace(string(body))
+	if len(s) > maxErrorText {
+		return s[:maxErrorText]
 	}
 	return s
 }
@@ -278,10 +284,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 				header: resp.Header.Clone(),
 				body:   raw,
 			}
-			detail := strings.TrimSpace(string(raw))
-			if len(detail) > 4096 {
-				detail = detail[:4096]
-			}
+			detail := errorText(raw)
 
 			// A 401 usually means the access token aged out rather than the
 			// account being broken; refresh once and let the same account
@@ -554,16 +557,13 @@ func holdable(resp *http.Response) bool {
 // Claude Code decides whether to retry and disable a capability by matching on
 // the upstream's wording, so it must arrive unmodified.
 func peekErrorAndRestore(resp *http.Response) string {
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxRefusalBytes))
 	resp.Body.Close()
 	if err != nil {
 		return ""
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(raw))
-	if len(raw) > 4096 {
-		return strings.TrimSpace(string(raw[:4096]))
-	}
-	return strings.TrimSpace(string(raw))
+	return errorText(raw)
 }
 
 // Timeout returns a context deadline appropriate to the request.
