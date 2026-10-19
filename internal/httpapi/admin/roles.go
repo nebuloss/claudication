@@ -109,8 +109,15 @@ func (s *Admin) handleSetModelRole(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if err := s.store.SetModelRole(r.Context(), body.KeyID, body.Role, body.Model); err != nil {
+	switch err := s.store.SetModelRole(r.Context(), body.KeyID, body.Role, body.Model); {
+	case errors.Is(err, store.ErrInvalidRole):
 		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
+		return
+	case errors.Is(err, store.ErrKeyNotFound):
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such api key")
+		return
+	case err != nil:
+		httpx.Internal(w, s.log, "set the alias", err)
 		return
 	}
 	s.log.Warn("model alias set", "alias", body.Role, "key", body.KeyID, "model", body.Model,

@@ -147,6 +147,16 @@ func (s *Store) RoleBinding(ctx context.Context, keyID, role string) (string, er
 	return global, nil
 }
 
+// ErrInvalidRole is a binding the operator asked for that cannot be made. Its
+// text says why and is meant for them; anything else SetModelRole returns is
+// the store failing, which is not theirs to read.
+var ErrInvalidRole = errors.New("invalid alias binding")
+
+type invalidRole string
+
+func (e invalidRole) Error() string        { return string(e) }
+func (e invalidRole) Is(target error) bool { return target == ErrInvalidRole }
+
 // SetModelRole binds an alias. An empty model on a key removes the key's own
 // binding, so the key follows the gateway; on the gateway it lets a built-in
 // alias follow its family again. A custom alias is created by binding it on
@@ -154,7 +164,7 @@ func (s *Store) RoleBinding(ctx context.Context, keyID, role string) (string, er
 func (s *Store) SetModelRole(ctx context.Context, keyID, role, model string) error {
 	role = ModelKey(role)
 	if !aliasName.MatchString(role) {
-		return errors.New("an alias is lower-case letters, digits, dots and dashes, up to 64")
+		return invalidRole("an alias is lower-case letters, digits, dots and dashes, up to 64")
 	}
 	model = strings.TrimSpace(model)
 	custom := AliasFamily(role) == ""
@@ -167,10 +177,10 @@ func (s *Store) SetModelRole(ctx context.Context, keyID, role, model string) err
 		return nil
 	}
 	if model == "" && custom {
-		return errors.New("a custom alias needs a model to point to")
+		return invalidRole("a custom alias needs a model to point to")
 	}
 	if ModelKey(model) == role {
-		return errors.New("an alias cannot point to itself")
+		return invalidRole("an alias cannot point to itself")
 	}
 	// The upstream knows only real ids, so an alias pointing to an alias
 	// would send a name nothing answers.
@@ -180,28 +190,35 @@ func (s *Store) SetModelRole(ctx context.Context, keyID, role, model string) err
 			return err
 		}
 		if AliasFamily(model) != "" || slices.Contains(custom, ModelKey(model)) {
-			return errors.New("an alias points to a real model, not to another alias")
+			return invalidRole("an alias points to a real model, not to another alias")
 		}
 	}
 	// One upsert per partial index, since a conflict target names one. The
-	// key's row fails its foreign key for a key that does not exist, where a
-	// '' key_id used to accept anything.
-	var err error
+	// key's row is written only while the key exists, so a key deleted since
+	// the caller looked is ErrKeyNotFound rather than a foreign key failure;
+	// the foreign key stays as the guarantee.
 	if keyID == "" {
-		_, err = s.db.ExecContext(ctx,
+		_, err := s.db.ExecContext(ctx,
 			`INSERT INTO model_roles (key_id, role, model, updated_at) VALUES (NULL, ?, ?, ?)
 			 ON CONFLICT (role) WHERE key_id IS NULL DO UPDATE SET model = excluded.model,
 			   updated_at = excluded.updated_at`,
 			role, model, ms(time.Now()))
-	} else {
-		_, err = s.db.ExecContext(ctx,
-			`INSERT INTO model_roles (key_id, role, model, updated_at) VALUES (?, ?, ?, ?)
-			 ON CONFLICT (key_id, role) WHERE key_id IS NOT NULL DO UPDATE SET model = excluded.model,
-			   updated_at = excluded.updated_at`,
-			keyID, role, model, ms(time.Now()))
+		if err != nil {
+			return fmt.Errorf("set model role: %w", err)
+		}
+		return nil
 	}
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO model_roles (key_id, role, model, updated_at)
+		 SELECT id, ?, ?, ? FROM api_keys WHERE id = ?
+		 ON CONFLICT (key_id, role) WHERE key_id IS NOT NULL DO UPDATE SET model = excluded.model,
+		   updated_at = excluded.updated_at`,
+		role, model, ms(time.Now()), keyID)
 	if err != nil {
 		return fmt.Errorf("set model role: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrKeyNotFound
 	}
 	return nil
 }
