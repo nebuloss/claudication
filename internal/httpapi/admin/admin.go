@@ -45,6 +45,7 @@ type Admin struct {
 	sessions       *sessions
 	models         Models
 	install        *install.Links
+	facets         facetCache
 }
 
 // Deps is what an Admin is built from. Every field is required.

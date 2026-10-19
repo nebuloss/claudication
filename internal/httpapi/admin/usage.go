@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -248,14 +249,17 @@ func codeSet(values []string) []int {
 // handleRequestFacets answers what the filter menus can offer.
 //
 // Its own request rather than a field on the request list: the list is paged
-// and these are not, and recomputing five GROUP BYs for every page of fifty
-// rows would pay for the whole history on each scroll.
+// and these are not, and recomputing nine GROUP BYs for every page of fifty
+// rows would pay for the whole history on each scroll. Served from a reading
+// up to a minute old, for the same reason (see facetsFor).
 func (s *Admin) handleRequestFacets(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Usage.Enabled() {
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
-	facets, err := s.store.RequestFacets(r.Context(), 50)
+	facets, err := s.facets.get(r.Context(), func(ctx context.Context) (store.RequestFacets, error) {
+		return s.store.RequestFacets(ctx, 50)
+	})
 	if err != nil {
 		s.log.Error("request facets", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the filter values")
