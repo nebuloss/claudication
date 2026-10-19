@@ -9,7 +9,7 @@ import {
   tipPosition,
   type LineSeries,
 } from '../charts'
-import { Segmented, SubNav } from '../primitives'
+import { Muted, Segmented, SubNav, WindowPicker } from '../primitives'
 import { compact } from '../format'
 
 /**
@@ -176,25 +176,16 @@ export function Traffic({
               ]}
             />
             {onDays !== undefined && windows !== undefined && (
-              <Segmented
-                label="History window"
-                value={String(days)}
-                onChange={(v) => onDays(Number(v))}
-                options={windows.map((d) => ({
-                  id: String(d),
-                  label: `${d} days`,
-                  content: `${d}d`,
-                }))}
-              />
+              <WindowPicker label="History window" value={days} windows={windows} onChange={onDays} />
             )}
           </div>
         }
       />
 
       {rows.length === 0 ? (
-        <p className="mt-4 mb-0 text-sm text-on-surface-variant">
-          Nothing in the last {days} days.
-        </p>
+        <div className="mt-4">
+          <Muted>Nothing in the last {days} days.</Muted>
+        </div>
       ) : (
         <>
           <div className="mt-4 mb-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">

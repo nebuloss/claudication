@@ -7,15 +7,18 @@ import {
 } from '../../api/client'
 import { Traffic } from './traffic'
 import { useLoader } from '../hooks'
-import { navigate } from '../route'
 import {
   Banner,
-  ErrorState,
   Card,
-  CardTitle,
+  ErrorState,
   Freshness,
-  Spinner,
+  InlineLink,
+  Loading,
+  MeterRow,
+  Muted,
+  Page,
   Stat,
+  StatGrid,
   UsageBar,
 } from '../primitives'
 import { compact, duration, mib } from '../format'
@@ -47,30 +50,26 @@ function MemoryCard({ memory }: { memory: MemorySnapshot }) {
   const tone = tight ? 'error' : pct !== undefined && pct >= 75 ? 'warn' : 'neutral'
 
   return (
-    <Card>
-      <CardTitle>Memory</CardTitle>
+    <Card title="Memory">
       {memory.rss_bytes > 0 && (
         <div className="mb-3">
-          <div className="mb-1 flex items-baseline justify-between gap-3 text-xs">
-            <span className="text-on-surface-variant">Process (resident)</span>
-            <span className={`tabular-nums ${tight ? 'font-medium text-error' : 'text-on-surface'}`}>
-              {mib(memory.rss_bytes)}
-              {limit > 0 ? ` of ${mib(limit)}` : ''}
-              {pct !== undefined && (
-                <span className="ml-2 font-normal text-on-surface-variant">{pct}%</span>
-              )}
-            </span>
-          </div>
-          <UsageBar percent={pct ?? 0} tone={tone} />
-          {limit === 0 && (
-            <p className="mt-1 mb-0 text-[11px] text-on-surface-variant">
-              No limit known. Set <code>memory-limit</code> on a container that cannot see its
-              own, so the runtime collects before the kernel kills it.
-            </p>
-          )}
+          <MeterRow
+            title="Process (resident)"
+            figure={`${mib(memory.rss_bytes)}${limit > 0 ? ` of ${mib(limit)}` : ''}`}
+            hint={pct !== undefined ? `${pct}%` : undefined}
+            alert={tight}
+          >
+            <UsageBar percent={pct ?? 0} tone={tone} />
+            {limit === 0 && (
+              <p className="mt-1 text-[11px] text-on-surface-variant">
+                No limit known. Set <code>memory-limit</code> on a container that cannot see its
+                own, so the runtime collects before the kernel kills it.
+              </p>
+            )}
+          </MeterRow>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <StatGrid>
         <Stat
           label="Heap in use"
           value={mib(memory.heap_in_use_bytes)}
@@ -81,7 +80,7 @@ function MemoryCard({ memory }: { memory: MemorySnapshot }) {
         <Stat label="Idle" value={mib(memory.heap_idle_bytes)} hint="not yet returned" />
         <Stat label="Goroutines" value={memory.goroutines} hint="streams and workers" />
         <Stat label="Collections" value={compact(memory.gc_cycles)} hint="since start" />
-      </div>
+      </StatGrid>
     </Card>
   )
 }
@@ -113,17 +112,14 @@ function TrafficCard() {
     },
   )
   return (
-    <Card>
-      <CardTitle>Traffic</CardTitle>
+    <Card title="Traffic">
       {usage === null ? (
-        <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
-          <Spinner /> Loading…
-        </p>
+        <Loading />
       ) : usage.enabled === false ? (
-        <p className="m-0 text-sm text-on-surface-variant">
+        <Muted>
           Per-request history is off — <code>usage.retention-days</code> is 0, so the gateway
           records nothing to chart.
-        </p>
+        </Muted>
       ) : (
         <Traffic cross={usage.report?.cross} days={days} onDays={setDays} windows={WINDOWS} />
       )}
@@ -156,13 +152,7 @@ export default function Overview({
     { refreshMs: REFRESH_MS },
   )
 
-  if (loading) {
-    return (
-      <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-        <Spinner /> Loading…
-      </p>
-    )
-  }
+  if (loading) return <Loading />
   if (error !== '' || data === null) {
     return (
       <ErrorState
@@ -185,18 +175,11 @@ export default function Overview({
   const day = data.last_24h
 
   return (
-    <div className="flex flex-col gap-5">
+    <Page>
       {!data.ready && (
         <Banner tone="warn">
           No usable Claude account, so the proxy cannot serve a request yet.{' '}
-          <button
-            type="button"
-            className="underline underline-offset-2"
-            onClick={() => navigate('/accounts')}
-          >
-            Connect one
-          </button>
-          .
+          <InlineLink href="/accounts">Connect one</InlineLink>.
         </Banner>
       )}
       {data.ready && (day?.requests ?? 0) === 0 && (
@@ -205,15 +188,7 @@ export default function Overview({
           {docsURL !== '' && (
             <>
               {' '}
-              <a
-                href={docsURL}
-                target="_blank"
-                rel="noreferrer"
-                className="underline underline-offset-2"
-              >
-                Point a client at it
-              </a>
-              .
+              <InlineLink href={docsURL}>Point a client at it</InlineLink>.
             </>
           )}
         </Banner>
@@ -224,14 +199,7 @@ export default function Overview({
             ? 'An account has lost its login. It serves until its current token expires,'
             : `${data.accounts.needs_reauth} accounts have lost their login. They serve until their current tokens expire,`}{' '}
           and nothing the gateway does brings a refused login back.{' '}
-          <button
-            type="button"
-            className="underline underline-offset-2"
-            onClick={() => navigate('/accounts')}
-          >
-            Reconnect
-          </button>
-          .
+          <InlineLink href="/accounts">Reconnect</InlineLink>.
         </Banner>
       )}
       {data.accounts.needs_reauth_soon > 0 && (
@@ -240,31 +208,22 @@ export default function Overview({
             ? 'An account needs re-authorising soon.'
             : `${data.accounts.needs_reauth_soon} accounts need re-authorising soon.`}{' '}
           Refreshing cannot push that date back.{' '}
-          <button
-            type="button"
-            className="underline underline-offset-2"
-            onClick={() => navigate('/accounts')}
-          >
-            Reconnect
-          </button>
-          .
+          <InlineLink href="/accounts">Reconnect</InlineLink>.
         </Banner>
       )}
 
-      <Card>
-        <CardTitle
-          aside={
-            <Freshness
-              updatedAt={updatedAt}
-              refreshing={refreshing}
-              live={live}
-              onRefresh={() => void reload()}
-            />
-          }
-        >
-          Status
-        </CardTitle>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <Card
+        title="Status"
+        aside={
+          <Freshness
+            updatedAt={updatedAt}
+            refreshing={refreshing}
+            live={live}
+            onRefresh={() => void reload()}
+          />
+        }
+      >
+        <StatGrid>
           <Stat
             label="Proxy"
             value={data.ready ? 'Ready' : 'Not ready'}
@@ -283,9 +242,10 @@ export default function Overview({
             hint={day && day.errors > 0 ? `${day.errors} failed` : 'no failures'}
             tone={day && day.errors > 0 ? 'error' : undefined}
           />
-        </div>
+        </StatGrid>
         {day !== undefined && day.requests > 0 && (
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-3">
+            <StatGrid>
             <Stat label="In 24h" value={compact(day.input_tokens)} hint="input tokens" />
             <Stat label="Out 24h" value={compact(day.output_tokens)} hint="output tokens" />
             <Stat
@@ -294,6 +254,7 @@ export default function Overview({
               hint="cache tokens"
             />
             <Stat label="Latency" value={`${day.median_ms}ms`} hint={`p95 ${day.p95_ms}ms`} />
+            </StatGrid>
           </div>
         )}
       </Card>
@@ -310,6 +271,6 @@ export default function Overview({
       )}
 
       <TrafficCard />
-    </div>
+    </Page>
   )
 }

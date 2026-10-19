@@ -8,20 +8,29 @@ import {
 } from '../../api/client'
 import {
   Banner,
-  Modal,
+  Button,
+  ButtonLink,
   Chip,
+  CopyButton,
   Empty,
+  ErrorBanner,
   Freshness,
+  InputChip,
   KeyValue,
+  Loading,
   MenuDivider,
   MenuRow,
-  Spinner,
+  Modal,
+  Muted,
+  Overline,
+  Stack,
   Table,
-  type Column,
-  TonalButton,
+  Td,
+  Tr,
   Verbatim,
-  copyText,
+  appLinkClass,
   menuItem,
+  type Column,
 } from '../primitives'
 import { compact, millis, sameDayStamp } from '../format'
 import { useLive } from '../hooks'
@@ -500,12 +509,9 @@ function RecentRequests({
             The same filter as the table, so what lands in the file is what was
             on the screen — including the rows below the ones loaded, which is
             the reason to download rather than select and copy. */}
-        <a
-          href={`/admin/requests/export${downloadQuery}`}
-          className="state-layer inline-flex h-10 items-center rounded-md3-full border border-outline px-3 text-sm font-medium text-primary"
-        >
+        <ButtonLink href={`/admin/requests/export${downloadQuery}`} variant="text">
           Download CSV
-        </a>
+        </ButtonLink>
         <Freshness
           updatedAt={updatedAt}
           refreshing={refreshing}
@@ -520,35 +526,20 @@ function RecentRequests({
           saying which value. */}
       {chips.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-on-surface-variant">Narrowed to</span>
+          <Muted as="span">Narrowed to</Muted>
           {chips.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              onClick={c.clear}
-              title={c.title}
-              className="state-layer inline-flex h-7 items-center gap-1.5 rounded-md3-s border border-outline px-2.5 text-xs font-medium text-on-surface-variant"
-            >
+            <InputChip key={c.key} onRemove={c.clear} title={c.title}>
               {c.label}
-              <span aria-hidden className="text-base leading-none">
-                &times;
-              </span>
-            </button>
+            </InputChip>
           ))}
         </div>
       )}
 
-      {error !== '' && (
-        <Banner tone="error" className="mb-4">
-          {error}
-        </Banner>
-      )}
+      <ErrorBanner error={error} className="mb-4" />
 
       {loading ? (
-        <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-          <Spinner /> Loading…
-        </p>
-      ) : data === null || data.length === 0 ? (
+        <Loading />
+      ) : data.length === 0 ? (
         <Empty>
           {narrowed ? 'No requests match this filter.' : 'No requests recorded yet.'}
         </Empty>
@@ -583,17 +574,10 @@ function RecentRequests({
             //
             // The cells that filter stop the click before it gets here, so a
             // narrow-by-this-value click does not also open a dialog.
-            <tr
-              key={`${r.at}-${i}`}
-              onClick={() => setShown(r)}
-              className="state-layer cursor-pointer border-b border-outline-variant last:border-0 hover:bg-surface-container"
-            >
-              <td
-                title={r.at}
-                className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant"
-              >
+            <Tr key={`${r.at}-${i}`} onClick={() => setShown(r)}>
+              <Td title={r.at} nums nowrap muted>
                 {sameDayStamp(r.at, 'second')}
-              </td>
+              </Td>
               {/* Clickable for the same reason the address is: the model is
                   right there in the row you are reading, and hunting for it
                   again in a list of every model the gateway has ever served is
@@ -603,62 +587,70 @@ function RecentRequests({
                   claude-haiku-4-5-20251001 is 25 characters that differ from
                   its neighbour in the last eight, and at full width it pushed
                   everything after it off the screen. Drag the edge for more. */}
-              <td className="max-w-[11rem] px-2 py-2">
-                <div className="truncate">
+              <Td max={11}>
                 {r.model === undefined || r.model === '' ? (
                   '—'
                 ) : (
-                  <Filterable onClick={() => onNarrow({ ...filter, model: [r.model ?? ''] })} title={`Only requests for ${r.model}`}>
-                      {r.model}
-                    </Filterable>
+                  <Filterable
+                    onClick={() => onNarrow({ ...filter, model: [r.model ?? ''] })}
+                    title={`Only requests for ${r.model}`}
+                  >
+                    {r.model}
+                  </Filterable>
                 )}
-                </div>
-              </td>
+              </Td>
               {/* The id, shortened. Nobody reads a session id, but they do
                   recognise the first characters of the one they are looking
                   at — and the click is what this column is for. */}
-              <td className="max-w-[9rem] px-2 py-2 text-on-surface-variant">
-                <div className="truncate font-mono text-xs">
-                  {r.conversation_id === undefined || r.conversation_id === '' ? (
-                    '—'
-                  ) : (
-                    <Filterable onClick={() => onNarrow({ ...filter, chat: [r.conversation_id ?? ''] })} title={`Only requests in ${r.conversation_id}`}>
-                      {r.conversation_id.slice(0, 12)}
-                    </Filterable>
-                  )}
-                </div>
-              </td>
+              <Td max={9} mono muted>
+                {r.conversation_id === undefined || r.conversation_id === '' ? (
+                  '—'
+                ) : (
+                  <Filterable
+                    onClick={() => onNarrow({ ...filter, chat: [r.conversation_id ?? ''] })}
+                    title={`Only requests in ${r.conversation_id}`}
+                  >
+                    {r.conversation_id.slice(0, 12)}
+                  </Filterable>
+                )}
+              </Td>
               {/* What was running, not who is paying. The key is still what
                   the chip and the links filter on; it just made a poor column,
                   because a key is named by whoever minted it and one called
                   "test" can serve every request on the gateway. */}
-              <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
+              <Td nowrap muted>
                 {r.client === undefined || r.client === '' ? (
                   '—'
                 ) : (
-                  <Filterable onClick={() => onNarrow({ ...filter, client: [r.client ?? ''] })} title={`Only requests from ${r.client}`}>
-                      {r.client}
-                    </Filterable>
+                  <Filterable
+                    onClick={() => onNarrow({ ...filter, client: [r.client ?? ''] })}
+                    title={`Only requests from ${r.client}`}
+                  >
+                    {r.client}
+                  </Filterable>
                 )}
-              </td>
+              </Td>
               {/* Clickable, because "everything from that machine" is the next
                   question the moment one address looks wrong. */}
-              <td className="px-2 py-2 font-mono text-xs whitespace-nowrap text-on-surface-variant">
+              <Td nowrap mono muted>
                 {r.ip === undefined || r.ip === '' ? (
                   '—'
                 ) : (
-                  <Filterable onClick={() => onNarrow({ ...filter, ip: [r.ip ?? ''] })} title={`Only requests from ${r.ip}`}>
-                      {r.ip}
-                    </Filterable>
+                  <Filterable
+                    onClick={() => onNarrow({ ...filter, ip: [r.ip ?? ''] })}
+                    title={`Only requests from ${r.ip}`}
+                  >
+                    {r.ip}
+                  </Filterable>
                 )}
-              </td>
+              </Td>
               {/* Clickable like the model and the address. The chip is what
                   you already read to decide the row is interesting, so it is
                   also what you reach for to see the rest of its kind. Narrows
                   on the exact code, which is not the same question as the
                   Failures switch: that one spans every code plus the streams
                   that died after a 200. */}
-              <td className="px-2 py-2">
+              <Td>
                 <Filterable
                   plain
                   onClick={() => onNarrow({ ...filter, code: [String(r.status)] })}
@@ -673,13 +665,13 @@ function RecentRequests({
                     {r.streaming && r.status === 200 ? ' ·' : ''}
                   </Chip>
                 </Filterable>
-              </td>
+              </Td>
               {/* What the Kind control above the table used to say. A column,
                   because it is a property of the row like every other filter
                   here, and a control above the table for one of them and
                   menus in the headings for the rest was two idioms for one
                   job. */}
-              <td className="px-2 py-2 whitespace-nowrap">
+              <Td nowrap>
                 <Filterable
                   onClick={() =>
                     onNarrow({ ...filter, kind: [r.rejected === true ? 'rejected' : 'relayed'] })
@@ -694,13 +686,13 @@ function RecentRequests({
                     {r.rejected === true ? 'no' : 'yes'}
                   </span>
                 </Filterable>
-              </td>
-              <td className="px-2 py-2 tabular-nums whitespace-nowrap">
+              </Td>
+              <Td nums nowrap>
                 {r.input_tokens + r.output_tokens > 0
                   ? `${compact(r.input_tokens)} / ${compact(r.output_tokens)}`
                   : '—'}
-              </td>
-              <td className="px-2 py-2 tabular-nums whitespace-nowrap">
+              </Td>
+              <Td nums nowrap>
                 {r.duration_ms}ms
                 {/* Under the total, because the two together are what tell a
                     long answer from one that sat silent before starting. */}
@@ -709,13 +701,13 @@ function RecentRequests({
                     first {millis(r.first_token_ms)}
                   </div>
                 )}
-              </td>
+              </Td>
               {/* The stored class rather than the text: the text ends in a
                   request_id, so it is unique per row and filters to one. */}
-              <td className="max-w-[18rem] px-2 py-2">
-                <div className="truncate text-xs">
+              <Td max={18}>
+                <span className="text-xs">
                   {r.error_code === undefined || r.error_code === '' ? (
-                    <span className="text-on-surface-variant">—</span>
+                    <Muted as="span" size="xs">—</Muted>
                   ) : (
                     <Filterable
                       onClick={() => onNarrow({ ...filter, message: [r.error_code ?? ''] })}
@@ -732,9 +724,9 @@ function RecentRequests({
                       </span>
                     </Filterable>
                   )}
-                </div>
-              </td>
-            </tr>
+                </span>
+              </Td>
+            </Tr>
           ))}
         </Table>
       )}
@@ -742,15 +734,13 @@ function RecentRequests({
       {data.length > 0 && (
         <div className="mt-4 flex items-center gap-3 border-t border-outline-variant pt-4">
           {cursor !== '' ? (
-            <TonalButton onClick={() => void load(cursor)} disabled={loadingMore}>
-              {loadingMore && <Spinner />}
+            <Button variant="tonal" onClick={() => void load(cursor)} busy={loadingMore}>
               {loadingMore ? 'Loading…' : 'Load more'}
-            </TonalButton>
+            </Button>
           ) : (
-            <span className="text-xs text-on-surface-variant">
-              That is everything kept — history goes back {' '}
-              <code>usage.retention-days</code>.
-            </span>
+            <Muted as="span" size="xs">
+              That is everything kept — history goes back <code>usage.retention-days</code>.
+            </Muted>
           )}
           <span className="text-xs text-on-surface-variant" aria-live="polite">
             {data.length} shown
@@ -789,15 +779,15 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
 
   return (
     <Modal title="Request" onClose={onClose} size="lg">
-      <div className="flex flex-col gap-4">
+      <Stack>
         <div className="flex flex-wrap items-center gap-3">
           <Chip tone={statusTone(row)}>
             {row.status === 0 ? 'failed' : row.status}
             {row.streaming && row.status === 200 ? ' ·' : ''}
           </Chip>
-          <span className="text-sm text-on-surface-variant">
+          <Muted as="span">
             {row.rejected === true ? 'refused by this gateway' : 'forwarded to the upstream'}
-          </span>
+          </Muted>
           <span className="flex-grow" />
           <CopyButton label="Copy record" value={asText(row)} />
         </div>
@@ -843,9 +833,7 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
         {failed && (
           <div>
             <div className="mb-2 flex items-center justify-between gap-4">
-              <span className="text-xs font-medium tracking-wide text-on-surface-variant uppercase">
-                What the upstream said
-              </span>
+              <Overline as="span">What the upstream said</Overline>
               {/* Separate from the record above, because the two get pasted in
                   different places: the record into a message to somebody, this
                   into a search. */}
@@ -854,46 +842,14 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
             <Verbatim>{row.error ?? ''}</Verbatim>
           </div>
         )}
-      </div>
+      </Stack>
     </Modal>
   )
 }
 
 /** An identifier, in the face that makes one readable. */
 function Mono({ children }: { children: ReactNode }) {
-  return <span className="font-mono text-xs">{children}</span>
-}
-
-/**
- * Copy one thing, and say whether it worked.
- *
- * The failure is worth its own words rather than silence: the clipboard is
- * refused over plain HTTP, which is exactly how this gateway is served behind
- * a proxy that terminates TLS — so the button does nothing and there is no way
- * to tell that from a copy that succeeded.
- */
-function CopyButton({ label, value }: { label: string; value: string }) {
-  const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle')
-
-  const copy = async () => {
-    if (await copyText(value)) {
-      setState('done')
-      window.setTimeout(() => setState('idle'), 1500)
-      return
-    }
-    setState('failed')
-  }
-
-  return (
-    <span className="flex items-center gap-2">
-      {state === 'failed' && (
-        <span className="text-xs text-error">
-          Needs HTTPS — select it and press <span className="font-mono">⌘C</span>
-        </span>
-      )}
-      <TonalButton onClick={() => void copy()}>{state === 'done' ? 'Copied' : label}</TonalButton>
-    </span>
-  )
+  return <code className="text-xs">{children}</code>
 }
 
 /** The row as something worth pasting somewhere else. */
@@ -1027,9 +983,9 @@ function FacetList({
 
   if (rows.length === 0) {
     return (
-      <p className="px-3 py-2 text-xs font-normal tracking-normal text-on-surface-variant">
-        {loaded ? 'Nothing recorded in this column yet.' : 'Loading…'}
-      </p>
+      <div className="px-3 py-2 font-normal tracking-normal normal-case">
+        <Muted size="xs">{loaded ? 'Nothing recorded in this column yet.' : 'Loading…'}</Muted>
+      </div>
     )
   }
 
@@ -1099,11 +1055,7 @@ function Filterable({
         e.stopPropagation()
         onClick()
       }}
-      className={
-        plain
-          ? 'state-layer rounded-md3-s'
-          : 'state-layer rounded-md3-xs px-1 underline decoration-dotted underline-offset-2 hover:text-primary'
-      }
+      className={plain ? 'state-layer rounded-md3-s' : appLinkClass({ cell: true })}
     >
       {children}
     </button>

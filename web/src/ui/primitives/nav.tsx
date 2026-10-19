@@ -1,5 +1,6 @@
-import type { MouseEvent } from 'react'
-import { navigate, type NavLevel, type NavLink } from '../route'
+import type { ReactNode } from 'react'
+import type { NavLevel, NavLink } from '../route'
+import { follow } from './link'
 
 /**
  * The app's navigation: one trail across the top, one rail down the side,
@@ -7,16 +8,6 @@ import { navigate, type NavLevel, type NavLink } from '../route'
  * links — the browser can open any of them in a new tab or copy it — with the
  * click intercepted only so the app is not rebuilt to change a path.
  */
-
-/** Follow an in-app link without a reload; leave modified clicks to the browser. */
-export function follow(href: string) {
-  return (e: MouseEvent) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
-    e.preventDefault()
-    navigate(href)
-    window.scrollTo(0, 0)
-  }
-}
 
 const chevron = 'M9.3 6.7 10.7 5.3 17.4 12l-6.7 6.7-1.4-1.4 5.3-5.3z'
 
@@ -81,6 +72,16 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
 }
 
 /**
+ * One entry of a rail: the admin app's, and the docs page's contents, which
+ * borrow it so the two pages navigate alike. `on` for the page being read.
+ */
+export function railItem(on: boolean): string {
+  return `state-layer flex h-10 shrink-0 items-center rounded-md3-full px-4 text-sm font-medium whitespace-nowrap ${
+    on ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
+  }`
+}
+
+/**
  * The choices of the level this page is on, and the way up.
  *
  * Only that level: at the top the screens, under an account its pages, under
@@ -93,12 +94,6 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
  * page. Back is a raised chip, the way out rather than one more entry.
  */
 export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean }) {
-  const item = (on: boolean) =>
-    `state-layer flex h-10 shrink-0 items-center rounded-md3-full px-4 text-sm font-medium whitespace-nowrap ${
-      on
-        ? 'bg-primary-container text-on-primary-container'
-        : 'text-on-surface-variant hover:text-on-surface'
-    }`
   return (
     <nav
       aria-label="Navigation"
@@ -132,7 +127,7 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
                 href={l.href}
                 onClick={follow(l.href)}
                 aria-current={on ? 'page' : undefined}
-                className={item(on)}
+                className={railItem(on)}
               >
                 {l.label}
               </a>
@@ -161,4 +156,26 @@ export function BrandMark() {
       </svg>
     </span>
   )
+}
+
+/**
+ * The product's name beside its mark, with the running build after it: the
+ * left of both the admin header and the sign-in screen's, so signing in and
+ * being signed in read as one product.
+ */
+export function AppTitle({ version }: { version?: ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <BrandMark />
+      <h1 className="flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
+        claudication gateway
+        {version}
+      </h1>
+    </div>
+  )
+}
+
+/** A build string, set small after the product's name. */
+export function VersionTag({ children }: { children: string }) {
+  return <span className="truncate font-mono text-xs text-on-surface-variant">{children}</span>
 }

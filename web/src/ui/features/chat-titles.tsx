@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { useAction } from '../hooks'
-import { Banner, Card, Note, Switch, tile } from '../primitives'
+import { useAction, useOptimistic } from '../hooks'
+import { Card, ErrorBanner, Note, SettingSwitch, Stack } from '../primitives'
 
 /**
  * The switches for naming conversations.
@@ -26,30 +25,14 @@ export default function ChatTitles({
   onChanged: () => void
 }) {
   const { busy, error, run } = useAction<'enabled' | 'capture'>()
-  // Shown state, which leads the server rather than following it.
-  //
-  // These switches were driven straight off the reloaded config, so flipping
-  // one did nothing until the write and the refetch had both come back — a
-  // visible pause in which the control sits where you did not put it, which
-  // reads as the click having missed. It moves now and is corrected if the
-  // write fails.
-  const [shown, setShown] = useState({ enabled, capture })
+  const [shownEnabled, applyEnabled] = useOptimistic(enabled)
+  const [shownCapture, applyCapture] = useOptimistic(capture)
 
-  // The server is still the authority: when the reload lands, or something
-  // else changes the setting, that is what the switch shows.
-  useEffect(() => {
-    setShown({ enabled, capture })
-  }, [enabled, capture])
-
-  async function toggle(which: 'enabled' | 'capture', next: boolean) {
-    const before = shown
-    setShown({ ...shown, [which]: next })
-    const ok = await run(which, async () => {
+  const write = (which: 'enabled' | 'capture', next: boolean) => () =>
+    run(which, async () => {
       await api.setChatTitles({ [which]: next })
       onChanged()
     })
-    if (!ok) setShown(before)
-  }
 
   return (
     <Card
@@ -60,63 +43,51 @@ export default function ChatTitles({
         </p>
       }
     >
-      {error !== '' && (
-        <Banner tone="error" className="mb-4">
-          {error}
-        </Banner>
-      )}
+      <ErrorBanner error={error} className="mb-4" />
 
-      <div className="flex flex-col gap-3">
-        <div className={`${tile} px-4 py-3`}>
-          <Switch
-            checked={shown.capture}
-            disabled={busy !== ''}
-            onChange={(v) => void toggle('capture', v)}
-            label="Read names clients generate"
-            info={
+      <Stack gap={3}>
+        <SettingSwitch
+          checked={shownCapture}
+          disabled={busy !== ''}
+          onChange={(v) => void applyCapture(v, write('capture', v))}
+          label="Read names clients generate"
+          info={
+            <p>
+              opencode and crush name their own conversations by asking a model, and that request
+              comes through here carrying the same session id. Its answer is the name they
+              display, so this reads it rather than guessing one. Costs nothing — the request was
+              theirs and the answer was going to them anyway.
+            </p>
+          }
+        />
+
+        <SettingSwitch
+          checked={shownEnabled}
+          disabled={busy !== ''}
+          onChange={(v) => void applyEnabled(v, write('enabled', v))}
+          label="Ask for a name when the client does not"
+          info={
+            <>
               <p>
-                opencode and crush name their own conversations by asking a model, and that request
-                comes through here carrying the same session id. Its answer is the name they
-                display, so this reads it rather than guessing one. Costs nothing — the request was
-                theirs and the answer was going to them anyway.
+                Claude Code never asks a model to name its conversations, so there is nothing to
+                read. With this on the gateway asks for one itself, once per conversation.{' '}
+                <strong className="font-medium text-on-surface">This spends your subscription</strong>{' '}
+                rather than relaying someone else&rsquo;s request — one short call, made on that
+                chat&rsquo;s own model and account so it reads the prompt cache that is already
+                warm instead of re-sending the conversation.
               </p>
-            }
-          />
-        </div>
-
-        <div className={`${tile} px-4 py-3`}>
-          <Switch
-            checked={shown.enabled}
-            disabled={busy !== ''}
-            onChange={(v) => void toggle('enabled', v)}
-            label="Ask for a name when the client does not"
-            info={
-              <>
-                <p>
-                  Claude Code never asks a model to name its conversations, so there is nothing to
-                  read. With this on the gateway asks for one itself, once per conversation.{' '}
-                  <strong className="font-medium text-on-surface">
-                    This spends your subscription
-                  </strong>{' '}
-                  rather than relaying someone else&rsquo;s request — one short call, made on that
-                  chat&rsquo;s own model and account so it reads the prompt cache that is already
-                  warm instead of re-sending the conversation.
-                </p>
-                <p>
-                  Billed to an API key the gateway issues itself, called{' '}
-                  <code className="font-mono">gateway (internal)</code>, so the cost shows up in
-                  Usage like anything else alongside the chat it named. That key is the
-                  gateway&rsquo;s, not yours to edit or withdraw — this switch is the control, and
-                  turning it off is what stops it.
-                </p>
-              </>
-            }
-          />
-          <Note tone="warn" className="mt-3">
-            Spends your subscription: one short call per conversation.
-          </Note>
-        </div>
-      </div>
+              <p>
+                Billed to an API key the gateway issues itself, called{' '}
+                <code>gateway (internal)</code>, so the cost shows up in Usage like anything else
+                alongside the chat it named. That key is the gateway&rsquo;s, not yours to edit or
+                withdraw — this switch is the control, and turning it off is what stops it.
+              </p>
+            </>
+          }
+        >
+          <Note tone="warn">Spends your subscription: one short call per conversation.</Note>
+        </SettingSwitch>
+      </Stack>
     </Card>
   )
 }

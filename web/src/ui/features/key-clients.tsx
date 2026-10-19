@@ -2,20 +2,19 @@ import { useMemo, useState } from 'react'
 import { api, type ApiKey, type GatewayConfig, type InstallFile } from '../../api/client'
 import { useAction, useLoader } from '../hooks'
 import {
-  Banner,
+  Button,
   Card,
-  CardTitle,
+  CodeViewer,
   CopyField,
+  ErrorBanner,
   ErrorState,
-  FilledButton,
+  Loading,
+  Muted,
   Note,
-  OutlinedButton,
   Segmented,
-  Spinner,
-  TextButton,
+  Stack,
   useConfirm,
 } from '../primitives'
-import { CodeViewer } from '../primitives/code'
 import { Catalog } from './docs/catalog'
 import { CLIENTS } from './docs/content'
 import { EXAMPLE_BASE } from './docs/model'
@@ -38,6 +37,18 @@ import { relayAddress } from './key-configs'
  * (Settings › Aliases, or this key's Models page), so changing it reaches
  * every client without a new file.
  */
+/**
+ * A key's secret, read again from its sealed copy; '' for a key from before
+ * secrets were kept. Keyed on the display as well as the id, so a regenerated
+ * key is read afresh.
+ */
+function useKeySecret(k: ApiKey) {
+  return useLoader(
+    (signal) => (k.secret_kept ? api.keySecret(k.id, signal) : Promise.resolve({ plaintext: '' })),
+    { deps: [k.id, k.secret_kept, k.display] },
+  )
+}
+
 export default function KeyClients({
   apiKey: k,
   config,
@@ -45,10 +56,7 @@ export default function KeyClients({
   apiKey: ApiKey
   config: GatewayConfig | null
 }) {
-  const secret = useLoader(
-    (signal) => (k.secret_kept ? api.keySecret(k.id, signal) : Promise.resolve({ plaintext: '' })),
-    { deps: [k.id, k.secret_kept, k.display] },
-  )
+  const secret = useKeySecret(k)
   // What this key is offered — /v1/models as it sees it, the aliases first,
   // each with the facts of the model it serves for this key. Without it the
   // files are the committed ones, which are complete.
@@ -70,26 +78,22 @@ export default function KeyClients({
           Regenerate it on its overview page.
         </Note>
       )}
-      {k.secret_kept && secret.loading && plaintext === '' && (
-        <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
-          <Spinner /> Reading the key…
-        </p>
-      )}
+      {k.secret_kept && secret.loading && plaintext === '' && <Loading>Reading the key…</Loading>}
 
       {plaintext !== '' && (
         <>
           <Note>
             Each file carries this key and the gateway&rsquo;s address: treat a downloaded file like
             the key itself. They ask for the model aliases —{' '}
-            <code className="font-mono">claude-large</code>,{' '}
-            <code className="font-mono">claude-small</code> and one per family — never a real
+            <code>claude-large</code>,{' '}
+            <code>claude-small</code> and one per family — never a real
             model, so changing what an alias serves, in Settings › Aliases or on this key&rsquo;s
             Models page, reaches every client without a new file.
           </Note>
           {address === '' && (
             <Note tone="warn">
-              The admin UI is on its own listener and <code className="font-mono">public-url</code>{' '}
-              is not set, so these files use <code className="font-mono">{EXAMPLE_BASE}</code>.
+              The admin UI is on its own listener and <code>public-url</code>{' '}
+              is not set, so these files use <code>{EXAMPLE_BASE}</code>.
               Replace it with the relay&rsquo;s address before using them.
             </Note>
           )}
@@ -112,19 +116,18 @@ export default function KeyClients({
           {CLIENTS.map((client) => {
             const missing = client.missingSurfaces(config?.surfaces ?? [])
             return (
-              <Card key={client.id}>
-                <CardTitle>{client.label}</CardTitle>
+              <Card key={client.id} title={client.label}>
                 <div className="mb-4">
                   <CopyField label="Base URL" value={client.baseURL(gateway)} />
                 </div>
-                <p className="mt-0 mb-4 text-sm leading-relaxed text-on-surface">{client.lead}</p>
+                <p className="mb-4 text-sm leading-relaxed text-on-surface">{client.lead}</p>
                 {missing.length > 0 && (
                   <Note tone="warn" className="mb-4">
                     {client.label} needs the {missing.map((s) => s.title).join(' and ')}, which is
                     switched off on this gateway. Until it is on, this configuration answers 404.
                   </Note>
                 )}
-                <div className="flex flex-col gap-4">
+                <Stack>
                   {client.files(gateway, plaintext, catalog).map((f) => (
                     <CodeViewer
                       key={f.filename}
@@ -135,7 +138,7 @@ export default function KeyClients({
                       conceal={plaintext}
                     />
                   ))}
-                </div>
+                </Stack>
               </Card>
             )
           })}
@@ -152,10 +155,7 @@ export default function KeyClients({
  * page.
  */
 export function KeySecret({ apiKey: k, onChanged }: { apiKey: ApiKey; onChanged: () => void }) {
-  const secret = useLoader(
-    (signal) => (k.secret_kept ? api.keySecret(k.id, signal) : Promise.resolve({ plaintext: '' })),
-    { deps: [k.id, k.secret_kept, k.display] },
-  )
+  const secret = useKeySecret(k)
   const { pending: busy, error, run } = useAction()
   const confirm = useConfirm()
   const plaintext = secret.data?.plaintext ?? ''
@@ -185,39 +185,30 @@ export function KeySecret({ apiKey: k, onChanged }: { apiKey: ApiKey; onChanged:
           This key&rsquo;s secret is not stored, so it cannot be shown. Regenerate it to get one.
         </Note>
       ) : secret.error !== '' ? (
-        <Banner tone="error" className="mb-4">
-          {secret.error}
-        </Banner>
+        <ErrorBanner error={secret.error} className="mb-4" />
       ) : secret.loading && plaintext === '' ? (
-        <p className="mt-0 mb-4 flex items-center gap-2 text-sm text-on-surface-variant">
-          <Spinner /> Reading the key…
-        </p>
+        <div className="mb-4">
+          <Loading>Reading the key…</Loading>
+        </div>
       ) : (
         <div className="mb-4">
           <CopyField label="API key" value={plaintext} secret />
         </div>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        {k.secret_kept ? (
-          <OutlinedButton tone="error" disabled={busy} onClick={() => void regenerate()}>
-            {busy && <Spinner />}
-            Regenerate key
-          </OutlinedButton>
-        ) : (
-          <FilledButton type="button" disabled={busy} onClick={() => void regenerate()}>
-            {busy && <Spinner />}
-            Regenerate key
-          </FilledButton>
-        )}
-        <span className="text-sm text-on-surface-variant">
-          For a key that has leaked: the current one stops working at once.
-        </span>
+        {/* Filled when there is no secret to lose: then it is the only way to
+            a working key, rather than the destructive way out of one. */}
+        <Button
+          variant={k.secret_kept ? 'outlined' : 'filled'}
+          tone={k.secret_kept ? 'error' : undefined}
+          busy={busy}
+          onClick={() => void regenerate()}
+        >
+          Regenerate key
+        </Button>
+        <Muted as="span">For a key that has leaked: the current one stops working at once.</Muted>
       </div>
-      {error !== '' && (
-        <Banner tone="error" className="mt-4">
-          {error}
-        </Banner>
-      )}
+      <ErrorBanner error={error} className="mt-4" />
     </Card>
   )
 }
@@ -264,8 +255,7 @@ function InstallCommand({
     system === 'windows' ? `irm '${url}' | iex` : `curl -fsSL '${url}' | sh`
 
   return (
-    <Card>
-      <CardTitle>Install with one command</CardTitle>
+    <Card title="Install with one command">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Segmented
           label="System"
@@ -287,12 +277,11 @@ function InstallCommand({
         />
       </div>
       {link === null ? (
-        <FilledButton type="button" disabled={busy} onClick={() => void create()}>
-          {busy && <Spinner />}
+        <Button busy={busy} onClick={() => void create()}>
           Create command
-        </FilledButton>
+        </Button>
       ) : (
-        <div className="flex flex-col gap-3">
+        <Stack gap={3}>
           <CopyField
             label={system === 'windows' ? 'PowerShell' : 'Terminal'}
             value={command}
@@ -307,15 +296,13 @@ function InstallCommand({
               : ' Claude Code\u2019s file is sourced from your shell profile, for new shells.'}
           </Note>
           <div>
-            <TextButton onClick={() => void create()}>New command</TextButton>
+            <Button variant="text" onClick={() => void create()}>
+              New command
+            </Button>
           </div>
-        </div>
+        </Stack>
       )}
-      {error !== '' && (
-        <Banner tone="error" className="mt-4">
-          {error}
-        </Banner>
-      )}
+      <ErrorBanner error={error} className="mt-4" />
     </Card>
   )
 }

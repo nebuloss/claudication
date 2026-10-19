@@ -1,5 +1,5 @@
 import { type GatewayConfig, type Origin } from '../../api/client'
-import { Card, Chip, InfoTip, Note, tile } from '../primitives'
+import { Card, Chip, InfoTip, Muted, Note, Section, Stack, tile } from '../primitives'
 
 /** How a value got here, as something you can scan a column for. */
 function OriginChip({ origin }: { origin: Origin }) {
@@ -59,44 +59,43 @@ export default function ConfigTable({ config }: { config: GatewayConfig }) {
 
   return (
     <Card>
-      <div className="mb-5 flex flex-col gap-3">
-        <Note>
-          {config.path === '' ? (
-            <>
-              No config file is in use — every value is a default or came from the environment.
-              Point the service at one with <code className="font-mono">-config</code>.
-            </>
-          ) : (
-            <>
-              Read from <code className="font-mono font-medium">{config.path}</code>, and never
-              written back: your comments in it are safe. Edit the file and restart to change
-              anything here.
-            </>
-          )}
-        </Note>
-        {fromEnv.length > 0 && (
-          <Note tone="warn">
-            {fromEnv.length === 1
-              ? 'One setting comes from the environment'
-              : `${fromEnv.length} settings come from the environment`}
-            , which overrides the file silently — editing the config file will not change{' '}
-            {fromEnv.map((s, i) => (
-              <span key={s.key}>
-                {i > 0 && ', '}
-                <code className="font-mono font-medium">{s.key}</code>
-              </span>
-            ))}
-            .
+      <div className="mb-5">
+        <Stack gap={3}>
+          <Note>
+            {config.path === '' ? (
+              <>
+                No config file is in use — every value is a default or came from the environment.
+                Point the service at one with <code>-config</code>.
+              </>
+            ) : (
+              <>
+                Read from <code className="font-medium">{config.path}</code>, and never
+                written back: your comments in it are safe. Edit the file and restart to change
+                anything here.
+              </>
+            )}
           </Note>
-        )}
+          {fromEnv.length > 0 && (
+            <Note tone="warn">
+              {fromEnv.length === 1
+                ? 'One setting comes from the environment'
+                : `${fromEnv.length} settings come from the environment`}
+              , which overrides the file silently — editing the config file will not change{' '}
+              {fromEnv.map((s, i) => (
+                <span key={s.key}>
+                  {i > 0 && ', '}
+                  <code className="font-medium">{s.key}</code>
+                </span>
+              ))}
+              .
+            </Note>
+          )}
+        </Stack>
       </div>
 
-      <div className="flex flex-col gap-6">
+      <Stack gap={6}>
         {groups.map((g) => (
-          <section key={g.id}>
-            <h3 className="mt-0 mb-2 text-sm font-medium text-on-surface">
-              {GROUPS[g.id] ?? g.id}
-            </h3>
+          <Section key={g.id} title={GROUPS[g.id] ?? g.id}>
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
               {g.settings.map((s) => (
                 <li
@@ -106,12 +105,12 @@ export default function ConfigTable({ config }: { config: GatewayConfig }) {
                   className={`${tile} grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-x-4 gap-y-1 px-4 py-2.5 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)_7rem]`}
                 >
                   <span className="flex min-w-0 items-center gap-1">
-                    <code className="font-mono text-sm font-medium text-on-surface">{s.key}</code>
+                    <code className="text-sm font-medium text-on-surface">{s.key}</code>
                     <InfoTip label={`About ${s.key}`}>
                       <p>{s.doc}</p>
                       {s.env !== undefined && s.env !== '' && (
                         <p>
-                          Overridden by <code className="font-mono">{s.env}</code> in the
+                          Overridden by <code>{s.env}</code> in the
                           environment.
                         </p>
                       )}
@@ -119,9 +118,9 @@ export default function ConfigTable({ config }: { config: GatewayConfig }) {
                   </span>
                   <span className="col-span-2 row-start-2 min-w-0 text-sm sm:col-span-1 sm:row-start-auto">
                     {s.value === '' ? (
-                      <span className="text-on-surface-variant">unset</span>
+                      <Muted as="span">unset</Muted>
                     ) : (
-                      <code className="font-mono break-all text-on-surface">{s.value}</code>
+                      <code className="break-all text-on-surface">{s.value}</code>
                     )}
                   </span>
                   <span className="justify-self-end">
@@ -130,9 +129,9 @@ export default function ConfigTable({ config }: { config: GatewayConfig }) {
                 </li>
               ))}
             </ul>
-          </section>
+          </Section>
         ))}
-      </div>
+      </Stack>
     </Card>
   )
 }

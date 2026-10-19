@@ -1,6 +1,6 @@
 import { api, type Surface } from '../../api/client'
 import { useAction } from '../hooks'
-import { Banner, Card, Note, Switch, tile } from '../primitives'
+import { Banner, Card, ErrorBanner, Note, SettingSwitch, Stack } from '../primitives'
 
 /**
  * The switches for the client-facing APIs.
@@ -42,11 +42,7 @@ export default function Surfaces({
         </p>
       }
     >
-      {error !== '' && (
-        <Banner tone="error" className="mb-4">
-          {error}
-        </Banner>
-      )}
+      <ErrorBanner error={error} className="mb-4" />
 
       {allOff && (
         <Banner tone="warn" className="mb-4">
@@ -55,31 +51,34 @@ export default function Surfaces({
         </Banner>
       )}
 
-      <div className="flex flex-col gap-3">
+      <Stack gap={3}>
         {surfaces.map((s) => (
-          <div key={s.id} className={`${tile} px-4 py-3`}>
-            <Switch
-              checked={s.enabled}
-              disabled={busy !== ''}
-              onChange={(v) => void toggle(s.id, v)}
-              label={s.title}
-            />
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 sm:ml-16">
-              {s.routes.map((r) => (
-                <code key={r} className="font-mono text-[11px] text-on-surface-variant">
-                  {r}
-                </code>
-              ))}
-            </div>
+          <SettingSwitch
+            key={s.id}
+            checked={s.enabled}
+            disabled={busy !== ''}
+            onChange={(v) => void toggle(s.id, v)}
+            label={s.title}
+            // The paths it governs, where a switch's explanation goes.
+            info={
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {s.routes.map((r) => (
+                  <code key={r} className="text-[11px] text-on-surface-variant">
+                    {r}
+                  </code>
+                ))}
+              </div>
+            }
+          >
             {!s.enabled && (
-              <Note className="mt-3">
+              <Note>
                 Requests to these paths are answered 404, in this API&rsquo;s own error format, so a
                 client reports it and stops rather than retrying against a wall.
               </Note>
             )}
-          </div>
+          </SettingSwitch>
         ))}
-      </div>
+      </Stack>
     </Card>
   )
 }

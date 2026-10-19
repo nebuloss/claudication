@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { useAction } from '../hooks'
-import { Banner, Card, Switch, tile } from '../primitives'
+import { useAction, useOptimistic } from '../hooks'
+import { Card, ErrorBanner, SettingSwitch } from '../primitives'
 
 /**
  * The switch for capping oversized images.
@@ -23,23 +22,15 @@ export default function ImageFit({
   onChanged: () => void
 }) {
   const { pending: busy, error, run } = useAction()
-  // Leads the server rather than following it, like the chat-name switches: a
-  // control that sits where you did not put it until a write and a refetch
-  // have both returned reads as a missed click.
-  const [shown, setShown] = useState(enabled)
+  const [shown, apply] = useOptimistic(enabled)
 
-  useEffect(() => {
-    setShown(enabled)
-  }, [enabled])
-
-  async function toggle(next: boolean) {
-    setShown(next)
-    const ok = await run('toggle', async () => {
-      await api.setFitImages(next)
-      onChanged()
-    })
-    if (!ok) setShown(!next)
-  }
+  const toggle = (next: boolean) =>
+    apply(next, () =>
+      run('toggle', async () => {
+        await api.setFitImages(next)
+        onChanged()
+      }),
+    )
 
   return (
     <Card
@@ -51,40 +42,33 @@ export default function ImageFit({
         </p>
       }
     >
-      {error !== '' && (
-        <Banner tone="error" className="mb-4">
-          {error}
-        </Banner>
-      )}
-
-      <div className={`${tile} px-4 py-3`}>
-        <Switch
-          checked={shown}
-          disabled={busy}
-          onChange={(v) => void toggle(v)}
-          label="Shrink images that would be refused"
-          info={
-            <>
-              <p>
-                Only when a request carries more than 20 images, and only the ones over the limit —
-                everything else is relayed untouched, byte for byte.{' '}
-                <strong className="font-medium text-on-surface">
-                  This is the one thing the gateway changes about what the model is shown
-                </strong>
-                , rather than about the shape of the request, which is why it is off until you ask
-                for it.
-              </p>
-              <p>
-                What it costs is bounded: Claude already downscales to a 2576&nbsp;px long edge on
-                4.7 and later, and to 1568&nbsp;px before that — so capping at 2000 loses at most
-                the band between the two, and on an older model loses nothing. The rescale happens
-                once per image and is remembered, so a conversation that resends its history does
-                not pay for it again.
-              </p>
-            </>
-          }
-        />
-      </div>
+      <ErrorBanner error={error} className="mb-4" />
+      <SettingSwitch
+        checked={shown}
+        disabled={busy}
+        onChange={(v) => void toggle(v)}
+        label="Shrink images that would be refused"
+        info={
+          <>
+            <p>
+              Only when a request carries more than 20 images, and only the ones over the limit —
+              everything else is relayed untouched, byte for byte.{' '}
+              <strong className="font-medium text-on-surface">
+                This is the one thing the gateway changes about what the model is shown
+              </strong>
+              , rather than about the shape of the request, which is why it is off until you ask
+              for it.
+            </p>
+            <p>
+              What it costs is bounded: Claude already downscales to a 2576&nbsp;px long edge on
+              4.7 and later, and to 1568&nbsp;px before that — so capping at 2000 loses at most
+              the band between the two, and on an older model loses nothing. The rescale happens
+              once per image and is remembered, so a conversation that resends its history does
+              not pay for it again.
+            </p>
+          </>
+        }
+      />
     </Card>
   )
 }

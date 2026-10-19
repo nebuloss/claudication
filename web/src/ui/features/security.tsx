@@ -1,16 +1,7 @@
 import { useState } from 'react'
 import { api, type Session } from '../../api/client'
 import { useAction } from '../hooks'
-import {
-  Banner,
-  Card,
-  CardTitle,
-  Field,
-  FilledButton,
-  OutlinedButton,
-  Spinner,
-  TextButton,
-} from '../primitives'
+import { Actions, Banner, Button, Card, ErrorBanner, Field, Muted, Stack } from '../primitives'
 
 /** Both destructive actions live behind a click, so neither is one keystroke away. */
 type Open = 'none' | 'password' | 'delete'
@@ -34,28 +25,27 @@ export default function Security({
   const [open, setOpen] = useState<Open>('none')
 
   return (
-    <Card>
-      {/* Titled: it is the Settings page itself, which no entry in the
-          navigation names. */}
-      <CardTitle
-        aside={
-          session.password_updated_at !== undefined ? (
-            <span className="text-sm text-on-surface-variant">
-              Password set {new Date(session.password_updated_at).toLocaleDateString()}
-            </span>
-          ) : undefined
-        }
-      >
-        Admin account
-      </CardTitle>
-
+    // Titled: it is the Settings page itself, which no entry in the
+    // navigation names.
+    <Card
+      title="Admin account"
+      aside={
+        session.password_updated_at !== undefined ? (
+          <Muted as="span">
+            Password set {new Date(session.password_updated_at).toLocaleDateString()}
+          </Muted>
+        ) : undefined
+      }
+    >
       {open === 'none' && (
-        <div className="flex flex-wrap items-center gap-2">
-          <OutlinedButton onClick={() => setOpen('password')}>Change password</OutlinedButton>
-          <TextButton tone="error" onClick={() => setOpen('delete')}>
+        <Actions>
+          <Button variant="outlined" onClick={() => setOpen('password')}>
+            Change password
+          </Button>
+          <Button variant="text" tone="error" onClick={() => setOpen('delete')}>
             Delete account
-          </TextButton>
-        </div>
+          </Button>
+        </Actions>
       )}
 
       {open === 'password' && (
@@ -91,42 +81,41 @@ function ChangePassword({ onDone, onCancel }: { onDone: () => void; onCancel: ()
   }
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={submit}>
-      <Field
-        label="Current password"
-        type="password"
-        value={current}
-        onChange={setCurrent}
-        autoFocus
-        autoComplete="current-password"
-      />
-      <Field
-        label="New password"
-        type="password"
-        value={next}
-        onChange={setNext}
-        autoComplete="new-password"
-      />
-      <Field
-        label="Repeat new password"
-        type="password"
-        value={confirm}
-        onChange={setConfirm}
-        autoComplete="new-password"
-      />
-      {error !== '' && <Banner tone="error">{error}</Banner>}
-      <Banner>
-        Every other signed-in browser is signed out. This one stays.
-      </Banner>
-      <div className="flex items-center gap-2">
-        <FilledButton disabled={busy}>
-          {busy && <Spinner />}
-          {busy ? 'Changing…' : 'Change password'}
-        </FilledButton>
-        <TextButton onClick={onCancel} disabled={busy}>
-          Cancel
-        </TextButton>
-      </div>
+    <form onSubmit={submit}>
+      <Stack>
+        <Field
+          label="Current password"
+          type="password"
+          value={current}
+          onChange={setCurrent}
+          autoFocus
+          autoComplete="current-password"
+        />
+        <Field
+          label="New password"
+          type="password"
+          value={next}
+          onChange={setNext}
+          autoComplete="new-password"
+        />
+        <Field
+          label="Repeat new password"
+          type="password"
+          value={confirm}
+          onChange={setConfirm}
+          autoComplete="new-password"
+        />
+        <ErrorBanner error={error} />
+        <Banner>Every other signed-in browser is signed out. This one stays.</Banner>
+        <Actions>
+          <Button type="submit" busy={busy}>
+            {busy ? 'Changing…' : 'Change password'}
+          </Button>
+          <Button variant="text" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+        </Actions>
+      </Stack>
     </form>
   )
 }
@@ -144,30 +133,31 @@ function DeleteAccount({ onDone, onCancel }: { onDone: () => void; onCancel: () 
   }
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={submit}>
-      <Banner tone="warn">
-        The gateway goes back to its first-run state, and the next person to reach
-        it chooses the password. Upstream accounts and API keys are left alone, so
-        whoever that is inherits them.
-      </Banner>
-      <Field
-        label="Confirm your password"
-        type="password"
-        value={password}
-        onChange={setPassword}
-        autoFocus
-        autoComplete="current-password"
-      />
-      {error !== '' && <Banner tone="error">{error}</Banner>}
-      <div className="flex items-center gap-2">
-        <FilledButton disabled={busy || password === ''}>
-          {busy && <Spinner />}
-          {busy ? 'Deleting…' : 'Delete account'}
-        </FilledButton>
-        <TextButton onClick={onCancel} disabled={busy}>
-          Cancel
-        </TextButton>
-      </div>
+    <form onSubmit={submit}>
+      <Stack>
+        <Banner tone="warn">
+          The gateway goes back to its first-run state, and the next person to reach
+          it chooses the password. Upstream accounts and API keys are left alone, so
+          whoever that is inherits them.
+        </Banner>
+        <Field
+          label="Confirm your password"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          autoFocus
+          autoComplete="current-password"
+        />
+        <ErrorBanner error={error} />
+        <Actions>
+          <Button type="submit" busy={busy} disabled={password === ''}>
+            {busy ? 'Deleting…' : 'Delete account'}
+          </Button>
+          <Button variant="text" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+        </Actions>
+      </Stack>
     </form>
   )
 }

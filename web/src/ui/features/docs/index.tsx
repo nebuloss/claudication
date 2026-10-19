@@ -1,8 +1,20 @@
 import { type ReactNode } from 'react'
 import { api, type DocsInfo } from '../../../api/client'
 import { useLoader } from '../../hooks'
-import { Banner, Card, Chip, CopyField, Note, Spinner, tile } from '../../primitives'
-import { CodeViewer } from '../../primitives/code'
+import {
+  Banner,
+  Card,
+  Chip,
+  CodeViewer,
+  CopyField,
+  Loading,
+  Note,
+  Overline,
+  Stack,
+  Tile,
+  railItem,
+  tile,
+} from '../../primitives'
 import { Catalog } from './catalog'
 import { CLIENTS, SECTIONS, TROUBLESHOOTING } from './content'
 import { EXAMPLE_BASE, type ClientRecipe } from './model'
@@ -28,13 +40,7 @@ export default function Docs() {
   // deployment, for four facts. This asks for the four.
   const { data, error, loading } = useLoader<DocsInfo>((signal) => api.docsInfo(signal))
 
-  if (loading && data === null) {
-    return (
-      <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-        <Spinner /> Loading…
-      </p>
-    )
-  }
+  if (loading && data === null) return <Loading />
   if (error !== '' || data === null) {
     return <Banner tone="error">Could not read this gateway&rsquo;s address.</Banner>
   }
@@ -68,7 +74,7 @@ export default function Docs() {
             <Note tone="warn" className="mb-4">
               <strong className="font-medium">This gateway has not been told its own public
               address.</strong> The examples below carry a placeholder, so you will have to replace{' '}
-              <code className="font-mono">{EXAMPLE_BASE}</code> with the address you reach it on.
+              <code>{EXAMPLE_BASE}</code> with the address you reach it on.
             </Note>
           )}
           {!data.ready && (
@@ -93,7 +99,7 @@ export default function Docs() {
 
           <Note>
             <strong className="font-medium">
-              Clients disagree about <code className="font-mono">/v1</code>.
+              Clients disagree about <code>/v1</code>.
             </strong>{' '}
             Some append it themselves and want the address without it; others want it included.
             Getting this wrong produces a 404 on every request and no explanation, so each section
@@ -128,7 +134,7 @@ export default function Docs() {
               {models.map((m) => (
                 <li key={m.id} title={m.display_name ?? m.id}>
                   <Chip>
-                    <code className="font-mono text-on-surface">{m.id}</code>
+                    <code className="text-on-surface">{m.id}</code>
                   </Chip>
                 </li>
               ))}
@@ -185,16 +191,18 @@ function ClientSection({
         </Note>
       )}
 
-      <div className="my-5 flex flex-col gap-4">
-        {client.files(gateway, '', catalog).map((f) => (
-          <CodeViewer
-            key={f.filename}
-            label={f.label}
-            filename={f.filename}
-            lang={f.lang}
-            value={f.body}
-          />
-        ))}
+      <div className="my-5">
+        <Stack>
+          {client.files(gateway, '', catalog).map((f) => (
+            <CodeViewer
+              key={f.filename}
+              label={f.label}
+              filename={f.filename}
+              lang={f.lang}
+              value={f.body}
+            />
+          ))}
+        </Stack>
       </div>
 
       {client.notes.map((n, i) => (
@@ -211,9 +219,9 @@ function ClientSection({
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section id={id} className="scroll-mt-24">
-      <Card>
-        <h2 className="group mt-0 mb-4 text-xl font-normal text-on-surface">
-          <a href={`#${id}`} className="no-underline">
+      <Card
+        title={
+          <a href={`#${id}`} className="group no-underline">
             {title}
             {/* The anchor is the point of the heading having an id; shown on
                 hover rather than always, because a column of # marks reads as
@@ -225,7 +233,8 @@ function Section({ id, title, children }: { id: string; title: string; children:
               #
             </span>
           </a>
-        </h2>
+        }
+      >
         {children}
       </Card>
     </section>
@@ -239,12 +248,12 @@ function DefinitionList({
   items: { key: string; term: ReactNode; detail: ReactNode }[]
 }) {
   return (
-    <dl className="m-0 flex flex-col gap-2">
+    <dl className="flex flex-col gap-2">
       {items.map((i) => (
-        <div key={i.key} className={`${tile} px-4 py-3`}>
+        <Tile key={i.key}>
           <dt className="mb-1">{i.term}</dt>
-          <dd className="m-0 text-sm leading-relaxed text-on-surface">{i.detail}</dd>
-        </div>
+          <dd className="text-sm leading-relaxed text-on-surface">{i.detail}</dd>
+        </Tile>
       ))}
     </dl>
   )
@@ -252,7 +261,7 @@ function DefinitionList({
 
 /** Body prose, at the one measure and rhythm the page uses. */
 function P({ children }: { children: ReactNode }) {
-  return <p className="mt-0 mb-4 text-sm leading-relaxed text-on-surface">{children}</p>
+  return <p className="mb-4 text-sm leading-relaxed text-on-surface">{children}</p>
 }
 
 /**
@@ -272,9 +281,9 @@ function Contents() {
       // the primary container colour.
       className="order-first mb-5 rounded-md3-xl bg-surface-container p-2 lg:sticky lg:top-24 lg:order-none lg:mb-0"
     >
-      <p className="mx-3 mt-2 mb-2 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
-        On this page
-      </p>
+      <div className="mx-3 my-2">
+        <Overline>On this page</Overline>
+      </div>
       <ul className="m-0 flex list-none flex-col gap-1 p-0">
         {SECTIONS.map((s) => (
           <li key={s.id}>
@@ -284,11 +293,7 @@ function Contents() {
               // where you are, and a reader who cannot see the border should
               // not have to infer it from the scroll position.
               aria-current={s.id === current ? 'true' : undefined}
-              className={`state-layer flex h-10 items-center rounded-md3-full px-4 text-sm font-medium ${
-                s.id === current
-                  ? 'bg-primary-container text-on-primary-container'
-                  : 'text-on-surface-variant hover:text-on-surface'
-              }`}
+              className={railItem(s.id === current)}
             >
               {s.title}
             </a>

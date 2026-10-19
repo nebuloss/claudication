@@ -2,16 +2,21 @@ import { useState } from 'react'
 import { api, type Model, type ModelRole } from '../../api/client'
 import { useAction, useLoader } from '../hooks'
 import {
-  Banner,
+  Button,
   Card,
   Chip,
+  ErrorBanner,
   ErrorState,
   Field,
-  FilledButton,
   IconButton,
+  Loading,
+  Muted,
   Note,
+  Page,
+  Section,
   Select,
   Spinner,
+  Stack,
   tile,
   type SelectOption,
   useConfirm,
@@ -66,13 +71,7 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
   const { busy, error: failure, run } = useAction()
   const confirm = useConfirm()
 
-  if (loading && data === null) {
-    return (
-      <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
-        <Spinner /> Loading…
-      </p>
-    )
-  }
+  if (loading && data === null) return <Loading />
   if (error !== '' || data === null) {
     return (
       <ErrorState
@@ -135,7 +134,9 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
               <code className="font-mono text-sm font-medium text-on-surface">{r.role}</code>
               {broken && <Chip tone="error">not served</Chip>}
             </div>
-            <p className="mt-1 mb-0 text-sm text-on-surface-variant">{purpose}</p>
+            <div className="mt-1">
+              <Muted>{purpose}</Muted>
+            </div>
           </div>
           <div className="flex w-full items-center gap-2 sm:w-96">
             <Select
@@ -144,7 +145,6 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
               options={options}
               disabled={busy !== '' || options.length === 0}
               onChange={(v) => void bind(r, v)}
-              className="flex-1"
             />
             {!r.builtin && keyId === '' && (
               <IconButton
@@ -169,22 +169,24 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
   const families = data.roles.filter((r) => r.builtin && !roles.includes(r))
   const custom = data.roles.filter((r) => !r.builtin)
   const group = (title: string, list: ModelRole[]) => (
-    <section>
-      <h3 className="mt-0 mb-2 text-sm font-medium text-on-surface">{title}</h3>
-      <ul className="m-0 flex list-none flex-col gap-2 p-0">{list.map(row)}</ul>
-    </section>
+    <Section title={title}>
+      <Stack gap={2} as="ul">
+        {list.map(row)}
+      </Stack>
+    </Section>
   )
 
   return (
-    <div className="flex flex-col gap-6">
+    <Stack gap={6}>
       {group('Roles', roles)}
       {families.length > 0 && group('Families', families)}
 
-      <section>
-        <h3 className="mt-0 mb-2 text-sm font-medium text-on-surface">Custom aliases</h3>
-        <div className="flex flex-col gap-2">
+      <Section title="Custom aliases">
+        <Stack gap={2}>
           {custom.length > 0 && (
-            <ul className="m-0 flex list-none flex-col gap-2 p-0">{custom.map(row)}</ul>
+            <Stack gap={2} as="ul">
+              {custom.map(row)}
+            </Stack>
           )}
           {keyId === '' ? (
             <NewAlias
@@ -200,10 +202,10 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
           ) : (
             custom.length === 0 && <Note>None. Custom aliases are made in Settings › Aliases.</Note>
           )}
-        </div>
-      </section>
-      {failure !== '' && <Banner tone="error">{failure}</Banner>}
-    </div>
+        </Stack>
+      </Section>
+      <ErrorBanner error={failure} />
+    </Stack>
   )
 }
 
@@ -233,17 +235,10 @@ function NewAlias({
           value={name}
           onChange={(v) => setName(v.toLowerCase())}
           mono
-          className="min-w-0 flex-1 basis-64"
+          grow
         />
-        <Select
-          label="Model"
-          value={chosen}
-          options={options}
-          onChange={setModel}
-          className="w-full sm:w-96"
-        />
-        <FilledButton
-          type="button"
+        <Select label="Model" value={chosen} options={options} onChange={setModel} width="fixed" />
+        <Button
           disabled={busy || !valid || chosen === ''}
           onClick={() =>
             void onCreate(name, chosen).then((ok) => {
@@ -252,7 +247,7 @@ function NewAlias({
           }
         >
           Add
-        </FilledButton>
+        </Button>
       </div>
       {name !== '' && !name.includes('claude') && (
         <Note tone="warn">
@@ -267,7 +262,7 @@ function NewAlias({
 /** Settings › Aliases: the gateway's aliases, which every key follows by default. */
 export default function ModelsTab() {
   return (
-    <div className="flex flex-col gap-5">
+    <Page>
       <Card
         info={
           <>
@@ -287,6 +282,6 @@ export default function ModelsTab() {
       >
         <RolesEditor />
       </Card>
-    </div>
+    </Page>
   )
 }

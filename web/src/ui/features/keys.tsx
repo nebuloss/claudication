@@ -16,30 +16,40 @@ import { KeyModels } from './account-models'
 import { RolesEditor } from './model-roles'
 import type { ReactNode } from 'react'
 import {
+  Actions,
   AddButton,
   AppLink,
-  ListToolbar,
-  ListRow,
-  RowBadge,
-  Banner,
-  Note,
-  CopyField,
-  Modal,
+  Button,
   Card,
-  CardTitle,
   Chip,
+  CopyField,
+  DangerZone,
   Empty,
+  ErrorBanner,
   Field,
+  Figure,
+  Figures,
   Freshness,
+  ListRow,
+  ListSummary,
+  ListToolbar,
+  Loading,
+  Modal,
+  Muted,
+  Note,
+  Overline,
+  Page,
+  RowBadge,
   Segmented,
-  FilledButton,
-  OutlinedButton,
-  Spinner,
+  Stack,
   Stat,
+  StatGrid,
   StepSlider,
   Switch,
   Table,
-  tile,
+  Td,
+  Tile,
+  Tr,
   useConfirm,
 } from '../primitives'
 import { ago, compact, smallPercent } from '../format'
@@ -81,7 +91,7 @@ export default function Keys() {
   )
 
   return (
-    <div className="flex flex-col gap-5">
+    <Page>
       <ListToolbar
         action={
           <AddButton disabled={creating} onClick={() => setCreating(true)}>
@@ -90,9 +100,7 @@ export default function Keys() {
         }
       >
         {data !== null && data.keys.length > 0 && (
-          <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
-            traffic over {data.windowDays}d
-          </span>
+          <ListSummary>traffic over {data.windowDays}d</ListSummary>
         )}
         <Freshness
           updatedAt={updatedAt}
@@ -104,16 +112,17 @@ export default function Keys() {
 
       {created !== null && (
         <Modal title={`${created.key.name} is ready`} onClose={() => setCreated(null)}>
-          <div className="flex flex-col gap-4">
+          <Stack>
             <CopyField label="API key" value={created.plaintext} secret />
             <Note>
               Every client&rsquo;s configuration, with this key already inside, is on its Clients
               page — and stays there, so it can be fetched again whenever a client is set up.
             </Note>
-            <div className="flex flex-wrap justify-end gap-2">
-              <OutlinedButton onClick={() => setCreated(null)}>Done</OutlinedButton>
-              <FilledButton
-                type="button"
+            <Actions end>
+              <Button variant="outlined" onClick={() => setCreated(null)}>
+                Done
+              </Button>
+              <Button
                 onClick={() => {
                   const to = `${pathOf('keys', created.key.id)}/clients`
                   setCreated(null)
@@ -121,9 +130,9 @@ export default function Keys() {
                 }}
               >
                 Open its clients
-              </FilledButton>
-            </div>
-          </div>
+              </Button>
+            </Actions>
+          </Stack>
         </Modal>
       )}
 
@@ -150,19 +159,13 @@ export default function Keys() {
           </>
         }
       >
-        {error !== '' && (
-          <Banner tone="error" className="mb-4">
-            {error}
-          </Banner>
-        )}
+        <ErrorBanner error={error} className="mb-4" />
         {loading ? (
-          <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-            <Spinner /> Loading…
-          </p>
+          <Loading />
         ) : data === null || data.keys.length === 0 ? (
           <Empty>No API keys yet. Create one above and give it to a client.</Empty>
         ) : (
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          <Stack gap={2} as="ul">
             {data.keys.map((k) => (
               <li key={k.id}>
                 <ListRow
@@ -181,41 +184,49 @@ export default function Keys() {
                       {compact(k.tokens)} tokens over {data.windowDays}d · used {ago(k.last_used_at)}
                     </>
                   }
-                  chips={
-                    k.managed || k.models_off.length > 0 ? (
-                      <>
-                        {k.managed && <Chip tone="neutral">gateway&rsquo;s own</Chip>}
-                        {k.models_off.length > 0 && (
-                          <Chip tone="warn">
-                            {k.models_off.length} model{k.models_off.length === 1 ? '' : 's'} off
-                          </Chip>
-                        )}
-                      </>
-                    ) : undefined
-                  }
-                  meters={
-                    <>
-                      <span>
-                        <span className="text-on-surface-variant">Rate</span>{' '}
-                        {k.rpm_limit > 0
-                          ? `${compact(k.rpm_limit)} / ${periodName(k.rate_period_s)}`
-                          : 'default'}
-                      </span>
-                      <span>
-                        <span className="text-on-surface-variant">Today</span>{' '}
-                        <Budget budget={k.token_budget} spent={k.spent_today} />
-                      </span>
-                      <SubscriptionCell share={k.subscription} />
-                    </>
-                  }
+                  chips={k.managed || k.models_off.length > 0 ? <KeyChips k={k} /> : undefined}
+                  meters={<KeyFigures k={k} />}
                 />
               </li>
             ))}
-          </ul>
+          </Stack>
         )}
-
       </Card>
-    </div>
+    </Page>
+  )
+}
+
+/** What sets a key apart, as chips: the gateway's own, or models switched off. */
+function KeyChips({ k }: { k: ApiKey }) {
+  return (
+    <>
+      {k.managed && <Chip tone="neutral">gateway&rsquo;s own</Chip>}
+      {k.models_off.length > 0 && (
+        <Chip tone="warn">
+          {k.models_off.length} model{k.models_off.length === 1 ? '' : 's'} off
+        </Chip>
+      )}
+    </>
+  )
+}
+
+/**
+ * A key's limits and spend, as one row of figures: the same in the list and
+ * on the key's own page, so the two cannot disagree about it.
+ */
+function KeyFigures({ k, always = true }: { k: ApiKey; always?: boolean }) {
+  return (
+    <>
+      <Figure label="Rate">
+        {k.rpm_limit > 0 ? `${compact(k.rpm_limit)} / ${periodName(k.rate_period_s)}` : 'default'}
+      </Figure>
+      <Figure label="Today">
+        <Budget budget={k.token_budget} spent={k.spent_today} />
+      </Figure>
+      {/* A dash keeps the list's figures in step; alone in a page's header it
+          would say nothing, so there it is left out. */}
+      {(always || k.subscription !== undefined) && <SubscriptionCell share={k.subscription} />}
+    </>
   )
 }
 
@@ -228,7 +239,7 @@ const SUBSCRIPTION_NOTE =
 
 /** A key's estimated part of the subscription, both windows, for a table cell. */
 function SubscriptionCell({ share }: { share: SubscriptionShare | undefined }) {
-  if (share === undefined) return <span className="text-on-surface-variant">—</span>
+  if (share === undefined) return <Muted as="span" size="xs">—</Muted>
   return (
     <span className="whitespace-nowrap text-xs tabular-nums text-on-surface">
       <span className="text-on-surface-variant">5h</span> {smallPercent(share.five_hour)}
@@ -245,35 +256,34 @@ function SubscriptionCell({ share }: { share: SubscriptionShare | undefined }) {
  */
 function SubscriptionCard({ share }: { share: SubscriptionShare }) {
   return (
-    <Card>
-      <CardTitle info={<p>{SUBSCRIPTION_NOTE}</p>}>Share of the Claude subscription</CardTitle>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <Card title="Share of the Claude subscription" info={<p>{SUBSCRIPTION_NOTE}</p>}>
+      <StatGrid>
         <Stat label="5-hour" value={smallPercent(share.five_hour)} hint="of all accounts" />
         <Stat label="7-day" value={smallPercent(share.seven_day)} hint="of all accounts" />
-      </div>
+      </StatGrid>
       {share.accounts.length > 0 && (
         <div className="mt-4">
           <Table head={['Account', '5-hour window', '7-day window']}>
             {share.accounts.map((a) => (
-              <tr key={a.account_id} className="border-b border-outline-variant last:border-0">
-                <td className="px-2 py-2">
-                  <AppLink href={accountHref(a.account_id)} className="text-on-surface">
+              <Tr key={a.account_id}>
+                <Td>
+                  <AppLink href={accountHref(a.account_id)} strong>
                     {a.email}
                   </AppLink>
-                </td>
-                <td className="px-2 py-2 tabular-nums">
+                </Td>
+                <Td nums>
                   {smallPercent(a.five_hour)}{' '}
-                  <span className="text-xs text-on-surface-variant">
+                  <Muted as="span" size="xs">
                     ({Math.round(a.five_hour_share * 100)}% of its traffic here)
-                  </span>
-                </td>
-                <td className="px-2 py-2 tabular-nums">
+                  </Muted>
+                </Td>
+                <Td nums>
                   {smallPercent(a.seven_day)}{' '}
-                  <span className="text-xs text-on-surface-variant">
+                  <Muted as="span" size="xs">
                     ({Math.round(a.seven_day_share * 100)}% of its traffic here)
-                  </span>
-                </td>
-              </tr>
+                  </Muted>
+                </Td>
+              </Tr>
             ))}
           </Table>
         </div>
@@ -312,56 +322,35 @@ export function KeyPage({
   )
   const k = data?.keys.find((key) => key.id === id)
 
-  if (loading && data === null) {
-    return (
-      <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-        <Spinner /> Loading…
-      </p>
-    )
-  }
+  if (loading && data === null) return <Loading />
   if (k === undefined) {
     return (
-      <div className="flex flex-col gap-5">
-        {error !== '' && <Banner tone="error">{error}</Banner>}
+      <Page>
+        <ErrorBanner error={error} />
         <Empty>
           No such key — it may have been deleted. What it spent is still in the request log, under
           the name it was recorded with.
         </Empty>
-      </div>
+      </Page>
     )
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <Page>
       <DetailHeader
         kind="keys"
         id={k.id}
         title={k.name}
         aside={
-          <span className="flex flex-wrap items-center gap-3 text-xs text-on-surface">
-            {k.managed && <Chip tone="neutral">gateway&rsquo;s own</Chip>}
-            {k.models_off.length > 0 && (
-              <Chip tone="warn">
-                {k.models_off.length} model{k.models_off.length === 1 ? '' : 's'} off
-              </Chip>
-            )}
-            <span>
-              <span className="text-on-surface-variant">Rate</span>{' '}
-              {k.rpm_limit > 0
-                ? `${compact(k.rpm_limit)} / ${periodName(k.rate_period_s)}`
-                : 'default'}
-            </span>
-            <span>
-              <span className="text-on-surface-variant">Today</span>{' '}
-              <Budget budget={k.token_budget} spent={k.spent_today} />
-            </span>
-            {k.subscription !== undefined && <SubscriptionCell share={k.subscription} />}
-          </span>
+          <Figures>
+            <KeyChips k={k} />
+            <KeyFigures k={k} always={false} />
+          </Figures>
         }
         freshness={{ updatedAt, refreshing, live, onRefresh: () => void reload() }}
       />
 
-      {error !== '' && <Banner tone="error">{error}</Banner>}
+      <ErrorBanner error={error} />
 
       {SETTINGS_PAGES.has(page) && (
         <KeySettings
@@ -380,7 +369,7 @@ export function KeyPage({
           {!k.managed && <KeySecret apiKey={k} onChanged={() => void reload()} />}
           {/* The key at a glance, every figure a tile: what it did, what it
               may do, and when it was last used. The rest is a page away. */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+          <StatGrid columns={3}>
             <Stat label="Requests" value={compact(k.requests)} hint={`over ${data?.windowDays ?? 7}d`} />
             <Stat label="Tokens" value={compact(k.tokens)} hint={`over ${data?.windowDays ?? 7}d`} />
             <Stat
@@ -405,14 +394,12 @@ export function KeyPage({
               }
               tone={k.models_off.length > 0 ? 'error' : undefined}
             />
-          </div>
+          </StatGrid>
           {k.subscription !== undefined && <SubscriptionCard share={k.subscription} />}
         </>
       )}
-      {page === 'usage' && (
-        <ScopedUsage scope={{ key: k.id }} breakdown="account" />
-      )}
-    </div>
+      {page === 'usage' && <ScopedUsage scope={{ key: k.id }} breakdown="account" />}
+    </Page>
   )
 }
 
@@ -446,7 +433,7 @@ function KeySettings({
   if (k.managed) {
     return (
       <Card>
-        <p className="m-0 text-sm text-on-surface-variant">{MANAGED_HINT}</p>
+        <Muted>{MANAGED_HINT}</Muted>
       </Card>
     )
   }
@@ -479,12 +466,10 @@ function KeySettings({
       case 'models':
         return (
           <>
-            <Card>
-              <CardTitle>Allowed models</CardTitle>
+            <Card title="Allowed models">
               <KeyModels apiKey={k} onChanged={onSaved} />
             </Card>
-            <Card>
-              <CardTitle>Aliases</CardTitle>
+            <Card title="Aliases">
               <RolesEditor keyId={k.id} />
             </Card>
           </>
@@ -494,7 +479,9 @@ function KeySettings({
           <Card>
             <KeyEditor apiKey={k} defaultRpm={defaultRpm} busy={busy} onSave={save} />
             {saved && error === '' && (
-              <p className="mt-3 mb-0 text-sm text-on-surface-variant">Saved.</p>
+              <div className="mt-3">
+                <Muted>Saved.</Muted>
+              </div>
             )}
           </Card>
         )
@@ -505,16 +492,17 @@ function KeySettings({
         return <KeyClients apiKey={k} config={config} />
       default:
         return (
-          <Card>
-            <CardTitle>Delete this key</CardTitle>
-            <Note tone="error" className="mb-4">
-              Clients holding it stop working immediately, and it cannot be undone. Its usage stays,
-              under the name it was recorded with.
-            </Note>
-            <OutlinedButton tone="error" disabled={busy} onClick={() => void remove()}>
-              Delete {k.name}
-            </OutlinedButton>
-          </Card>
+          <DangerZone
+            title="Delete this key"
+            action={
+              <Button variant="outlined" tone="error" disabled={busy} onClick={() => void remove()}>
+                Delete {k.name}
+              </Button>
+            }
+          >
+            Clients holding it stop working immediately, and it cannot be undone. Its usage stays,
+            under the name it was recorded with.
+          </DangerZone>
         )
     }
   })()
@@ -522,7 +510,7 @@ function KeySettings({
   return (
     <>
       {card}
-      {error !== '' && <Banner tone="error">{error}</Banner>}
+      <ErrorBanner error={error} />
     </>
   )
 }
@@ -639,7 +627,7 @@ function LimitControl({
           {children}
         </>
       ) : (
-        <p className="m-0 text-xs text-on-surface-variant">{off}</p>
+        <Muted size="xs">{off}</Muted>
       )}
     </div>
   )
@@ -653,9 +641,7 @@ function LimitControl({
  * "is this key about to be cut off" is the question the column exists for.
  */
 function Budget({ budget, spent }: { budget: number; spent: number }) {
-  if (budget <= 0) {
-    return <span className="text-on-surface-variant">unlimited</span>
-  }
+  if (budget <= 0) return <Muted as="span" size="xs">unlimited</Muted>
   const share = spent / budget
   const tone =
     share >= 1 ? 'text-error' : share >= 0.8 ? 'text-on-warning-container' : 'text-on-surface'
@@ -719,7 +705,7 @@ function KeyLimitFields({
             content: `per ${p.label}`,
           }))}
         />
-        <p className="m-0 text-xs text-on-primary-container">
+        <p className="text-xs text-on-primary-container">
           The whole allowance is available at once and refills over the period, so{' '}
           {compact(rpm)} per {period.label} permits a burst of {compact(rpm)} and then runs dry.
         </p>
@@ -736,7 +722,7 @@ function KeyLimitFields({
         off="This key can spend as much as the connected accounts allow."
         format={compact}
       >
-        <p className="m-0 text-xs text-on-tertiary-container">
+        <p className="text-xs text-on-tertiary-container">
           Counted over a rolling 24 hours, so it frees up gradually rather than all at once. Input,
           output and cache tokens all count, because all four are billed.
         </p>
@@ -769,7 +755,7 @@ function KeyEditor({
     budget !== apiKey.token_budget
 
   return (
-    <div className="flex flex-col gap-4">
+    <Stack>
         <Field label="Name" value={name} onChange={setName} autoFocus />
 
         <KeyLimitFields
@@ -782,18 +768,19 @@ function KeyEditor({
           setBudget={setBudget}
         />
 
-        <div className={`${tile} px-4 py-3`}>
-          <div className="mb-1 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
-            Key
+        <Tile>
+          <div className="mb-1">
+            <Overline>Key</Overline>
           </div>
-          <code className="font-mono text-xs text-on-surface">{apiKey.display}</code>
-          <p className="mt-1 mb-0 text-xs text-on-surface-variant">
-            Unchanged by anything here, so nothing holding it needs updating.
-          </p>
-        </div>
+          <code className="text-xs text-on-surface">{apiKey.display}</code>
+          <div className="mt-1">
+            <Muted size="xs">Unchanged by anything here, so nothing holding it needs updating.</Muted>
+          </div>
+        </Tile>
 
-        <div className="flex items-center justify-end gap-2">
-          <OutlinedButton
+        <Actions end>
+          <Button
+            variant="outlined"
             onClick={() => {
               setName(apiKey.name)
               setRpm(apiKey.rpm_limit)
@@ -803,17 +790,16 @@ function KeyEditor({
             disabled={busy || !changed}
           >
             Undo changes
-          </OutlinedButton>
-          <FilledButton
-            type="button"
-            disabled={busy || !valid || !changed}
+          </Button>
+          <Button
+            busy={busy}
+            disabled={!valid || !changed}
             onClick={() => onSave(name.trim(), rpm, periodS, budget)}
           >
-            {busy && <Spinner />}
             {busy ? 'Saving…' : 'Save'}
-          </FilledButton>
-        </div>
-    </div>
+          </Button>
+        </Actions>
+    </Stack>
   )
 }
 
@@ -844,29 +830,29 @@ function NewKey({
   }
 
   return (
-    <Card>
-      <CardTitle>New API key</CardTitle>
-      <form className="flex flex-col gap-4" onSubmit={submit}>
-        <Field label="Name" value={name} onChange={setName} autoFocus />
-        <KeyLimitFields
-          defaultRpm={defaultRpm}
-          rpm={rpm}
-          setRpm={setRpm}
-          periodS={periodS}
-          setPeriodS={setPeriodS}
-          budget={budget}
-          setBudget={setBudget}
-        />
-        {error !== '' && <Banner tone="error">{error}</Banner>}
-        <div className="flex items-center gap-2">
-          <FilledButton disabled={busy}>
-            {busy && <Spinner />}
-            {busy ? 'Creating…' : 'Create key'}
-          </FilledButton>
-          <OutlinedButton onClick={onClose} disabled={busy}>
-            Cancel
-          </OutlinedButton>
-        </div>
+    <Card title="New API key">
+      <form onSubmit={submit}>
+        <Stack>
+          <Field label="Name" value={name} onChange={setName} autoFocus />
+          <KeyLimitFields
+            defaultRpm={defaultRpm}
+            rpm={rpm}
+            setRpm={setRpm}
+            periodS={periodS}
+            setPeriodS={setPeriodS}
+            budget={budget}
+            setBudget={setBudget}
+          />
+          <ErrorBanner error={error} />
+          <Actions>
+            <Button type="submit" busy={busy}>
+              {busy ? 'Creating…' : 'Create key'}
+            </Button>
+            <Button variant="outlined" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+          </Actions>
+        </Stack>
       </form>
     </Card>
   )

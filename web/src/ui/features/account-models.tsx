@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { api, type Account, type AccountModel, type ApiKey } from '../../api/client'
 import { useAction, useLoader } from '../hooks'
-import { Banner, ErrorState, SmallButton, Spinner, Switch, tile } from '../primitives'
+import { Actions, Button, ErrorBanner, ErrorState, Loading, Stack, Switch, tile } from '../primitives'
 import { compact, monthYear } from '../format'
 
 /**
@@ -34,13 +34,7 @@ function ModelSwitches({
   const [flipped, setFlipped] = useState<Record<string, boolean>>({})
   const { busy, error: failure, run } = useAction()
 
-  if (loading && data === null) {
-    return (
-      <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
-        <Spinner /> {loadingText}
-      </p>
-    )
-  }
+  if (loading && data === null) return <Loading>{loadingText}</Loading>
   if (error !== '' || data === null) {
     return (
       <ErrorState
@@ -72,19 +66,24 @@ function ModelSwitches({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="m-0 max-w-[80ch] text-sm text-on-surface">{explain(count, data.models.length)}</p>
-        <div className="flex gap-2">
-          <SmallButton onClick={() => void all(true)} disabled={busy !== '' || count === data.models.length}>
+        <p className="max-w-[80ch] text-sm text-on-surface">{explain(count, data.models.length)}</p>
+        <Actions>
+          <Button
+            variant="outlined"
+            size="sm"
+            onClick={() => void all(true)}
+            disabled={busy !== '' || count === data.models.length}
+          >
             All on
-          </SmallButton>
-          <SmallButton onClick={() => void all(false)} disabled={busy !== '' || count === 0}>
+          </Button>
+          <Button variant="outlined" size="sm" onClick={() => void all(false)} disabled={busy !== '' || count === 0}>
             All off
-          </SmallButton>
-        </div>
+          </Button>
+        </Actions>
       </div>
-      {failure !== '' && <Banner tone="error">{failure}</Banner>}
+      <ErrorBanner error={failure} />
       {/* Scrolls in its own box: an account lists a model per release, and a
           page that grows with them puts All on and All off a long scroll above
           the switch being looked for. */}
@@ -100,7 +99,7 @@ function ModelSwitches({
               disabled={busy !== ''}
             />
             <span className="flex flex-wrap items-baseline gap-x-3 text-xs text-on-surface-variant">
-              <code className="font-mono">{m.id}</code>
+              <code>{m.id}</code>
               {m.max_input_tokens !== undefined && (
                 <span className="tabular-nums">
                   {compact(m.max_input_tokens)} context
@@ -113,7 +112,7 @@ function ModelSwitches({
           </li>
         ))}
       </ul>
-    </div>
+    </Stack>
   )
 }
 

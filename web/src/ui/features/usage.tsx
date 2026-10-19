@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { api, type Usage, type UsageBucket, type UsageScope } from '../../api/client'
 import { RankedBars } from '../charts'
 import { Traffic } from './traffic'
@@ -7,15 +7,17 @@ import { navigate, pathOf } from '../route'
 import { requestsHref } from './requests'
 import {
   AppLink,
-  ErrorState,
+  Button,
   Card,
-  CardTitle,
   Empty,
+  ErrorState,
   Freshness,
-  Spinner,
-  Segmented,
-  SmallButton,
+  Loading,
+  Muted,
+  Overline,
   Stat,
+  StatGrid,
+  WindowPicker,
 } from '../primitives'
 import { compact } from '../format'
 
@@ -61,11 +63,11 @@ function Breakdown({
   const shown = all ? sorted : sorted.slice(0, TOP)
   return (
     <div className="min-w-0">
-      <h3 className="mt-0 mb-2 text-xs font-medium tracking-wide text-on-surface-variant uppercase">
-        {title}
-      </h3>
+      <div className="mb-2">
+        <Overline as="h3">{title}</Overline>
+      </div>
       {shown.length === 0 ? (
-        <p className="m-0 text-sm text-on-surface-variant">Nothing.</p>
+        <Muted>Nothing.</Muted>
       ) : (
         <RankedBars
           scale="log"
@@ -83,22 +85,12 @@ function Breakdown({
       )}
       {sorted.length > TOP && (
         <div className="mt-2">
-          <SmallButton onClick={() => setAll(!all)}>
+          <Button variant="outlined" size="sm" onClick={() => setAll(!all)}>
             {all ? 'Show fewer' : `Show all ${sorted.length}`}
-          </SmallButton>
+          </Button>
         </div>
       )}
     </div>
-  )
-}
-
-/** A section heading inside the usage area, for a card without one of its own. */
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <Card>
-      <CardTitle>{title}</CardTitle>
-      {children}
-    </Card>
   )
 }
 
@@ -134,12 +126,12 @@ export default function ScopedUsage({
   }
   if (data !== null && !data.enabled) {
     return (
-      <Section title="Usage">
+      <Card title="Usage">
         <Empty>
           Per-request history is turned off. Set <code>usage.retention-days</code> above 0 to record
           it.
         </Empty>
-      </Section>
+      </Card>
     )
   }
 
@@ -155,38 +147,27 @@ export default function ScopedUsage({
 
   return (
     <>
-      <Card>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="m-0 text-base font-medium text-on-surface">Totals</h3>
-            <div className="flex items-center gap-2">
-              <Segmented
-                label="Reporting window"
-                value={String(days)}
-                onChange={(v) => setDays(Number(v))}
-                options={WINDOWS.map((d) => ({
-                  id: String(d),
-                  label: `${d} days`,
-                  content: `${d}d`,
-                }))}
-              />
-              <Freshness
-                updatedAt={updatedAt}
-                refreshing={refreshing}
-                live={live}
-                onRefresh={() => void reload()}
-              />
-            </div>
-        </div>
-
+      <Card
+        title="Totals"
+        aside={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <WindowPicker value={days} windows={WINDOWS} onChange={setDays} />
+            <Freshness
+              updatedAt={updatedAt}
+              refreshing={refreshing}
+              live={live}
+              onRefresh={() => void reload()}
+            />
+          </div>
+        }
+      >
         {loading && data === null ? (
-          <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
-            <Spinner /> Loading…
-          </p>
+          <Loading />
         ) : busy ? (
           <Empty>Nothing proxied in the last {days === 1 ? 'day' : `${days} days`}.</Empty>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <StatGrid columns={5}>
               <Stat
                 label="Requests"
                 value={compact(totals.requests)}
@@ -201,22 +182,24 @@ export default function ScopedUsage({
                 hint={`${compact(totals.cache_read_tokens)} read · ${compact(totals.cache_write_tokens)} written`}
               />
               <Stat label="Latency" value={`${totals.median_ms}ms`} hint={`p95 ${totals.p95_ms}ms`} />
+            </StatGrid>
+            <div className="mt-3">
+              <Muted size="xs">
+                Kept for {data?.retention_days ?? 0} days.{' '}
+                <AppLink href={logHref}>Every request in the log</AppLink>
+              </Muted>
             </div>
-            <p className="mt-3 mb-0 text-xs text-on-surface-variant">
-              Kept for {data?.retention_days ?? 0} days.{' '}
-              <AppLink href={logHref}>Every request in the log</AppLink>
-            </p>
           </>
         )}
       </Card>
 
       {!busy && (
         <>
-          <Section title="Over time">
+          <Card title="Over time">
             <Traffic cross={report.cross} days={days} hide={[breakdown === 'key' ? 'account' : 'key']} />
-          </Section>
+          </Card>
 
-          <Section title="Where it went">
+          <Card title="Where it went">
             <div className="grid gap-6 lg:grid-cols-3">
               <Breakdown title="Models" buckets={report.by_model} measure="tokens" />
               {breakdown === 'key' ? (
@@ -231,10 +214,9 @@ export default function ScopedUsage({
               )}
               <Breakdown title="Status codes" buckets={report.by_status} measure="requests" />
             </div>
-          </Section>
+          </Card>
         </>
       )}
-
     </>
   )
 }

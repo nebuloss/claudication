@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { toneFill, type Tone } from '../styles/tone'
 
 /**
@@ -28,5 +29,44 @@ export function UsageBar({
         />
       )}
     </span>
+  )
+}
+
+/**
+ * A meter under its heading: what is measured on the left, the figure on the
+ * right with a word on how to read it, and the bar beneath. The quota windows
+ * and the gateway's memory are both this, so both were drawn twice.
+ *
+ * `alert` sets the figure in the error colour, for a window about to refuse
+ * or memory about to run out; `active` raises the title, for the one window
+ * doing the limiting.
+ */
+export function MeterRow({
+  title,
+  figure,
+  hint,
+  alert = false,
+  active = false,
+  children,
+}: {
+  title: ReactNode
+  figure: ReactNode
+  hint?: ReactNode
+  alert?: boolean
+  active?: boolean
+  /** The bar, and anything that belongs under it. */
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between gap-3 text-xs">
+        <span className={active ? 'font-medium text-on-surface' : 'text-on-surface-variant'}>{title}</span>
+        <span className={`tabular-nums ${alert ? 'font-medium text-error' : 'text-on-surface'}`}>
+          {figure}
+          {hint !== undefined && <span className="ml-2 font-normal text-on-surface-variant">{hint}</span>}
+        </span>
+      </div>
+      {children}
+    </div>
   )
 }

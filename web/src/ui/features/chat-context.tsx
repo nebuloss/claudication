@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { api, type ChatContext, type ChatDetail, type RequestRow } from '../../api/client'
 import { HoverValues, LineChart, tipPosition, type LineSeries, Line } from '../charts'
 import { useLoader } from '../hooks'
-import { ErrorState, Spinner } from '../primitives'
+import { ErrorState, Loading, Muted, Stack } from '../primitives'
 import { compact, timeOfDay } from '../format'
 
 /** The request the gateway makes on its own behalf; see store.InternalPath. */
@@ -48,22 +48,12 @@ export default function ChatContextDetail({
 
   const { points, marks } = useMemo(() => curve(data), [data])
 
-  if (loading && data === null) {
-    return (
-      <p className="m-0 flex items-center gap-2 text-sm text-on-surface-variant">
-        <Spinner /> Loading…
-      </p>
-    )
-  }
+  if (loading && data === null) return <Loading />
   if (error !== '') {
     return <ErrorState message={error} onRetry={() => void reload()} busy={loading} />
   }
   if (data === null || points.length === 0) {
-    return (
-      <p className="m-0 text-sm text-on-surface-variant">
-        No successful request in this chat yet, so there is no context to draw.
-      </p>
-    )
+    return <Muted>No successful request in this chat yet, so there is no context to draw.</Muted>
   }
 
   const ctx = data.context
@@ -73,7 +63,7 @@ export default function ChatContextDetail({
   const shown = hovered !== null ? points[hovered] : undefined
 
   return (
-    <div className="flex flex-col gap-2">
+    <Stack gap={2}>
       <Summary ctx={ctx} requests={data.requests.length} />
       <div className="relative">
         {shown !== undefined && (
@@ -97,7 +87,7 @@ export default function ChatContextDetail({
           marks={marks}
         />
       </div>
-    </div>
+    </Stack>
   )
 }
 

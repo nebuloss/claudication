@@ -6,17 +6,22 @@ import { byProvider, providerLabel } from '../providers'
 import { api, type Account } from '../../api/client'
 import { useAction, useLoader } from '../hooks'
 import {
+  AddButton,
   Banner,
   Card,
   Chip,
   Empty,
+  ErrorBanner,
   Freshness,
   IconButton,
-  AddButton,
-  ListToolbar,
   ListRow,
+  ListSummary,
+  ListToolbar,
+  Loading,
+  Page,
   RowBadge,
-  Spinner,
+  Section,
+  Stack,
 } from '../primitives'
 import { accountStatus } from '../domain/account'
 import { compact } from '../format'
@@ -95,7 +100,7 @@ export default function Accounts() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <Page>
       <ListToolbar
         action={
           <AddButton
@@ -110,9 +115,9 @@ export default function Accounts() {
         }
       >
         {accounts.length > 0 && (
-          <span className="hidden text-sm whitespace-nowrap text-on-surface-variant sm:inline">
+          <ListSummary>
             {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over {windowDays}d
-          </span>
+          </ListSummary>
         )}
         <Freshness
           updatedAt={updatedAt}
@@ -152,35 +157,28 @@ export default function Accounts() {
           </p>
         }
       >
-        {(error || order.error) !== '' && (
-          <Banner tone="error" className="mb-4">
-            {error || order.error}
-          </Banner>
-        )}
+        <ErrorBanner error={error || order.error} className="mb-4" />
 
         {loading ? (
-          <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-            <Spinner /> Loading…
-          </p>
+          <Loading />
         ) : accounts.length === 0 ? (
           <Empty>
             No accounts yet. Add one to give the proxy something to talk to — add several and
             it falls through to the next when one runs out of quota.
           </Empty>
         ) : (
-          <div className="flex flex-col gap-6">
+          <Stack gap={6}>
             {groups.map((g) => {
               const orderable = g.items.length > 1
               const mine = dragging?.provider === g.provider
               return (
-                <section key={g.provider} aria-label={providerLabel(g.provider)}>
-                  {/* Named once there is more than one provider to tell apart. */}
-                  {groups.length > 1 && (
-                    <h3 className="mt-0 mb-2 text-sm font-medium text-on-surface-variant">
-                      {providerLabel(g.provider)} · {g.items.length}
-                    </h3>
-                  )}
-                  <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                <Section
+                  key={g.provider}
+                  label={providerLabel(g.provider)}
+                  // Named once there is more than one provider to tell apart.
+                  title={groups.length > 1 ? `${providerLabel(g.provider)} · ${g.items.length}` : undefined}
+                >
+                  <Stack gap={2} as="ul">
                     {g.items.map((a, i) => (
                       <li
                         key={a.id}
@@ -214,14 +212,14 @@ export default function Accounts() {
                         />
                       </li>
                     ))}
-                  </ul>
-                </section>
+                  </Stack>
+                </Section>
               )
             })}
-          </div>
+          </Stack>
         )}
       </Card>
-    </div>
+    </Page>
   )
 }
 

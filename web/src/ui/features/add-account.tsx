@@ -8,14 +8,15 @@ import {
   type OAuthStart,
 } from '../../api/client'
 import {
+  Actions,
   Banner,
+  Button,
   Card,
-  CardTitle,
   CopyField,
+  ErrorBanner,
   Field,
-  FilledButton,
-  Spinner,
-  TextButton,
+  InlineLink,
+  Stack,
 } from '../primitives'
 import { PROVIDERS } from '../providers'
 import { useSession } from '../session'
@@ -139,16 +140,12 @@ export function ConsentFlow({
 
   return (
     <>
-      {error !== '' && (
-        <Banner tone="error" className="mb-4">
-          {error}
-        </Banner>
-      )}
+      <ErrorBanner error={error} className="mb-4" />
 
       {start === null ? (
         <>
           {who !== undefined ? (
-            <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+            <p className="mb-4 text-sm text-on-surface-variant">
               Sign in as <span className="font-medium text-on-surface">{who}</span> to give this
               account fresh credentials. It keeps its place in the list and its history. If your
               browser is signed in to a different Claude account, Anthropic approves as that one
@@ -156,84 +153,80 @@ export function ConsentFlow({
               link offered on the next step.
             </p>
           ) : (
-            <p className="mt-0 mb-4 text-sm text-on-surface-variant">
+            <p className="mb-4 text-sm text-on-surface-variant">
               Opens the Claude consent screen in a new tab and authorises this gateway using OAuth
               with PKCE. Add one account per subscription: they are served in the order listed
               below, and the next takes over when Anthropic says one has run out. The account
               added is whichever one your browser is signed in to on claude.ai.
             </p>
           )}
-          <FilledButton type="button" onClick={begin} disabled={phase === 'starting'}>
-            {phase === 'starting' && <Spinner />}
+          <Button onClick={begin} busy={phase === 'starting'}>
             {phase === 'starting'
               ? 'Opening…'
               : who !== undefined
                 ? 'Start reconnect'
                 : 'Start Claude login'}
-          </FilledButton>
+          </Button>
         </>
       ) : (
-        <form className="flex flex-col gap-4" onSubmit={finish}>
-          {blocked && (
-            <Banner tone="warn">Your browser blocked the new tab. Open the link below by hand.</Banner>
-          )}
+        <form onSubmit={finish}>
+          <Stack>
+            {blocked && (
+              <Banner tone="warn">Your browser blocked the new tab. Open the link below by hand.</Banner>
+            )}
 
-          <ol className="m-0 flex list-decimal flex-col gap-2 pl-5 text-sm text-on-surface-variant">
-            <li>
-              Approve access
-              {who !== undefined && (
-                <>
-                  {' '}
-                  as <span className="font-medium text-on-surface">{who}</span>
-                </>
-              )}{' '}
-              in the tab that just opened{' '}
-              <a
-                href={start.auth_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-primary underline underline-offset-2"
-              >
-                (reopen it)
-              </a>
-            </li>
-            <li>Anthropic then shows you an authorization code.</li>
-            <li>Paste it below — the whole callback URL works too.</li>
-          </ol>
+            <ol className="m-0 flex list-decimal flex-col gap-2 pl-5 text-sm text-on-surface-variant">
+              <li>
+                Approve access
+                {who !== undefined && (
+                  <>
+                    {' '}
+                    as <span className="font-medium text-on-surface">{who}</span>
+                  </>
+                )}{' '}
+                in the tab that just opened{' '}
+                <InlineLink href={start.auth_url} primary>
+                  (reopen it)
+                </InlineLink>
+              </li>
+              <li>Anthropic then shows you an authorization code.</li>
+              <li>Paste it below — the whole callback URL works too.</li>
+            </ol>
 
-          {who !== undefined && (
-            <CopyField
-              label="Signed in as someone else? Open this in a private window"
-              value={start.auth_url}
+            {who !== undefined && (
+              <CopyField
+                label="Signed in as someone else? Open this in a private window"
+                value={start.auth_url}
+              />
+            )}
+
+            <Field
+              label="Callback URL or code"
+              value={pasted}
+              onChange={setPasted}
+              autoFocus
+              mono
             />
-          )}
 
-          <Field
-            label="Callback URL or code"
-            value={pasted}
-            onChange={setPasted}
-            autoFocus
-            mono
-          />
-
-          <div className="flex flex-wrap items-center gap-2">
-            <FilledButton disabled={phase === 'exchanging'}>
-              {phase === 'exchanging' && <Spinner />}
-              {phase === 'exchanging'
-                ? 'Exchanging…'
-                : who !== undefined
-                  ? 'Finish reconnect'
-                  : 'Finish login'}
-            </FilledButton>
-            <TextButton
-              onClick={() => {
-                reset()
-                onCancel()
-              }}
-            >
-              Cancel
-            </TextButton>
-          </div>
+            <Actions>
+              <Button type="submit" busy={phase === 'exchanging'}>
+                {phase === 'exchanging'
+                  ? 'Exchanging…'
+                  : who !== undefined
+                    ? 'Finish reconnect'
+                    : 'Finish login'}
+              </Button>
+              <Button
+                variant="text"
+                onClick={() => {
+                  reset()
+                  onCancel()
+                }}
+              >
+                Cancel
+              </Button>
+            </Actions>
+          </Stack>
         </form>
       )}
     </>
@@ -254,8 +247,14 @@ export default function AddAccount({
 }) {
   const [provider, setProvider] = useState(PROVIDERS[0].id)
   return (
-    <Card>
-      <CardTitle aside={<TextButton onClick={onCancel}>Cancel</TextButton>}>Add an account</CardTitle>
+    <Card
+      title="Add an account"
+      aside={
+        <Button variant="text" onClick={onCancel}>
+          Cancel
+        </Button>
+      }
+    >
       <div role="radiogroup" aria-label="Provider" className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {PROVIDERS.map((p) => {
           const on = p.id === provider

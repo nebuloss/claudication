@@ -11,15 +11,17 @@ import { navigate, pathOf } from '../route'
 import { providerLabel } from '../providers'
 import {
   AppLink,
-  Banner,
+  Button,
   Card,
-  CardTitle,
   Chip,
   Empty,
+  ErrorBanner,
+  Figures,
   KeyValue,
-  SmallButton,
-  Spinner,
+  Loading,
+  Page,
   Stat,
+  StatGrid,
 } from '../primitives'
 import { accountStatus } from '../domain/account'
 import { compact, dateTime, relative } from '../format'
@@ -58,29 +60,23 @@ export default function AccountPage({
   const rank = accounts.findIndex((a) => a.id === id)
   const account = rank >= 0 ? accounts[rank] : undefined
 
-  if (loading && data === null) {
-    return (
-      <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-        <Spinner /> Loading…
-      </p>
-    )
-  }
+  if (loading && data === null) return <Loading />
   if (account === undefined) {
     return (
-      <div className="flex flex-col gap-5">
-        {error !== '' && <Banner tone="error">{error}</Banner>}
+      <Page>
+        <ErrorBanner error={error} />
         <Empty>
           No such account — it may have been removed. Its past usage is still in the request log
           under the email it was recorded with.
         </Empty>
-      </div>
+      </Page>
     )
   }
 
   const chip = accountStatus(account)
 
   return (
-    <div className="flex flex-col gap-5">
+    <Page>
       <DetailHeader
         kind="accounts"
         id={account.id}
@@ -91,16 +87,16 @@ export default function AccountPage({
             {account.serving && <Chip tone="ok">serving</Chip>}
             <Chip tone={chip.tone}>{chip.label}</Chip>
             {account.quota !== undefined && (
-              <span className="flex items-center gap-3 text-xs tabular-nums text-on-surface">
+              <Figures>
                 <QuotaGauges quota={account.quota} />
-              </span>
+              </Figures>
             )}
           </>
         }
         freshness={{ updatedAt, refreshing, live, onRefresh: () => void reload() }}
       />
 
-      {error !== '' && <Banner tone="error">{error}</Banner>}
+      <ErrorBanner error={error} />
 
       {(page === 'models' || page === 'connection' || page === 'advanced') && (
         <AccountSettings
@@ -115,7 +111,7 @@ export default function AccountPage({
       {page === 'requests' && <RequestsPanel scope={{ account: account.id }} />}
       {page === '' && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatGrid>
             <Stat label="Requests" value={compact(account.requests)} hint={`over ${data?.windowDays ?? 7}d`} />
             <Stat label="Tokens" value={compact(account.tokens)} hint={`over ${data?.windowDays ?? 7}d`} />
             <Stat
@@ -128,19 +124,21 @@ export default function AccountPage({
               value={account.quota !== undefined ? `${Math.round(account.quota.seven_day_util)}%` : '—'}
               hint="used"
             />
-          </div>
-          <Card>
-            <CardTitle
-              info={
-                <p>
-                  As Anthropic reports it, counting every client on this account — not only this
-                  gateway.
-                </p>
-              }
-              aside={
-                <SmallButton
-                  disabled={reading}
-                  onClick={() => {
+          </StatGrid>
+          <Card
+            title="Subscription"
+            info={
+              <p>
+                As Anthropic reports it, counting every client on this account — not only this
+                gateway.
+              </p>
+            }
+            aside={
+              <Button
+                variant="outlined"
+                size="sm"
+                busy={reading}
+                onClick={() => {
                     setReading(true)
                     void api
                       .refreshUsage(account.id)
@@ -149,15 +147,12 @@ export default function AccountPage({
                         setReading(false)
                         void reload()
                       })
-                  }}
-                >
-                  {reading && <Spinner className="size-3" />}
-                  {reading ? 'Reading…' : 'Read again'}
-                </SmallButton>
-              }
-            >
-              Subscription
-            </CardTitle>
+                }}
+              >
+                {reading ? 'Reading…' : 'Read again'}
+              </Button>
+            }
+          >
             <QuotaMeter quota={account.quota} pending={reading} />
           </Card>
           <Card>
@@ -184,9 +179,7 @@ export default function AccountPage({
           </Card>
         </>
       )}
-      {page === 'usage' && (
-          <ScopedUsage scope={{ account: account.id }} breakdown="key" />
-      )}
-    </div>
+      {page === 'usage' && <ScopedUsage scope={{ account: account.id }} breakdown="key" />}
+    </Page>
   )
 }

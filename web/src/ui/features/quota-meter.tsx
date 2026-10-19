@@ -1,6 +1,6 @@
 import type { Quota } from '../../api/client'
 import { QuotaWindow } from '../domain/quota'
-import { UsageBar } from '../primitives'
+import { MeterRow, Muted, Stack, UsageBar } from '../primitives'
 import { relative } from '../format'
 
 /**
@@ -52,9 +52,9 @@ export default function QuotaMeter({
 }) {
   if (quota === undefined) {
     return (
-      <p className="m-0 text-xs text-on-surface-variant">
+      <Muted size="xs">
         {pending ? 'Reading the subscription usage…' : 'Subscription usage is not available yet.'}
-      </p>
+      </Muted>
     )
   }
 
@@ -84,16 +84,16 @@ export default function QuotaMeter({
         ]
 
   return (
-    <div className="flex flex-col gap-3">
+    <Stack gap={3}>
       {rows.map((r) => (
         <Window key={r.title} {...r} />
       ))}
-      <p className="m-0 text-[11px] text-on-surface-variant">
+      <p className="text-[11px] text-on-surface-variant">
         From the account's own usage endpoint, read {relative(quota.updated_at)} — the same figures
         as <span className="font-mono">/usage</span> in Claude Code, so they include whatever else
         uses this account.
       </p>
-    </div>
+    </Stack>
   )
 }
 
@@ -111,9 +111,15 @@ function Window({
   // A window never read has no reset to speak of, and is not the one binding.
   const known = w.percent !== null
   return (
-    <Row
-      title={title}
-      right={w.label}
+    <MeterRow
+      title={
+        <>
+          {title}
+          {/* The server marks the window currently doing the limiting. */}
+          {known && active && <span className="ml-1.5 text-on-surface-variant">· binding</span>}
+        </>
+      }
+      figure={w.label}
       hint={
         w.flag !== ''
           ? w.flag
@@ -121,47 +127,10 @@ function Window({
             ? `resets ${relative(resets)}`
             : undefined
       }
-      tone={w.level === 'critical' ? 'error' : undefined}
+      alert={w.level === 'critical'}
       active={known && active}
     >
       <UsageBar percent={w.percent} tone={w.tone} />
-    </Row>
-  )
-}
-
-function Row({
-  title,
-  right,
-  hint,
-  tone,
-  active,
-  children,
-}: {
-  title: string
-  right: string
-  hint?: string
-  tone?: 'error'
-  active: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <div className="mb-1 flex items-baseline justify-between gap-3 text-xs">
-        <span className={active ? 'font-medium text-on-surface' : 'text-on-surface-variant'}>
-          {title}
-          {/* The server marks the window currently doing the limiting. */}
-          {active && <span className="ml-1.5 text-on-surface-variant">· binding</span>}
-        </span>
-        <span
-          className={`tabular-nums ${tone === 'error' ? 'font-medium text-error' : 'text-on-surface'}`}
-        >
-          {right}
-          {hint !== undefined && (
-            <span className="ml-2 font-normal text-on-surface-variant">{hint}</span>
-          )}
-        </span>
-      </div>
-      {children}
-    </div>
+    </MeterRow>
   )
 }

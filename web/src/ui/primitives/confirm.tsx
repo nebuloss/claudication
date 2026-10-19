@@ -8,7 +8,9 @@ import {
   type ReactNode,
 } from 'react'
 import { useAction } from '../hooks'
-import { Banner, FilledButton, Modal, Spinner, TextButton } from './index'
+import { Button } from './button'
+import { ErrorBanner } from './feedback'
+import { Modal } from './modal'
 
 /**
  * A question to put to the operator before doing something that cannot be
@@ -74,24 +76,18 @@ export function ConfirmDialog({
     <Modal title={title} onClose={cancel}>
       <div onKeyDown={onKeyDown}>
         {body !== undefined && <div className="text-sm text-on-surface-variant">{body}</div>}
-        {error !== '' && (
-          <Banner tone="error" className="mt-4">
-            {error}
-          </Banner>
-        )}
+        <ErrorBanner error={error} className="mt-4" />
         <div className="mt-6 flex justify-end gap-2">
-          <TextButton onClick={cancel} disabled={pending} autoFocus>
+          <Button variant="text" onClick={cancel} disabled={pending} autoFocus>
             Cancel
-          </TextButton>
-          <FilledButton
-            type="button"
+          </Button>
+          <Button
             tone={tone === 'danger' ? 'error' : undefined}
             onClick={() => void accept()}
-            disabled={pending}
+            busy={pending}
           >
-            {pending && <Spinner />}
             {confirmLabel}
-          </FilledButton>
+          </Button>
         </div>
       </div>
     </Modal>

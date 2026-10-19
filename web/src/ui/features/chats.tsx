@@ -9,16 +9,21 @@ import { LogScale, Palette } from '../charts'
 import { useAction, useLoader } from '../hooks'
 import ChatContextDetail from './chat-context'
 import { requestsHref, type RequestFilter } from './requests'
-import { navigate } from '../route'
 import {
+  AppLink,
   Card,
   ContextMenu,
   Empty,
+  ErrorBanner,
   ErrorState,
+  Loading,
   MenuRow,
-  Segmented,
-  Spinner,
+  Muted,
+  Stack,
   Table,
+  Td,
+  Tr,
+  WindowPicker,
   type Column,
 } from '../primitives'
 import { between, compact, sameDayStamp } from '../format'
@@ -108,11 +113,8 @@ function shortID(id: string): string {
 }
 
 /**
- * A number that opens the request log filtered to what it counted.
- *
- * An <a> with a real href, so middle-click and "open in new tab" work and the
- * status bar says where it goes; the click is intercepted only to avoid
- * rebuilding the whole app to change a query parameter.
+ * A number that opens the request log filtered to what it counted. A real
+ * link, so the filter it carries can be shared, bookmarked and walked back to.
  */
 function RequestLink({
   filter,
@@ -123,21 +125,10 @@ function RequestLink({
   tone?: 'error'
   children: ReactNode
 }) {
-  const href = requestsHref(filter)
   return (
-    <a
-      href={href}
-      onClick={(e) => {
-        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
-        e.preventDefault()
-        navigate(href)
-      }}
-      className={`state-layer rounded-md3-xs px-1 underline decoration-dotted underline-offset-2 ${
-        tone === 'error' ? 'text-error' : 'hover:text-primary'
-      }`}
-    >
+    <AppLink href={requestsHref(filter)} cell tone={tone}>
       {children}
-    </a>
+    </AppLink>
   )
 }
 
@@ -161,23 +152,14 @@ export function ChatsPage({ scope = {} }: { scope?: UsageScope }) {
   // The window above the card rather than in it, so the card starts with
   // the chats.
   return (
-    <div className="flex flex-col gap-3">
+    <Stack gap={3}>
       <div className="flex justify-end">
-        <Segmented
-          label="Reporting window"
-          value={String(days)}
-          onChange={(v) => setDays(Number(v))}
-          options={CHAT_WINDOWS.map((d) => ({
-            id: String(d),
-            label: `${d} days`,
-            content: `${d}d`,
-          }))}
-        />
+        <WindowPicker value={days} windows={CHAT_WINDOWS} onChange={setDays} />
       </div>
       <Card>
         <ChatsPanel days={days} scope={scope} />
       </Card>
-    </div>
+    </Stack>
   )
 }
 
@@ -249,13 +231,7 @@ export default function ChatsPanel({
     return (v: number) => (leader > 0 ? Math.max(2, (scale.y(v) / leader) * 100) : 2)
   }, [sorted])
 
-  if (loading && data === null) {
-    return (
-      <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-        <Spinner /> Loading…
-      </p>
-    )
-  }
+  if (loading && data === null) return <Loading />
   if (error !== '') {
     return <ErrorState message={error} onRetry={() => void reload()} busy={loading} />
   }
@@ -274,7 +250,7 @@ export default function ChatsPanel({
   })
 
   return (
-    <div className="flex flex-col gap-3">
+    <Stack gap={3}>
       <Table
         cap
         resizable="chats"
@@ -291,16 +267,12 @@ export default function ChatsPanel({
       >
         {sorted.map((c) => (
           <Fragment key={c.id}>
-            <tr
-              className={`border-b border-outline-variant last:border-0 ${
-                open === c.id ? 'bg-surface-container/40' : ''
-              }`}
-            >
+            <Tr selected={open === c.id}>
               {/* The name when there is one, the id when there is not. The id
                   stays on the line beneath either way: it is the join key back to
                   the client's own session list, which is where the conversation
                   itself can actually be read. */}
-              <td className="px-2 py-2">
+              <Td>
                 {editing === c.id ? (
                   <TitleEditor
                     initial={c.title}
@@ -346,11 +318,11 @@ export default function ChatsPanel({
                     </MenuRow>
                   </ContextMenu>
                 )}
-              </td>
-              <td className="px-2 py-2 whitespace-nowrap text-on-surface-variant">
+              </Td>
+              <Td muted nowrap>
                 {c.client || '—'}
-              </td>
-              <td className="px-2 py-2 whitespace-nowrap">
+              </Td>
+              <Td nowrap>
                 <div className="flex items-center gap-2">
                   {c.models.map((m) => (
                     <span key={m} className="flex items-center gap-1 text-xs">
@@ -362,10 +334,10 @@ export default function ChatsPanel({
                       {m.replace(/^claude-/, '')}
                     </span>
                   ))}
-                  {c.models.length === 0 && <span className="text-on-surface-variant">—</span>}
+                  {c.models.length === 0 && <Muted as="span">—</Muted>}
                 </div>
-              </td>
-              <td className="px-2 py-2 whitespace-nowrap">
+              </Td>
+              <Td nowrap>
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-24 shrink-0 overflow-hidden rounded-sm bg-surface-container">
                     <span
@@ -378,10 +350,10 @@ export default function ChatsPanel({
                   </span>
                   <span className="tabular-nums">{compact(tokens(c))}</span>
                 </div>
-              </td>
+              </Td>
               {/* What the client resends each turn, and how often it has started
                   over. The peak is the question a compaction setting answers. */}
-              <td className="px-2 py-2 whitespace-nowrap">
+              <Td nowrap>
                 {c.context !== undefined && c.context.model !== '' ? (
                   <div className="flex flex-col">
                     <span className="tabular-nums text-on-surface">{compact(c.context.now)}</span>
@@ -391,15 +363,15 @@ export default function ChatsPanel({
                     </span>
                   </div>
                 ) : (
-                  <span className="text-on-surface-variant">—</span>
+                  <Muted as="span">—</Muted>
                 )}
-              </td>
+              </Td>
               {/* Both numbers link into the request log, on different filters:
                   the total asks "what happened in this chat", the failures ask
                   "which ones broke". They are real links — the URL carries the
                   filter, so it can be shared, bookmarked and walked back to —
                   rather than a list this table grows for itself. */}
-              <td className="px-2 py-2 tabular-nums whitespace-nowrap">
+              <Td nums nowrap>
                 <RequestLink filter={{ chat: [c.id] }}>
                   {c.requests}
                 </RequestLink>
@@ -411,17 +383,14 @@ export default function ChatsPanel({
                     · {c.errors} failed
                   </RequestLink>
                 )}
-              </td>
-              <td
-                title={c.first}
-                className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant"
-              >
+              </Td>
+              <Td title={c.first} nums nowrap muted>
                 {sameDayStamp(c.first, 'minute', '—')}
-              </td>
-              <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
+              </Td>
+              <Td nums nowrap muted>
                 {between(c.first, c.last)}
-              </td>
-            </tr>
+              </Td>
+            </Tr>
             {open === c.id && (
               <tr className="border-b border-outline-variant bg-surface-container/40">
                 <td colSpan={8} className="px-3 pt-1 pb-4">
@@ -442,42 +411,38 @@ export default function ChatsPanel({
             chat — a fabricated grouping is indistinguishable from a true one
             once it is in the table. */}
         {anonymous && (
-          <tr className="border-t border-outline-variant bg-surface-container/40">
-            <td className="px-2 py-2">
+          <Tr total>
+            <Td muted>
               <div className="flex flex-col">
-                <span className="font-medium text-on-surface-variant">Unattributed</span>
-                <span className="text-xs text-on-surface-variant italic">no session id sent</span>
+                <span className="font-medium">Unattributed</span>
+                <span className="text-xs italic">no session id sent</span>
               </div>
-            </td>
-            <td className="px-2 py-2 text-on-surface-variant">—</td>
-            <td className="px-2 py-2 text-on-surface-variant">—</td>
-            <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
+            </Td>
+            <Td muted>—</Td>
+            <Td muted>—</Td>
+            <Td muted nums nowrap>
               {compact(tokens(unattributed))}
-            </td>
-            <td className="px-2 py-2 text-on-surface-variant">—</td>
-            <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
+            </Td>
+            <Td muted>—</Td>
+            <Td muted nums nowrap>
               {unattributed.requests}
               {unattributed.errors > 0 && <span> · {unattributed.errors} failed</span>}
-            </td>
-            <td className="px-2 py-2 text-on-surface-variant">—</td>
-            <td className="px-2 py-2 text-on-surface-variant">—</td>
-          </tr>
+            </Td>
+            <Td muted>—</Td>
+            <Td muted>—</Td>
+          </Tr>
         )}
       </Table>
 
-      {rename.error !== '' && (
-        <p role="alert" className="m-0 text-sm text-error">
-          {rename.error}
-        </p>
-      )}
+      <ErrorBanner error={rename.error} />
 
-      <p className="m-0 text-xs text-on-surface-variant">
+      <Muted size="xs">
         A chat is grouped by the session id its client sends, never by anything read from the
         messages. Context is what its main model is resent each turn; open a chat to see it grow
         and where its client compacted. Right-click a chat’s name to rename it. {report !== undefined && report.total > sorted.length
           ? `Showing the ${sorted.length} busiest of ${report.total}.`
           : ''}
-      </p>
-    </div>
+      </Muted>
+    </Stack>
   )
 }

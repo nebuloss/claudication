@@ -247,6 +247,33 @@ export function useAction<K extends string = string>({
 }
 
 /**
+ * A value the operator just changed, shown changed before the server agrees.
+ *
+ * The settings switches were driven straight off the reloaded config, so
+ * flipping one did nothing until the write and the refetch had both come back
+ * — a visible pause in which the control sits where you did not put it, which
+ * reads as the click having missed. Four cards then each wrote the fix out by
+ * hand. `apply(next, write)` moves it at once and moves it back if `write`
+ * (a useAction run) reports a failure; whenever the server's `value` changes —
+ * the reload landing, or someone else changing it — that is what is shown.
+ *
+ * `value` must be a primitive: it is compared by identity to know when the
+ * server has spoken.
+ */
+export function useOptimistic<T extends string | number | boolean>(value: T) {
+  const [shown, setShown] = useState(value)
+  useEffect(() => setShown(value), [value])
+  const apply = useCallback(
+    async (next: T, write: () => Promise<boolean>) => {
+      setShown(next)
+      if (!(await write())) setShown(value)
+    },
+    [value],
+  )
+  return [shown, apply] as const
+}
+
+/**
  * A clock that ticks only as often as something needs re-rendering.
  *
  * "Updated 12s ago" is a lie the moment it is painted unless something

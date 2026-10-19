@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { TonalButton, copyText, ErrorModal, saveAs, RevealButton, CONCEAL } from './index'
+import { Button } from './button'
+import { CONCEAL, CopyButton, RevealButton, saveAs } from './copy'
 
 /**
  * A bounded, scrollable, highlighted view of a config file.
@@ -81,13 +82,6 @@ const COMPILED: Record<Lang, RegExp> = Object.fromEntries(
 ) as Record<Lang, RegExp>
 
 /**
- * Highlight one line.
- *
- * Line at a time is safe here and keeps the gutter honest: none of the three
- * languages has a string that spans lines in the files this shows, so no state
- * carries between them and a line can be rendered on its own.
- */
-/**
  * A line with a secret in it: the secret drawn as password dots, the rest
  * highlighted as usual. Still the text itself underneath, so it can be
  * selected and copied from the file like any other line — the dots only keep
@@ -104,6 +98,13 @@ function concealed(line: string, secret: string, lang: Lang): ReactNode {
   ))
 }
 
+/**
+ * Highlight one line.
+ *
+ * Line at a time is safe here and keeps the gutter honest: none of the three
+ * languages has a string that spans lines in the files this shows, so no state
+ * carries between them and a line can be rendered on its own.
+ */
 function highlight(line: string, lang: Lang): ReactNode {
   const re = COMPILED[lang]
   const rules = RULES[lang]
@@ -164,8 +165,6 @@ export function CodeViewer({
    */
   conceal?: string
 }) {
-  const [copied, setCopied] = useState(false)
-  const [failed, setFailed] = useState(false)
   const [shown, setShown] = useState(false)
 
   const [expanded, setExpanded] = useState(false)
@@ -196,15 +195,6 @@ export function CodeViewer({
   const scrolls = expanded && long
   const gutter = String(raw.length).length
 
-  const copy = async () => {
-    if (await copyText(value)) {
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
-      return
-    }
-    setFailed(true)
-  }
-
   return (
     <div className="overflow-hidden rounded-md3-l bg-surface-lowest">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-outline-variant bg-surface-high px-3 py-2">
@@ -214,8 +204,10 @@ export function CodeViewer({
         </span>
         <span className="ml-auto flex items-center gap-2">
           {conceal !== '' && <RevealButton shown={shown} onToggle={() => setShown(!shown)} />}
-          <TonalButton onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</TonalButton>
-          <TonalButton onClick={() => saveAs(filename, value)}>Download</TonalButton>
+          <CopyButton value={value} failure={NO_CLIPBOARD} />
+          <Button variant="tonal" onClick={() => saveAs(filename, value)}>
+            Download
+          </Button>
         </span>
       </div>
 
@@ -258,19 +250,14 @@ export function CodeViewer({
         </button>
       )}
 
-      {failed && (
-        <ErrorModal
-          title="Could not copy"
-          onClose={() => setFailed(false)}
-          message={
-            <>
-              The browser will only give a page the clipboard over HTTPS, and this gateway is being
-              served over plain HTTP. Nothing was copied — use Download instead, which works either
-              way.
-            </>
-          }
-        />
-      )}
     </div>
   )
 }
+
+/** A file has a better way out than selecting a thousand lines by hand. */
+const NO_CLIPBOARD = (
+  <>
+    The browser will only give a page the clipboard over HTTPS, and this gateway is being served
+    over plain HTTP. Nothing was copied — use Download instead, which works either way.
+  </>
+)

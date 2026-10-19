@@ -6,7 +6,7 @@ import PublicDocs from './public-docs'
 import Security from './security'
 import Surfaces from './surfaces'
 import { type GatewayConfig, type Session } from '../../api/client'
-import { Card, Empty, Spinner } from '../primitives'
+import { Card, Empty, Loading, Page } from '../primitives'
 
 /**
  * Settings: a page per section (/settings/<section>) — the model aliases
@@ -64,9 +64,7 @@ export default function Settings({
     if (loading && data === null) {
       return (
         <Card>
-          <p className="flex items-center gap-2 text-sm text-on-surface-variant">
-            <Spinner /> Loading…
-          </p>
+          <Loading />
         </Card>
       )
     }
@@ -103,5 +101,5 @@ export default function Settings({
     }
   })()
 
-  return <div className="flex flex-col gap-5">{page}</div>
+  return <Page>{page}</Page>
 }

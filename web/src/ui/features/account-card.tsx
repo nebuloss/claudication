@@ -5,15 +5,13 @@ import { useAction } from '../hooks'
 import { api, type Account, type ProbeResult } from '../../api/client'
 import { dateTime, relative } from '../format'
 import {
+  Actions,
   Banner,
-  Note,
+  Button,
   Card,
-  CardTitle,
-  FilledButton,
+  DangerZone,
+  ErrorBanner,
   KeyValue,
-  OutlinedButton,
-  Spinner,
-  TonalButton,
   Verbatim,
   tile,
   useConfirm,
@@ -123,43 +121,43 @@ export default function AccountSettings({
           </div>
         )}
 
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          {reauthDue && !reconnecting && (
-            <FilledButton type="button" onClick={() => setReconnecting(true)} disabled={busy !== ''}>
-              Reconnect
-            </FilledButton>
-          )}
-          <TonalButton
-            onClick={() =>
-              void run('test', async () => {
-                setProbe(null)
-                setProbe(await api.testAccount(account.id))
-              })
-            }
-            disabled={busy !== ''}
-          >
-            {busy === 'test' && <Spinner />}
-            {busy === 'test' ? 'Testing…' : 'Test'}
-          </TonalButton>
-          <OutlinedButton
-            onClick={() => void run('refresh', () => api.refreshAccount(account.id))}
-            disabled={busy !== ''}
-          >
-            {busy === 'refresh' && <Spinner />}
-            {busy === 'refresh' ? 'Refreshing…' : 'Refresh token'}
-          </OutlinedButton>
-          {!reauthDue && !reconnecting && (
-            <OutlinedButton onClick={() => setReconnecting(true)} disabled={busy !== ''}>
-              Reconnect
-            </OutlinedButton>
-          )}
+        <div className="mt-5">
+          <Actions>
+            {reauthDue && !reconnecting && (
+              <Button onClick={() => setReconnecting(true)} disabled={busy !== ''}>
+                Reconnect
+              </Button>
+            )}
+            <Button
+              variant="tonal"
+              onClick={() =>
+                void run('test', async () => {
+                  setProbe(null)
+                  setProbe(await api.testAccount(account.id))
+                })
+              }
+              busy={busy === 'test'}
+              disabled={busy !== ''}
+            >
+              {busy === 'test' ? 'Testing…' : 'Test'}
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => void run('refresh', () => api.refreshAccount(account.id))}
+              busy={busy === 'refresh'}
+              disabled={busy !== ''}
+            >
+              {busy === 'refresh' ? 'Refreshing…' : 'Refresh token'}
+            </Button>
+            {!reauthDue && !reconnecting && (
+              <Button variant="outlined" onClick={() => setReconnecting(true)} disabled={busy !== ''}>
+                Reconnect
+              </Button>
+            )}
+          </Actions>
         </div>
         {probe && <ProbeReport probe={probe} />}
-        {error !== '' && (
-          <Banner tone="error" className="mt-4">
-            {error}
-          </Banner>
-        )}
+        <ErrorBanner error={error} className="mt-4" />
       </Card>
     )
   }
@@ -168,6 +166,7 @@ export default function AccountSettings({
   return (
     <>
       <Card
+        title={account.disabled ? 'Resume this account' : 'Pause this account'}
         info={
           <p>
             Pausing takes an account out of rotation without signing it out: it serves nothing, and
@@ -175,32 +174,33 @@ export default function AccountSettings({
           </p>
         }
       >
-        <CardTitle>{account.disabled ? 'Resume this account' : 'Pause this account'}</CardTitle>
-        <OutlinedButton
+        <Button
+          variant="outlined"
           onClick={() =>
             void run('disable', () => api.setAccountDisabled(account.id, !account.disabled))
           }
+          busy={busy === 'disable'}
           disabled={busy !== ''}
         >
-          {busy === 'disable' && <Spinner />}
           {account.disabled ? 'Resume' : 'Pause'}
-        </OutlinedButton>
+        </Button>
       </Card>
 
       {/* Removing destroys the credentials and revokes the token upstream, so
           getting the account back means the browser consent flow again. */}
-      <Card>
-        <CardTitle>Remove this account</CardTitle>
-        <Note tone="error" className="mb-4">
-          The stored credentials are destroyed and the token is revoked with Anthropic. Its usage
-          stays in the history, under its email.
-        </Note>
-        <OutlinedButton onClick={() => void runDelete()} disabled={busy !== ''} tone="error">
-          Remove {account.email}
-        </OutlinedButton>
-      </Card>
+      <DangerZone
+        title="Remove this account"
+        action={
+          <Button variant="outlined" tone="error" onClick={() => void runDelete()} disabled={busy !== ''}>
+            Remove {account.email}
+          </Button>
+        }
+      >
+        The stored credentials are destroyed and the token is revoked with Anthropic. Its usage
+        stays in the history, under its email.
+      </DangerZone>
 
-      {error !== '' && <Banner tone="error">{error}</Banner>}
+      <ErrorBanner error={error} />
     </>
   )
 }
@@ -209,7 +209,7 @@ function ProbeReport({ probe }: { probe: ProbeResult }) {
   if (!probe.ok) {
     return (
       <div className="mt-4 rounded-md3-m bg-error-container p-4">
-        <p className="mt-0 mb-2 text-sm font-medium text-on-error-container">
+        <p className="mb-2 text-sm font-medium text-on-error-container">
           Failed — HTTP {probe.status} in {probe.latency_ms} ms
           {probe.request_id ? ` · ${probe.request_id}` : ''}
         </p>
@@ -225,7 +225,7 @@ function ProbeReport({ probe }: { probe: ProbeResult }) {
   ]
   return (
     <div className="mt-4 rounded-md3-m bg-success-container p-4">
-      <p className="mt-0 mb-2 text-sm font-medium text-on-success-container">
+      <p className="mb-2 text-sm font-medium text-on-success-container">
         Works — {facts.join(' · ')}
       </p>
       {probe.reply && <Verbatim>{probe.reply}</Verbatim>}
