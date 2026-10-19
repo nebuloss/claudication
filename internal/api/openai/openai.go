@@ -59,6 +59,12 @@ func (API) WriteError(w http.ResponseWriter, status int, kind, message string) {
 	_, _ = w.Write(ErrorEnvelope(kind, message))
 }
 
+// ModelEvents are the events that carry the whole response object, whose
+// model field is the one Codex reads. Each repeats it, so each is renamed.
+func (API) ModelEvents() []string {
+	return []string{evCreated, evInProgress, evCompleted, evFailed, evIncomplete}
+}
+
 // ConversationID reads the chat id Codex sends.
 //
 // It sends both, with the same UUID in each: session_id names the CLI session

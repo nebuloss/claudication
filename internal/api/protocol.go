@@ -43,6 +43,14 @@ type Protocol interface {
 	// Protocol rather than in the relay — the evidence for each belongs beside
 	// the dialect it was measured from. See conversation.go for the table.
 	ConversationID(h http.Header, body []byte) string
+
+	// ModelEvents names the streamed events in which this dialect's answer
+	// says which model served it, in its top-level message or response
+	// object. A request that named a model role has that one field said back
+	// as the role, and only that one: elsewhere a "model" key can be the
+	// model's own output, a tool argument, and is the caller's. Which events
+	// carry it is per dialect, so the dialect says.
+	ModelEvents() []string
 }
 
 // Exchange is one request in flight: the Anthropic request to relay, and the

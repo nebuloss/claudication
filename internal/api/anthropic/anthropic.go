@@ -56,6 +56,10 @@ func (API) WriteError(w http.ResponseWriter, status int, kind, message string) {
 	})
 }
 
+// ModelEvents is message_start alone: it is the one event whose message
+// names the model, and its content is still empty when it does.
+func (API) ModelEvents() []string { return []string{"message_start"} }
+
 // ConversationID reads the chat id out of a request in this dialect.
 //
 // Three clients speak Anthropic to this gateway and they do not agree on a

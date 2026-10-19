@@ -268,6 +268,8 @@ func (stubProtocol) WriteError(http.ResponseWriter, int, string, string) {}
 
 func (stubProtocol) ConversationID(http.Header, []byte) string { return "" }
 
+func (stubProtocol) ModelEvents() []string { return nil }
+
 // Find is how a stored switch is matched back to its surface.
 func TestRegistryFind(t *testing.T) {
 	r := Registry{stubProtocol{"anthropic"}, stubProtocol{"openai"}}

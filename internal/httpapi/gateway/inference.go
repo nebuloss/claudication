@@ -148,7 +148,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// The answer names the model the client asked for. Wrapped beneath
 		// the dialect's sink, so the Responses translation is renamed too.
 		if virtual != "" {
-			renamer := passes.NewModelRenamer(w, virtual)
+			renamer := passes.NewModelRenamer(w, virtual, p.ModelEvents())
 			defer renamer.Finish()
 			w = renamer
 		}

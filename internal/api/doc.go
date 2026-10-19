@@ -42,7 +42,8 @@
 //  2. The answer mapping: three of them, because an upstream answer arrives in
 //     three shapes. NewReshapingSink already sorts them out and calls back
 //     into a Reshaper, so a new dialect writes the conversions and not the
-//     plumbing.
+//     plumbing. With it, the streamed events that carry the model's name
+//     (Protocol.ModelEvents), so a model role can be said back in them.
 //  3. The error envelope, so a client can parse a refusal. An error a client
 //     cannot read is an error it cannot act on, and it will usually retry.
 //  4. Registration in internal/httpapi, which is the composition root: it
