@@ -480,29 +480,50 @@ func TestRunProceedsUnderBudget(t *testing.T) {
 	}
 }
 
-// A refusal or an answer that is not a title must leave the chat unnamed and
-// file nothing: no name was got, and no retry is made.
+// A refusal or an answer that is not a title must leave the chat unnamed, and
+// no retry is made. Each still files the request it cost, when it cost one: a
+// wasted call spends the internal key's budget like any other, and leaving it
+// out is how the cap on titling came to let through exactly those calls.
 func TestRunStoresNothingWithoutATitle(t *testing.T) {
-	for name, setup := range map[string]func(h *harness){
-		"upstream refused": func(h *harness) {
+	for name, tc := range map[string]struct {
+		setup func(h *harness)
+		// status is the row that must be filed, 0 for none.
+		status int
+	}{
+		"upstream refused": {func(h *harness) {
 			h.up.status = http.StatusBadRequest
-			h.up.answer = `{"type":"error","error":{"type":"invalid_request_error"}}`
-		},
-		"model answered the conversation": func(h *harness) {
-			h.up.answer = `{"content":[{"type":"text","text":"` + strings.Repeat("I will read the parser. ", 10) + `"}]}`
-		},
+			h.up.answer = `{"type":"error","error":{"type":"invalid_request_error","message":"no"}}`
+		}, http.StatusBadRequest},
+		"model answered the conversation": {func(h *harness) {
+			h.up.answer = `{"content":[{"type":"text","text":"` + strings.Repeat("I will read the parser. ", 10) + `"}],
+				"usage":{"input_tokens":5,"output_tokens":40}}`
+		}, http.StatusOK},
 		// Falling back to another account would buy a title at full price,
-		// since the cache lives on the account that is cooling.
-		"chat's account is cooling": func(h *harness) { h.pool.cooling["a2"] = true },
+		// since the cache lives on the account that is cooling. Nothing was
+		// sent, so nothing is filed.
+		"chat's account is cooling": {func(h *harness) { h.pool.cooling["a2"] = true }, 0},
 	} {
 		h := newHarness(t)
-		setup(h)
+		tc.setup(h)
 		h.titler.run(context.Background(), h.ev())
 		if _, _, ok := h.st.title("chat-1"); ok {
 			t.Errorf("%s: a title was stored", name)
 		}
-		if len(h.recorded) != 0 {
-			t.Errorf("%s: a request was recorded", name)
+		if tc.status == 0 {
+			if len(h.recorded) != 0 {
+				t.Errorf("%s: a request was recorded", name)
+			}
+			continue
+		}
+		r := h.waitRecorded(t)
+		if r.ev.Status != tc.status || r.ev.AccountID != "a2" || r.ev.ConversationID != "chat-1" {
+			t.Errorf("%s: recorded %+v", name, r.ev)
+		}
+		if failed := tc.status != http.StatusOK; failed != (r.ev.Error != "") {
+			t.Errorf("%s: status %d recorded with error %q", name, r.ev.Status, r.ev.Error)
+		}
+		if tc.status == http.StatusOK && r.ev.OutputTokens != 40 {
+			t.Errorf("%s: output tokens = %d, want what the call spent", name, r.ev.OutputTokens)
 		}
 	}
 
@@ -519,17 +540,16 @@ func TestRunStoresNothingWithoutATitle(t *testing.T) {
 	}
 }
 
-// A title that could not be stored is not recorded either: nothing would show
-// what it bought.
-func TestRunDoesNotRecordAnUnstoredTitle(t *testing.T) {
+// A title that could not be stored was still paid for, so it is still filed.
+func TestRunRecordsAnUnstoredTitle(t *testing.T) {
 	h := newHarness(t)
 	h.st.setTitleErr = errors.New("disk full")
 	h.titler.run(context.Background(), h.ev())
 	if h.up.count() != 1 {
 		t.Fatalf("upstream asked %d times", h.up.count())
 	}
-	if len(h.recorded) != 0 {
-		t.Error("an unstored title was recorded")
+	if r := h.waitRecorded(t); r.ev.Status != http.StatusOK || r.ev.InputTokens != 5 {
+		t.Errorf("recorded %+v, want the call it cost", r.ev)
 	}
 }
 

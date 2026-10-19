@@ -801,6 +801,16 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 
 	started := time.Now()
 	res := relayed.Do(sink, req, "anthropic", "/v1/messages?beta=true", body, request.Peek(body))
+	// Recorded whatever came of it, once an account was used: a call that was
+	// refused, or that answered with no usable title, spent as much as one
+	// that named the chat — and those wasted calls are the ones the operator
+	// most needs to see. Filing only stored titles understated the internal
+	// key's spend, which is what its budget is checked against, so the cap
+	// on titling let through exactly the calls that bought nothing. No account
+	// means the pool refused before anything was sent, and nothing was spent.
+	if res.AccountID != "" {
+		t.deps.Record(titleUsage(started, keyID, keyName, conversation, model, res), 0)
+	}
 	if res.Err != nil {
 		return "", res.Err
 	}
@@ -816,11 +826,19 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 		t.deps.Log.Warn("could not store a chat title", "err", err)
 		return "", err
 	}
+	return title, nil
+}
 
-	// Recorded like any other request, under the gateway's own key and against
-	// the chat it names, so the cost of naming a conversation is part of what
-	// that conversation cost rather than an unexplained line item.
-	t.deps.Record(store.UsageEvent{
+// titleUsage is the row a title request files: like any other request's,
+// under the gateway's own key and against the chat it names, so the cost of
+// naming a conversation is part of what that conversation cost rather than an
+// unexplained line item.
+//
+// Error is filled the way a client request's is, so the recorder classifies
+// it into ErrorCode the same way: this gateway's own failure first, then a
+// stream that died after its 200, then what the upstream said refusing.
+func titleUsage(started time.Time, keyID, keyName, conversation, model string, res relay.Result) store.UsageEvent {
+	e := store.UsageEvent{
 		At: started, KeyID: keyID, KeyName: keyName,
 		AccountID: res.AccountID, AccountEmail: res.AccountEmail,
 		Model: model, Path: store.InternalPath,
@@ -836,8 +854,18 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 		CacheReadTokens:  res.Usage.CacheReadTokens,
 		CacheWriteTokens: res.Usage.CacheCreationTokens,
 		Duration:         time.Since(started),
-	}, 0)
-	return title, nil
+	}
+	switch {
+	case res.Err != nil:
+		e.Error = res.Err.Error()
+	case res.StreamError != "":
+		e.Error = res.StreamError
+	case res.UpstreamError != "":
+		e.Error = res.UpstreamError
+	case res.Status != http.StatusOK:
+		e.Error = fmt.Sprintf("the upstream answered %d", res.Status)
+	}
+	return e
 }
 
 // userTurns counts the messages the user typed, as opposed to the user-role
