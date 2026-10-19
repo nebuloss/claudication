@@ -18,6 +18,7 @@ import {
   Stat,
   compact,
   duration,
+  UsageBar,
 } from '../primitives'
 
 /**
@@ -44,7 +45,7 @@ function MemoryCard({ memory }: { memory: MemorySnapshot }) {
   const limit = memory.limit_bytes
   const pct = limit > 0 ? Math.min(100, Math.round((memory.rss_bytes / limit) * 100)) : undefined
   const tight = pct !== undefined && pct >= 90
-  const colour = tight ? 'bg-error' : pct !== undefined && pct >= 75 ? 'bg-warning' : 'bg-primary'
+  const tone = tight ? 'error' : pct !== undefined && pct >= 75 ? 'warn' : 'neutral'
 
   return (
     <Card>
@@ -61,12 +62,7 @@ function MemoryCard({ memory }: { memory: MemorySnapshot }) {
               )}
             </span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-surface-high">
-            <div
-              className={`h-full rounded-full ${colour}`}
-              style={{ width: `${Math.max(pct ?? 0, 1)}%` }}
-            />
-          </div>
+          <UsageBar percent={pct ?? 0} tone={tone} />
           {limit === 0 && (
             <p className="mt-1 mb-0 text-[11px] text-on-surface-variant">
               No limit known. Set <code>memory-limit</code> on a container that cannot see its

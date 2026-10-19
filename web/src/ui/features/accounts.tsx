@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { status } from './account-card'
 import AddAccount from './add-account'
+import { QuotaGauges } from './quota-meter'
 import { accountHref } from './usage'
 import { byProvider, providerLabel } from '../providers'
 import { api, type Account } from '../../api/client'
@@ -224,21 +225,6 @@ export default function Accounts() {
   )
 }
 
-/** A subscription window's fill, as a short bar and a figure. */
-export function Window({ label, util }: { label: string; util: number }) {
-  const pct = Math.max(0, Math.min(100, Math.round(util)))
-  const tone = pct >= 90 ? 'bg-error' : pct >= 70 ? 'bg-warning' : 'bg-success'
-  return (
-    <span className="flex items-center gap-1.5" title={`${label}: ${pct}% used`}>
-      <span className="w-5 text-on-surface-variant">{label}</span>
-      <span className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-high">
-        <span className={`block h-full ${tone}`} style={{ width: `${pct}%` }} />
-      </span>
-      <span className="w-8 text-right">{pct}%</span>
-    </span>
-  )
-}
-
 /**
  * One account in the priority list: enough to see which is serving and which
  * is running out, and a way into its page for everything else.
@@ -295,14 +281,7 @@ function AccountRow({
           <Chip tone={chip.tone}>{chip.label}</Chip>
         </>
       }
-      meters={
-        a.quota !== undefined ? (
-          <>
-            <Window label="5h" util={a.quota.five_hour_util} />
-            <Window label="7d" util={a.quota.seven_day_util} />
-          </>
-        ) : undefined
-      }
+      meters={a.quota !== undefined ? <QuotaGauges quota={a.quota} /> : undefined}
       actions={
         orderable ? (
           <>

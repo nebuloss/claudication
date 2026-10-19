@@ -1,4 +1,38 @@
 import type { Quota } from '../../api/client'
+import { QuotaWindow } from '../domain/quota'
+import { UsageBar } from '../primitives'
+
+/**
+ * The two headline windows, short enough for a row: the account list, and the
+ * header of an account's page.
+ *
+ * Drawn from the same QuotaWindow as the full meter below, so a row and the
+ * page it opens cannot colour one account differently — they used to, with
+ * thresholds of their own, and the row ignored the server's severity.
+ */
+export function QuotaGauges({ quota }: { quota: Quota }) {
+  return (
+    <>
+      <Gauge label="5h" window={new QuotaWindow(quota.five_hour_util, quota.five_hour_status)} />
+      <Gauge label="7d" window={new QuotaWindow(quota.seven_day_util, quota.seven_day_status)} />
+    </>
+  )
+}
+
+function Gauge({ label, window: w }: { label: string; window: QuotaWindow }) {
+  return (
+    <span
+      className="flex items-center gap-1.5"
+      title={w.percent === null ? `${label}: not read yet` : `${label}: ${w.label} used`}
+    >
+      <span className="w-5 text-on-surface-variant">{label}</span>
+      <UsageBar size="sm" percent={w.percent} tone={w.tone} />
+      <span className={`w-8 text-right ${w.level === 'critical' ? 'text-error' : ''}`}>
+        {w.percent === null ? '–' : w.label}
+      </span>
+    </span>
+  )
+}
 
 /**
  * What the subscription has left — the same rows `/usage` prints in the client,
@@ -29,24 +63,21 @@ export default function QuotaMeter({
     quota.limits !== undefined && quota.limits.length > 0
       ? quota.limits.map((l) => ({
           title: l.title,
-          percent: l.percent,
+          window: new QuotaWindow(l.percent, l.severity),
           resets: l.resets_at,
-          severity: l.severity,
           active: l.is_active,
         }))
       : [
           {
             title: 'Current session',
-            percent: quota.five_hour_util,
+            window: new QuotaWindow(quota.five_hour_util, quota.five_hour_status),
             resets: quota.five_hour_reset,
-            severity: quota.five_hour_status === 'allowed' ? 'normal' : quota.five_hour_status,
             active: false,
           },
           {
             title: 'Current week (all models)',
-            percent: quota.seven_day_util,
+            window: new QuotaWindow(quota.seven_day_util, quota.seven_day_status),
             resets: quota.seven_day_reset,
-            severity: quota.seven_day_status === 'allowed' ? 'normal' : quota.seven_day_status,
             active: false,
           },
         ]
@@ -67,42 +98,32 @@ export default function QuotaMeter({
 
 function Window({
   title,
-  percent,
+  window: w,
   resets,
-  severity,
   active,
 }: {
   title: string
-  percent: number
+  window: QuotaWindow
   resets?: string
-  severity?: string
   active: boolean
 }) {
-  // -1 is "never fetched", which is not the same as zero and must not draw an
-  // empty bar as though the window were untouched.
-  if (percent < 0) {
-    return (
-      <Row title={title} right="unknown" active={false}>
-        <div className="h-2 rounded-full bg-surface-high" />
-      </Row>
-    )
-  }
-
-  const pct = Math.min(100, Math.round(percent))
-  const bad = severity !== undefined && severity !== '' && severity !== 'normal'
-  const colour = bad || pct >= 95 ? 'bg-error' : pct >= 75 ? 'bg-warning' : 'bg-primary'
-
+  // A window never read has no reset to speak of, and is not the one binding.
+  const known = w.percent !== null
   return (
     <Row
       title={title}
-      right={`${pct}%`}
-      hint={bad ? severity : resets !== undefined && resets !== '' ? `resets ${relative(resets)}` : undefined}
-      tone={bad || pct >= 95 ? 'error' : undefined}
-      active={active}
+      right={w.label}
+      hint={
+        w.flag !== ''
+          ? w.flag
+          : known && resets !== undefined && resets !== ''
+            ? `resets ${relative(resets)}`
+            : undefined
+      }
+      tone={w.level === 'critical' ? 'error' : undefined}
+      active={known && active}
     >
-      <div className="h-2 overflow-hidden rounded-full bg-surface-high">
-        <div className={`h-full rounded-full ${colour}`} style={{ width: `${Math.max(pct, 1)}%` }} />
-      </div>
+      <UsageBar percent={w.percent} tone={w.tone} />
     </Row>
   )
 }

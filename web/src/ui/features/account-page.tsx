@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import AccountSettings, { formatDate, relative, status } from './account-card'
-import { Window } from './accounts'
 import { ChatsPage } from './chats'
 import { DetailHeader } from './detail'
-import QuotaMeter from './quota-meter'
+import QuotaMeter, { QuotaGauges } from './quota-meter'
 import RequestsPanel from './requests'
 import ScopedUsage from './usage'
 import { api } from '../../api/client'
@@ -92,8 +91,7 @@ export default function AccountPage({
             <Chip tone={chip.tone}>{chip.label}</Chip>
             {account.quota !== undefined && (
               <span className="flex items-center gap-3 text-xs tabular-nums text-on-surface">
-                <Window label="5h" util={account.quota.five_hour_util} />
-                <Window label="7d" util={account.quota.seven_day_util} />
+                <QuotaGauges quota={account.quota} />
               </span>
             )}
           </>

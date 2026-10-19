@@ -10,6 +10,7 @@ import {
 import { createPortal } from 'react-dom'
 import { useEscapeKey, useNow } from '../hooks'
 import { navigate } from '../route'
+import { toneContainer, toneInk, type Tone } from '../styles/tone'
 import {
   MenuDivider,
   Popover,
@@ -23,6 +24,8 @@ export { MenuDivider, Popover, menuItem, menuSurface, useAnchoredPanel } from '.
 export type { Placement } from './popover'
 export { BrandMark, Breadcrumbs, NavRail, follow } from './nav'
 export { AddButton, ListRow, ListToolbar, RowBadge } from './list'
+export { UsageBar } from './meter'
+export type { Tone } from '../styles/tone'
 export { Help, InfoTip, Note } from './info'
 import { Help } from './info'
 
@@ -340,18 +343,10 @@ export function Freshness({
   )
 }
 
-export type ChipTone = 'ok' | 'warn' | 'error' | 'neutral'
-
-export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: ChipTone }) {
-  const tones: Record<ChipTone, string> = {
-    ok: 'bg-success-container text-on-success-container',
-    warn: 'bg-warning-container text-on-warning-container',
-    error: 'bg-error-container text-on-error-container',
-    neutral: 'bg-surface-high text-on-surface-variant',
-  }
+export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: Tone }) {
   return (
     <span
-      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-md3-s)] px-2.5 text-xs font-medium ${tones[tone]}`}
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-md3-s)] px-2.5 text-xs font-medium ${toneContainer[tone]}`}
     >
       {children}
     </span>
@@ -368,24 +363,18 @@ export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone
  */
 export function Banner({
   children,
-  tone,
+  tone = 'neutral',
   className = '',
 }: {
   children: ReactNode
-  tone?: 'error' | 'warn'
+  tone?: Tone
   className?: string
 }) {
-  const tones = {
-    error: 'bg-error-container text-on-error-container',
-    warn: 'bg-warning-container text-on-warning-container',
-  }
   return (
     <div
       role={tone === 'error' ? 'alert' : 'status'}
       aria-live={tone === 'error' ? 'assertive' : 'polite'}
-      className={`rounded-[var(--radius-md3-m)] px-4 py-3 text-sm ${
-        tone ? tones[tone] : 'bg-surface-high text-on-surface-variant'
-      } ${className}`}
+      className={`rounded-[var(--radius-md3-m)] px-4 py-3 text-sm ${toneContainer[tone]} ${className}`}
     >
       {children}
     </div>
@@ -592,10 +581,9 @@ export function Stat({
   label: string
   value: ReactNode
   hint?: ReactNode
-  tone?: 'ok' | 'error'
+  tone?: Tone
 }) {
-  const colour =
-    tone === 'ok' ? 'text-success' : tone === 'error' ? 'text-error' : 'text-on-surface'
+  const colour = toneInk[tone ?? 'neutral']
   return (
     <div className={`${tile} px-4 py-3`}>
       <div className="text-xs font-medium tracking-wide text-on-surface-variant uppercase">
