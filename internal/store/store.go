@@ -151,10 +151,6 @@ const oldestUpgradable = 28
 //go:embed schema.sql
 var schemaSQL string
 
-// includeSchema is the line a step puts where schema.sql is to run, for a step
-// that rebuilds tables from it rather than from a copy that could drift.
-const includeSchema = "-- include schema.sql"
-
 // migrate brings the database to schemaVersion, or refuses to touch it.
 //
 //   - Empty: schema.sql, and schemaVersion recorded, in one transaction.
@@ -274,8 +270,7 @@ func upgradeSteps(from int) ([]upgradeStep, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read migration %s: %w", name, err)
 		}
-		byVersion[v] = upgradeStep{version: v, name: name,
-			body: strings.Replace(string(body), includeSchema, schemaSQL, 1)}
+		byVersion[v] = upgradeStep{version: v, name: name, body: string(body)}
 	}
 	var steps []upgradeStep
 	for v := from + 1; v <= schemaVersion; v++ {
