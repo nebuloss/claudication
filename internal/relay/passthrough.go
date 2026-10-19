@@ -152,12 +152,7 @@ type refusal struct {
 
 // replay writes a set-aside response verbatim.
 func replay(w http.ResponseWriter, f *refusal, res *Result) {
-	for name, values := range f.header {
-		if hopByHop[strings.ToLower(name)] {
-			continue
-		}
-		w.Header()[name] = append([]string(nil), values...)
-	}
+	copyHeaders(w.Header(), f.header)
 	w.WriteHeader(f.status)
 	n, _ := w.Write(f.body)
 	res.Status = f.status
@@ -444,13 +439,13 @@ func (s *sentBody) Close() error {
 // again. It is nil for every other request, and then this is a byte copy.
 func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, names map[string]string) {
 	defer resp.Body.Close()
+	// From the pump's pool, as a held stream's reads are: a fresh 32 KB per
+	// response was garbage the moment the response ended. Returned after the
+	// meter is done with what it was fed.
+	bufp := pumpBuffers.Get().(*[]byte)
+	defer pumpBuffers.Put(bufp)
 
-	for name, values := range resp.Header {
-		if hopByHop[strings.ToLower(name)] {
-			continue
-		}
-		w.Header()[name] = append([]string(nil), values...)
-	}
+	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
 	// Flush after every chunk.
@@ -474,15 +469,15 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 	// not on what the caller asked for: a request with "stream": true that
 	// fails before the stream starts comes back as plain JSON.
 	var tee provider.Meter
-	switch enc := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding"))); {
-	case enc != "" && enc != "identity":
+	switch {
+	case !identityEncoded(resp.Header):
 		// build asks for identity, and a server may not apply a coding the
 		// client did not accept, so reaching here means the upstream broke
 		// that rule. Relay the bytes — that part still works — but read
 		// nothing out of them and say so, rather than recording a compressed
 		// stream as zero tokens and no errors.
 		r.logger().Warn("upstream compressed a response that asked for identity; usage and stream errors are unreadable",
-			"content_encoding", enc)
+			"content_encoding", resp.Header.Get("Content-Encoding"))
 		res.Opaque = true
 		tee = nopMeter{}
 	default:
@@ -513,7 +508,7 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 		return true
 	}
 
-	buf := make([]byte, 32*1024)
+	buf := *bufp
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
@@ -547,10 +542,28 @@ func holdable(resp *http.Response) bool {
 	if resp.StatusCode != http.StatusOK {
 		return false
 	}
-	if enc := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding"))); enc != "" && enc != "identity" {
+	if !identityEncoded(resp.Header) {
 		return false
 	}
 	return strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+}
+
+// identityEncoded reports whether a response's body is in no content coding,
+// which is what the relay asks for and the only body its readers can read.
+func identityEncoded(h http.Header) bool {
+	enc := strings.ToLower(strings.TrimSpace(h.Get("Content-Encoding")))
+	return enc == "" || enc == "identity"
+}
+
+// copyHeaders copies a response's headers onto the client's, less the ones
+// that belong to the connection they arrived on.
+func copyHeaders(dst, src http.Header) {
+	for name, values := range src {
+		if hopByHop[strings.ToLower(name)] {
+			continue
+		}
+		dst[name] = append([]string(nil), values...)
+	}
 }
 
 // peekErrorAndRestore reads the error body for logging and puts it back, so
