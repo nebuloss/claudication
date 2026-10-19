@@ -3,7 +3,6 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -12,22 +11,19 @@ import (
 	"claudication/internal/store"
 )
 
-// chatWindow is the time window a chat request asks for, bounded by retention.
+// reportWindow is the time window a usage or chat request asks for with
+// ?days=, bounded by retention, or the configured default when it asks for
+// none.
 //
-// Shared with handleUsage's rule rather than reimplemented: a chat list over a
+// One rule for both rather than two copies of it: a chat list over a
 // different window than the charts beside it is a screen that appears to
 // disagree with itself.
-func (s *Admin) chatWindow(r *http.Request) time.Duration {
-	window := s.cfg.Usage.Window()
-	if v := r.URL.Query().Get("days"); v != "" {
-		if days, err := strconv.Atoi(v); err == nil && days > 0 {
-			if days > s.cfg.Usage.RetentionDays {
-				days = s.cfg.Usage.RetentionDays
-			}
-			window = time.Duration(days) * 24 * time.Hour
-		}
+func (s *Admin) reportWindow(r *http.Request) time.Duration {
+	days := httpx.QueryInt(r.URL.Query(), "days", 0, s.cfg.Usage.RetentionDays)
+	if days == 0 {
+		return s.cfg.Usage.Window()
 	}
-	return window
+	return time.Duration(days) * 24 * time.Hour
 }
 
 // handleChats answers the chat list.
@@ -40,13 +36,8 @@ func (s *Admin) handleChats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	window := s.chatWindow(r)
-	limit := 100
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
+	window := s.reportWindow(r)
+	limit := httpx.QueryInt(r.URL.Query(), "limit", 100, store.MaxChatsPage)
 
 	report, err := s.store.ChatsIn(r.Context(), time.Now().Add(-window), limit, scopeFrom(r.URL.Query()))
 	if err != nil {

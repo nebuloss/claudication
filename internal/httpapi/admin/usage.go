@@ -21,15 +21,7 @@ func (s *Admin) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	window := s.cfg.Usage.Window()
-	if v := r.URL.Query().Get("days"); v != "" {
-		if days, err := strconv.Atoi(v); err == nil && days > 0 {
-			if days > s.cfg.Usage.RetentionDays {
-				days = s.cfg.Usage.RetentionDays
-			}
-			window = time.Duration(days) * 24 * time.Hour
-		}
-	}
+	window := s.reportWindow(r)
 
 	report, err := s.store.UsageIn(r.Context(), time.Now().Add(-window), scopeFrom(r.URL.Query()))
 	if err != nil {
@@ -137,13 +129,7 @@ func (s *Admin) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	// serialise them, which a mistyped URL is enough to do. A session is
 	// needed to get here, but an operator should not be able to take their own
 	// gateway down with a typo.
-	const defaultLimit, maxLimit = 50, 1000
-	limit := defaultLimit
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = min(n, maxLimit)
-		}
-	}
+	limit := httpx.QueryInt(r.URL.Query(), "limit", 50, store.MaxRequestsPage)
 
 	// An unreadable cursor starts from the top rather than failing: a bookmark
 	// from an older release, or a truncated URL, should show the newest

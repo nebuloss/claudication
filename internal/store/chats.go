@@ -94,6 +94,9 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 	return s.ChatsIn(ctx, since, limit, UsageScope{})
 }
 
+// MaxChatsPage is the most chats ChatsIn lists at once; see MaxRequestsPage.
+const MaxChatsPage = 500
+
 // ChatsIn is Chats over the conversations one account served or one key
 // paid for, at least once in the window.
 //
@@ -101,9 +104,10 @@ func (s *Store) Chats(ctx context.Context, since time.Time, limit int) (ChatRepo
 // the pool moved between accounts part way is still one chat, and its totals
 // are what it cost. Where it went is on the chat itself.
 func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope UsageScope) (ChatReport, error) {
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 {
 		limit = 100
 	}
+	limit = min(limit, MaxChatsPage)
 	from := stamp(since)
 
 	// Empty for the whole gateway, so that query is exactly what it was.

@@ -178,12 +178,18 @@ func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
 }
 
+// MaxRequestsPage is the most events RecentUsage returns at once. Larger asks
+// get this many rather than the default, so a caller that clamps to it and the
+// store agree on what a page is.
+const MaxRequestsPage = 1000
+
 // RecentUsage returns one page of events, newest first, along with the cursor
 // for the page after it. An empty next cursor means the end of the list.
 func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, filter RequestFilter) ([]UsageEvent, UsageCursor, error) {
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 {
 		limit = 100
 	}
+	limit = min(limit, MaxRequestsPage)
 
 	narrow, args := filter.where()
 	// The cursor is a condition like any other, so it joins the same AND
