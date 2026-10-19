@@ -39,9 +39,10 @@ export interface ConfirmRequest {
  * Delete in the UI silently did nothing.
  *
  * Cancel takes focus, so a click or Space pressed by reflex as the dialog opens
- * is not a yes. Escape and the backdrop cancel; Enter confirms from anywhere in
- * the dialog's body, Cancel included, as a form's submit would — the close
- * button in the header is the one place Enter means its own control. Nothing
+ * is not a yes. Escape and the backdrop cancel. Enter presses whichever button
+ * has focus, so the reflex Enter lands on Cancel too: a destructive question
+ * answers yes only to a deliberate choice. Enter anywhere else in the dialog
+ * confirms, as a form's submit would. Nothing
  * cancels while the action is in flight: closing would hide a write that is
  * still happening.
  */
@@ -64,6 +65,7 @@ export function ConfirmDialog({
   }
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== 'Enter' || e.defaultPrevented) return
+    if (e.target instanceof HTMLButtonElement) return
     e.preventDefault()
     void accept()
   }
