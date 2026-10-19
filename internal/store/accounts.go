@@ -478,8 +478,12 @@ func (s *Store) MarkAccountUsed(ctx context.Context, id string) {
 	if !s.accountsUsed.due(id, now) {
 		return
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE accounts SET last_used_at = ?, last_error = '' WHERE id = ?`,
-		ms(now), id)
+	if _, err := s.db.ExecContext(ctx, `UPDATE accounts SET last_used_at = ?, last_error = '' WHERE id = ?`,
+		ms(now), id); err != nil {
+		// Not written, so not a write to wait a minute after: this is also
+		// what clears an error the account has recovered from.
+		s.accountsUsed.forget(id)
+	}
 }
 
 // MarkRefreshDead records that the refresh token was refused for good.

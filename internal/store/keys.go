@@ -387,7 +387,10 @@ func (s *Store) TouchKey(ctx context.Context, id string) {
 	if !s.keysUsed.due(id, now) {
 		return
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, ms(now), id)
+	if _, err := s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, ms(now), id); err != nil {
+		// Not written, so not a write to wait a minute after.
+		s.keysUsed.forget(id)
+	}
 }
 
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
