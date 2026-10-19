@@ -139,7 +139,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// sends the caller's bytes as they are has already read it; a second
 		// Peek was one more full parse of every request for nothing.
 		var prologue request.Prologue
-		if pe, ok := ex.(interface{ Prologue() request.Prologue }); ok && !rewrote {
+		if pe, ok := ex.(peekedExchange); ok && !rewrote {
 			prologue = pe.Prologue()
 		} else {
 			prologue = request.Peek(outbound)
@@ -319,4 +319,18 @@ func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Pro
 		s.log.Error("relay failed", "err", err, "request_id", httpx.RequestID(r.Context()))
 		p.WriteError(w, http.StatusBadGateway, api.KindAPI, "upstream request failed: "+err.Error())
 	}
+}
+
+// peekedExchange is an exchange that has already read its request's prologue:
+// one that sends the caller's bytes upstream as they arrived, and so read it
+// while decoding. The Anthropic dialect is one.
+//
+// Named here rather than on api.Exchange because the prologue is
+// internal/request's type, and api sits on the same layer as request and so
+// may not import it. Optional for the same reason: a translating dialect
+// builds a new body and has nothing to hand over, and the gateway peeks that
+// body itself.
+type peekedExchange interface {
+	api.Exchange
+	Prologue() request.Prologue
 }
