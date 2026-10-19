@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -27,6 +28,7 @@ import (
 	"claudication/internal/logging"
 	"claudication/internal/memlimit"
 	"claudication/internal/secret"
+	"claudication/internal/service/titles"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
@@ -188,11 +190,36 @@ func cmdServe(args []string) error {
 	limit, _ := memlimit.ParseSize(cfg.MemoryLimit)
 	memlimit.Apply(limit, log)
 
+	reissueUnkeptKeys(ctx, st, log)
+
 	srv, err := httpapi.New(cfg, log, st)
 	if err != nil {
 		return err
 	}
 	return srv.Run(ctx)
+}
+
+// reissueUnkeptKeys gives a key from before secrets were kept a new, kept
+// one, so every key's Clients page can show it. It breaks the clients holding
+// those old secrets, by design; each key is named in the log so its owner
+// knows to fetch new configs. The gateway's own key is left alone: nothing
+// holds its secret.
+//
+// A step of serve rather than of building the server, because it is a data
+// migration: it writes to the database, and constructing the HTTP surface
+// should not.
+func reissueUnkeptKeys(ctx context.Context, st *store.Store, log *slog.Logger) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	own, _, _ := st.Setting(ctx, titles.KeySetting)
+	reissued, err := st.ReissueUnkeptKeys(ctx, map[string]bool{own: true})
+	if err != nil {
+		log.Error("reissue unkept api keys", "err", err)
+	}
+	for _, name := range reissued {
+		log.Warn("api key reissued: its old secret no longer works; fetch its clients' configs from its Clients page",
+			"key", name)
+	}
 }
 
 // cmdLoginURL mints a fresh single-use sign-in link.

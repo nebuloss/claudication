@@ -10,6 +10,22 @@ import (
 	"claudication/internal/httpapi/httpx"
 )
 
+// DocsSetting is the settings row holding the switch that decides whether the
+// public page is served.
+//
+// Runtime state rather than configuration, for the reason the API switches
+// are: taking the page down is what an operator does when something is wrong,
+// and the answer to that cannot be "edit a file and restart". The listener
+// stays where it is and answers 404.
+//
+// Off by default, and this is the one place in the gateway where that default
+// is about posture rather than cost. The page is served at the root of the
+// relay, which today answers 404 to everything that is not an API call — so
+// turning it on changes that listener from silent-unless-you-have-a-key to
+// self-describing. It grants no access and carries no secret, but it is not a
+// thing that should start happening because someone upgraded.
+const DocsSetting = "docs.enabled"
+
 // modelsTTL is how long the public page's model list may be stale.
 //
 // The list changes when Anthropic ships a model, so minutes of staleness cost

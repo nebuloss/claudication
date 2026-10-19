@@ -9,6 +9,8 @@ import (
 
 	"claudication/internal/config"
 	"claudication/internal/httpapi/admin"
+	"claudication/internal/httpapi/web"
+	"claudication/internal/relay/passes"
 	"claudication/internal/service/surfaces"
 	"claudication/internal/service/titles"
 	"claudication/internal/store"
@@ -144,7 +146,7 @@ func TestRuntimeSwitches(t *testing.T) {
 	if status != http.StatusOK || decode[map[string]bool](t, body)["fit_images"] != true {
 		t.Errorf("fit-images: %d %s", status, body)
 	}
-	if !srv.images.On() || stored(imageFitSetting) != "true" {
+	if !srv.images.On() || stored(passes.FitImagesSetting) != "true" {
 		t.Error("fit-images did not take effect or did not persist")
 	}
 
@@ -152,7 +154,7 @@ func TestRuntimeSwitches(t *testing.T) {
 	if status != http.StatusOK || decode[map[string]bool](t, body)["docs_enabled"] != true {
 		t.Errorf("docs: %d %s", status, body)
 	}
-	if stored(docsSetting) != "true" {
+	if stored(web.DocsSetting) != "true" {
 		t.Error("docs switch did not persist")
 	}
 

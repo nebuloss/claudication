@@ -60,36 +60,6 @@ import (
 //go:embed all:webdist
 var webdist embed.FS
 
-// docsSetting is the settings row holding the switch that decides whether the
-// public page is served.
-//
-// Runtime state rather than configuration, for the reason the API switches
-// are: taking the page down is what an operator does when something is wrong,
-// and the answer to that cannot be "edit a file and restart". The listener
-// stays where it is and answers 404.
-//
-// Off by default, and this is the one place in the gateway where that default
-// is about posture rather than cost. The page is served at the root of the
-// relay, which today answers 404 to everything that is not an API call — so
-// turning it on changes that listener from silent-unless-you-have-a-key to
-// self-describing. It grants no access and carries no secret, but it is not a
-// thing that should start happening because someone upgraded.
-const docsSetting = "docs.enabled"
-
-// imageFitSetting is the settings row holding the switch for capping
-// oversized images in a many-image request.
-//
-// Runtime state rather than configuration, for the reason the API switches and
-// the chat-title switches are: this one decides whether the relay may change
-// what the model is shown, and the answer to "stop doing that" cannot be "edit
-// a file and restart".
-//
-// Off by default, unlike every other pass the relay makes. The other five
-// exceptions repair an envelope the upstream would refuse over its shape; this
-// one re-encodes the caller's own image, and the caller is the only one who
-// knows whether the detail it loses mattered.
-const imageFitSetting = "passthrough.fit-oversized-images"
-
 type Server struct {
 	cfg            *config.Config
 	log            *slog.Logger
@@ -99,9 +69,6 @@ type Server struct {
 	budgets        *limits.Budgets
 	recorder       *usagesvc.Recorder
 	trustedProxies []*net.IPNet
-	httpServer     *http.Server
-	adminServer    *http.Server
-	docsServer     *http.Server
 	adminAddr      string
 	stopSweeper    chan struct{}
 	pool           *pool.Pool
@@ -118,9 +85,6 @@ type Server struct {
 	// default case — see internal/api.
 	protocols api.Registry
 	surfaces  *surfaces.Surfaces
-	// titles names conversations by asking a model, which is the only traffic
-	// this gateway originates rather than relays. Off until switched on.
-	titles *titles.Titler
 	images *settings.Switch
 	docs   *settings.Switch
 
@@ -128,6 +92,11 @@ type Server struct {
 	gateway *gateway.Gateway
 	admin   *admin.Admin
 	web     *web.Site
+
+	// listeners are the addresses served, the relay's first; adminListener is
+	// the admin's own, when admin-listen gives it one.
+	listeners     []*listener
+	adminListener *listener
 
 	mu   sync.Mutex
 	addr string
@@ -179,36 +148,55 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store) (*Server, error) 
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 	}
 
+	// Every stored switch is read once here rather than per request, with a
+	// bound on how long startup may wait for the database to answer.
+	loadCtx, cancelLoad := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelLoad()
+
+	s.loadSwitches(loadCtx)
+	titler := s.buildServices(loadCtx)
+	s.buildHandlers(titler)
+	s.buildListeners()
+	return s, nil
+}
+
+// loadSwitches registers the client dialects and reads every runtime switch.
+// A switch that cannot be read is said out loud and falls back to its default;
+// none of them is worth refusing to start over.
+func (s *Server) loadSwitches(ctx context.Context) {
 	// The composition root: the one place that knows which dialects exist.
 	// Order is what the admin UI lists.
 	s.protocols = api.Registry{
 		anthropicapi.New(),
 		openai.New(store.RoleLarge),
 	}
-	s.surfaces = surfaces.New(s.protocols, st)
-	// Read once here rather than per request. A failure is worth saying out
-	// loud but not worth refusing to start over: the fallback is every surface
-	// serving, which is the state the gateway was in before the switches
-	// existed.
-	loadCtx, cancelLoad := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelLoad()
-	if err := s.surfaces.Load(loadCtx); err != nil {
-		log.Warn("could not read the API surface switches; serving every surface", "err", err)
+	s.surfaces = surfaces.New(s.protocols, s.store)
+	// The fallback is every surface serving, which is the state the gateway
+	// was in before the switches existed.
+	if err := s.surfaces.Load(ctx); err != nil {
+		s.log.Warn("could not read the API surface switches; serving every surface", "err", err)
 	}
 
 	// And again: off is the pass-through rule, so a switch we cannot read
 	// leaves the caller's bytes alone.
-	s.images = settings.NewSwitch(st, imageFitSetting, false)
-	if err := settings.Load(loadCtx, st, s.images); err != nil {
-		log.Warn("could not read the image-fit switch; leaving it off", "err", err)
+	s.images = settings.NewSwitch(s.store, passes.FitImagesSetting, false)
+	if err := settings.Load(ctx, s.store, s.images); err != nil {
+		s.log.Warn("could not read the image-fit switch; leaving it off", "err", err)
 	}
 
 	// Opposite default again: configuring docs-listen is the decision to serve
 	// the page, so a switch we cannot read leaves it serving.
-	s.docs = settings.NewSwitch(st, docsSetting, false)
-	if err := settings.Load(loadCtx, st, s.docs); err != nil {
-		log.Warn("could not read the docs switch; serving the page anyway", "err", err)
+	s.docs = settings.NewSwitch(s.store, web.DocsSetting, false)
+	if err := settings.Load(ctx, s.store, s.docs); err != nil {
+		s.log.Warn("could not read the docs switch; serving the page anyway", "err", err)
 	}
+}
+
+// buildServices builds what the handlers share: the usage recorder, the
+// account pool and its poller, the relay, and the titler, which is returned
+// because only the handlers built from it hold it.
+func (s *Server) buildServices(ctx context.Context) *titles.Titler {
+	cfg, st, log := s.cfg, s.store, s.log
 
 	// What each request cost, classified in the provider's vocabulary and
 	// credited to the key's budget.
@@ -248,78 +236,75 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store) (*Server, error) 
 			Log:         log,
 		}),
 		StallTimeout: cfg.Passthrough.StallTimeout.D(),
-		// Relayed inference gets its own client with NO client-level timeout:
-		// a streaming response legitimately runs for many minutes, and a
-		// Timeout here would sever it mid-flight. The per-request context
-		// carries the real deadline instead.
-		Client: &http.Client{
-			Transport: &http.Transport{
-				Proxy:                 http.ProxyFromEnvironment,
-				MaxIdleConnsPerHost:   32,
-				IdleConnTimeout:       90 * time.Second,
-				TLSHandshakeTimeout:   15 * time.Second,
-				ExpectContinueTimeout: time.Second,
-				// Streaming responses must not be buffered by the transport.
-				ForceAttemptHTTP2: true,
-				// The relay sets Accept-Encoding: identity itself, so there is
-				// nothing here for the transport to negotiate or unwrap. Saying
-				// so explicitly keeps the two from drifting apart: it is the
-				// transport's *implicit* gzip, which only decompresses when it
-				// also set the header, that made a client's own Accept-Encoding
-				// silently break usage accounting.
-				DisableCompression: true,
-			},
-		},
+		Client:       newRelayClient(),
 	}
 
 	// Chat titles, once the relay and the recorder they use exist. A failure
 	// to read the switches leaves titling off, because it is the one thing
 	// that spends the operator's subscription on the gateway's own behalf and
 	// doing that by accident is not a state worth reaching.
-	s.titles = titles.New(titles.Deps{Store: st, Relay: s.relay, Record: s.recorder.Record, Log: log})
-	// Keys from before secrets were kept get one, so every key's Clients page
-	// can show it. Breaks the clients holding those old secrets, by design;
-	// each is named in the log so its owner knows to fetch new configs.
-	{
-		own, _, _ := st.Setting(loadCtx, titles.KeySetting)
-		reissued, err := st.ReissueUnkeptKeys(loadCtx, map[string]bool{own: true})
-		if err != nil {
-			log.Error("reissue unkept api keys", "err", err)
-		}
-		for _, name := range reissued {
-			log.Warn("api key reissued: its old secret no longer works; fetch its clients' configs from its Clients page",
-				"key", name)
-		}
-	}
-	if err := s.titles.Load(loadCtx); err != nil {
+	titler := titles.New(titles.Deps{Store: st, Relay: s.relay, Record: s.recorder.Record, Log: log})
+	if err := titler.Load(ctx); err != nil {
 		log.Warn("could not read the chat-title switch; leaving it off", "err", err)
 	}
+	return titler
+}
 
-	// The handler sets. Each is handed what it uses and nothing else; what one
-	// needs from another — the model list — crosses here as a function.
+// newRelayClient is the client relayed inference goes out on.
+//
+// Its own, with NO client-level timeout: a streaming response legitimately
+// runs for many minutes, and a Timeout here would sever it mid-flight. The
+// per-request context carries the real deadline instead.
+func newRelayClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			MaxIdleConnsPerHost:   32,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ExpectContinueTimeout: time.Second,
+			// Streaming responses must not be buffered by the transport.
+			ForceAttemptHTTP2: true,
+			// The relay sets Accept-Encoding: identity itself, so there is
+			// nothing here for the transport to negotiate or unwrap. Saying
+			// so explicitly keeps the two from drifting apart: it is the
+			// transport's *implicit* gzip, which only decompresses when it
+			// also set the header, that made a client's own Accept-Encoding
+			// silently break usage accounting.
+			DisableCompression: true,
+		},
+	}
+}
+
+// buildHandlers builds the handler sets. Each is handed what it uses and
+// nothing else; what one needs from another — the model list — crosses here
+// as a function.
+func (s *Server) buildHandlers(titler *titles.Titler) {
+	cfg, st, log := s.cfg, s.store, s.log
+
 	// Install links live a quarter of an hour: long enough to copy a command
 	// to another machine, short enough that one never run is soon gone.
 	installs := install.New(15 * time.Minute)
 	s.gateway = gateway.New(gateway.Deps{
-		Config: s.cfg, Log: log, Store: st,
+		Config: cfg, Log: log, Store: st,
 		KeyLimiter: s.keyLimiter, AnonLimiter: s.anonLimiter, Budgets: s.budgets,
-		Recorder: s.recorder, Pool: s.pool, Relay: s.relay, Titles: s.titles,
+		Recorder: s.recorder, Pool: s.pool, Relay: s.relay, Titles: titler,
 		Trimmer: s.trimmer, Surfaces: s.surfaces, Protocols: s.protocols,
 		HTTPClient: s.httpClient, Install: installs,
 	})
 	s.admin = admin.New(admin.Deps{
-		Config: s.cfg, Log: log, Store: st, Pool: s.pool,
+		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
-		Titles: s.titles, Images: s.images, Docs: s.docs, Surfaces: s.surfaces,
+		Titles: titler, Images: s.images, Docs: s.docs, Surfaces: s.surfaces,
 		Protocols: s.protocols, HTTPClient: s.httpClient,
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
-		TrustedProxies: trusted, StartedAt: time.Now(),
+		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
 		Models: s.gateway.FetchModels, AccountModels: s.gateway.FetchModelsFor,
 		KeyModels: s.gateway.ModelsFor, RoleTarget: s.gateway.RoleTarget, Aliases: s.gateway.Aliases,
 		Install: installs,
 	})
 	s.web = web.New(web.Deps{
-		Config: s.cfg, Log: log, Store: st, Docs: s.docs, Surfaces: s.surfaces,
+		Config: cfg, Log: log, Store: st, Docs: s.docs, Surfaces: s.surfaces,
 		// The model list with the gateway's model roles first, as a key that
 		// binds neither sees it: the docs page writes its configs from this,
 		// and they should ask for the roles as every other config does.
@@ -328,53 +313,70 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store) (*Server, error) 
 		},
 		Files: webdist,
 	})
+}
 
-	// With admin-listen set, this one drops the admin API and the UI; they
-	// move to adminServer below. Unset, it keeps serving both.
-	split := cfg.AdminListen != ""
-	s.httpServer = &http.Server{
-		Addr: cfg.Listen,
-		// The relay also carries the public page, at the root it otherwise
-		// answers 404 on. That is where someone pointing a client at this
-		// gateway is already looking: they have the address, they typed it,
-		// and until now it told them nothing. Behind the switch, so it is off
-		// until an operator asks for it.
-		//
-		// Unless the admin UI is here too, in which case the root is the admin
-		// UI and the page has nowhere to go: on a single-listener deployment
-		// the whole surface is already private, and a public page would be a
-		// contradiction rather than a feature.
-		Handler: s.routes(role{gateway: true, admin: !split, docs: split}),
-		// No WriteTimeout: responses are long-lived SSE streams and a write
-		// deadline would sever them mid-flight. ReadHeaderTimeout still
-		// protects against slowloris on the request side.
-		ReadHeaderTimeout: 30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-	}
-	if split {
-		s.adminServer = &http.Server{
-			Addr:              cfg.AdminListen,
-			Handler:           s.routes(role{admin: true}),
+// listener is one address the gateway serves, what it serves there, and the
+// line it logs when it starts.
+type listener struct {
+	addr  string
+	srv   *http.Server
+	msg   string
+	attrs []any
+	ln    net.Listener
+}
+
+func (s *Server) newListener(addr string, h http.Handler, msg string, attrs ...any) *listener {
+	return &listener{
+		addr: addr,
+		srv: &http.Server{
+			Addr:    addr,
+			Handler: h,
+			// No WriteTimeout: responses are long-lived SSE streams and a write
+			// deadline would sever them mid-flight. ReadHeaderTimeout still
+			// protects against slowloris on the request side.
 			ReadHeaderTimeout: 30 * time.Second,
 			IdleTimeout:       120 * time.Second,
-			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-		}
+			ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
+		},
+		msg:   msg,
+		attrs: attrs,
+	}
+}
+
+// buildListeners decides which listener serves which surface. The relay's is
+// always first: its address is Addr, and its error is the one reported.
+func (s *Server) buildListeners() {
+	cfg := s.cfg
+	// With admin-listen set, the relay's listener drops the admin API and the
+	// UI; they move to a listener of their own. Unset, it keeps serving both.
+	split := cfg.AdminListen != ""
+	// The relay also carries the public page, at the root it otherwise
+	// answers 404 on. That is where someone pointing a client at this
+	// gateway is already looking: they have the address, they typed it,
+	// and until now it told them nothing. Behind the switch, so it is off
+	// until an operator asks for it.
+	//
+	// Unless the admin UI is here too, in which case the root is the admin
+	// UI and the page has nowhere to go: on a single-listener deployment
+	// the whole surface is already private, and a public page would be a
+	// contradiction rather than a feature.
+	s.listeners = []*listener{s.newListener(cfg.Listen,
+		s.routes(role{gateway: true, admin: !split, docs: split}),
+		"listening", "serving", servingWhat(!split),
+		"version", version.Version, "state_dir", cfg.StateDir)}
+	if split {
+		s.adminListener = s.newListener(cfg.AdminListen, s.routes(role{admin: true}),
+			"admin listening", "serving", "admin API and UI")
+		s.listeners = append(s.listeners, s.adminListener)
 	}
 	// And optionally on an address of its own, for a deployment that wants the
 	// instructions somewhere the relay is not. Not needed to have the page —
 	// the relay serves it above — but it is the way to publish it without
 	// publishing /v1 alongside.
 	if cfg.DocsListen != "" {
-		s.docsServer = &http.Server{
-			Addr:              cfg.DocsListen,
-			Handler:           s.routes(role{docs: true}),
-			ReadHeaderTimeout: 30 * time.Second,
-			IdleTimeout:       120 * time.Second,
-			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-		}
+		s.listeners = append(s.listeners, s.newListener(cfg.DocsListen, s.routes(role{docs: true}),
+			"docs listening", "serving", "the public docs page"))
 	}
-	return s, nil
 }
 
 // role says which surfaces a listener serves.
@@ -557,41 +559,25 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 // SIGINT, so every `docker stop` and `systemctl stop` kills it before its
 // buffers flush and severs in-flight streams mid-frame.
 func (s *Server) Run(ctx context.Context) error {
-	ln, err := net.Listen("tcp", s.cfg.Listen)
-	if err != nil {
-		return fmt.Errorf("listen on %s: %w", s.cfg.Listen, err)
-	}
-
-	s.mu.Lock()
-	s.addr = ln.Addr().String()
-	s.mu.Unlock()
-
-	// The admin listener binds before anything is served, so a port clash is a
-	// startup failure rather than a gateway that comes up with no way in.
-	var adminLn net.Listener
-	if s.adminServer != nil {
-		adminLn, err = net.Listen("tcp", s.cfg.AdminListen)
+	// Every listener binds before anything is served, so a port clash on the
+	// admin or docs address is a startup failure rather than a gateway that
+	// comes up with no way in.
+	for i, l := range s.listeners {
+		ln, err := net.Listen("tcp", l.addr)
 		if err != nil {
-			_ = ln.Close()
-			return fmt.Errorf("listen on %s: %w", s.cfg.AdminListen, err)
-		}
-		s.mu.Lock()
-		s.adminAddr = adminLn.Addr().String()
-		s.mu.Unlock()
-	}
-
-	// Likewise for the public page, when one is configured.
-	var docsLn net.Listener
-	if s.docsServer != nil {
-		docsLn, err = net.Listen("tcp", s.cfg.DocsListen)
-		if err != nil {
-			_ = ln.Close()
-			if adminLn != nil {
-				_ = adminLn.Close()
+			for _, bound := range s.listeners[:i] {
+				_ = bound.ln.Close()
 			}
-			return fmt.Errorf("listen on %s: %w", s.cfg.DocsListen, err)
+			return fmt.Errorf("listen on %s: %w", l.addr, err)
 		}
+		l.ln = ln
 	}
+	s.mu.Lock()
+	s.addr = s.listeners[0].ln.Addr().String()
+	if s.adminListener != nil {
+		s.adminAddr = s.adminListener.ln.Addr().String()
+	}
+	s.mu.Unlock()
 
 	// The background work starts only once every listener is bound. Started
 	// before, a port clash on the admin or docs address returned with the
@@ -608,36 +594,11 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Buffered for every listener, so no goroutine blocks on a send once
 	// another has already reported and the select has moved on.
-	errCh := make(chan error, 3)
-	go func() {
-		s.log.Info("listening",
-			"addr", ln.Addr().String(),
-			"serving", servingWhat(s.adminServer == nil),
-			"version", version.Version,
-			"state_dir", s.cfg.StateDir)
-		if err := s.httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-			return
-		}
-		errCh <- nil
-	}()
-	if adminLn != nil {
+	errCh := make(chan error, len(s.listeners))
+	for _, l := range s.listeners {
 		go func() {
-			s.log.Info("admin listening", "addr", adminLn.Addr().String(),
-				"serving", "admin API and UI")
-			if err := s.adminServer.Serve(adminLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				errCh <- err
-				return
-			}
-			errCh <- nil
-		}()
-	}
-
-	if docsLn != nil {
-		go func() {
-			s.log.Info("docs listening", "addr", docsLn.Addr().String(),
-				"serving", "the public docs page")
-			if err := s.docsServer.Serve(docsLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.log.Info(l.msg, append([]any{"addr", l.ln.Addr().String()}, l.attrs...)...)
+			if err := l.srv.Serve(l.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 				return
 			}
@@ -664,25 +625,19 @@ func (s *Server) Run(ctx context.Context) error {
 	// stream. A restart in that window brought the new process up on the relay
 	// port and then failed on the admin one until the supervisor gave up,
 	// leaving nothing running once the old process finished (2026-09-24).
-	servers := []*http.Server{s.httpServer}
-	if s.adminServer != nil {
-		servers = append(servers, s.adminServer)
-	}
-	if s.docsServer != nil {
-		servers = append(servers, s.docsServer)
-	}
-	errs := make([]error, len(servers))
+	errs := make([]error, len(s.listeners))
 	var wg sync.WaitGroup
-	for i, srv := range servers {
+	for i, l := range s.listeners {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = srv.Shutdown(shutdownCtx)
+			errs[i] = l.srv.Shutdown(shutdownCtx)
 		}()
 	}
 	wg.Wait()
 	// Same deadline for all of them, and the relay's error wins: a page cut
 	// short is not worth reporting over a severed stream.
+	var err error
 	for _, e := range errs {
 		if e != nil {
 			err = e

@@ -18,6 +18,20 @@ import (
 	_ "golang.org/x/image/webp" // decode only; there is no encoder, so WebP leaves as PNG.
 )
 
+// FitImagesSetting is the settings row holding the switch for capping
+// oversized images in a many-image request.
+//
+// Runtime state rather than configuration, for the reason the API switches and
+// the chat-title switches are: this one decides whether the relay may change
+// what the model is shown, and the answer to "stop doing that" cannot be "edit
+// a file and restart".
+//
+// Off by default, unlike every other pass the relay makes. The other five
+// exceptions repair an envelope the upstream would refuse over its shape; this
+// one re-encodes the caller's own image, and the caller is the only one who
+// knows whether the detail it loses mattered.
+const FitImagesSetting = "passthrough.fit-oversized-images"
+
 // ManyImages is the count past which the upstream stops allowing 8000 px.
 //
 // From the vision documentation: "If a single API request contains more than
