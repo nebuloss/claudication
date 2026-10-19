@@ -13,10 +13,11 @@ import {
   railItem,
   tile,
 } from '../../primitives'
-import { Catalog } from './catalog'
-import { ClientBody, Prose } from './client-body'
-import { CLIENTS, SECTIONS, TROUBLESHOOTING } from './content'
-import { EXAMPLE_BASE, type ClientRecipe } from './model'
+import { Catalog } from '../../clients/catalog'
+import { ClientBody, Prose } from '../../clients/client-body'
+import { CLIENTS } from '../../clients/recipes'
+import { SECTIONS, TROUBLESHOOTING } from './content'
+import { EXAMPLE_BASE, type ClientRecipe } from '../../clients/model'
 import { useCurrentSection } from './use-current-section'
 
 /**

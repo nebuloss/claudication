@@ -1,5 +1,6 @@
-import { ChatsPage } from './chats'
-import RequestsPanel from './requests'
+import { ChatsPage } from '../chats'
+import RequestsPanel from '../requests'
+import type { ActivityPageId } from '../../route'
 
 /**
  * What the gateway has been doing, across every account and key: the
@@ -12,7 +13,7 @@ import RequestsPanel from './requests'
  * and Requests pages narrow. The log keeps its filters in the query string, so
  * a link to a filtered log lands on the log.
  */
-export default function Activity({ page }: { page: string }) {
+export default function Activity({ page }: { page: ActivityPageId }) {
   return page === 'requests' ? (
     <RequestsPanel />
   ) : (

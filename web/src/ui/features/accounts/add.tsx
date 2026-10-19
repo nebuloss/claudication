@@ -6,7 +6,7 @@ import {
   type Account,
   type OAuthResult,
   type OAuthStart,
-} from '../../api/client'
+} from '../../../api/client'
 import {
   Actions,
   Banner,
@@ -17,9 +17,9 @@ import {
   Field,
   InlineLink,
   Stack,
-} from '../primitives'
-import { PROVIDERS } from '../providers'
-import { useSession } from '../session'
+} from '../../primitives'
+import { PROVIDERS } from '../../providers'
+import { useSession } from '../../session'
 
 type Phase = 'idle' | 'starting' | 'waiting' | 'exchanging'
 

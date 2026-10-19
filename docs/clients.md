@@ -91,7 +91,7 @@ are the committed ones with their models written from that same live list: every
 active model your accounts serve, each with its real context window, output cap
 and effort levels, and the newest Opus and Haiku as the defaults. A model
 Anthropic releases tomorrow is in them the next time the page loads, with no
-gateway change. The rewrite is `web/src/ui/features/docs/catalog.ts`; when the
+gateway change. The rewrite is `web/src/ui/clients/catalog.ts`; when the
 list cannot be read, the committed files are handed out as they stand.
 
 The files in `configs/clients/` are those same files, written from the list as it

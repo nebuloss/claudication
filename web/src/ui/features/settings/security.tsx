@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { api, type Session } from '../../api/client'
-import { useAction } from '../hooks'
-import { Actions, Banner, Button, Card, ErrorBanner, Field, Muted, Stack } from '../primitives'
+import { api, type Session } from '../../../api/client'
+import { useAction } from '../../hooks'
+import { Actions, Banner, Button, Card, ErrorBanner, Field, Muted, Stack } from '../../primitives'
 
 /** Both destructive actions live behind a click, so neither is one keystroke away. */
 type Open = 'none' | 'password' | 'delete'

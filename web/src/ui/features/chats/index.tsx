@@ -4,11 +4,11 @@ import {
   type Chat,
   type Chats,
   type UsageScope,
-} from '../../api/client'
-import { LogScale, Palette } from '../charts'
-import { useAction, useLoader } from '../hooks'
-import ChatContextDetail from './chat-context'
-import { requestsHref, type FilterFields } from './requests/filter'
+} from '../../../api/client'
+import { LogScale, Palette } from '../../charts'
+import { useAction, useLoader } from '../../hooks'
+import ChatContextDetail from './context'
+import { requestsHref, type FilterFields } from '../requests/filter'
 import {
   AppLink,
   Card,
@@ -25,8 +25,8 @@ import {
   Tr,
   WindowPicker,
   type Column,
-} from '../primitives'
-import { between, compact, sameDayStamp } from '../format'
+} from '../../primitives'
+import { between, compact, sameDayStamp } from '../../format'
 
 /**
  * Usage, per conversation.

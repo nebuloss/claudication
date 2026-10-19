@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
-import AccountPage from './features/account-page'
+import AccountPage from './features/accounts/page'
 import Activity from './features/activity'
 import Keys, { KeyPage } from './features/keys'
 import Overview from './features/overview'
@@ -10,7 +10,18 @@ import ThemeToggle from './features/theme-toggle'
 import { usePath, useLive, useLoader, useUpdateAvailable } from './hooks'
 import { nameOf, useNames } from './names'
 import { SessionProvider } from './session'
-import { navLevel, pathOf, reloadOnNextNavigation, tabOf, trailOf } from './route'
+import {
+  ACCOUNT_PAGES,
+  ACTIVITY_PAGES,
+  GATEWAY_SETTINGS,
+  KEY_PAGES,
+  navLevel,
+  pageIdOf,
+  pathOf,
+  reloadOnNextNavigation,
+  tabOf,
+  trailOf,
+} from './route'
 // OverviewData, because Overview is already the panel above.
 import {
   ApiError,
@@ -268,7 +279,7 @@ export default function App() {
                 (item === '' ? (
                   <Accounts />
                 ) : (
-                  <AccountPage key={item} id={item} page={page} />
+                  <AccountPage key={item} id={item} page={pageIdOf(ACCOUNT_PAGES, page)} />
                 ))}
               {tab === 'keys' &&
                 (item === '' ? (
@@ -277,14 +288,14 @@ export default function App() {
                   <KeyPage
                     key={item}
                     id={item}
-                    page={page}
+                    page={pageIdOf(KEY_PAGES, page)}
                     config={config.data}
                   />
                 ))}
-              {tab === 'activity' && <Activity page={item} />}
+              {tab === 'activity' && <Activity page={pageIdOf(ACTIVITY_PAGES, item) || 'chats'} />}
               {tab === 'settings' && (
                 <Settings
-                  section={item}
+                  section={pageIdOf(GATEWAY_SETTINGS, item)}
                   session={state.session}
                   onSessionChanged={() => void probe()}
                   config={config}

@@ -1,6 +1,6 @@
-import { api } from '../../api/client'
-import { useAction, useOptimistic } from '../hooks'
-import { Card, ErrorBanner, Note, SettingSwitch, Stack } from '../primitives'
+import { api } from '../../../api/client'
+import { useAction, useOptimistic } from '../../hooks'
+import { Card, ErrorBanner, Note, SettingSwitch, Stack } from '../../primitives'
 
 /**
  * The switches for naming conversations.

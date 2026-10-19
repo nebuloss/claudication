@@ -1,5 +1,5 @@
-import { type GatewayConfig, type Origin } from '../../api/client'
-import { Card, Chip, InfoTip, Muted, Note, Section, Stack, tile } from '../primitives'
+import { type GatewayConfig, type Origin } from '../../../api/client'
+import { Card, Chip, InfoTip, Muted, Note, Section, Stack, tile } from '../../primitives'
 
 /** How a value got here, as something you can scan a column for. */
 function OriginChip({ origin }: { origin: Origin }) {

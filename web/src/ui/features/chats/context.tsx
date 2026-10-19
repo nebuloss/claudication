@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
-import { api, type ChatContext, type ChatDetail, type RequestRow } from '../../api/client'
-import { HoverValues, LineChart, tipPosition, type LineSeries, Line } from '../charts'
-import { useLoader } from '../hooks'
-import { ErrorState, Loading, Muted, Stack } from '../primitives'
-import { compact, timeOfDay } from '../format'
+import { api, type ChatContext, type ChatDetail, type RequestRow } from '../../../api/client'
+import { HoverValues, LineChart, tipPosition, type LineSeries, Line } from '../../charts'
+import { useLoader } from '../../hooks'
+import { ErrorState, Loading, Muted, Stack } from '../../primitives'
+import { compact, timeOfDay } from '../../format'
 
 /** The request the gateway makes on its own behalf; see store.InternalPath. */
 const INTERNAL_PATH = '/internal/title'

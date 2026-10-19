@@ -1,7 +1,7 @@
-import type { Quota } from '../../api/client'
-import { QuotaWindow } from '../domain/quota'
-import { MeterRow, Muted, Stack, UsageBar } from '../primitives'
-import { relative } from '../format'
+import type { Quota } from '../../../api/client'
+import { QuotaWindow } from '../../domain/quota'
+import { MeterRow, Muted, Stack, UsageBar } from '../../primitives'
+import { relative } from '../../format'
 
 /**
  * The two headline windows, short enough for a row: the account list, and the

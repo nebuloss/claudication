@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { type UsageCell } from '../../api/client'
+import { type UsageCell } from '../../../api/client'
 import {
   FAILURE_LINE,
   HoverValues,
@@ -8,9 +8,9 @@ import {
   Palette,
   tipPosition,
   type LineSeries,
-} from '../charts'
-import { Muted, Segmented, SubNav, WindowPicker } from '../primitives'
-import { compact } from '../format'
+} from '../../charts'
+import { Muted, Segmented, SubNav, WindowPicker } from '../../primitives'
+import { compact } from '../../format'
 
 /**
  * The traffic widget: one chart, and tabs for what its lines are.

@@ -1,6 +1,6 @@
-import { api } from '../../api/client'
-import { useAction, useOptimistic } from '../hooks'
-import { Card, ErrorBanner, SettingSwitch } from '../primitives'
+import { api } from '../../../api/client'
+import { useAction, useOptimistic } from '../../hooks'
+import { Card, ErrorBanner, SettingSwitch } from '../../primitives'
 
 /**
  * The switch for capping oversized images.

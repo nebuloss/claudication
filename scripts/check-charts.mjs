@@ -285,7 +285,7 @@ console.log('\n— model catalog: the configs are written from the live list —
     tailorCodexConfig,
     tailorClaudeCode,
     tailorOpencode,
-  } = await import(`${OUT}/features/docs/catalog.js`)
+  } = await import(`${OUT}/clients/catalog.js`)
   const { readFileSync } = await import('node:fs')
   const committed = (name) =>
     readFileSync(new URL(`../configs/clients/${name}`, import.meta.url), 'utf8')

@@ -4,9 +4,9 @@ import {
   type MemorySnapshot,
   type Overview as OverviewData,
   type Usage,
-} from '../../api/client'
-import { Traffic } from './traffic'
-import { useLoader } from '../hooks'
+} from '../../../api/client'
+import { Traffic } from '../usage/traffic'
+import { useLoader } from '../../hooks'
 import {
   Banner,
   Card,
@@ -20,8 +20,8 @@ import {
   Stat,
   StatGrid,
   UsageBar,
-} from '../primitives'
-import { compact, duration, mib } from '../format'
+} from '../../primitives'
+import { compact, duration, mib } from '../../format'
 
 /**
  * How often the status figures re-read themselves.

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { api, type ApiKey, type GatewayConfig, type InstallFile } from '../../api/client'
-import { useAction, useLoader } from '../hooks'
+import { api, type ApiKey, type GatewayConfig, type InstallFile } from '../../../api/client'
+import { useAction, useLoader } from '../../hooks'
 import {
   Button,
   Card,
@@ -13,12 +13,12 @@ import {
   Segmented,
   Stack,
   useConfirm,
-} from '../primitives'
-import { Catalog } from './docs/catalog'
-import { ClientBody } from './docs/client-body'
-import { CLIENTS } from './docs/content'
-import { EXAMPLE_BASE } from './docs/model'
-import { relayAddress } from './key-configs'
+} from '../../primitives'
+import { Catalog } from '../../clients/catalog'
+import { ClientBody } from '../../clients/client-body'
+import { CLIENTS } from '../../clients/recipes'
+import { EXAMPLE_BASE } from '../../clients/model'
+import { relayAddress } from '../../clients/address'
 
 /**
  * A key's Clients page: every client's configuration with the key already

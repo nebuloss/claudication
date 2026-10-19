@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import AddAccount from './add-account'
+import AddAccount from './add'
 import { QuotaGauges } from './quota-meter'
-import { accountHref } from './usage'
-import { byProvider, providerLabel } from '../providers'
-import { api, type Account } from '../../api/client'
-import { useAction, useLoader } from '../hooks'
+import { byProvider, providerLabel } from '../../providers'
+import { accountHref } from '../../route'
+import { api, type Account } from '../../../api/client'
+import { useAction, useLoader } from '../../hooks'
 import {
   AddButton,
   Banner,
@@ -22,9 +22,9 @@ import {
   RowBadge,
   Section,
   Stack,
-} from '../primitives'
-import { accountStatus } from '../domain/account'
-import { compact } from '../format'
+} from '../../primitives'
+import { accountStatus } from '../../domain/account'
+import { compact } from '../../format'
 
 /**
  * Until the server has said how often it re-reads the subscription figures,

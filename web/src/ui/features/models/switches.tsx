@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react'
-import { api, type Account, type AccountModel, type ApiKey } from '../../api/client'
-import { useAction, useLoader } from '../hooks'
-import { Actions, Button, ErrorBanner, ErrorState, Loading, Stack, Switch, tile } from '../primitives'
-import { compact, monthYear } from '../format'
+import { api, type Account, type AccountModel, type ApiKey } from '../../../api/client'
+import { useAction, useLoader } from '../../hooks'
+import { Actions, Button, ErrorBanner, ErrorState, Loading, Stack, Switch, tile } from '../../primitives'
+import { compact, monthYear } from '../../format'
 
 /**
  * A list of models, each with a switch: what an account may serve, or what a

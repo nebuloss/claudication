@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { type Section } from './model'
+import type { Section } from './content'
 
 /**
  * Where the line between "read" and "not yet" sits, in pixels from the top.

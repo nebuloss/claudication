@@ -18,7 +18,7 @@
  * xhigh. The hand-written lists had several of those wrong.
  */
 
-import type { Model } from '../../../api/types'
+import type { Model } from '../../api/types'
 
 /**
  * The context window crush is told for a model whose real one is larger.

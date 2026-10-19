@@ -1,6 +1,6 @@
-import { api, type Surface } from '../../api/client'
-import { useAction } from '../hooks'
-import { Banner, Card, ErrorBanner, Note, SettingSwitch, Stack } from '../primitives'
+import { api, type Surface } from '../../../api/client'
+import { useAction } from '../../hooks'
+import { Banner, Card, ErrorBanner, Note, SettingSwitch, Stack } from '../../primitives'
 
 /**
  * The switches for the client-facing APIs.

@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { api, type Usage, type UsageBucket, type UsageScope } from '../../api/client'
-import { RankedBars } from '../charts'
+import { api, type Usage, type UsageBucket, type UsageScope } from '../../../api/client'
+import { RankedBars } from '../../charts'
 import { Traffic } from './traffic'
-import { useLoader } from '../hooks'
-import { navigate, pathOf } from '../route'
-import { requestsHref } from './requests/filter'
+import { useLoader } from '../../hooks'
+import { accountHref, keyHref, navigate } from '../../route'
+import { requestsHref } from '../requests/filter'
 import {
   AppLink,
   Button,
@@ -18,8 +18,8 @@ import {
   Stat,
   StatGrid,
   WindowPicker,
-} from '../primitives'
-import { compact } from '../format'
+} from '../../primitives'
+import { compact } from '../../format'
 
 const WINDOWS = [1, 7, 30] as const
 
@@ -28,9 +28,6 @@ const REPORT_REFRESH_MS = 30_000
 /** How many rows a breakdown shows before it offers the rest. */
 const TOP = 5
 
-/** Where an account's or a key's own page lives. */
-export const accountHref = (id: string) => pathOf('accounts', id)
-export const keyHref = (id: string) => pathOf('keys', id)
 
 /** A breakdown row that opens the page of what it counts, when it has one. */
 function linked(b: UsageBucket, href: ((id: string) => string) | undefined) {

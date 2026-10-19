@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { ConsentFlow } from './add-account'
-import AccountModels from './account-models'
-import { useAction } from '../hooks'
-import { api, type Account, type ProbeResult } from '../../api/client'
-import { dateTime, relative } from '../format'
+import { ConsentFlow } from './add'
+import AccountModels from '../models/switches'
+import { useAction } from '../../hooks'
+import { api, type Account, type ProbeResult } from '../../../api/client'
+import { dateTime, relative } from '../../format'
 import {
   Actions,
   Banner,
@@ -15,9 +15,12 @@ import {
   Verbatim,
   tile,
   useConfirm,
-} from '../primitives'
+} from '../../primitives'
 
 type Busy = 'test' | 'refresh' | 'disable'
+
+/** Which of the account's settings pages this is. */
+export type AccountSettingsSection = 'models' | 'connection' | 'advanced'
 
 /**
  * An account's settings: everything that changes it, a page per section
@@ -40,8 +43,7 @@ export default function AccountSettings({
   onRemoved,
 }: {
   account: Account
-  /** Which of the account's settings pages this is: models, connection or advanced. */
-  section: string
+  section: AccountSettingsSection
   onChanged: () => void
   onRemoved: () => void
 }) {

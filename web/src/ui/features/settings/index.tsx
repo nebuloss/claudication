@@ -1,12 +1,13 @@
 import ChatTitles from './chat-titles'
-import ConfigTable from './configtable'
+import ConfigTable from './config-table'
 import ImageFit from './image-fit'
-import ModelsTab from './model-roles'
+import ModelsTab from '../models/roles'
 import PublicDocs from './public-docs'
 import Security from './security'
 import Surfaces from './surfaces'
-import { type GatewayConfig, type Session } from '../../api/client'
-import { Card, Empty, Loading, Page } from '../primitives'
+import { type GatewayConfig, type Session } from '../../../api/client'
+import { Card, Empty, Loading, Page } from '../../primitives'
+import type { SettingsSectionId } from '../../route'
 
 /**
  * Settings: a page per section (/settings/<section>) — the model aliases
@@ -35,8 +36,7 @@ export default function Settings({
   config,
   onConfigChanged,
 }: {
-  /** An id from GATEWAY_SETTINGS. */
-  section: string
+  section: SettingsSectionId
   session: Session
   onSessionChanged: () => void
   /**
@@ -96,7 +96,7 @@ export default function Settings({
             onChanged={() => void reload()}
           />
         )
-      default:
+      case 'configuration':
         return <ConfigTable config={data} />
     }
   })()

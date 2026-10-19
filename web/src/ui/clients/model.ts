@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
-import { type Surface } from '../../../api/client'
-import { type Lang } from '../../primitives/code'
+import { type Surface } from '../../api/client'
+import { type Lang } from '../primitives/code'
 import { type Catalog } from './catalog'
 
 /**
@@ -146,8 +146,3 @@ export class ClientRecipe {
   }
 }
 
-/** A symptom and what actually causes it. */
-export type Symptom = { symptom: string; cause: ReactNode }
-
-/** One addressable part of the page, for the heading and the contents list. */
-export type Section = { id: string; title: string }

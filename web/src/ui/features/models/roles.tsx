@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { api, type Model, type ModelRole } from '../../api/client'
-import { useAction, useLoader } from '../hooks'
+import { api, type Model, type ModelRole } from '../../../api/client'
+import { useAction, useLoader } from '../../hooks'
 import {
   Button,
   Card,
@@ -20,7 +20,7 @@ import {
   tile,
   type SelectOption,
   useConfirm,
-} from '../primitives'
+} from '../../primitives'
 
 /**
  * Model aliases: names the gateway's configs ask for instead of real models.

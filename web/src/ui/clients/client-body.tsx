@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import type { Surface } from '../../../api/client'
-import { CodeViewer, CopyField, Note, Stack } from '../../primitives'
+import type { Surface } from '../../api/client'
+import { CodeViewer, CopyField, Note, Stack } from '../primitives'
 import type { Catalog } from './catalog'
 import type { ClientRecipe } from './model'
 
