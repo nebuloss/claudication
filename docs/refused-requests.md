@@ -12,6 +12,10 @@ Every claim is marked:
 - **[client]** — read out of the official client, version 2.1.263. Facts about
   what the client sends, not about what the server requires.
 
+Everything above the section on [the ChatGPT backend](#the-chatgpt-backend) is
+about Anthropic. That section is the second upstream's, measured the same way
+against its own backend.
+
 The two are kept apart because the interesting cases are where they disagree:
 the client works around things the server has never told anyone about.
 
@@ -158,6 +162,41 @@ It is off by default because it is the only pass that changes what the model is
 shown rather than the shape of the envelope, and the client is the one that
 knows whether the detail mattered. The real fix is upstream of here: a client
 sending screenshots should downscale before it sends them.
+
+---
+
+## The ChatGPT backend
+
+A request routed to a ChatGPT account is an OpenAI Responses body, sent on as
+the client wrote it to `chatgpt.com/backend-api/codex/responses`, and its
+pipeline is `passes.OpenAI`: the first row of the table above, and nothing
+else. The other rewrites repair an Anthropic envelope; on a Responses body
+they would find nothing to repair, or put Anthropic's fields into it.
+
+Measured with `scripts/probe-chatgpt.py` on 2026-10-19, one ChatGPT Plus
+account, one thing varied at a time. The scrubbed records are
+`internal/provider/openai/testdata/*.json`, and the tests read them.
+
+| request | answer | so |
+|---|---|---|
+| a lone `\ud800` in the input text | [measured] 400 `{"detail":"Bad Request"}` | `FixLoneSurrogates` runs on this wire too |
+| `max_output_tokens: 256` | [measured] 200 | not stripped. crush strips it as refused (`internal/oauth/openai/transport.go`); that did not reproduce |
+| no `originator` header | [measured] 200 | the gateway adds `originator: claudication` only when a client sent none, and never Codex's own `codex_cli_rs` |
+| `instructions` as a developer message rather than the top-level field | [measured] 200 | neither form is required; the body is left as the client wrote it |
+| an encrypted reasoning item replayed on the account that made it | [measured] 200, right answer | — |
+| the same item replayed on another account | not measured: one account | the pool keeps a conversation on the account that served it last |
+
+The refusal worth knowing is the usage limit, which is read rather than
+rewritten: a 429 `{"error":{"type":"usage_limit_reached","resets_at":...}}`
+(from Codex's own error handling; the account measured never ran out) sits the
+account out until `resets_at`, and is relayed as it came, so Codex reads the
+reset itself. `usage_not_included` — a plan without Codex — passes the request
+to another account rather than waiting.
+
+The same line holds here as for Anthropic: the gateway adds the credential and
+the workspace (`ChatGPT-Account-ID`) and nothing that claims to be a client it
+is not. Codex's own `originator`, `User-Agent`, `session-id` and `x-codex-*`
+headers are relayed as they came.
 
 ---
 

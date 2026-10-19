@@ -5,18 +5,24 @@ starves the muscle under load: it comes on when you push, and eases when you
 rest. Also contains Claude. The name is a promise about the failure mode — it
 keeps walking, and it tells you where the narrowing is.
 
-**A gateway that puts your Claude subscription behind the APIs your tools
-already speak.** Point Claude Code, opencode or crush at its Anthropic
-Messages API, or Codex CLI at its OpenAI Responses API: the gateway
-authenticates to Anthropic with a subscription OAuth account, pools several of
-them in an order you choose, and relays requests byte for byte — translating
-only for the clients that do not speak Anthropic. One static binary, with the
-admin UI inside it.
+**A gateway that puts your Claude subscription — and your ChatGPT one — behind
+the APIs your tools already speak.** Point Claude Code, opencode or crush at
+its Anthropic Messages API, or Codex CLI at its OpenAI Responses API: the
+gateway authenticates with subscription OAuth accounts, pools several of them
+in an order you choose, and relays requests byte for byte — translating only
+where a client's API is not its upstream's. One static binary, with the admin
+UI inside it.
 
     Claude Code ─┐
-    opencode  ───┼──►  /v1/messages  ──┐
-    crush     ───┘                     ├──►  claudication  ──►  api.anthropic.com
-    Codex     ──────►  /v1/responses ──┘      your API key       your subscription
+    opencode  ───┼──►  /v1/messages  ──┐                   ┌──►  api.anthropic.com
+    crush     ───┘                     ├──►  claudication ─┤     your Claude subscription
+    Codex     ──────►  /v1/responses ──┘      your API key └──►  chatgpt.com (Codex backend)
+                                                                 your ChatGPT subscription
+
+Which upstream serves a request is decided by the model it names, through the
+gateway's aliases: `claude-large` and `gpt-large` and the rest, each bound in
+Settings › Aliases to a real model, and served by the accounts that list it.
+Codex reaches both; Claude Code reaches Claude accounts only.
 
 Either API can be switched off from the admin UI, together or separately,
 without a restart.
@@ -90,8 +96,9 @@ link to one opens on it.
 **Overview** — whether the gateway can serve a request, and the base URL plus
 snippets to point Claude Code or curl at it.
 
-**Claude accounts** — the OAuth accounts the pool draws on, in priority order,
-each showing its 5-hour and 7-day subscription usage.
+**Accounts** — the Claude and ChatGPT accounts the pool draws on, each
+provider's in its own priority order, each showing its 5-hour and 7-day
+subscription usage.
 
 **API keys** — mint, rename and withdraw the credentials clients present, each
 with an optional request rate limit and daily token budget.
@@ -137,10 +144,38 @@ and the tokens are handed back. Sign out of claude.ai first, or open the link th
 form offers in a private window. Adding an account that is already connected
 renews it too, and says so.
 
+## ChatGPT accounts
+
+A ChatGPT Plus, Pro or Team subscription can serve Codex. **Add account →
+ChatGPT** asks OpenAI for a device code; enter it on OpenAI's own device page,
+in any browser signed in to the account, and the page notices and adds it. It
+is the flow `codex login --device-auth` uses, and it needs nothing to come back
+from that browser, so it works for a gateway on another machine.
+
+Each ChatGPT workspace is an account of its own: a personal one and a Team one
+under the same address are added separately, and each request names the one it
+bills. The account shows the plan the sign-in named.
+
+What a ChatGPT account serves is what Codex sends it, as Codex wrote it — the
+gateway adds the account's credential and nothing that claims to be Codex. A
+Codex asking for `gpt-large` (or a GPT model by name, or an alias bound to one)
+is served there; Claude Code cannot be, since the backend speaks OpenAI's
+Responses API, and is refused an alias bound to a ChatGPT model, saying which
+one to change. Usage comes from the backend's own endpoint and from the headers
+on every answer, in the same 5-hour and 7-day columns. Chats served by a
+ChatGPT account are not titled.
+
+The Codex backend is not a public API, and pooling several people's ChatGPT
+subscriptions behind shared keys may breach OpenAI's terms and get accounts
+flagged — as with Claude, that is the operator's decision to make knowingly.
+What was measured against it, and how, is in
+`go doc ./internal/provider/openai`.
+
 ### Subscription usage
 
-Each account shows what it has spent, as the same rows `/usage` prints in the
-client, because they come from the same place — `GET /api/oauth/usage`:
+Each Claude account shows what it has spent, as the same rows `/usage` prints
+in the client, because they come from the same place — `GET /api/oauth/usage`
+(a ChatGPT account's come from the backend's `/wham/usage`, one row per window):
 
     Current session           29%  resets in 2h
     Current week (all models) 45%  resets in 21h  · binding

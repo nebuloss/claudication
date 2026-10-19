@@ -1,6 +1,8 @@
 // Package openai serves the OpenAI API to clients, turning their requests into
 // Anthropic ones and the answers back again, so Codex CLI can run on a Claude
-// subscription.
+// subscription — and, for a request whose model a ChatGPT account serves,
+// handing it on as it came (native.go): that backend speaks Responses itself,
+// and nothing below this paragraph applies to it.
 //
 // It implements api.Protocol; see internal/api for how the surfaces fit
 // together and what a new one has to provide. openai.go is the adapter and the

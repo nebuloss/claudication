@@ -1,11 +1,17 @@
-// Package api adapts the client-facing API dialects onto the one protocol the
+// Package api adapts the client-facing API dialects onto the protocols the
 // gateway speaks upstream.
 //
-// The gateway talks Anthropic Messages to Claude and nothing else, because
-// that is what a subscription account answers. Everything a caller may speak
-// is therefore an adapter around that shape: a Protocol reads a request in its
-// own dialect and produces the Anthropic request to relay, then wraps the
-// caller's writer so the answer comes back in the dialect it asked in.
+// The gateway talks Anthropic Messages to Claude, because that is what a
+// Claude subscription account answers, and OpenAI Responses to ChatGPT's Codex
+// backend, because that is what a ChatGPT one answers. Everything a caller may
+// speak is an adapter onto one of them: a Protocol reads a request in its own
+// dialect and produces the request to relay, then wraps the caller's writer
+// so the answer comes back in the dialect it asked in. A dialect that is its
+// upstream's own — Messages to Claude, Responses to ChatGPT — is the identity
+// adapter; the OpenAI surface is both, an identity exchange (DecodeNative) for
+// the backend that speaks it and a translation for Claude. Which upstream a
+// request goes to is decided before either, by the model it names (see
+// internal/service/models).
 //
 // Anthropic itself is one of those adapters rather than a special case, and
 // that is the whole point of the interface. Everything below this line — the

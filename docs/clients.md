@@ -142,6 +142,14 @@ anything — which reads like a broken tool bridge. Install `bubblewrap` from
 your package manager, or drop the one from the Codex release next to the binary
 at `codex-resources/bwrap`.
 
+**ChatGPT accounts.** With one connected, a Codex asking for `gpt-large` (or
+a GPT model by name) is served there, its request sent to OpenAI's Codex
+backend as Codex wrote it, and only Codex — or another OpenAI Responses client
+— can be: Claude Code asking for an alias bound to a ChatGPT model is refused,
+naming the alias. Settings › Aliases says so beside any `claude-*` alias bound
+that way. The config file is the same either way; what differs is the alias
+it names.
+
 **The model catalog**, which is what `codex-models.json` is. Codex looks its
 model up in a catalog compiled into its own binary, and a Claude name is not in
 it:
