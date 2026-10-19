@@ -85,8 +85,8 @@ type Server struct {
 	// default case — see internal/api.
 	protocols api.Registry
 	surfaces  *surfaces.Surfaces
-	images *settings.Switch
-	docs   *settings.Switch
+	images    *settings.Switch
+	docs      *settings.Switch
 
 	// The handler sets, one per surface. See the package comment.
 	gateway *gateway.Gateway
