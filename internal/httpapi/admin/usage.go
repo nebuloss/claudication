@@ -49,6 +49,10 @@ func scopeFrom(q url.Values) store.UsageScope {
 
 // RequestJSON is one row of the request log as the admin API reports it.
 type RequestJSON struct {
+	// ID is the row's own id, which only grows. It is how the live log tells
+	// a new row from one it holds: At is to the second, and a busy gateway
+	// records several requests in one.
+	ID           int64  `json:"id"`
 	At           string `json:"at"`
 	KeyName      string `json:"key_name,omitempty"`
 	AccountEmail string `json:"account_email,omitempty"`
@@ -96,6 +100,7 @@ type RequestJSON struct {
 // one of them quietly starts reporting a different duration unit.
 func toRequestJSON(e store.UsageEvent) RequestJSON {
 	return RequestJSON{
+		ID:           e.ID,
 		At:           e.At.UTC().Format(time.RFC3339),
 		KeyName:      e.KeyName,
 		AccountEmail: e.AccountEmail,

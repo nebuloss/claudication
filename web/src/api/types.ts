@@ -312,6 +312,8 @@ export interface Chats {
 }
 
 export interface RequestRow {
+  /** The row's id, which only grows: what tells a polled row from a held one. */
+  id: number
   at: string
   key_name?: string
   account_email?: string

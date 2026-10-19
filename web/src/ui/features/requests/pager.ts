@@ -2,11 +2,15 @@
 export const PAGE = 50
 
 /**
- * A page as the API answers it. Generic over the row, which need only say when
- * it happened: the pager is pure, and checked by `make test-web` without the
- * API client.
+ * A page as the API answers it. Generic over the row, which need only carry
+ * its id: the pager is pure, and checked by `make test-web` without the API
+ * client.
+ *
+ * The id rather than the time, because the time is to the second and a busy
+ * gateway records several requests in one: comparing times dropped every row
+ * recorded in the same second as the newest one held.
  */
-type Stamped = { at: string }
+type Stamped = { id: number }
 type Page<R extends Stamped> = { rows: R[]; nextCursor: string }
 
 /**
@@ -46,8 +50,8 @@ export class RequestLogPager<R extends Stamped> {
    */
   merged(page: Page<R>): RequestLogPager<R> {
     if (this.rows.length === 0) return RequestLogPager.first(page)
-    const newest = this.rows.reduce((m, r) => Math.max(m, new Date(r.at).getTime()), 0)
-    const fresh = page.rows.filter((r) => new Date(r.at).getTime() > newest)
+    const newest = this.rows.reduce((m, r) => Math.max(m, r.id), 0)
+    const fresh = page.rows.filter((r) => r.id > newest)
     if (fresh.length === 0) return this
     if (fresh.length >= PAGE) return RequestLogPager.first(page)
     return new RequestLogPager([...fresh, ...this.rows], this.cursor)

@@ -410,13 +410,16 @@ console.log('\n— RequestFilter: the URL is the filter, and survives the trip �
 console.log('\n— RequestLogPager: polling must not undo paging —')
 {
   const { RequestLogPager, PAGE } = await import(`${OUT}/features/requests/pager.js`)
-  const at = (m) => ({ at: new Date(Date.UTC(2026, 9, 19, 12, m)).toISOString() })
+  const at = (m) => ({ id: m, at: new Date(Date.UTC(2026, 9, 19, 12, m)).toISOString() })
   const held = RequestLogPager.first({ rows: [at(5), at(4)], nextCursor: 'c1' }).more({ rows: [at(3)], nextCursor: 'c2' })
   check('load more appends and moves the cursor', [held.rows.length, held.cursor], [3, 'c2'])
   const polled = held.merged({ rows: [at(7), at(6), at(5), at(4)], nextCursor: 'p' })
   check('a poll adds only what is newer, on top', polled.rows.map((r) => r.at.slice(14, 16)), ['07', '06', '05', '04', '03'])
   check('and keeps the paging cursor', polled.cursor, 'c2')
   check('a quiet poll changes nothing', held.merged({ rows: [at(5)], nextCursor: 'p' }), held)
+  const sameSecond = { id: 8, at: at(5).at }
+  check('a row from the same second as the newest held is still new',
+    held.merged({ rows: [sameSecond, at(5)], nextCursor: 'p' }).rows.map((r) => r.id), [8, 5, 4, 3])
   const flood = Array.from({ length: PAGE }, (_, i) => at(10 + i)).reverse()
   const over = held.merged({ rows: flood, nextCursor: 'p' })
   check('a whole page of new rows starts over rather than leave a hole', [over.rows.length, over.cursor], [PAGE, 'p'])
