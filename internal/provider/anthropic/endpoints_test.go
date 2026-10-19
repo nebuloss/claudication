@@ -473,8 +473,11 @@ func TestFetchUsageRefusals(t *testing.T) {
 		t.Errorf("truncated: %v", err)
 	}
 
-	if got := trimForError([]byte("short")); got != "short" {
-		t.Errorf("trimForError changed a short body: %q", got)
+	if got := clip("short", 200); got != "short" {
+		t.Errorf("clip changed a short body: %q", got)
+	}
+	if got := clip("abcdef", 3); got != "abc…" {
+		t.Errorf("clip = %q, want the cut marked", got)
 	}
 }
 

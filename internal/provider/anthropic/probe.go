@@ -11,15 +11,8 @@ import (
 	"time"
 )
 
-const (
-	anthropicMessagesURL = "https://api.anthropic.com/v1/messages?beta=true"
-	anthropicVersion     = "2023-06-01"
-	// Required whenever the credential is an OAuth token rather than an API
-	// key. The gateway contract calls this out explicitly: stripping the OAuth
-	// capability from anthropic-beta fails subscription-authenticated
-	// requests with a 401.
-	anthropicOAuthBeta = "oauth-2025-04-20"
-)
+// probePath is the Messages endpoint as the official client calls it.
+const probePath = "/v1/messages?beta=true"
 
 // ProbeResult is what a credential test learned.
 type ProbeResult struct {
@@ -76,15 +69,13 @@ func Probe(ctx context.Context, client *http.Client, accessToken, model string) 
 		return ProbeResult{Error: fmt.Sprintf("encode probe request: %v", err)}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicMessagesURL, bytes.NewReader(body))
+	req, err := newAccountRequest(ctx, http.MethodPost, probePath, bytes.NewReader(body), accessToken)
 	if err != nil {
 		return ProbeResult{Error: fmt.Sprintf("build probe request: %v", err)}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("anthropic-version", anthropicVersion)
-	req.Header.Set("anthropic-beta", anthropicOAuthBeta)
+	req.Header.Set("anthropic-version", apiVersion)
 
 	started := time.Now()
 	resp, err := client.Do(req)
@@ -111,10 +102,7 @@ func Probe(ctx context.Context, client *http.Client, accessToken, model string) 
 		// Surface the upstream's own message verbatim. It is the only thing
 		// that distinguishes an expired token from a plan restriction from a
 		// model the account cannot reach.
-		out.Error = strings.TrimSpace(string(raw))
-		if len(out.Error) > 2000 {
-			out.Error = out.Error[:2000] + "…"
-		}
+		out.Error = clip(strings.TrimSpace(string(raw)), 2000)
 		return out
 	}
 

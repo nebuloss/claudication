@@ -48,27 +48,13 @@ func (j *jsonUsage) Done() {
 	if len(j.buf) == 0 {
 		return
 	}
+	// The same usage object a stream carries, read the same way: see
+	// usageJSON in ssescan.go.
 	var probe struct {
-		Usage struct {
-			InputTokens              *int `json:"input_tokens"`
-			OutputTokens             *int `json:"output_tokens"`
-			CacheReadInputTokens     *int `json:"cache_read_input_tokens"`
-			CacheCreationInputTokens *int `json:"cache_creation_input_tokens"`
-		} `json:"usage"`
+		Usage usageJSON `json:"usage"`
 	}
 	if err := json.Unmarshal(j.buf, &probe); err != nil {
 		return
 	}
-	if v := probe.Usage.InputTokens; v != nil {
-		j.usage.InputTokens = *v
-	}
-	if v := probe.Usage.OutputTokens; v != nil {
-		j.usage.OutputTokens = *v
-	}
-	if v := probe.Usage.CacheReadInputTokens; v != nil {
-		j.usage.CacheReadTokens = *v
-	}
-	if v := probe.Usage.CacheCreationInputTokens; v != nil {
-		j.usage.CacheCreationTokens = *v
-	}
+	probe.Usage.applyTo(j.usage)
 }

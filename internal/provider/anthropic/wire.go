@@ -10,6 +10,8 @@
 package anthropic
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"strings"
 
@@ -24,6 +26,33 @@ const BaseURL = "https://api.anthropic.com"
 // requests with a 401, so it is merged into whatever the client sent rather
 // than replacing it.
 const oauthBeta = "oauth-2025-04-20"
+
+// apiVersion is the anthropic-version a request carries when its caller named
+// none.
+const apiVersion = "2023-06-01"
+
+// newAccountRequest is a request of the gateway's own to path on BaseURL,
+// authorised as one account: its bearer token and the OAuth capability every
+// such request needs. For the account endpoints the gateway calls itself —
+// the test probe, the subscription usage — which used to set the same two
+// headers by hand, each with its own copy of the beta.
+func newAccountRequest(ctx context.Context, method, path string, body io.Reader, token string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, BaseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("anthropic-beta", oauthBeta)
+	return req, nil
+}
+
+// clip shortens an upstream's text for an error message, marking the cut.
+func clip(s string, max int) string {
+	if len(s) > max {
+		return s[:max] + "…"
+	}
+	return s
+}
 
 // Provider is Anthropic, as the relay sees it.
 type Provider struct{}
@@ -51,7 +80,7 @@ func (Provider) Authorize(out *http.Request, token string) {
 		out.Header.Set("anthropic-beta", betas)
 	}
 	if out.Header.Get("anthropic-version") == "" {
-		out.Header.Set("anthropic-version", "2023-06-01")
+		out.Header.Set("anthropic-version", apiVersion)
 	}
 }
 

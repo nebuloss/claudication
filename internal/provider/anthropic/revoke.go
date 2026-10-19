@@ -85,16 +85,7 @@ func revokeAt(ctx context.Context, client *http.Client, url, refreshToken, clien
 	detail, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("revoke token: upstream returned %d: %s",
-			resp.StatusCode, trimDetail(detail))
+			resp.StatusCode, clip(string(bytes.TrimSpace(detail)), 200))
 	}
 	return nil
-}
-
-func trimDetail(b []byte) string {
-	const max = 200
-	s := string(bytes.TrimSpace(b))
-	if len(s) > max {
-		return s[:max] + "…"
-	}
-	return s
 }

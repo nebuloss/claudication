@@ -131,13 +131,11 @@ func FetchUsage(ctx context.Context, client *http.Client, accessToken string) (A
 	ctx, cancel := context.WithTimeout(ctx, usageTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, BaseURL+usagePath, nil)
+	req, err := newAccountRequest(ctx, http.MethodGet, usagePath, nil, accessToken)
 	if err != nil {
 		return AccountUsage{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -151,7 +149,7 @@ func FetchUsage(ctx context.Context, client *http.Client, accessToken string) (A
 	}
 	if resp.StatusCode != http.StatusOK {
 		return AccountUsage{}, fmt.Errorf("usage endpoint returned %d: %s",
-			resp.StatusCode, trimForError(body))
+			resp.StatusCode, clip(string(body), 200))
 	}
 
 	var out AccountUsage
@@ -160,12 +158,4 @@ func FetchUsage(ctx context.Context, client *http.Client, accessToken string) (A
 	}
 	out.FetchedAt = time.Now().UTC()
 	return out, nil
-}
-
-func trimForError(b []byte) string {
-	const max = 200
-	if len(b) > max {
-		return string(b[:max]) + "…"
-	}
-	return string(b)
 }
