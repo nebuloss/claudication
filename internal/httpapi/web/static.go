@@ -27,12 +27,12 @@ import (
 // Site serves the documents: the embedded admin UI, the public docs page and
 // what that page reads, and the welcome page that stands in for it.
 type Site struct {
-	cfg         *config.Config
-	log         *slog.Logger
-	store       *store.Store
-	docs        *settings.Switch
-	surfaces    *surfaces.Surfaces
-	models      Models
+	cfg      *config.Config
+	log      *slog.Logger
+	store    *store.Store
+	docs     *settings.Switch
+	surfaces *surfaces.Surfaces
+	models   Models
 	// files holds the built UI under webdist/.
 	files fs.FS
 

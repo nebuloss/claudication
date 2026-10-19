@@ -121,7 +121,7 @@ func TestModelCatalogue(t *testing.T) {
 		return rec.Result(), nil
 	})
 	addAccount(t, srv, st, "first@example.com", "first-access", "r1", time.Now().Add(time.Hour))
-	body, err := srv.gateway.FetchModels(context.Background())
+	body, err := srv.models.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

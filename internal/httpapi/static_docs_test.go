@@ -37,7 +37,7 @@ func fakeUI(srv *Server) (index, script string) {
 	script = strings.Repeat("console.log('compressible');\n", 200)
 	srv.web = web.New(web.Deps{
 		Config: srv.cfg, Log: srv.log, Store: srv.store, Docs: srv.docs,
-		Surfaces: srv.surfaces, Models: srv.gateway.FetchModels,
+		Surfaces: srv.surfaces, Models: srv.models,
 		Files: fstest.MapFS{
 			"webdist/index.html":         {Data: []byte(index)},
 			"webdist/docs.html":          {Data: []byte("<!doctype html><title>docs</title>")},
