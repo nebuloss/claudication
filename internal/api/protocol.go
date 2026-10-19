@@ -28,8 +28,9 @@ type Protocol interface {
 	// WriteError answers in this dialect's own error envelope, for failures
 	// that happen before an Exchange exists or outside one: a body that will
 	// not parse, a surface that is switched off, a pool with no accounts. A
-	// client can only act on an error it can parse.
-	WriteError(w http.ResponseWriter, status int, kind, message string)
+	// client can only act on an error it can parse, so every ErrorKind has a
+	// spelling in every dialect.
+	WriteError(w http.ResponseWriter, status int, kind ErrorKind, message string)
 
 	// ConversationID names the chat this request belongs to, or "" when the
 	// caller sends nothing that does.

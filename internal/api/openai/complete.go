@@ -95,9 +95,10 @@ func AnthropicToResponses(body []byte, req Request) ([]byte, error) {
 	return json.Marshal(s.responseWith(status, &usage, nil, incomplete))
 }
 
-// ErrorEnvelope renders a failure as an OpenAI error body, for every path that
-// answers with a status rather than a stream: a refusal forwarded from the
-// upstream, a surface that is switched off, a body that would not parse.
+// ErrorEnvelope renders an upstream refusal as an OpenAI error body, for the
+// path that answers with a status rather than a stream. kind is the upstream's
+// own error type, read out of its body; the gateway's own failures go through
+// WriteError and gatewayCode instead.
 func ErrorEnvelope(kind, message string) []byte {
 	code, msg := mapError(kind, message)
 	body, _ := json.Marshal(map[string]any{

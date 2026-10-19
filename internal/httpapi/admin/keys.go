@@ -79,7 +79,7 @@ func (s *Admin) handleListKeys(w http.ResponseWriter, r *http.Request) {
 	keys, err := s.store.ListKeys(r.Context())
 	if err != nil {
 		s.log.Error("list api keys", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not list keys")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not list keys")
 		return
 	}
 
@@ -152,21 +152,21 @@ func decodeKeyLimits(w http.ResponseWriter, r *http.Request) (string, store.KeyL
 	name := strings.TrimSpace(body.Name)
 	switch {
 	case name == "":
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "a name is required")
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "a name is required")
 		return "", store.KeyLimits{}, false
 	case body.RPMLimit < 0:
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 			"rpm_limit cannot be negative (0 means the global default)")
 		return "", store.KeyLimits{}, false
 	case body.TokenBudget < 0:
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 			"token_budget cannot be negative (0 means unlimited)")
 		return "", store.KeyLimits{}, false
 	case body.RatePeriodS < 0 || body.RatePeriodS > 7*24*3600:
 		// A week is already far past anything a rate limit usefully means, and
 		// an unbounded period is a bucket that refills so slowly it is really a
 		// lifetime quota wearing a rate limit's name.
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 			"rate_period_s must be between 0 and one week")
 		return "", store.KeyLimits{}, false
 	}
@@ -189,7 +189,7 @@ func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	key, plaintext, err := s.store.CreateKey(r.Context(), name, limits)
 	if err != nil {
 		s.log.Error("create api key", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not create the key")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not create the key")
 		return
 	}
 
@@ -212,14 +212,14 @@ func (s *Admin) handleKeySecret(w http.ResponseWriter, r *http.Request) {
 	plaintext, err := s.store.KeySecret(r.Context(), id)
 	switch {
 	case errors.Is(err, store.ErrKeyNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 		return
 	case errors.Is(err, store.ErrSecretNotKept):
 		httpx.WriteError(w, http.StatusConflict, "secret_not_kept", err.Error())
 		return
 	case err != nil:
 		s.log.Error("read api key secret", "err", err, "id", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the key")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the key")
 		return
 	}
 	s.log.Warn("api key shown", "id", id, "ip", httpx.ClientIP(r.Context()))
@@ -242,11 +242,11 @@ func (s *Admin) handleRotateKey(w http.ResponseWriter, r *http.Request) {
 	key, plaintext, err := s.store.RotateKey(r.Context(), id)
 	switch {
 	case errors.Is(err, store.ErrKeyNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 		return
 	case err != nil:
 		s.log.Error("rotate api key", "err", err, "id", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not issue a new secret")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not issue a new secret")
 		return
 	}
 	s.log.Warn("api key rotated", "id", key.ID, "name", key.Name, "ip", httpx.ClientIP(r.Context()))
@@ -267,11 +267,11 @@ func (s *Admin) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch err := s.store.UpdateKey(r.Context(), id, name, limits); {
 	case errors.Is(err, store.ErrKeyNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 		return
 	case err != nil:
 		s.log.Error("update api key", "err", err, "id", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not update the key")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not update the key")
 		return
 	}
 	// Drop the cached spend so a raised or lowered budget takes effect on the
@@ -300,11 +300,11 @@ func (s *Admin) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch err := s.store.DeleteKey(r.Context(), id); {
 	case errors.Is(err, store.ErrKeyNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 		return
 	case err != nil:
 		s.log.Error("delete api key", "err", err, "id", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not delete the key")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not delete the key")
 		return
 	}
 	s.budgets.Forget(id)
@@ -322,11 +322,11 @@ func (s *Admin) handleKeyInstall(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	key, err := s.store.Key(r.Context(), id)
 	if errors.Is(err, store.ErrKeyNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 		return
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "read the key", err)
 		return
 	}
 	var body struct {

@@ -428,7 +428,7 @@ func (s *Admin) TokenLogin(w http.ResponseWriter, r *http.Request, redirectTo st
 
 	ip := httpx.ClientIP(r.Context())
 	if !s.anonLimiter.AllowPerMinute("token-login:"+ip, s.cfg.Limits.AnonPerMinute) {
-		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
+		httpx.WriteError(w, http.StatusTooManyRequests, httpx.KindRateLimit, "too many attempts")
 		return true
 	}
 
@@ -441,7 +441,7 @@ func (s *Admin) TokenLogin(w http.ResponseWriter, r *http.Request, redirectTo st
 
 	if _, err := s.issueSession(w, r); err != nil {
 		s.log.Error("create admin session", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not start a session")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not start a session")
 		return true
 	}
 	s.log.Info("sign-in link spent", "ip", ip)
@@ -457,7 +457,7 @@ func (s *Admin) handleTokenSession(w http.ResponseWriter, r *http.Request) {
 	if s.TokenLogin(w, r, "/") {
 		return
 	}
-	httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
+	httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 		"pass ?token=<sign-in link>, or POST your password to this path")
 }
 
@@ -467,7 +467,7 @@ func (s *Admin) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	accounts, err := s.store.ListAccounts(r.Context())
 	if err != nil {
 		s.log.Error("list accounts", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not list accounts")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not list accounts")
 		return
 	}
 
@@ -487,7 +487,7 @@ func (s *Admin) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	status, err := s.pool.Status(r.Context(), "anthropic")
 	if err != nil {
 		s.log.Error("account pool status", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read accounts")
 		return
 	}
 
@@ -526,12 +526,12 @@ func (s *Admin) handleReorderAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.IDs) == 0 {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "ids must not be empty")
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "ids must not be empty")
 		return
 	}
 	if err := s.store.SetAccountOrder(r.Context(), body.IDs); err != nil {
 		s.log.Error("reorder accounts", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not save the order")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not save the order")
 		return
 	}
 	s.log.Info("account priority changed", "ip", httpx.ClientIP(r.Context()))
@@ -544,13 +544,13 @@ func (s *Admin) handleRefreshUsage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.poller.Refresh(r.Context(), id); err != nil {
 		s.log.Warn("usage refresh failed", "account", id, "err", err)
-		httpx.WriteError(w, http.StatusBadGateway, "upstream_error",
+		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,
 			"could not read the subscription usage: "+err.Error())
 		return
 	}
 	account, err := s.store.Account(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(account)})
@@ -583,11 +583,11 @@ func (s *Admin) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	if body.AccountID != "" {
 		acct, err := s.store.Account(r.Context(), body.AccountID)
 		if errors.Is(err, store.ErrAccountNotFound) {
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
+			httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
 			return
 		}
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+			httpx.Internal(w, s.log, "read the account", err)
 			return
 		}
 		if acct.Provider != body.Provider {
@@ -602,12 +602,12 @@ func (s *Admin) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 
 	pkce, err := oauth.NewPKCE()
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "start the sign-in", err)
 		return
 	}
 	state, err := oauth.NewState()
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "start the sign-in", err)
 		return
 	}
 	expires := s.pending.StartFor(body.Provider, state, pkce, redirectURI, target.ID)
@@ -725,12 +725,12 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 		target, err = s.store.Account(r.Context(), attempt.Account)
 		if errors.Is(err, store.ErrAccountNotFound) {
 			s.handBack(res.RefreshToken, "the account was removed during its reconnect")
-			httpx.WriteError(w, http.StatusNotFound, "not_found",
+			httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound,
 				"that account was removed while you were signing in; add it again instead")
 			return
 		}
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+			httpx.Internal(w, s.log, "read the account", err)
 			return
 		}
 		if !sameAccount(target, res.AccountUUID, res.Email) {
@@ -757,7 +757,7 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.log.Error("store account", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not store the account")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not store the account")
 		return
 	}
 
@@ -800,17 +800,17 @@ func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	acct, err := s.store.Account(r.Context(), id)
 	if errors.Is(err, store.ErrAccountNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
 		return
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "read the account", err)
 		return
 	}
 
 	tokens, err := s.store.AccountTokens(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "read the account's tokens", err)
 		return
 	}
 
@@ -851,7 +851,7 @@ func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 func (s *Admin) handleRefreshAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, err := s.store.Account(r.Context(), id); errors.Is(err, store.ErrAccountNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
 		return
 	}
 
@@ -862,7 +862,7 @@ func (s *Admin) handleRefreshAccount(w http.ResponseWriter, r *http.Request) {
 
 	acct, err := s.store.Account(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "read the account", err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": toAccountJSON(acct)})
@@ -890,11 +890,11 @@ func (s *Admin) handleSetAccountDisabled(w http.ResponseWriter, r *http.Request)
 	id := r.PathValue("id")
 	switch err := s.store.SetAccountDisabled(r.Context(), id, body.Disabled); {
 	case errors.Is(err, store.ErrAccountNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
 		return
 	case err != nil:
 		s.log.Error("set account disabled", "err", err, "account", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not update the account")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not update the account")
 		return
 	}
 	s.log.Info("account availability changed", "account", id, "disabled", body.Disabled,
@@ -925,10 +925,10 @@ func (s *Admin) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.DeleteAccount(r.Context(), id); errors.Is(err, store.ErrAccountNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
 		return
 	} else if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "delete the account", err)
 		return
 	}
 	s.log.Info("account removed", "account", id, "ip", httpx.ClientIP(r.Context()))
@@ -981,7 +981,7 @@ func (s *Admin) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 	body, err := s.fetchModels(ctx)
 	if err != nil {
 		s.log.Warn("could not read the upstream model list", "err", err)
-		httpx.WriteError(w, http.StatusBadGateway, "api_error",
+		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,
 			"could not reach the upstream model list")
 		return
 	}
@@ -999,7 +999,7 @@ func (s *Admin) handleSetSurface(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	p, ok := s.protocols.Find(id)
 	if !ok {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such API surface")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such API surface")
 		return
 	}
 
@@ -1007,17 +1007,17 @@ func (s *Admin) handleSetSurface(w http.ResponseWriter, r *http.Request) {
 		Enabled *bool `json:"enabled"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "expected {\"enabled\": true|false}")
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "expected {\"enabled\": true|false}")
 		return
 	}
 	if body.Enabled == nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "enabled is required")
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "enabled is required")
 		return
 	}
 
 	if err := s.surfaces.Set(r.Context(), id, *body.Enabled); err != nil {
 		s.log.Error("could not store the API surface switch", "surface", id, "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not store the setting")
 		return
 	}
 	s.log.Warn("API surface switched", "surface", id, "title", p.Title(), "enabled", *body.Enabled)

@@ -695,7 +695,7 @@ func mergeModels(lists [][]byte, accounts []store.Account) []byte {
 func (s *Gateway) surface(p api.Protocol, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.surfaces.Enabled(p.ID()) {
-			p.WriteError(w, http.StatusNotFound, "not_found",
+			p.WriteError(w, http.StatusNotFound, api.KindNotFound,
 				"the "+p.Title()+" is turned off on this gateway; "+
 					"an administrator can switch it back on under Settings")
 			return

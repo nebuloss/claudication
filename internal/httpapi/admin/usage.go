@@ -26,7 +26,7 @@ func (s *Admin) handleUsage(w http.ResponseWriter, r *http.Request) {
 	report, err := s.store.UsageIn(r.Context(), time.Now().Add(-window), scopeFrom(r.URL.Query()))
 	if err != nil {
 		s.log.Error("usage report", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read usage")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read usage")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
@@ -141,7 +141,7 @@ func (s *Admin) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	events, next, err := s.store.RecentUsage(r.Context(), limit, after, filter)
 	if err != nil {
 		s.log.Error("recent requests", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read recent requests")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read recent requests")
 		return
 	}
 
@@ -258,7 +258,7 @@ func (s *Admin) handleRequestFacets(w http.ResponseWriter, r *http.Request) {
 	facets, err := s.store.RequestFacets(r.Context(), 50)
 	if err != nil {
 		s.log.Error("request facets", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the filter values")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the filter values")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"enabled": true, "facets": facets})
@@ -290,7 +290,7 @@ func (s *Admin) handleOverview(w http.ResponseWriter, r *http.Request) {
 	accounts, err := s.store.ListAccounts(r.Context())
 	if err != nil {
 		s.log.Error("overview accounts", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read accounts")
 		return
 	}
 	var expiring int
@@ -307,7 +307,7 @@ func (s *Admin) handleOverview(w http.ResponseWriter, r *http.Request) {
 	status, err := s.pool.Status(r.Context(), "anthropic")
 	if err != nil {
 		s.log.Error("overview pool status", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read accounts")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read accounts")
 		return
 	}
 	out["accounts"] = map[string]any{
@@ -322,7 +322,7 @@ func (s *Admin) handleOverview(w http.ResponseWriter, r *http.Request) {
 	keys, err := s.store.ListKeys(r.Context())
 	if err != nil {
 		s.log.Error("overview keys", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read keys")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read keys")
 		return
 	}
 	// Every key that exists is usable: withdrawing one deletes it, so there is

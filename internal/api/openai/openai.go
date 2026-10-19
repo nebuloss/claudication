@@ -53,10 +53,40 @@ func (a API) Decode(body []byte) (api.Exchange, error) {
 
 // WriteError writes OpenAI's error envelope. A Codex that cannot parse an
 // error reports a bare stream failure instead, which names nothing.
-func (API) WriteError(w http.ResponseWriter, status int, kind, message string) {
+func (API) WriteError(w http.ResponseWriter, status int, kind api.ErrorKind, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = w.Write(ErrorEnvelope(kind, message))
+	body, _ := json.Marshal(map[string]any{
+		"error": responsesError{Code: gatewayCode(kind), Message: message},
+	})
+	_, _ = w.Write(body)
+}
+
+// gatewayCode is the Codex code for a failure the gateway answers itself.
+//
+// One case per api.ErrorKind, so none falls through to a generic retry by
+// accident; TestEveryErrorKindHasACode fails when a kind is added there
+// without a line here. The codes are mapError's, for the same reasons — see
+// it for which codes Codex acts on. not_found and no_accounts are not Codex
+// codes and are passed as they are: neither is a server error, and calling
+// one that would tell a client to retry something that will not change until
+// a person changes it.
+func gatewayCode(kind api.ErrorKind) string {
+	switch kind {
+	case api.KindInvalidRequest:
+		return "invalid_prompt"
+	case api.KindAuthentication, api.KindPermission:
+		return "usage_not_included"
+	case api.KindNotFound:
+		return "not_found"
+	case api.KindRateLimit:
+		return "slow_down"
+	case api.KindAPI, api.KindOverloaded:
+		return "server_is_overloaded"
+	case api.KindNoAccounts:
+		return "no_accounts"
+	}
+	return ""
 }
 
 // ModelEvents are the events that carry the whole response object, whose

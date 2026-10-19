@@ -34,7 +34,7 @@ const ExportPage = 500
 // fifty at a time and the filter spans everything kept.
 func (s *Admin) handleExportRequests(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Usage.Enabled() {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "request history is not being recorded")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "request history is not being recorded")
 		return
 	}
 

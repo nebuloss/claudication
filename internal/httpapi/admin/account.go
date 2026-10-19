@@ -25,7 +25,7 @@ func (s *Admin) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 	exists, err := s.store.AdminExists(r.Context())
 	if err != nil {
 		s.log.Error("check admin account", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the account")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the account")
 		return
 	}
 	// Where the docs page is, when it is published: the sign-in screen links to
@@ -58,7 +58,7 @@ func (s *Admin) handleSetup(w http.ResponseWriter, r *http.Request) {
 
 	ip := httpx.ClientIP(r.Context())
 	if !s.anonLimiter.AllowPerMinute("setup:"+ip, s.cfg.Limits.AnonPerMinute) {
-		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
+		httpx.WriteError(w, http.StatusTooManyRequests, httpx.KindRateLimit, "too many attempts")
 		return
 	}
 
@@ -68,11 +68,11 @@ func (s *Admin) handleSetup(w http.ResponseWriter, r *http.Request) {
 			"an account already exists; sign in instead")
 		return
 	case errors.Is(err, store.ErrPasswordTooShort):
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
 		return
 	case err != nil:
 		s.log.Error("create admin account", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not create the account")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not create the account")
 		return
 	}
 
@@ -94,16 +94,16 @@ func (s *Admin) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	ip := httpx.ClientIP(r.Context())
 	if !s.anonLimiter.AllowPerMinute("passwd:"+ip, s.cfg.Limits.AnonPerMinute) {
-		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
+		httpx.WriteError(w, http.StatusTooManyRequests, httpx.KindRateLimit, "too many attempts")
 		return
 	}
 
 	switch err := s.store.ChangeAdminPassword(r.Context(), body.Current, body.New); {
 	case errors.Is(err, store.ErrNoAdmin):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no account to change")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no account to change")
 		return
 	case errors.Is(err, store.ErrPasswordTooShort):
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
 		return
 	case err != nil:
 		httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", err.Error())
@@ -135,7 +135,7 @@ func (s *Admin) handleDeleteAdminAccount(w http.ResponseWriter, r *http.Request)
 	}
 	if err := s.store.DeleteAdmin(r.Context()); err != nil {
 		s.log.Error("delete admin account", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not delete the account")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not delete the account")
 		return
 	}
 
@@ -155,13 +155,13 @@ func (s *Admin) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(body.Password) == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "password is required")
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "password is required")
 		return
 	}
 
 	ip := httpx.ClientIP(r.Context())
 	if !s.anonLimiter.AllowPerMinute("admin-login:"+ip, s.cfg.Limits.AnonPerMinute) {
-		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit", "too many attempts")
+		httpx.WriteError(w, http.StatusTooManyRequests, httpx.KindRateLimit, "too many attempts")
 		return
 	}
 
@@ -173,7 +173,7 @@ func (s *Admin) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.log.Error("verify admin password", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not sign in")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not sign in")
 		return
 	}
 	if !ok {
@@ -234,7 +234,7 @@ func (s *Admin) startSession(w http.ResponseWriter, r *http.Request, how string)
 	expires, err := s.issueSession(w, r)
 	if err != nil {
 		s.log.Error("create admin session", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not start a session")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not start a session")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{

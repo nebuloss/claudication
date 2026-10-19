@@ -582,13 +582,10 @@ func TestRateLimitMapsToSlowDownNotRateLimitExceeded(t *testing.T) {
 		t.Errorf("code = %q, want context_length_exceeded", code)
 	}
 
-	// Not Anthropic's vocabulary: these come from the gateway itself, and
-	// neither is a server error. Reporting one as server_error tells a client
-	// to retry something that will not change until a person changes it.
-	for _, kind := range []string{"not_found", "no_accounts"} {
-		if code, _ = mapError(kind, "x"); code != kind {
-			t.Errorf("mapError(%q) = %q, want it passed through", kind, code)
-		}
+	// Not Anthropic's vocabulary: a type the upstream adds later reads better
+	// in a log as itself than as server_error.
+	if code, _ = mapError("some_new_error", "x"); code != "some_new_error" {
+		t.Errorf("mapError(some_new_error) = %q, want it passed through", code)
 	}
 	// A body whose type we could not read still needs some code.
 	if code, _ = mapError("", "x"); code != "server_error" {

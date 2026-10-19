@@ -37,11 +37,11 @@ func (s *Admin) handleModelRoles(w http.ResponseWriter, r *http.Request) {
 	if keyID != "" {
 		k, err := s.store.Key(r.Context(), keyID)
 		if errors.Is(err, store.ErrKeyNotFound) {
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+			httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 			return
 		}
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+			httpx.Internal(w, s.log, "read the key", err)
 			return
 		}
 		key = k
@@ -51,12 +51,12 @@ func (s *Admin) handleModelRoles(w http.ResponseWriter, r *http.Request) {
 	aliases, err := s.aliases(ctx)
 	if err != nil {
 		s.log.Error("model aliases", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the model aliases")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the model aliases")
 		return
 	}
 	all, err := s.store.ModelRoles(ctx)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the model aliases")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the model aliases")
 		return
 	}
 	out := make([]RoleJSON, 0, len(aliases))
@@ -88,14 +88,14 @@ func (s *Admin) handleSetModelRole(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.KeyID != "" {
 		if _, err := s.store.Key(r.Context(), body.KeyID); errors.Is(err, store.ErrKeyNotFound) {
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+			httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 			return
 		}
 		// A key binds an alias the gateway has, not a name of its own.
 		if store.AliasFamily(body.Role) == "" {
 			custom, err := s.store.CustomAliases(r.Context())
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+				httpx.Internal(w, s.log, "read the aliases", err)
 				return
 			}
 			known := false
@@ -103,14 +103,14 @@ func (s *Admin) handleSetModelRole(w http.ResponseWriter, r *http.Request) {
 				known = known || c == store.ModelKey(body.Role)
 			}
 			if !known {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
+				httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 					"no such alias; create it on the Models tab first")
 				return
 			}
 		}
 	}
 	if err := s.store.SetModelRole(r.Context(), body.KeyID, body.Role, body.Model); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
 		return
 	}
 	s.log.Warn("model alias set", "alias", body.Role, "key", body.KeyID, "model", body.Model,
@@ -124,13 +124,13 @@ func (s *Admin) handleDeleteAlias(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	switch err := s.store.DeleteAlias(r.Context(), name); {
 	case errors.Is(err, store.ErrBuiltinAlias):
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
 		return
 	case errors.Is(err, store.ErrVirtualModelNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such alias")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such alias")
 		return
 	case err != nil:
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "delete the alias", err)
 		return
 	}
 	s.log.Warn("model alias deleted", "alias", name, "ip", httpx.ClientIP(r.Context()))
@@ -142,11 +142,11 @@ func (s *Admin) handleDeleteAlias(w http.ResponseWriter, r *http.Request) {
 func (s *Admin) handleKeyOfferedModels(w http.ResponseWriter, r *http.Request) {
 	key, err := s.store.Key(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrKeyNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 		return
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "read the key", err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -154,7 +154,7 @@ func (s *Admin) handleKeyOfferedModels(w http.ResponseWriter, r *http.Request) {
 	body, err := s.keyModels(ctx, key)
 	if err != nil {
 		s.log.Warn("could not read a key's model list", "err", err)
-		httpx.WriteError(w, http.StatusBadGateway, "api_error", "could not reach the upstream model list")
+		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream, "could not reach the upstream model list")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -636,10 +636,9 @@ func (s *Stream) emit(event string, payload map[string]any) error {
 // name is the one that falls through to a generic retry.
 //
 // A kind that is not one of Anthropic's own is passed through rather than
-// flattened. Those come from the gateway itself — "not_found" for a surface
-// that is switched off, "no_accounts" for one with nothing connected — and
-// neither is a server error. Calling them one would tell a client to retry
-// something that will not change until a person changes it.
+// flattened: a type the upstream adds later is more use to a person reading a
+// log than server_error. The gateway's own failures do not come through here;
+// see gatewayCode.
 func mapError(kind, message string) (string, string) {
 	if message == "" {
 		message = "upstream error"

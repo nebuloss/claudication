@@ -57,7 +57,7 @@ func (s *Gateway) withinBudget(w http.ResponseWriter, r *http.Request, p api.Pro
 	// this is the same shape of problem: too much, too soon, try later. In the
 	// caller's own envelope: the Responses dialect turns it into slow_down,
 	// the code Codex backs off on.
-	p.WriteError(w, http.StatusTooManyRequests, "rate_limit_error",
+	p.WriteError(w, http.StatusTooManyRequests, api.KindRateLimit,
 		fmt.Sprintf("this API key has spent %d of its %d token budget for the last %s",
 			spent, key.TokenBudget, limits.BudgetWindow))
 	return false

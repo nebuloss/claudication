@@ -69,7 +69,7 @@ func TestDecodeAppliesTheSurfaceDefaults(t *testing.T) {
 // gateway's own refusals must be in OpenAI's envelope.
 func TestWriteErrorIsOpenAIShaped(t *testing.T) {
 	rec := httptest.NewRecorder()
-	New("m").WriteError(rec, http.StatusNotFound, "not_found", "the OpenAI surface is switched off")
+	New("m").WriteError(rec, http.StatusNotFound, api.KindNotFound, "the OpenAI surface is switched off")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d", rec.Code)
 	}
@@ -84,6 +84,16 @@ func TestWriteErrorIsOpenAIShaped(t *testing.T) {
 	}
 	if env.Error.Code != "not_found" || env.Error.Message != "the OpenAI surface is switched off" {
 		t.Errorf("error = %+v, want the gateway's own kind passed through", env.Error)
+	}
+}
+
+// Every kind the gateway answers with has a code Codex is given, so none
+// arrives as an empty code that Codex cannot parse.
+func TestEveryErrorKindHasACode(t *testing.T) {
+	for _, kind := range api.ErrorKinds {
+		if gatewayCode(kind) == "" {
+			t.Errorf("api.%s has no Codex code", kind)
+		}
 	}
 }
 

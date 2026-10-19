@@ -42,7 +42,7 @@ func (s *Admin) handleChats(w http.ResponseWriter, r *http.Request) {
 	report, err := s.store.ChatsIn(r.Context(), time.Now().Add(-window), limit, scopeFrom(r.URL.Query()))
 	if err != nil {
 		s.log.Error("chat list", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read chats")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read chats")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
@@ -68,12 +68,12 @@ func (s *Admin) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
 		Capture *bool `json:"capture"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 			`expected {"enabled": true|false} or {"capture": true|false}`)
 		return
 	}
 	if body.Enabled == nil && body.Capture == nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 			"one of enabled or capture is required")
 		return
 	}
@@ -91,7 +91,7 @@ func (s *Admin) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.titles.Set(r.Context(), change.key, *change.value); err != nil {
 			s.log.Error("could not store the chat-title switch", "which", change.what, "err", err)
-			httpx.WriteError(w, http.StatusInternalServerError, "api_error", "could not store the setting")
+			httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not store the setting")
 			return
 		}
 		s.log.Warn("chat titles switched", "which", change.what, "enabled", *change.value)
@@ -114,17 +114,17 @@ func (s *Admin) handleSetChatTitle(w http.ResponseWriter, r *http.Request) {
 		Title string `json:"title"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil || id == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", `expected {"title": "…"}`)
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, `expected {"title": "…"}`)
 		return
 	}
 	if strings.TrimSpace(body.Title) == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "a title cannot be empty")
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "a title cannot be empty")
 		return
 	}
 	title, err := s.store.SetManualTitle(r.Context(), id, body.Title)
 	if err != nil {
 		s.log.Error("could not store a chat title", "err", err, "chat", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not store the title")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not store the title")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"title": title, "title_manual": true})
@@ -139,21 +139,21 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue("id")
 	if id == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "no conversation id")
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "no conversation id")
 		return
 	}
 
 	events, err := s.store.ChatEvents(r.Context(), id, 0)
 	if err != nil {
 		s.log.Error("chat events", "err", err, "chat", id)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not read the chat")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the chat")
 		return
 	}
 	// An id nobody recognises is a 404 rather than an empty list: a chat that
 	// has been pruned and one that never existed are the same thing from here,
 	// and both mean the link the operator followed is stale.
 	if len(events) == 0 {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such chat, or its events have been pruned")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such chat, or its events have been pruned")
 		return
 	}
 

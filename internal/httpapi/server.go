@@ -469,7 +469,7 @@ func (s *Server) routes(r0 role) http.Handler {
 	// a web page, which parses as neither JSON nor an explanation.
 	for _, prefix := range []string{"/v1/", "/admin/", "/api/"} {
 		mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+			httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such endpoint: "+r.URL.Path)
 		})
 	}
 
@@ -491,7 +491,7 @@ func (s *Server) routes(r0 role) http.Handler {
 	docsUI := s.web.StaticHandler("docs.html")
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		notFound := func() {
-			httpx.WriteError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+			httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such endpoint: "+r.URL.Path)
 		}
 		// Everything below serves documents, so nothing below answers a write.
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {

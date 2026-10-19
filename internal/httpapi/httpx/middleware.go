@@ -71,7 +71,7 @@ func WithRecovery(next http.Handler, log *slog.Logger) http.Handler {
 				if sr, ok := w.(*statusRecorder); ok && sr.wrote {
 					return
 				}
-				WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+				WriteError(w, http.StatusInternalServerError, KindInternal, "internal server error")
 			}
 		}()
 		next.ServeHTTP(w, r)

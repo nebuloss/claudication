@@ -23,11 +23,11 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	acct, err := s.store.Account(r.Context(), id)
 	if errors.Is(err, store.ErrAccountNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
 		return
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "read the account", err)
 		return
 	}
 
@@ -36,7 +36,7 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 	body, err := s.accountModels(ctx, id, "limit=1000")
 	if err != nil {
 		s.log.Warn("could not read an account's models", "account", id, "err", err)
-		httpx.WriteError(w, http.StatusBadGateway, "api_error",
+		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,
 			"could not read this account's models from the upstream: "+err.Error())
 		return
 	}
@@ -44,7 +44,7 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 		Data []map[string]any `json:"data"`
 	}
 	if err := json.Unmarshal(body, &list); err != nil {
-		httpx.WriteError(w, http.StatusBadGateway, "api_error", "the upstream model list was unreadable")
+		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream, "the upstream model list was unreadable")
 		return
 	}
 
@@ -76,11 +76,11 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	key, err := s.store.Key(r.Context(), id)
 	if errors.Is(err, store.ErrKeyNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 		return
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "read the key", err)
 		return
 	}
 
@@ -89,7 +89,7 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 	body, err := s.fetchModels(ctx)
 	if err != nil {
 		s.log.Warn("could not read the gateway's models", "err", err)
-		httpx.WriteError(w, http.StatusBadGateway, "api_error",
+		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,
 			"could not read the models the accounts serve: "+err.Error())
 		return
 	}
@@ -97,7 +97,7 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 		Data []map[string]any `json:"data"`
 	}
 	if err := json.Unmarshal(body, &list); err != nil {
-		httpx.WriteError(w, http.StatusBadGateway, "api_error", "the model list was unreadable")
+		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream, "the model list was unreadable")
 		return
 	}
 
@@ -132,18 +132,18 @@ func (s *Admin) handleSetKeyModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Model == "" || body.Enabled == nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 			`expected {"model": "...", "enabled": true|false}`)
 		return
 	}
 	id := r.PathValue("id")
 	switch err := s.store.SetKeyModel(r.Context(), id, body.Model, *body.Enabled); {
 	case errors.Is(err, store.ErrKeyNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 		return
 	case err != nil:
 		s.log.Error("set key model", "err", err, "key", id, "model", body.Model)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not store the switch")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not store the switch")
 		return
 	}
 	s.log.Warn("key model switched", "key", id, "model", body.Model,
@@ -151,7 +151,7 @@ func (s *Admin) handleSetKeyModel(w http.ResponseWriter, r *http.Request) {
 
 	key, err := s.store.Key(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "read the key", err)
 		return
 	}
 	off := key.ModelsOff
@@ -175,18 +175,18 @@ func (s *Admin) handleSetAccountModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Model == "" || body.Enabled == nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_request",
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 			`expected {"model": "...", "enabled": true|false}`)
 		return
 	}
 	id := r.PathValue("id")
 	switch err := s.store.SetAccountModel(r.Context(), id, body.Model, *body.Enabled); {
 	case errors.Is(err, store.ErrAccountNotFound):
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such account")
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
 		return
 	case err != nil:
 		s.log.Error("set account model", "err", err, "account", id, "model", body.Model)
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not store the switch")
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not store the switch")
 		return
 	}
 	s.log.Warn("account model switched", "account", id, "model", body.Model,
@@ -194,7 +194,7 @@ func (s *Admin) handleSetAccountModel(w http.ResponseWriter, r *http.Request) {
 
 	acct, err := s.store.Account(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		httpx.Internal(w, s.log, "read the account", err)
 		return
 	}
 	off := acct.ModelsOff

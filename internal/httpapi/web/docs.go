@@ -141,7 +141,7 @@ func ServeWelcome(w http.ResponseWriter, r *http.Request) {
 // exist. Nothing here is a secret, and nothing here can be changed.
 func (s *Site) HandleDocsInfo(w http.ResponseWriter, r *http.Request) {
 	if !s.docs.On() {
-		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such endpoint: "+r.URL.Path)
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such endpoint: "+r.URL.Path)
 		return
 	}
 	// The relay's address, not this page's: the snippets have to point at

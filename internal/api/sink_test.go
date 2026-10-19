@@ -264,7 +264,7 @@ func (stubProtocol) Routes() []string { return nil }
 
 func (stubProtocol) Decode([]byte) (Exchange, error) { return nil, nil }
 
-func (stubProtocol) WriteError(http.ResponseWriter, int, string, string) {}
+func (stubProtocol) WriteError(http.ResponseWriter, int, ErrorKind, string) {}
 
 func (stubProtocol) ConversationID(http.Header, []byte) string { return "" }
 

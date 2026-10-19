@@ -77,7 +77,7 @@ func (s *Gateway) requireAPIKey(p api.Protocol, next http.Handler) http.Handler 
 		// the peek refuses it before the lookup.
 		anon := func() bool { return s.anonLimiter.AllowPerMinute(ip, s.cfg.Limits.AnonPerMinute) }
 		if !s.anonLimiter.Peek(ip, s.cfg.Limits.AnonPerMinute) {
-			p.WriteError(w, http.StatusTooManyRequests, "rate_limit_error", "too many requests")
+			p.WriteError(w, http.StatusTooManyRequests, api.KindRateLimit, "too many requests")
 			return
 		}
 
@@ -85,7 +85,7 @@ func (s *Gateway) requireAPIKey(p api.Protocol, next http.Handler) http.Handler 
 		if cred == "" {
 			anon()
 			s.recorder.Record(rejection(r, store.APIKey{}, http.StatusUnauthorized, "missing API key"), 0)
-			p.WriteError(w, http.StatusUnauthorized, "authentication_error", "missing API key")
+			p.WriteError(w, http.StatusUnauthorized, api.KindAuthentication, "missing API key")
 			return
 		}
 
@@ -93,12 +93,12 @@ func (s *Gateway) requireAPIKey(p api.Protocol, next http.Handler) http.Handler 
 		if errors.Is(err, store.ErrKeyNotFound) {
 			anon()
 			s.recorder.Record(rejection(r, store.APIKey{}, http.StatusUnauthorized, "invalid API key"), 0)
-			p.WriteError(w, http.StatusUnauthorized, "authentication_error", "invalid API key")
+			p.WriteError(w, http.StatusUnauthorized, api.KindAuthentication, "invalid API key")
 			return
 		}
 		if err != nil {
 			s.log.Error("authenticate", "err", err, "request_id", httpx.RequestID(r.Context()))
-			p.WriteError(w, http.StatusInternalServerError, "api_error", "internal server error")
+			p.WriteError(w, http.StatusInternalServerError, api.KindAPI, "internal server error")
 			return
 		}
 		// A key's own allowance and the period it is measured over, falling back
@@ -112,7 +112,7 @@ func (s *Gateway) requireAPIKey(p api.Protocol, next http.Handler) http.Handler 
 			// name, because this one is a client to fix rather than a stranger.
 			s.recorder.Record(rejection(r, key, http.StatusTooManyRequests,
 				"rate limited by this gateway, not by the upstream"), 0)
-			p.WriteError(w, http.StatusTooManyRequests, "rate_limit_error", "too many requests")
+			p.WriteError(w, http.StatusTooManyRequests, api.KindRateLimit, "too many requests")
 			return
 		}
 		if !s.withinBudget(w, r, p, key) {

@@ -37,7 +37,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 
 		body, err := httpx.ReadSized(r.Body, r.ContentLength, s.cfg.Limits.MaxBodyBytes)
 		if err != nil {
-			p.WriteError(w, http.StatusBadRequest, "invalid_request", "could not read the request body")
+			p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, "could not read the request body")
 			return
 		}
 
@@ -51,7 +51,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// Measured on the same account in the same minute, an 11 KB body was
 		// served at 200 as identity and refused at 429 gzipped.
 		if body, err = httpx.DecodeBody(r, body, s.cfg.Limits.MaxBodyBytes); err != nil {
-			p.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, err.Error())
 			return
 		}
 
@@ -60,7 +60,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// and a body it cannot read is the caller's fault, not the upstream's.
 		ex, err := p.Decode(body)
 		if err != nil {
-			p.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, err.Error())
 			return
 		}
 
@@ -76,7 +76,7 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 			ev := rejection(r, key, http.StatusForbidden, "model not allowed for this API key")
 			ev.Model, ev.Path = model, route
 			s.recorder.Record(ev, 0)
-			p.WriteError(w, http.StatusForbidden, "permission_error",
+			p.WriteError(w, http.StatusForbidden, api.KindPermission,
 				"this API key may not use model "+model+
 					"; an administrator can allow it on the key's Models page")
 			return
@@ -97,13 +97,13 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 				ev := rejection(r, key, http.StatusNotFound, why)
 				ev.Model, ev.VirtualModel, ev.Path = target, role, route
 				s.recorder.Record(ev, 0)
-				p.WriteError(w, http.StatusNotFound, "not_found_error",
+				p.WriteError(w, http.StatusNotFound, api.KindNotFound,
 					why+"; an administrator can change "+role+" in Settings › Aliases")
 				return
 			}
 			replaced, ok := passes.SetModel(outbound, target)
 			if !ok {
-				p.WriteError(w, http.StatusBadRequest, "invalid_request", "the request names no model to map")
+				p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, "the request names no model to map")
 				return
 			}
 			outbound, virtual, model, rewrote = replaced, role, target, true
@@ -295,7 +295,7 @@ func firstNonEmpty(vs ...string) string {
 func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Protocol, model string, err error) {
 	switch {
 	case errors.Is(err, pool.ErrNoAccounts):
-		p.WriteError(w, http.StatusServiceUnavailable, "no_accounts",
+		p.WriteError(w, http.StatusServiceUnavailable, api.KindNoAccounts,
 			"no Claude account is connected; add one in the admin UI")
 	case errors.Is(err, pool.ErrModelOff):
 		// 404 and not_found_error, as Anthropic answers a model it does not
@@ -303,20 +303,20 @@ func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Pro
 		// a client retrying rather than waiting out a cooldown that is not
 		// coming. The message says who can change it, because the person
 		// reading it in a client log is usually not the one who switched it.
-		p.WriteError(w, http.StatusNotFound, "not_found_error",
+		p.WriteError(w, http.StatusNotFound, api.KindNotFound,
 			"model "+model+" is turned off on this gateway for every connected account; "+
 				"an administrator can turn it on under Accounts")
 	case errors.Is(err, pool.ErrAllCoolingUp):
 		if wait := s.pool.RetryAfter(r.Context(), "anthropic", model); wait > 0 {
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		}
-		p.WriteError(w, http.StatusServiceUnavailable, "overloaded_error",
+		p.WriteError(w, http.StatusServiceUnavailable, api.KindOverloaded,
 			"every connected account is rate limited or cooling down")
 	case r.Context().Err() != nil:
 		// The caller hung up; there is nobody left to answer.
 		return
 	default:
 		s.log.Error("relay failed", "err", err, "request_id", httpx.RequestID(r.Context()))
-		p.WriteError(w, http.StatusBadGateway, "api_error", "upstream request failed: "+err.Error())
+		p.WriteError(w, http.StatusBadGateway, api.KindAPI, "upstream request failed: "+err.Error())
 	}
 }

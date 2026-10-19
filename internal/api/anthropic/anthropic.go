@@ -43,14 +43,15 @@ func (API) Decode(body []byte) (api.Exchange, error) {
 }
 
 // WriteError writes Anthropic's own error envelope, which is what a Claude
-// Code client parses.
-func (API) WriteError(w http.ResponseWriter, status int, kind, message string) {
+// Code client parses. The kinds are already Anthropic's types, so the mapping
+// is the identity.
+func (API) WriteError(w http.ResponseWriter, status int, kind api.ErrorKind, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"type": "error",
 		"error": map[string]string{
-			"type":    kind,
+			"type":    string(kind),
 			"message": message,
 		},
 	})
