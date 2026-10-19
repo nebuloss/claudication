@@ -162,12 +162,15 @@ export function BrandMark() {
  * The product's name beside its mark, with the running build after it: the
  * left of both the admin header and the sign-in screen's, so signing in and
  * being signed in read as one product.
+ *
+ * On a phone the name is left to the mark: the header's controls take the
+ * whole row there, and a name that does not fit was drawn under them.
  */
 export function AppTitle({ version }: { version?: ReactNode }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <BrandMark />
-      <h1 className="flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface">
+      <h1 className="flex min-w-0 items-baseline gap-2 text-lg leading-10 font-normal whitespace-nowrap text-on-surface max-sm:sr-only">
         claudication gateway
         {version}
       </h1>

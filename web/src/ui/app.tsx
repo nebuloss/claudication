@@ -231,7 +231,9 @@ export default function App() {
               {/* One line, the height of the controls beside it: the name, and the
                   running build, which is asked for right after a deploy. */}
               <AppTitle version={<Version />} />
-              <div className="flex items-center gap-2">
+              {/* Wraps onto a second row on a phone rather than shrink: with
+                  the docs link there are five controls, wider than the row. */}
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 whitespace-nowrap">
                 {docsURL !== '' && (
                   // Opens in a tab of its own: it is a different page on a
                   // different address, and the person reading it is usually
