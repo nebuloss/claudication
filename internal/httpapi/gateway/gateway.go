@@ -112,7 +112,7 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /install", s.handleInstall)
 
 	mux.Handle("GET /v1/models",
-		s.surface(messages, s.requireAPIKey(messages, http.HandlerFunc(s.handleModels))))
+		s.surface(messages, s.requireAPIKey(messages, s.handleModels(messages))))
 	mux.Handle("POST /v1/messages",
 		s.surface(messages, s.requireAPIKey(messages,
 			s.inference(messages, "/v1/messages", "/v1/messages?beta=true"))))
@@ -145,21 +145,25 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 // successful answer that says "this gateway serves no models", so it overwrites
 // the good cache with nothing and the model picker goes empty. Being unable to
 // reach the upstream is a 502, and the client recovers on its own.
-func (s *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
-	// Comfortably inside the client's 3-second budget.
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
+//
+// The 502 is in the dialect's own envelope, like every other refusal on /v1.
+func (s *Gateway) handleModels(p api.Protocol) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Comfortably inside the client's 3-second budget.
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
 
-	key, _ := httpx.APIKey(r.Context())
-	body, err := s.models.For(ctx, key)
-	if err != nil {
-		s.log.Warn("model discovery failed; answering 502 so the client keeps its cached list",
-			"err", err, "request_id", httpx.RequestID(r.Context()))
-		httpx.WriteError(w, http.StatusBadGateway, "api_error", "could not reach the upstream model list")
-		return
+		key, _ := httpx.APIKey(r.Context())
+		body, err := s.models.For(ctx, key)
+		if err != nil {
+			s.log.Warn("model discovery failed; answering 502 so the client keeps its cached list",
+				"err", err, "request_id", httpx.RequestID(r.Context()))
+			p.WriteError(w, http.StatusBadGateway, api.KindAPI, "could not reach the upstream model list")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(body)
 }
 
 // surface gates a route on its API being switched on.
