@@ -37,13 +37,44 @@ type APIKey struct {
 	// switched them; everything else is allowed. See migration 025.
 	ModelsOff []string
 	// SecretKept says the secret is stored sealed and can be shown again
-	// (migration 026). Read by ListKeys; Authenticate does not need it.
+	// (migration 026).
 	SecretKept bool
 }
 
 // keyModelsOff is the column expression that reads a key's switches with it.
 const keyModelsOff = `COALESCE((SELECT group_concat(model, char(31)) FROM api_key_models_off o
 		  WHERE o.key_id = api_keys.id), '')`
+
+// keyColumns is every column an APIKey is read back from, in the order
+// scanKey takes them. One list for every query that returns whole keys, as
+// usageEventColumns is for events: Key used to walk ListKeys, the titler kept
+// its own copy of that walk, and Authenticate scanned its own shorter list and
+// so never said whether the secret was kept.
+const keyColumns = `id, name, prefix, created_at, last_used_at, rpm_limit, rate_period_s, token_budget,
+		` + keyModelsOff + `, sealed_secret IS NOT NULL`
+
+// scanKey reads one row selected with keyColumns. lead are destinations for
+// columns selected before them, as Authenticate's hash is.
+func scanKey(sc scanner, lead ...any) (APIKey, error) {
+	var (
+		key           APIKey
+		createdAt     string
+		lastUsed      sql.NullString
+		periodSeconds int64
+		modelsOff     string
+	)
+	dest := append(lead, &key.ID, &key.Name, &key.Prefix, &createdAt,
+		&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff,
+		&key.SecretKept)
+	if err := sc.Scan(dest...); err != nil {
+		return APIKey{}, err
+	}
+	key.ModelsOff = splitModels(modelsOff)
+	key.RatePeriod = time.Duration(periodSeconds) * time.Second
+	key.CreatedAt = parseRFC3339(createdAt)
+	key.LastUsedAt = parseOptional(lastUsed)
+	return key, nil
+}
 
 func splitModels(s string) []string {
 	if s == "" {
@@ -290,19 +321,10 @@ func (s *Store) Authenticate(ctx context.Context, plaintext string) (APIKey, err
 	}
 
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, prefix, hash, created_at, last_used_at, rpm_limit, rate_period_s, token_budget,
-		        `+keyModelsOff+`
-		   FROM api_keys WHERE prefix = ?`, body[:prefixLen])
+		`SELECT hash, `+keyColumns+` FROM api_keys WHERE prefix = ?`, body[:prefixLen])
 
-	var (
-		key                   APIKey
-		storedHash, createdAt string
-		lastUsed              sql.NullString
-		periodSeconds         int64
-		modelsOff             string
-	)
-	err := row.Scan(&key.ID, &key.Name, &key.Prefix, &storedHash, &createdAt,
-		&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff)
+	var storedHash string
+	key, err := scanKey(row, &storedHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Spend a comparison anyway so a miss costs about the same as a hit.
 		subtle.ConstantTimeCompare([]byte(hashKey(plaintext)), make([]byte, 64))
@@ -315,30 +337,20 @@ func (s *Store) Authenticate(ctx context.Context, plaintext string) (APIKey, err
 	if subtle.ConstantTimeCompare([]byte(hashKey(plaintext)), []byte(storedHash)) != 1 {
 		return APIKey{}, ErrKeyNotFound
 	}
-
-	key.RatePeriod = time.Duration(periodSeconds) * time.Second
-	key.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	key.ModelsOff = splitModels(modelsOff)
-	if lastUsed.Valid {
-		if t, err := time.Parse(time.RFC3339, lastUsed.String); err == nil {
-			key.LastUsedAt = &t
-		}
-	}
 	return key, nil
 }
 
 // Key reads one key by id.
 func (s *Store) Key(ctx context.Context, id string) (APIKey, error) {
-	keys, err := s.ListKeys(ctx)
+	key, err := scanKey(s.db.QueryRowContext(ctx,
+		`SELECT `+keyColumns+` FROM api_keys WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return APIKey{}, ErrKeyNotFound
+	}
 	if err != nil {
-		return APIKey{}, err
+		return APIKey{}, fmt.Errorf("load api key: %w", err)
 	}
-	for _, k := range keys {
-		if k.ID == id {
-			return k, nil
-		}
-	}
-	return APIKey{}, ErrKeyNotFound
+	return key, nil
 }
 
 // TouchKey records last use. Best-effort: a failure here must never fail the
@@ -351,9 +363,7 @@ func (s *Store) TouchKey(ctx context.Context, id string) {
 
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, prefix, created_at, last_used_at, rpm_limit, rate_period_s, token_budget,
-		        `+keyModelsOff+`, sealed_secret IS NOT NULL
-		   FROM api_keys ORDER BY created_at`)
+		`SELECT `+keyColumns+` FROM api_keys ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
 	}
@@ -361,36 +371,15 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 
 	var keys []APIKey
 	for rows.Next() {
-		var (
-			key           APIKey
-			createdAt     string
-			lastUsed      sql.NullString
-			periodSeconds int64
-			modelsOff     string
-		)
-		if err := rows.Scan(&key.ID, &key.Name, &key.Prefix, &createdAt,
-			&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff,
-			&key.SecretKept); err != nil {
+		key, err := scanKey(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
-		}
-		key.ModelsOff = splitModels(modelsOff)
-		key.RatePeriod = time.Duration(periodSeconds) * time.Second
-		key.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		if lastUsed.Valid {
-			if t, err := time.Parse(time.RFC3339, lastUsed.String); err == nil {
-				key.LastUsedAt = &t
-			}
 		}
 		keys = append(keys, key)
 	}
 	return keys, rows.Err()
 }
 
-// DeleteKey removes a key. It is the only way to withdraw one.
-//
-// There is no separate revoke: revocation was one-way, so it was a delete that
-// left a row behind. Usage rows carry their own copy of the key name, so the
-// history a revoked row was supposedly preserving survives this anyway.
 // UpdateKey changes a key's name and rate limit, leaving the secret alone.
 //
 // Without this the only way to correct a typo in a name, or to raise a limit
@@ -418,6 +407,11 @@ func (s *Store) UpdateKey(ctx context.Context, id, name string, limits KeyLimits
 	return nil
 }
 
+// DeleteKey removes a key. It is the only way to withdraw one.
+//
+// There is no separate revoke: revocation was one-way, so it was a delete that
+// left a row behind. Usage rows carry their own copy of the key name, so the
+// history a revoked row was supposedly preserving survives this anyway.
 func (s *Store) DeleteKey(ctx context.Context, id string) error {
 	return s.inTx(ctx, "delete api key", func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ?`, id)

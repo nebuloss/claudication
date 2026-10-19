@@ -78,6 +78,27 @@ func (e UsageEvent) Tokens() int64 {
 		int64(e.CacheReadTokens) + int64(e.CacheWriteTokens)
 }
 
+// The SQL for what a usage row means, written once. Every report, breakdown and
+// filter reads these rather than spelling the expression out, because spelled
+// out they drifted: the reports counted an error as status >= 400 or an error
+// text, while the request log's "failed" filter also counted status 0, so the
+// Overview's error count and the log filtered to failures disagreed for the
+// same window.
+const (
+	// sqlIsError is a request that failed: a status the caller would call a
+	// failure, no answer at all (status 0), or a stream that died after its 200
+	// (an error text with a 2xx status).
+	sqlIsError = `(status = 0 OR status >= 400 OR error <> '')`
+	// sqlIsOK is its exact complement, so the two partition the table and a
+	// request cannot be neither.
+	sqlIsOK = `(status > 0 AND status < 400 AND error = '')`
+	// sqlTokens is UsageEvent.Tokens in SQL: every billed kind, cache reads
+	// included.
+	sqlTokens = `(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens)`
+	// sqlCacheTokens is the one cache figure the breakdowns carry.
+	sqlCacheTokens = `(cache_read_tokens + cache_write_tokens)`
+)
+
 // RecordUsage appends one event.
 //
 // It never returns an error to the request path — see the caller. Recording is
@@ -176,7 +197,7 @@ func (s *Store) Totals(ctx context.Context, since time.Time) (UsageTotals, error
 	var t UsageTotals
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*),
-		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
+		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
@@ -251,7 +272,7 @@ func (s *Store) UsageIn(ctx context.Context, since time.Time, scope UsageScope) 
 		        CASE WHEN account_email = '' THEN '(unknown)' ELSE account_email END AS account_email,
 		        status,
 		        COUNT(*),
-		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
+		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
@@ -449,25 +470,6 @@ func (s *Store) durationPercentile(ctx context.Context, from string, scope Usage
 	return ms
 }
 
-func (s *Store) usageBuckets(ctx context.Context, query, from string) ([]UsageBucket, error) {
-	rows, err := s.db.QueryContext(ctx, query, from)
-	if err != nil {
-		return nil, fmt.Errorf("usage breakdown: %w", err)
-	}
-	defer rows.Close()
-
-	out := []UsageBucket{}
-	for rows.Next() {
-		var b UsageBucket
-		if err := rows.Scan(&b.Label, &b.ID, &b.Requests, &b.Errors,
-			&b.InputTokens, &b.OutputTokens, &b.CacheTokens); err != nil {
-			return nil, fmt.Errorf("usage breakdown: %w", err)
-		}
-		out = append(out, b)
-	}
-	return out, rows.Err()
-}
-
 // UsageCursor marks a position in the activity list.
 //
 // A position rather than an offset. OFFSET counts from the top of a list that
@@ -605,11 +607,11 @@ func (f RequestFilter) where() (string, []any) {
 	}
 	switch f.Outcome {
 	case "failed":
-		clauses = append(clauses, "(status = 0 OR status >= 400 OR error <> '')")
+		clauses = append(clauses, sqlIsError)
 	case "ok":
 		// The exact complement of the line above, so the two partition the
 		// table and a request cannot be neither.
-		clauses = append(clauses, "(status > 0 AND status < 400 AND error = '')")
+		clauses = append(clauses, sqlIsOK)
 	}
 	if len(clauses) == 0 {
 		return "", nil
@@ -960,24 +962,49 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 	return out, next, nil
 }
 
-// KeyUsage totals one key's traffic since a point in time. Used by the keys
-// list, so a key that is quietly doing nothing is visible as such.
+// KeyUsage totals each key's traffic since a point in time, keyed by key id.
+// Used by the keys list, so a key that is quietly doing nothing is visible as
+// such.
 func (s *Store) KeyUsage(ctx context.Context, since time.Time) (map[string]UsageBucket, error) {
-	buckets, err := s.usageBuckets(ctx,
-		`SELECT key_id AS label, key_id AS id, COUNT(*),
-		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
+	return s.usageBy(ctx, "key_id", since)
+}
+
+// AccountUsage totals each account's traffic since a point in time, keyed by
+// account id.
+func (s *Store) AccountUsage(ctx context.Context, since time.Time) (map[string]UsageBucket, error) {
+	return s.usageBy(ctx, "account_id", since)
+}
+
+// usageBy totals traffic since a point in time grouped by one id column,
+// keyed by that id. The column is a constant from the caller, never anything a
+// request carries: it is the one part of the statement that cannot be a
+// parameter.
+func (s *Store) usageBy(ctx context.Context, column string, since time.Time) (map[string]UsageBucket, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+column+`, COUNT(*),
+		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
-		        COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0)
-		   FROM usage_events WHERE rejected = 0 AND at >= ? GROUP BY key_id`,
+		        COALESCE(SUM(`+sqlCacheTokens+`), 0)
+		   FROM usage_events WHERE rejected = 0 AND at >= ? GROUP BY `+column,
 		stamp(since))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("usage by %s: %w", column, err)
 	}
-	out := make(map[string]UsageBucket, len(buckets))
-	for _, b := range buckets {
+	defer rows.Close()
+
+	out := map[string]UsageBucket{}
+	for rows.Next() {
+		var b UsageBucket
+		if err := rows.Scan(&b.ID, &b.Requests, &b.Errors,
+			&b.InputTokens, &b.OutputTokens, &b.CacheTokens); err != nil {
+			return nil, fmt.Errorf("usage by %s: %w", column, err)
+		}
+		// The label is the id: these maps are joined onto keys and accounts
+		// by the caller, which has the names.
+		b.Label = b.ID
 		out[b.ID] = b
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // KeyWeights sums what each key sent one account since a time, weighted by
@@ -1024,8 +1051,7 @@ func (s *Store) KeyWeights(ctx context.Context, accountID string, since time.Tim
 func (s *Store) KeySpend(ctx context.Context, keyID string, since time.Time) (int64, error) {
 	var n int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(input_tokens + output_tokens
-		                    + cache_read_tokens + cache_write_tokens), 0)
+		`SELECT COALESCE(SUM(`+sqlTokens+`), 0)
 		   FROM usage_events WHERE rejected = 0 AND at >= ? AND key_id = ?`,
 		stamp(since), keyID).Scan(&n)
 	if err != nil {
@@ -1042,7 +1068,7 @@ func (s *Store) OldestSpendAt(ctx context.Context, keyID string, since time.Time
 	err := s.db.QueryRowContext(ctx,
 		`SELECT MIN(at) FROM usage_events
 		  WHERE rejected = 0 AND at >= ? AND key_id = ?
-		    AND input_tokens + output_tokens + cache_read_tokens + cache_write_tokens > 0`,
+		    AND `+sqlTokens+` > 0`,
 		stamp(since), keyID).Scan(&at)
 	if err != nil || at == "" {
 		return time.Time{}, false
@@ -1052,26 +1078,6 @@ func (s *Store) OldestSpendAt(ctx context.Context, keyID string, since time.Time
 		return time.Time{}, false
 	}
 	return t, true
-}
-
-// AccountUsage totals each account's traffic since a point in time, keyed by
-// account id.
-func (s *Store) AccountUsage(ctx context.Context, since time.Time) (map[string]UsageBucket, error) {
-	buckets, err := s.usageBuckets(ctx,
-		`SELECT account_id AS label, account_id AS id, COUNT(*),
-		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
-		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
-		        COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0)
-		   FROM usage_events WHERE rejected = 0 AND at >= ? GROUP BY account_id`,
-		stamp(since))
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]UsageBucket, len(buckets))
-	for _, b := range buckets {
-		out[b.ID] = b
-	}
-	return out, nil
 }
 
 // PruneUsage drops events older than the retention window and reports how many

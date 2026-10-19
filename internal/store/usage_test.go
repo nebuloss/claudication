@@ -180,3 +180,43 @@ func TestRecentUsageIsNewestFirst(t *testing.T) {
 		t.Errorf("duration round-tripped as %v, want 0", events[0].Duration)
 	}
 }
+
+// The reports and the log's "failed" filter read one definition of an error,
+// so the Overview's count and the log filtered to failures agree. They used
+// to differ on a request that got no answer and carried no error text.
+func TestErrorCountMatchesFailedFilter(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	record(t, st, UsageEvent{At: now, KeyID: "k1", Status: 200})
+	record(t, st, UsageEvent{At: now, KeyID: "k1", Status: 500})
+	record(t, st, UsageEvent{At: now, KeyID: "k1", Status: 200, Error: "stream died"})
+	record(t, st, UsageEvent{At: now, KeyID: "k1", Status: 0})
+
+	totals, err := st.Totals(ctx, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("Totals: %v", err)
+	}
+	failed, _, err := st.RecentUsage(ctx, 100, UsageCursor{}, RequestFilter{Outcome: "failed"})
+	if err != nil {
+		t.Fatalf("RecentUsage: %v", err)
+	}
+	ok, _, err := st.RecentUsage(ctx, 100, UsageCursor{}, RequestFilter{Outcome: "ok"})
+	if err != nil {
+		t.Fatalf("RecentUsage: %v", err)
+	}
+	if totals.Errors != 3 || int64(len(failed)) != totals.Errors {
+		t.Errorf("totals count %d errors and the failed filter %d; want 3 and 3", totals.Errors, len(failed))
+	}
+	if len(ok)+len(failed) != 4 {
+		t.Errorf("ok %d + failed %d do not partition the 4 rows", len(ok), len(failed))
+	}
+	byKey, err := st.KeyUsage(ctx, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("KeyUsage: %v", err)
+	}
+	if byKey["k1"].Errors != 3 {
+		t.Errorf("KeyUsage counts %d errors, want 3", byKey["k1"].Errors)
+	}
+}

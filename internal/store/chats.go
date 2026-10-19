@@ -135,10 +135,10 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 		                     AND e1.client <> '' AND e1.path <> ?
 		                   ORDER BY e1.at DESC LIMIT 1), ''),
 		        COUNT(*),
-		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
+		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
-		        COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0),
+		        COALESCE(SUM(`+sqlCacheTokens+`), 0),
 		        MIN(at), MAX(at),
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events e2
@@ -160,8 +160,7 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 		   FROM usage_events e
 		  WHERE rejected = 0 AND at >= ? AND conversation_id <> ''`+inScope+`
 		  GROUP BY conversation_id
-		  ORDER BY SUM(input_tokens + output_tokens
-		               + cache_read_tokens + cache_write_tokens) DESC
+		  ORDER BY SUM(`+sqlTokens+`) DESC
 		  LIMIT ?`,
 		append(append([]any{from, InternalPath, from, from, InternalPath, from, InternalPath, from},
 			scopeArgs...), limit)...)
@@ -204,12 +203,7 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 	return report, nil
 }
 
-// rowScanner is what both queries below hand to scanChat.
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanChat(r rowScanner) (Chat, error) {
+func scanChat(r scanner) (Chat, error) {
 	var (
 		c                   Chat
 		first, last         string
@@ -256,10 +250,10 @@ func (s *Store) unattributed(ctx context.Context, from string, scope UsageScope)
 		// one of their clients would read as a fact about all of them.
 		`SELECT '', '',
 		        COUNT(*),
-		        COALESCE(SUM(status >= 400 OR error <> ''), 0),
+		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
-		        COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0),
+		        COALESCE(SUM(`+sqlCacheTokens+`), 0),
 		        COALESCE(MIN(at), ''), COALESCE(MAX(at), ''),
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events

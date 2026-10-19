@@ -34,7 +34,7 @@ type fakeStore struct {
 	requests map[string]int
 	created  int
 
-	settingsErr, setSettingErr, createErr, titleErr, setTitleErr, accountsErr, listKeysErr error
+	settingsErr, setSettingErr, createErr, titleErr, setTitleErr, accountsErr, keyErr error
 
 	// titled is signalled after every SetChatTitle or RetitleChat, stored or not.
 	titled chan struct{}
@@ -87,13 +87,18 @@ func (s *fakeStore) CreateKey(_ context.Context, name string, limits store.KeyLi
 	return k, "secret", nil
 }
 
-func (s *fakeStore) ListKeys(context.Context) ([]store.APIKey, error) {
+func (s *fakeStore) Key(_ context.Context, id string) (store.APIKey, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.listKeysErr != nil {
-		return nil, s.listKeysErr
+	if s.keyErr != nil {
+		return store.APIKey{}, s.keyErr
 	}
-	return append([]store.APIKey(nil), s.keys...), nil
+	for _, k := range s.keys {
+		if k.ID == id {
+			return k, nil
+		}
+	}
+	return store.APIKey{}, store.ErrKeyNotFound
 }
 
 func (s *fakeStore) KeySpend(_ context.Context, _ string, since time.Time) (int64, error) {
@@ -592,8 +597,8 @@ func TestTheInternalKeyIsIssuedOnceAndFoundAgain(t *testing.T) {
 		t.Errorf("replacement key %q (err %v, %d created, stored %q)", fresh, err, st.created, st.settings[titleKeySetting])
 	}
 
-	// An unreadable keys list is treated as the key not being found.
-	st.listKeysErr = errors.New("locked")
+	// An unreadable key is treated as the key not being found.
+	st.keyErr = errors.New("locked")
 	unreadable := New(Deps{Store: st})
 	_ = unreadable.Load(ctx)
 	if _, _, err := unreadable.key(ctx); err != nil || st.created != 3 {

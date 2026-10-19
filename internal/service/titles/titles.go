@@ -291,7 +291,7 @@ const retitleBackoff = 10 * time.Minute
 type Store interface {
 	settings.Store
 	CreateKey(ctx context.Context, name string, limits store.KeyLimits) (store.APIKey, string, error)
-	ListKeys(ctx context.Context) ([]store.APIKey, error)
+	Key(ctx context.Context, id string) (store.APIKey, error)
 	KeySpend(ctx context.Context, keyID string, since time.Time) (int64, error)
 	ListAccounts(ctx context.Context) ([]store.Account, error)
 	TitleRecord(ctx context.Context, id string) (store.TitleRecord, bool, error)
@@ -548,7 +548,9 @@ func (t *Titler) key(ctx context.Context) (id, name string, err error) {
 	if id != "" {
 		// Known id, name not yet read back: look it up rather than create a
 		// second key on every restart.
-		if k, ok := t.lookupKey(ctx, id); ok {
+		// Any failure to read it back is treated as the key being gone, as it
+		// always was: a second key is cheaper than no titles.
+		if k, err := t.deps.Store.Key(ctx, id); err == nil {
 			t.mu.Lock()
 			t.keyName = k.Name
 			t.mu.Unlock()
@@ -570,21 +572,6 @@ func (t *Titler) key(ctx context.Context) (id, name string, err error) {
 	t.keyID, t.keyName = key.ID, key.Name
 	t.mu.Unlock()
 	return key.ID, key.Name, nil
-}
-
-// lookupKey finds one key by id. The list is short and this runs once per
-// title, off the request path, so walking it costs nothing worth a new query.
-func (t *Titler) lookupKey(ctx context.Context, id string) (store.APIKey, bool) {
-	keys, err := t.deps.Store.ListKeys(ctx)
-	if err != nil {
-		return store.APIKey{}, false
-	}
-	for _, k := range keys {
-		if k.ID == id {
-			return k, true
-		}
-	}
-	return store.APIKey{}, false
 }
 
 // claim reserves a conversation so only one turn asks for its title.
@@ -773,7 +760,7 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 	// The same ceiling any other key gets, checked the same way. A budget set
 	// on the internal key is how an operator caps what titling may cost, using
 	// the control they already know rather than a second mechanism.
-	if k, ok := t.lookupKey(ctx, keyID); ok && k.TokenBudget > 0 {
+	if k, err := t.deps.Store.Key(ctx, keyID); err == nil && k.TokenBudget > 0 {
 		spent, err := t.deps.Store.KeySpend(ctx, keyID, time.Now().Add(-24*time.Hour))
 		if err == nil && spent >= k.TokenBudget {
 			return "", errBudgetSpent

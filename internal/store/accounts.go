@@ -195,30 +195,6 @@ const accountColumns = `id, provider, email, account_uuid, expires_at, refresh_e
                         COALESCE((SELECT group_concat(model, char(31)) FROM account_models_off o
                                    WHERE o.account_id = accounts.id), '')`
 
-type scanner interface{ Scan(...any) error }
-
-// nullTime renders an optional timestamp for SQLite: NULL when unknown, which
-// is meaningfully different from "expired at the zero time".
-func nullTime(t time.Time) any {
-	if t.IsZero() {
-		return nil
-	}
-	return t.UTC().Format(time.RFC3339)
-}
-
-// parseRFC3339 is the lenient form: an unset column is the zero time, not an
-// error, because none of these fields is required for the account to work.
-func parseRFC3339(v string) time.Time {
-	if v == "" {
-		return time.Time{}
-	}
-	t, err := time.Parse(time.RFC3339, v)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
-}
-
 func scanAccount(sc scanner) (Account, error) {
 	var (
 		a                                                        Account
@@ -235,40 +211,18 @@ func scanAccount(sc scanner) (Account, error) {
 		&a.Quota.Detail, &modelsOff); err != nil {
 		return Account{}, err
 	}
-	if modelsOff != "" {
-		a.ModelsOff = strings.Split(modelsOff, "\x1f")
-	}
+	a.ModelsOff = splitModels(modelsOff)
 	a.Quota.UpdatedAt = parseRFC3339(quotaUpdated)
 	a.Quota.FiveHourReset = parseRFC3339(reset5h)
 	a.Quota.SevenDayReset = parseRFC3339(reset7d)
-	a.ExpiresAt, _ = time.Parse(time.RFC3339, expiresAt)
-	if refreshExpires.Valid {
-		if t, err := time.Parse(time.RFC3339, refreshExpires.String); err == nil {
-			a.RefreshExpiresAt = t
-		}
-	}
-	a.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	a.ExpiresAt = parseRFC3339(expiresAt)
+	a.RefreshExpiresAt = parseRFC3339(refreshExpires.String)
+	a.CreatedAt = parseRFC3339(createdAt)
 	a.LastError = lastErr.String
-	if lastRefresh.Valid {
-		if t, err := time.Parse(time.RFC3339, lastRefresh.String); err == nil {
-			a.LastRefreshAt = &t
-		}
-	}
-	if lastUsed.Valid {
-		if t, err := time.Parse(time.RFC3339, lastUsed.String); err == nil {
-			a.LastUsedAt = &t
-		}
-	}
-	if disabled.Valid {
-		if t, err := time.Parse(time.RFC3339, disabled.String); err == nil {
-			a.DisabledAt = &t
-		}
-	}
-	if refreshDead.Valid {
-		if t, err := time.Parse(time.RFC3339, refreshDead.String); err == nil {
-			a.RefreshDeadAt = &t
-		}
-	}
+	a.LastRefreshAt = parseOptional(lastRefresh)
+	a.LastUsedAt = parseOptional(lastUsed)
+	a.DisabledAt = parseOptional(disabled)
+	a.RefreshDeadAt = parseOptional(refreshDead)
 	return a, nil
 }
 
@@ -361,13 +315,6 @@ func (s *Store) SetAccountQuota(ctx context.Context, id string, q AccountQuota) 
 		return fmt.Errorf("record account usage: %w", err)
 	}
 	return nil
-}
-
-func formatOrEmpty(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
 }
 
 // AccountTokens unseals the credentials for one account.
