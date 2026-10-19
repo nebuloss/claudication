@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react'
-import { type Surface } from '../../api/client'
+import { type InstallMerge, type Surface } from '../../api/client'
 import { type Lang } from '../primitives/code'
 import { type Catalog } from './catalog'
 
@@ -54,6 +54,12 @@ export type InstallTarget = {
    * profile on Linux and macOS, set as user variables on Windows.
    */
   env?: boolean
+  /**
+   * Set on a client's own config, which holds more than the gateway's
+   * settings: the installer then rewrites only what the gateway owns and
+   * keeps the rest. Absent on a file that is the gateway's alone.
+   */
+  merge?: InstallMerge
 }
 
 /** What a client needs, before any of it is resolved against a gateway. */

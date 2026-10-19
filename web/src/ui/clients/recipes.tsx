@@ -64,7 +64,7 @@ export const CLIENTS: ClientRecipe[] = [
         lang: 'toml',
         body: codexToml,
         tailor: tailorCodexConfig,
-        install: { path: '.codex/config.toml' },
+        install: { path: '.codex/config.toml', merge: { format: 'toml' } },
       },
       {
         label: '~/.codex/claude-models.json',
@@ -108,7 +108,12 @@ export const CLIENTS: ClientRecipe[] = [
         lang: 'jsonc',
         body: opencodeJsonc,
         tailor: tailorOpencode,
-        install: { path: '.config/opencode/opencode.jsonc' },
+        // The anthropic provider is the gateway's whole; the default models
+        // are its too, since they name its aliases.
+        install: {
+          path: '.config/opencode/opencode.jsonc',
+          merge: { format: 'json', owns: ['provider.anthropic', 'model', 'small_model'] },
+        },
       },
     ],
   }),
@@ -133,7 +138,13 @@ export const CLIENTS: ClientRecipe[] = [
         body: crushJson,
         tailor: tailorCrush,
         // crush reads %LOCALAPPDATA%\crush on Windows, not ~/.config.
-        install: { path: '.config/crush/crush.json', windowsPath: 'AppData/Local/crush/crush.json' },
+        // Its own provider, and the large and small picks, which name it; the
+        // operator's other providers stay.
+        install: {
+          path: '.config/crush/crush.json',
+          windowsPath: 'AppData/Local/crush/crush.json',
+          merge: { format: 'json', owns: ['providers.claudication', 'models.large', 'models.small'] },
+        },
       },
     ],
   }),

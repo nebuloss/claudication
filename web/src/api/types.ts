@@ -582,7 +582,14 @@ export interface InstallFile {
   windows_path?: string
   env?: boolean
   body: string
+  merge?: InstallMerge
 }
+
+/**
+ * Folds a file into the client's own config instead of replacing it: JSON
+ * names the dotted paths the gateway owns; TOML owns what its file defines.
+ */
+export type InstallMerge = { format: 'json'; owns: string[] } | { format: 'toml' }
 
 export interface SetupStatus {
   needs_setup: boolean

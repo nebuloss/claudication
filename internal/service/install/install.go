@@ -17,12 +17,16 @@
 // a key waiting in memory. Held in memory rather than the database for the
 // same reason: a restart forgets them, which costs nothing but a new command.
 //
-// The scripts back up every file they replace, beside it, so running a newer
-// command over an older setup is an update and never a loss.
+// The scripts back up every file they change, beside it, so running a newer
+// command over an older setup is an update and never a loss. A client's own
+// config — crush's, opencode's, Codex's — is merged rather than replaced: the
+// gateway's sections are rewritten and the rest of the file is left alone
+// (see Merge, and the helpers under merge/).
 package install
 
 import (
 	"crypto/rand"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -31,6 +35,21 @@ import (
 	"strings"
 	"sync"
 	"time"
+)
+
+// The merge helpers, carried inside the scripts. JSON on Linux and macOS goes
+// through python3 or node, whichever the machine has, since sh has nothing
+// that reads it; TOML through awk, which every one has. Windows has
+// PowerShell for both.
+var (
+	//go:embed merge/merge.py
+	mergePy string
+	//go:embed merge/merge.js
+	mergeJS string
+	//go:embed merge/merge.awk
+	mergeAwk string
+	//go:embed merge/merge.ps1
+	mergePS1 string
 )
 
 // File is one file a client is configured with, and where it goes.
@@ -52,6 +71,51 @@ type File struct {
 	// source it from.
 	Env  bool   `json:"env,omitempty"`
 	Body string `json:"body"`
+	// Merge, when set, folds the file into the one the client already has
+	// instead of replacing it. Absent for a file that is the gateway's alone.
+	Merge *Merge `json:"merge,omitempty"`
+}
+
+// Merge is how a file is folded into a client config that holds more than
+// the gateway's settings: crush's other providers, opencode's theme, Codex's
+// MCP servers. Writing the whole file over it lost all of that.
+type Merge struct {
+	// Format is "json" (JSONC too) or "toml".
+	Format string `json:"format"`
+	// Owns is, for JSON, the dotted paths the gateway owns: each is replaced
+	// whole, so a setting the gateway stopped sending does not linger inside
+	// it. The file's other top-level keys are added only when absent. TOML
+	// needs none: what the gateway owns there is what its file defines — the
+	// top-level keys and the tables — since none of it is a map shared with
+	// anything else.
+	Owns []string `json:"owns,omitempty"`
+}
+
+// ownedPath is a dotted JSON path of plain names, safe to pass to a shell.
+var ownedPath = regexp.MustCompile(`^[A-Za-z0-9_$-]+(\.[A-Za-z0-9_$-]+)*$`)
+
+func (m *Merge) validate() error {
+	if m == nil {
+		return nil
+	}
+	switch m.Format {
+	case "json":
+		if len(m.Owns) == 0 {
+			return errors.New("a JSON merge names what it owns")
+		}
+		for _, p := range m.Owns {
+			if !ownedPath.MatchString(p) {
+				return fmt.Errorf("%q is not a path of plain names", p)
+			}
+		}
+	case "toml":
+		if len(m.Owns) != 0 {
+			return errors.New("a TOML merge owns what its file defines, and names nothing")
+		}
+	default:
+		return fmt.Errorf("no merge for %q files", m.Format)
+	}
+	return nil
 }
 
 // Bundle is what one command installs.
@@ -91,6 +155,9 @@ func (b Bundle) Validate() error {
 			if !safePath.MatchString(p) || strings.Contains("/"+p+"/", "/../") || strings.Contains("/"+p+"/", "/./") {
 				return fmt.Errorf("%q is not a path under the home directory", p)
 			}
+		}
+		if err := f.Merge.validate(); err != nil {
+			return fmt.Errorf("%s: %w", f.Path, err)
 		}
 		total += len(f.Body)
 	}
@@ -211,15 +278,22 @@ put() {
   echo "claudication: wrote $1"
 }
 `)
+	if b.merges() {
+		s.WriteString(shellMergeHelpers())
+	}
 	var sourced []string
 	for _, f := range b.Files {
-		end := heredocEnd(f.Body)
 		path := `$HOME/` + f.Path
-		fmt.Fprintf(&s, "\n# %s\nput \"%s\" <<'%s'\n%s", f.Client, path, end, f.Body)
-		if !strings.HasSuffix(f.Body, "\n") {
-			s.WriteString("\n")
+		if f.Merge == nil {
+			fmt.Fprintf(&s, "\n# %s\nput \"%s\" ", f.Client, path)
+		} else {
+			fmt.Fprintf(&s, "\n# %s\nmerge_into \"%s\" %s", f.Client, path, f.Merge.Format)
+			for _, p := range f.Merge.Owns {
+				s.WriteString(" " + shQuote(p))
+			}
+			s.WriteString(" ")
 		}
-		s.WriteString(end + "\n")
+		writeHeredoc(&s, f.Body)
 		if f.Env {
 			sourced = append(sourced, path)
 		}
@@ -254,6 +328,84 @@ fi
 	return s.String()
 }
 
+// writeHeredoc feeds body to the command just written, as a quoted heredoc so
+// nothing in it is expanded.
+func writeHeredoc(s *strings.Builder, body string) {
+	end := heredocEnd(body)
+	fmt.Fprintf(s, "<<'%s'\n%s", end, body)
+	if !strings.HasSuffix(body, "\n") {
+		s.WriteString("\n")
+	}
+	s.WriteString(end + "\n")
+}
+
+func (b Bundle) merges() bool {
+	for _, f := range b.Files {
+		if f.Merge != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// shellMergeHelpers defines merge_into, which folds the file on its stdin
+// into the one at $1.
+//
+// A file that is not there yet, or empty, is simply written. One that cannot
+// be merged — JSON on a machine with neither python3 nor node, or a file that
+// does not parse — is left exactly as it is, with the gateway's version
+// beside it as .claudication and a line saying so: replacing it would be the
+// loss this exists to prevent.
+func shellMergeHelpers() string {
+	var s strings.Builder
+	s.WriteString(`
+helpers=$(mktemp -d)
+trap 'rm -rf "$helpers"' EXIT
+`)
+	for _, h := range []struct{ name, body string }{
+		{"merge.py", mergePy}, {"merge.js", mergeJS}, {"merge.awk", mergeAwk},
+	} {
+		fmt.Fprintf(&s, "cat > \"$helpers/%s\" ", h.name)
+		writeHeredoc(&s, h.body)
+	}
+	s.WriteString(`# macOS ships a python3 that only offers to install the real one, so a
+# python3 that cannot run is no python3.
+have_python() { command -v python3 >/dev/null 2>&1 && python3 -c '' >/dev/null 2>&1; }
+merge_into() {
+  target=$1; format=$2; shift 2
+  mkdir -p "$(dirname "$target")"
+  cat > "$helpers/new"
+  if [ ! -s "$target" ]; then
+    mv "$helpers/new" "$target"
+    echo "claudication: wrote $target"
+    return 0
+  fi
+  cp "$target" "$target.bak.$stamp"
+  status=0
+  case "$format" in
+    toml)
+      awk -v new="$helpers/new" -f "$helpers/merge.awk" "$target" > "$helpers/merged" || status=$?
+      [ "$status" -ne 0 ] || cat "$helpers/merged" > "$target" ;;
+    json)
+      if have_python; then python3 -I "$helpers/merge.py" "$target" "$helpers/new" "$@" || status=$?
+      elif command -v node >/dev/null 2>&1; then node "$helpers/merge.js" "$target" "$helpers/new" "$@" || status=$?
+      else status=127; fi ;;
+  esac
+  case "$status" in
+    0) echo "claudication: updated $target, keeping the rest of it (it was $target.bak.$stamp)" ;;
+    127)
+      mv "$helpers/new" "$target.claudication"
+      echo "claudication: left $target as it was: merging into it needs python3 or node. The gateway's settings are in $target.claudication" >&2 ;;
+    *)
+      mv "$helpers/new" "$target.claudication"
+      echo "claudication: left $target as it was: it could not be read. The gateway's settings are in $target.claudication" >&2 ;;
+  esac
+  rm -f "$helpers/new" "$helpers/merged"
+}
+`)
+	return s.String()
+}
+
 // exportLine is `export NAME=value`, the only form the env files use.
 var exportLine = regexp.MustCompile(`^export ([A-Za-z_][A-Za-z0-9_]*)=(.*)$`)
 
@@ -275,6 +427,29 @@ function Put-ClaudicationFile([string]$rel, [string]$b64) {
   Write-Host "claudication: wrote $path"
 }
 `)
+	if b.merges() {
+		s.WriteString(mergePS1)
+		s.WriteString(`
+# A file that is not there yet is written; one that cannot be read as what it
+# should be is left as it was, with the gateway's version beside it.
+function Merge-ClaudicationFile([string]$rel, [string]$format, [string]$b64, [string[]]$owned) {
+  $path = Join-Path $HOME $rel
+  $new = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
+  if (-not (Test-Path $path) -or (Get-Item $path).Length -eq 0) { Put-ClaudicationFile $rel $b64; return }
+  Copy-Item $path "$path.bak.$stamp"
+  $ok = $true
+  try {
+    if ($format -eq 'toml') { Merge-ClaudicationToml $path $new } else { $ok = Merge-ClaudicationJson $path $new $owned }
+  } catch { $ok = $false }
+  if ($ok) {
+    Write-Host "claudication: updated $path, keeping the rest of it (it was $path.bak.$stamp)"
+  } else {
+    [IO.File]::WriteAllText("$path.claudication", $new, (New-Object Text.UTF8Encoding $false))
+    Write-Warning "claudication: left $path as it was: it could not be read. The gateway's settings are in $path.claudication"
+  }
+}
+`)
+	}
 	for _, f := range b.Files {
 		if f.Env {
 			fmt.Fprintf(&s, "\n# %s: user environment variables\n", f.Client)
@@ -293,9 +468,18 @@ function Put-ClaudicationFile([string]$rel, [string]$b64) {
 		if f.WindowsPath != "" {
 			path = f.WindowsPath
 		}
-		fmt.Fprintf(&s, "\n# %s\nPut-ClaudicationFile %s '%s'\n", f.Client,
-			psQuote(strings.ReplaceAll(path, "/", `\`)),
-			base64.StdEncoding.EncodeToString([]byte(f.Body)))
+		rel := psQuote(strings.ReplaceAll(path, "/", `\`))
+		b64 := base64.StdEncoding.EncodeToString([]byte(f.Body))
+		if f.Merge == nil {
+			fmt.Fprintf(&s, "\n# %s\nPut-ClaudicationFile %s '%s'\n", f.Client, rel, b64)
+			continue
+		}
+		owns := make([]string, len(f.Merge.Owns))
+		for i, p := range f.Merge.Owns {
+			owns[i] = psQuote(p)
+		}
+		fmt.Fprintf(&s, "\n# %s\nMerge-ClaudicationFile %s %s '%s' @(%s)\n", f.Client, rel,
+			psQuote(f.Merge.Format), b64, strings.Join(owns, ", "))
 	}
 	s.WriteString("\nWrite-Host 'claudication: done. Open a new terminal for the variables to apply.'\n")
 	return s.String()

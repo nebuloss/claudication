@@ -109,6 +109,7 @@ export default function KeyClients({
                   path: f.install.path,
                   windows_path: f.install.windowsPath,
                   env: f.install.env,
+                  merge: f.install.merge,
                   body: f.body,
                 })),
               )
@@ -273,8 +274,9 @@ function InstallCommand({
           />
           <Note>
             Works until {link.expires.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })},
-            on as many machines as it is run on. It writes each file in place and keeps whatever was
-            there beside it as a .bak, so running a newer command is an update.
+            on as many machines as it is run on. A client&rsquo;s own config gets only the
+            gateway&rsquo;s sections rewritten — other providers and settings stay — and every
+            file it changes is kept beside it as a .bak, so running a newer command is an update.
             {system === 'windows'
               ? ' Claude Code gets its settings as user environment variables, for new terminals.'
               : ' Claude Code\u2019s file is sourced from your shell profile, for new shells.'}

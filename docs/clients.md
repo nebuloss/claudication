@@ -39,8 +39,15 @@ writes the configs into place on the client's machine:
 
 `client=` picks one client or a comma-separated few; without it, all of them.
 The token lasts fifteen minutes and works on as many machines as it is run on.
-Every file it replaces is kept beside it as `.bak.<time>`, so a newer command is
-an update. On Linux and macOS, Claude Code's file is sourced from `~/.bashrc` and
+A client's own config is merged, not replaced: crush gets its `claudication`
+provider and its `large`/`small` picks, opencode its `anthropic` provider and
+default models, Codex its top-level model keys and its `[model_providers.claudication]`
+table, and everything else in the file stays. In Codex's file the gateway's
+part sits between `# >>> claudication` markers, rewritten on each run. JSON on
+Linux and macOS is merged with `python3` or `node`; with neither, the file is
+left as it was and the gateway's version is put beside it as `.claudication`.
+JSON comments in the existing file do not survive a merge. Every file it
+changes is kept beside it as `.bak.<time>`, so a newer command is an update. On Linux and macOS, Claude Code's file is sourced from `~/.bashrc` and
 `~/.zshrc`; on Windows its variables are set for the user.
 
 **One key format, both APIs.** A Codex key is not a different kind of key, and
