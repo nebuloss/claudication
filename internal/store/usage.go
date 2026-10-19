@@ -872,18 +872,43 @@ func (s *Store) statusFacet(ctx context.Context, limit int) ([]FacetValue, error
 	return out, rows.Err()
 }
 
+// usageEventColumns is every column a UsageEvent is read back from, in the
+// order scanUsageEvent takes them.
+//
+// One list, shared by every query that returns whole events, because each
+// query used to keep its own: ChatEvents' copy stopped at error, so the chat
+// view sent the same request rows as the request log with error_code,
+// rejected, ip and virtual_model always empty. A column added in a migration
+// is added here and in RecordUsage, and nowhere else.
+const usageEventColumns = `id, at, key_id, key_name, account_id, account_email, model, path,
+	conversation_id, client,
+	status, streaming, input_tokens, output_tokens,
+	cache_read_tokens, cache_write_tokens, duration_ms, first_token_ms, error,
+	error_code, rejected, ip, virtual_model`
+
+// scanUsageEvent reads one row selected with usageEventColumns.
+func scanUsageEvent(sc scanner) (UsageEvent, error) {
+	var e UsageEvent
+	var at string
+	var ms, firstMS int64
+	if err := sc.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
+		&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
+		&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
+		&ms, &firstMS, &e.Error, &e.ErrorCode, &e.Rejected, &e.IP, &e.VirtualModel); err != nil {
+		return UsageEvent{}, err
+	}
+	e.At, _ = time.Parse(time.RFC3339Nano, at)
+	e.Duration = time.Duration(ms) * time.Millisecond
+	e.FirstToken = time.Duration(firstMS) * time.Millisecond
+	return e, nil
+}
+
 // RecentUsage returns one page of events, newest first, along with the cursor
 // for the page after it. An empty next cursor means the end of the list.
 func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, filter RequestFilter) ([]UsageEvent, UsageCursor, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-
-	const columns = `id, at, key_id, key_name, account_id, account_email, model, path,
-	                 conversation_id, client,
-	                 status, streaming, input_tokens, output_tokens,
-	                 cache_read_tokens, cache_write_tokens, duration_ms, first_token_ms, error,
-	                 error_code, rejected, ip, virtual_model`
 
 	narrow, args := filter.where()
 	// The cursor is a condition like any other, so it joins the same AND
@@ -901,7 +926,7 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 		conditions = append(conditions, narrow)
 		params = append(params, args...)
 	}
-	query := `SELECT ` + columns + ` FROM usage_events`
+	query := `SELECT ` + usageEventColumns + ` FROM usage_events`
 	if len(conditions) > 0 {
 		query += ` WHERE ` + strings.Join(conditions, " AND ")
 	}
@@ -917,18 +942,10 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 	out := []UsageEvent{}
 	var next UsageCursor
 	for rows.Next() {
-		var e UsageEvent
-		var at string
-		var ms, firstMS int64
-		if err := rows.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
-			&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
-			&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
-			&ms, &firstMS, &e.Error, &e.ErrorCode, &e.Rejected, &e.IP, &e.VirtualModel); err != nil {
+		e, err := scanUsageEvent(rows)
+		if err != nil {
 			return nil, UsageCursor{}, fmt.Errorf("recent usage: %w", err)
 		}
-		e.At, _ = time.Parse(time.RFC3339Nano, at)
-		e.Duration = time.Duration(ms) * time.Millisecond
-		e.FirstToken = time.Duration(firstMS) * time.Millisecond
 		out = append(out, e)
 		next = UsageCursor{At: e.At, ID: e.ID}
 	}

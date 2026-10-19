@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -194,5 +195,55 @@ func TestChatEventsAreOldestFirst(t *testing.T) {
 
 	if _, err := st.ChatEvents(ctx, "", 100); err == nil {
 		t.Error("an empty id must be refused, not answered with every unnamed request")
+	}
+}
+
+// Every field written through RecordUsage comes back through ChatEvents.
+//
+// ChatEvents once kept its own column list, which stopped at error: the chat
+// view sent request rows with error_code, ip, virtual_model and rejected always
+// empty, while the request log sent the same rows whole. The check walks the
+// struct, so a field added later and left out of the shared list fails here
+// rather than in the UI.
+func TestChatEventsReturnEveryRecordedField(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+
+	want := UsageEvent{
+		At:    time.Date(2026, 10, 19, 9, 14, 3, 250_000_000, time.UTC),
+		KeyID: "k1", KeyName: "laptop",
+		AccountID: "a1", AccountEmail: "op@example.com",
+		Model: "claude-opus-5", VirtualModel: "claude-large",
+		Path: "/v1/messages", ConversationID: "c1", Client: "Claude Code",
+		Status: 429, Streaming: true,
+		InputTokens: 1, OutputTokens: 2, CacheReadTokens: 3, CacheWriteTokens: 4,
+		Duration: 1500 * time.Millisecond, FirstToken: 250 * time.Millisecond,
+		Error: "slow down", ErrorCode: "rate_limit_error",
+		Rejected: true, IP: "192.0.2.7",
+	}
+	v := reflect.ValueOf(want)
+	for i := range v.NumField() {
+		if name := v.Type().Field(i).Name; name != "ID" && v.Field(i).IsZero() {
+			t.Fatalf("fixture leaves %s at its zero value, so its loss would go unnoticed", name)
+		}
+	}
+	if err := st.RecordUsage(ctx, want); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := st.ChatEvents(ctx, "c1", 10)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("ChatEvents = %d events, %v; want 1", len(events), err)
+	}
+	got := events[0]
+	if got.ID == 0 {
+		t.Error("ID was not read back")
+	}
+	if !got.At.Equal(want.At) {
+		t.Errorf("At = %v, want %v", got.At, want.At)
+	}
+	got.ID, got.At = 0, want.At
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("round trip lost fields:\n got %+v\nwant %+v", got, want)
 	}
 }

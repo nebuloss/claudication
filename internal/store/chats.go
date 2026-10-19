@@ -292,10 +292,7 @@ func (s *Store) ChatEvents(ctx context.Context, id string, limit int) ([]UsageEv
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT * FROM (
-		    SELECT id, at, key_id, key_name, account_id, account_email, model, path,
-		           conversation_id, client, status, streaming,
-		           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-		           duration_ms, first_token_ms, error
+		    SELECT `+usageEventColumns+`
 		      FROM usage_events
 		     WHERE conversation_id = ?
 		     ORDER BY at DESC, id DESC LIMIT ?)
@@ -307,18 +304,10 @@ func (s *Store) ChatEvents(ctx context.Context, id string, limit int) ([]UsageEv
 
 	out := []UsageEvent{}
 	for rows.Next() {
-		var e UsageEvent
-		var at string
-		var ms, firstMS int64
-		if err := rows.Scan(&e.ID, &at, &e.KeyID, &e.KeyName, &e.AccountID, &e.AccountEmail,
-			&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
-			&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
-			&ms, &firstMS, &e.Error); err != nil {
+		e, err := scanUsageEvent(rows)
+		if err != nil {
 			return nil, fmt.Errorf("chat events: %w", err)
 		}
-		e.At, _ = time.Parse(time.RFC3339Nano, at)
-		e.Duration = time.Duration(ms) * time.Millisecond
-		e.FirstToken = time.Duration(firstMS) * time.Millisecond
 		out = append(out, e)
 	}
 	if err := rows.Err(); err != nil {
