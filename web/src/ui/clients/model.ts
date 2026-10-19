@@ -66,6 +66,12 @@ export type InstallTarget = {
 export type ClientData = {
   id: string
   label: string
+  /**
+   * The name the gateway knows it by, from its User-Agent (api.ClientName):
+   * what an alias is bound for in Settings › Aliases, so its files are
+   * written for the models its own bindings choose.
+   */
+  client: string
   surface: SurfaceID
   /**
    * Whether the base URL this client wants carries /v1.
@@ -100,6 +106,10 @@ export class ClientRecipe {
 
   get label(): string {
     return this.data.label
+  }
+
+  get client(): string {
+    return this.data.client
   }
 
   get lead(): ReactNode {

@@ -229,9 +229,20 @@ const keys = {
   setModel: (id: string, model: string, enabled: boolean) =>
     http.send('POST', path`/admin/keys/${id}/models`, { body: { model, enabled } }),
 
-  /** What one key is offered — /v1/models as it sees it, the roles first. */
-  offeredModels: async (id: string, signal?: AbortSignal): Promise<Model[]> =>
-    (await http.get<{ data: Model[] | null }>(path`/admin/keys/${id}/offered-models`, signal)).data ?? [],
+  /**
+   * What one key is offered — /v1/models as it sees it, the roles first — from
+   * one client, as the request log names it; empty for no client in
+   * particular.
+   */
+  offeredModels: async (id: string, client: string, signal?: AbortSignal): Promise<Model[]> =>
+    (
+      await http.get<{ data: Model[] | null }>(
+        client === ''
+          ? path`/admin/keys/${id}/offered-models`
+          : path`/admin/keys/${id}/offered-models?client=${client}`,
+        signal,
+      )
+    ).data ?? [],
 }
 
 /** The models the accounts serve, and the aliases clients ask for instead. */
@@ -239,21 +250,30 @@ const models = {
   list: async (signal?: AbortSignal): Promise<Model[]> =>
     (await http.get<{ data: Model[] | null }>('/admin/models', signal)).data ?? [],
 
-  /** The model roles for the gateway, or for one key. */
-  roles: async (keyId = '', signal?: AbortSignal): Promise<ModelRole[]> =>
-    (
-      await http.get<{ roles: ModelRole[] | null }>(
-        keyId === '' ? '/admin/model-roles' : path`/admin/model-roles?key=${keyId}`,
-        signal,
-      )
-    ).roles ?? [],
+  /**
+   * The model roles for the gateway, or for one key; the gateway's also say
+   * which clients a role can be bound for.
+   */
+  roles: async (
+    keyId = '',
+    signal?: AbortSignal,
+  ): Promise<{ roles: ModelRole[]; clients: string[] }> => {
+    const res = await http.get<{ roles: ModelRole[] | null; clients?: string[] | null }>(
+      keyId === '' ? '/admin/model-roles' : path`/admin/model-roles?key=${keyId}`,
+      signal,
+    )
+    return { roles: res.roles ?? [], clients: res.clients ?? [] }
+  },
 
   /**
-   * Bind a role. An empty model is automatic for the gateway, and "follow the
-   * gateway" for a key.
+   * Bind a role, for the gateway, one key, or one client (never a key and a
+   * client at once). An empty model is automatic for the gateway, and "follow
+   * the gateway" for a key or a client.
    */
-  setRole: (keyId: string, role: string, model: string) =>
-    http.send('PUT', '/admin/model-roles', { body: { key_id: keyId, role, model } }),
+  setRole: (scope: { keyId?: string; client?: string }, role: string, model: string) =>
+    http.send('PUT', '/admin/model-roles', {
+      body: { key_id: scope.keyId ?? '', client: scope.client ?? '', role, model },
+    }),
 
   /** Delete a custom alias, from the gateway and every key. */
   deleteAlias: (name: string) => http.send('DELETE', path`/admin/model-roles?name=${name}`),

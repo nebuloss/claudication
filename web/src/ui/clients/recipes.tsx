@@ -25,6 +25,7 @@ export const CLIENTS: ClientRecipe[] = [
   new ClientRecipe({
     id: 'claude-code',
     label: 'Claude Code',
+    client: 'Claude Code',
     surface: 'anthropic',
     versioned: false,
     lead: (
@@ -48,6 +49,7 @@ export const CLIENTS: ClientRecipe[] = [
   new ClientRecipe({
     id: 'codex',
     label: 'Codex CLI',
+    client: 'Codex',
     surface: 'openai',
     versioned: true,
     lead: (
@@ -93,6 +95,7 @@ export const CLIENTS: ClientRecipe[] = [
   new ClientRecipe({
     id: 'opencode',
     label: 'opencode',
+    client: 'opencode',
     surface: 'anthropic',
     versioned: true,
     lead: (
@@ -120,6 +123,7 @@ export const CLIENTS: ClientRecipe[] = [
   new ClientRecipe({
     id: 'crush',
     label: 'crush',
+    client: 'crush',
     surface: 'anthropic',
     versioned: false,
     lead: (

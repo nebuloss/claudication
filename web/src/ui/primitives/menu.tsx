@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useEscapeKey } from '../hooks'
-import { Popover, menuItem, useContainedScroll, useDismiss } from './popover'
+import { buttonClass, type ButtonLook } from './button'
+import { Popover, menuItem, useAnchoredPanel, useContainedScroll, useDismiss } from './popover'
 
 /** One line of a menu that does something when clicked. */
 export function MenuRow({
@@ -21,6 +22,58 @@ export function MenuRow({
     >
       {children}
     </button>
+  )
+}
+
+/**
+ * A button that opens a menu under it: one action with several targets, such
+ * as which client to bind an alias for. Button's look, and the panel every
+ * other anchored menu has (popover.tsx). children is given close, so a row can
+ * shut the menu once it has acted.
+ */
+export function MenuButton({
+  label,
+  menuLabel,
+  icon,
+  disabled = false,
+  variant = 'text',
+  size = 'sm',
+  tone,
+  children,
+}: ButtonLook & {
+  label: ReactNode
+  /** What the menu is, for assistive technology. */
+  menuLabel: string
+  /** SVG path data for a leading icon. */
+  icon?: string
+  disabled?: boolean
+  children: (close: () => void) => ReactNode
+}) {
+  const p = useAnchoredPanel({ width: 240 })
+  return (
+    <>
+      <button
+        ref={p.anchor}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={p.open}
+        onClick={p.toggle}
+        className={`${buttonClass({ variant, size, tone })} self-start`}
+      >
+        {icon !== undefined && (
+          <svg viewBox="0 0 24 24" aria-hidden className="-ml-0.5 size-4 fill-current">
+            <path d={icon} />
+          </svg>
+        )}
+        {label}
+      </button>
+      {p.at !== null && (
+        <Popover panelRef={p.panel} at={p.at} role="menu" label={menuLabel}>
+          {children(p.close)}
+        </Popover>
+      )}
+    </>
   )
 }
 

@@ -58,11 +58,20 @@ export default function KeyClients({
   config: GatewayConfig | null
 }) {
   const secret = useKeySecret(k)
-  // What this key is offered — /v1/models as it sees it, the aliases first,
-  // each with the facts of the model it serves for this key. Without it the
-  // files are the committed ones, which are complete.
-  const offered = useLoader((signal) => api.keys.offeredModels(k.id, signal), { deps: [k.id] })
-  const catalog = useMemo(() => new Catalog(offered.data), [offered.data])
+  // What this key is offered from each client — /v1/models as that client
+  // sees it, the aliases first, each with the facts of the model it serves
+  // for this key and client, which differ once an alias is bound per client.
+  // Without them the files are the committed ones, which are complete.
+  const offered = useLoader(
+    (signal) =>
+      Promise.all(CLIENTS.map((client) => api.keys.offeredModels(k.id, client.client, signal))),
+    { deps: [k.id] },
+  )
+  const catalogs = useMemo(
+    () => new Map(CLIENTS.map((client, i) => [client.id, new Catalog(offered.data?.[i])])),
+    [offered.data],
+  )
+  const catalogOf = (id: string) => catalogs.get(id) ?? new Catalog(null)
   const address = relayAddress(config)
   const gateway = address !== '' ? address : EXAMPLE_BASE
   const plaintext = secret.data?.plaintext ?? ''
@@ -103,7 +112,7 @@ export default function KeyClients({
             gateway={gateway}
             files={() =>
               CLIENTS.flatMap((client) =>
-                client.files(gateway, plaintext, catalog).map((f) => ({
+                client.files(gateway, plaintext, catalogOf(client.id)).map((f) => ({
                   client_id: client.id,
                   client: client.label,
                   path: f.install.path,
@@ -121,7 +130,7 @@ export default function KeyClients({
                 client={client}
                 gateway={gateway}
                 secret={plaintext}
-                catalog={catalog}
+                catalog={catalogOf(client.id)}
                 surfaces={config?.surfaces ?? []}
                 notes={false}
               />

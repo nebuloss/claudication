@@ -483,6 +483,19 @@ export interface ModelRole {
   /** What a request for the role gets now, and why not when it cannot. */
   serving: string
   problem?: string
+  /** Its per-client bindings; on the gateway's view only. */
+  clients?: ClientRole[]
+}
+
+/**
+ * One alias bound for one client, the client named as the request log names
+ * it, and what that client is served for it by a key that binds nothing.
+ */
+export interface ClientRole {
+  client: string
+  model: string
+  serving: string
+  problem?: string
 }
 
 export interface GatewayConfig {

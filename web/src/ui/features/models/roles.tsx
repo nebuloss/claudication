@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api, type Model, type ModelRole } from '../../../api/client'
+import { api, type ClientRole, type Model, type ModelRole } from '../../../api/client'
 import { useAction, useLoader } from '../../hooks'
 import {
   Button,
@@ -10,6 +10,8 @@ import {
   Field,
   IconButton,
   Loading,
+  MenuButton,
+  MenuRow,
   Muted,
   Note,
   Page,
@@ -29,7 +31,9 @@ import {
  * doing the work, claude-small for titles and summaries — and four are the
  * families, which is how Claude Code names its tiers. Which real model
  * answers each is decided here, once, instead of in every client: for the
- * whole gateway on the Models tab, and per key in its settings.
+ * whole gateway, per client — Codex's claude-large apart from Claude Code's —
+ * and per key in its settings. A key's binding wins over its client's, and a
+ * client's over the gateway's.
  */
 
 const PURPOSE: Record<string, string> = {
@@ -84,7 +88,13 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
 
   const bind = (r: ModelRole, model: string) =>
     run(r.role, async () => {
-      await api.models.setRole(keyId, r.role, model)
+      await api.models.setRole({ keyId }, r.role, model)
+      await reload()
+    })
+
+  const bindFor = (r: ModelRole, client: string, model: string) =>
+    run(`${r.role}/${client}`, async () => {
+      await api.models.setRole({ client }, r.role, model)
       await reload()
     })
 
@@ -126,9 +136,14 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
         ? `The newest ${r.family} model, found from what your accounts serve.`
         : 'Your own alias.')
     const broken = r.problem !== undefined && r.problem !== ''
+    const perClient = keyId === '' && (r.clients ?? []).length > 0
     return (
       <li key={r.role} className={`${tile} flex flex-col gap-3 px-4 py-3`}>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        {/* On the gateway's view the right-hand column grows a Select per
+            client under the gateway's own, so the text keeps to the top. */}
+        <div
+          className={`flex flex-wrap gap-x-6 gap-y-3 ${keyId === '' ? 'items-start' : 'items-center'}`}
+        >
           <div className="min-w-0 flex-1 basis-64">
             <div className="flex flex-wrap items-center gap-2">
               <code className="font-mono text-sm font-medium text-on-surface">{r.role}</code>
@@ -138,24 +153,35 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
               <Muted>{purpose}</Muted>
             </div>
           </div>
-          <div className="flex w-full items-center gap-2 sm:w-96">
-            <Select
-              label="Model"
-              value={value}
-              options={options}
-              disabled={busy !== '' || options.length === 0}
-              onChange={(v) => void bind(r, v)}
-            />
-            {!r.builtin && keyId === '' && (
-              <IconButton
-                label={`Delete ${r.role}`}
-                disabled={busy !== ''}
-                onClick={() => void remove(r)}
-              >
-                <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-              </IconButton>
+          <div className="flex w-full flex-col gap-2 sm:w-96">
+            <div className="flex items-center gap-2">
+              <Select
+                label={perClient ? 'Every other client' : 'Model'}
+                value={value}
+                options={options}
+                disabled={busy !== '' || options.length === 0}
+                onChange={(v) => void bind(r, v)}
+              />
+              {!r.builtin && keyId === '' && (
+                <IconButton
+                  label={`Delete ${r.role}`}
+                  disabled={busy !== ''}
+                  onClick={() => void remove(r)}
+                >
+                  <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                </IconButton>
+              )}
+              {busy === r.role && <Spinner className="size-4 shrink-0" />}
+            </div>
+            {keyId === '' && (
+              <ClientBindings
+                role={r}
+                choices={choices}
+                clients={data.clients}
+                busy={busy}
+                bind={(client, model) => bindFor(r, client, model)}
+              />
             )}
-            {busy === r.role && <Spinner className="size-4 shrink-0" />}
           </div>
         </div>
         {broken && <Note tone="error">{r.problem}</Note>}
@@ -165,9 +191,10 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
 
   // The two roles every client has, then one per family, then the
   // operator's own.
-  const roles = data.filter((r) => r.role === 'claude-large' || r.role === 'claude-small')
-  const families = data.filter((r) => r.builtin && !roles.includes(r))
-  const custom = data.filter((r) => !r.builtin)
+  const all = data.roles
+  const roles = all.filter((r) => r.role === 'claude-large' || r.role === 'claude-small')
+  const families = all.filter((r) => r.builtin && !roles.includes(r))
+  const custom = all.filter((r) => !r.builtin)
   const group = (title: string, list: ModelRole[]) => (
     <Section title={title}>
       <Stack gap={2} as="ul">
@@ -194,7 +221,7 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
               busy={busy !== ''}
               onCreate={(name, model) =>
                 run(name, async () => {
-                  await api.models.setRole('', name, model)
+                  await api.models.setRole({}, name, model)
                   await reload()
                 })
               }
@@ -206,6 +233,118 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
       </Section>
       <ErrorBanner error={failure} />
     </Stack>
+  )
+}
+
+/**
+ * The options with the bound model among them. A binding can name a model no
+ * account lists now — one switched off, or a target from another provider —
+ * and a Select showing the first option instead would say it is bound to
+ * something it is not.
+ */
+function withBound(options: SelectOption[], model: string): SelectOption[] {
+  if (model === '' || options.some((o) => o.value === model)) return options
+  return [...options, { value: model, label: model }]
+}
+
+/**
+ * One alias's bindings per client, under its gateway binding and in the same
+ * column: a Select per client, labelled with it, starting with following the
+ * gateway as a key's do, and a menu of the clients not yet bound. A client
+ * picked from the menu shows the gateway's model until a model is chosen, so
+ * nothing is stored before there is something to store.
+ *
+ * The clients are named as the request log names them, from the User-Agent;
+ * the menu has the four the gateway recognises and any other it has seen.
+ */
+function ClientBindings({
+  role: r,
+  choices,
+  clients,
+  busy,
+  bind,
+}: {
+  role: ModelRole
+  choices: SelectOption[]
+  clients: string[]
+  busy: string
+  bind: (client: string, model: string) => Promise<boolean>
+}) {
+  const [picked, setPicked] = useState<string[]>([])
+  const bound = r.clients ?? []
+  const shown: ClientRole[] = [
+    ...bound,
+    ...picked
+      .filter((c) => !bound.some((b) => b.client === c))
+      .map((c) => ({ client: c, model: '', serving: r.serving })),
+  ]
+  const free = clients.filter((c) => !shown.some((o) => o.client === c))
+  const options: SelectOption[] = [
+    { value: '', label: 'Same as the gateway', hint: r.serving !== '' ? r.serving : undefined },
+    ...choices,
+  ]
+  const drop = (client: string) => setPicked((p) => p.filter((c) => c !== client))
+
+  if (shown.length === 0 && free.length === 0) return null
+  return (
+    <div className="flex flex-col gap-2">
+      {shown.length > 0 && (
+        <Stack gap={2} as="ul">
+          {shown.map((o) => (
+            <li key={o.client} className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Select
+                  label={o.client}
+                  value={o.model}
+                  options={withBound(options, o.model)}
+                  disabled={busy !== '' || choices.length === 0}
+                  onChange={(v) =>
+                    void bind(o.client, v).then((ok) => {
+                      if (ok) drop(o.client)
+                    })
+                  }
+                />
+                <IconButton
+                  label={`Stop binding ${r.role} for ${o.client}`}
+                  disabled={busy !== ''}
+                  onClick={() =>
+                    o.model === '' ? drop(o.client) : void bind(o.client, '')
+                  }
+                >
+                  <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                </IconButton>
+                {busy === `${r.role}/${o.client}` && <Spinner className="size-4 shrink-0" />}
+              </div>
+              {o.problem !== undefined && o.problem !== '' && (
+                <Note tone="error">{o.problem}</Note>
+              )}
+            </li>
+          ))}
+        </Stack>
+      )}
+      {free.length > 0 && (
+        <MenuButton
+          label="For one client"
+          menuLabel={`Bind ${r.role} for a client`}
+          icon="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"
+          disabled={busy !== '' || choices.length === 0}
+        >
+          {(close) =>
+            free.map((c) => (
+              <MenuRow
+                key={c}
+                onClick={() => {
+                  close()
+                  setPicked((p) => [...p, c])
+                }}
+              >
+                {c}
+              </MenuRow>
+            ))
+          }
+        </MenuButton>
+      )}
+    </div>
   )
 }
 
@@ -270,7 +409,14 @@ export default function ModelsTab() {
               Every client config this gateway hands out asks for these names instead of a real
               model, so moving every client to a new model is one change here. Each list starts with
               the newest model of the alias&rsquo;s family, which is what the alias serves until you
-              choose. A key can choose differently in its own settings.
+              choose.
+            </p>
+            <p>
+              An alias can serve one client differently — Codex&rsquo;s{' '}
+              <code>claude-large</code> on one model while Claude Code&rsquo;s stays on another. The
+              client is the one the request log names, from its User-Agent. A key can choose
+              differently again in its own settings, and a key&rsquo;s choice wins over its
+              client&rsquo;s.
             </p>
             <p>
               Clients size their requests from the model an alias served when their config was
