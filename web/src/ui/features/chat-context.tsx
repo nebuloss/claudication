@@ -39,17 +39,16 @@ function clock(at: string): string {
 export default function ChatContextDetail({
   id,
   colour,
-  onExpired,
 }: {
   id: string
   colour: string
-  onExpired: () => void
 }) {
   const { data, error, loading, reload } = useLoader<ChatDetail>(
     (signal) => api.chat(id, signal),
-    onExpired,
-    [id],
-    DETAIL_REFRESH_MS,
+    {
+      deps: [id],
+      refreshMs: DETAIL_REFRESH_MS,
+    },
   )
   const [hovered, setHovered] = useState<number | null>(null)
 

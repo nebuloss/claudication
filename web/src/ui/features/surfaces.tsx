@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { api, type Surface } from '../../api/client'
+import { useAction } from '../hooks'
 import { Banner, Card, Note, Switch, tile } from '../primitives'
 
 /**
@@ -23,21 +23,13 @@ export default function Surfaces({
   surfaces: Surface[]
   onChanged: () => void
 }) {
-  const [busy, setBusy] = useState('')
-  const [error, setError] = useState('')
+  const { busy, error, run } = useAction()
 
-  async function toggle(id: string, enabled: boolean) {
-    setBusy(id)
-    setError('')
-    try {
+  const toggle = (id: string, enabled: boolean) =>
+    run(id, async () => {
       await api.setSurface(id, enabled)
       onChanged()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not change the setting.')
-    } finally {
-      setBusy('')
-    }
-  }
+    })
 
   const allOff = surfaces.length > 0 && surfaces.every((s) => !s.enabled)
 

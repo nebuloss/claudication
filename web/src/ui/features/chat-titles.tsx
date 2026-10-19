@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
+import { useAction } from '../hooks'
 import { Banner, Card, Note, Switch, tile } from '../primitives'
 
 /**
@@ -24,8 +25,7 @@ export default function ChatTitles({
   capture: boolean
   onChanged: () => void
 }) {
-  const [busy, setBusy] = useState('')
-  const [error, setError] = useState('')
+  const { busy, error, run } = useAction<'enabled' | 'capture'>()
   // Shown state, which leads the server rather than following it.
   //
   // These switches were driven straight off the reloaded config, so flipping
@@ -44,17 +44,11 @@ export default function ChatTitles({
   async function toggle(which: 'enabled' | 'capture', next: boolean) {
     const before = shown
     setShown({ ...shown, [which]: next })
-    setBusy(which)
-    setError('')
-    try {
+    const ok = await run(which, async () => {
       await api.setChatTitles({ [which]: next })
       onChanged()
-    } catch (e) {
-      setShown(before)
-      setError(e instanceof Error ? e.message : 'Could not change the setting.')
-    } finally {
-      setBusy('')
-    }
+    })
+    if (!ok) setShown(before)
   }
 
   return (

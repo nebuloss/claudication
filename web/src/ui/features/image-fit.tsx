@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
+import { useAction } from '../hooks'
 import { Banner, Card, Switch, tile } from '../primitives'
 
 /**
@@ -21,8 +22,7 @@ export default function ImageFit({
   enabled: boolean
   onChanged: () => void
 }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const { pending: busy, error, run } = useAction()
   // Leads the server rather than following it, like the chat-name switches: a
   // control that sits where you did not put it until a write and a refetch
   // have both returned reads as a missed click.
@@ -34,17 +34,11 @@ export default function ImageFit({
 
   async function toggle(next: boolean) {
     setShown(next)
-    setBusy(true)
-    setError('')
-    try {
+    const ok = await run('toggle', async () => {
       await api.setFitImages(next)
       onChanged()
-    } catch (e) {
-      setShown(!next)
-      setError(e instanceof Error ? e.message : 'Could not change the setting.')
-    } finally {
-      setBusy(false)
-    }
+    })
+    if (!ok) setShown(!next)
   }
 
   return (

@@ -43,19 +43,15 @@ const REFRESH_MS = 20_000
 export default function AccountPage({
   id,
   page,
-  onExpired,
 }: {
   id: string
   /** An id from ACCOUNT_PAGES, or empty for the account's overview. */
   page: string
-  onExpired: () => void
 }) {
   const [reading, setReading] = useState(false)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     (signal) => api.listAccounts(signal),
-    onExpired,
-    [],
-    REFRESH_MS,
+    { refreshMs: REFRESH_MS },
   )
 
   const accounts = data?.accounts ?? []
@@ -116,8 +112,8 @@ export default function AccountPage({
           onRemoved={() => navigate('/accounts')}
         />
       )}
-      {page === 'chats' && <ChatsPage scope={{ account: account.id }} onExpired={onExpired} />}
-      {page === 'requests' && <RequestsPanel scope={{ account: account.id }} onExpired={onExpired} />}
+      {page === 'chats' && <ChatsPage scope={{ account: account.id }} />}
+      {page === 'requests' && <RequestsPanel scope={{ account: account.id }} />}
       {page === '' && (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -190,7 +186,7 @@ export default function AccountPage({
         </>
       )}
       {page === 'usage' && (
-          <ScopedUsage scope={{ account: account.id }} breakdown="key" onExpired={onExpired} />
+          <ScopedUsage scope={{ account: account.id }} breakdown="key" />
       )}
     </div>
   )

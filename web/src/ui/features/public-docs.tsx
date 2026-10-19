@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
+import { useAction } from '../hooks'
 import { Banner, Card, Note, Switch, tile } from '../primitives'
 
 /**
@@ -21,8 +22,7 @@ export default function PublicDocs({
   url: string
   onChanged: () => void
 }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const { pending: busy, error, run } = useAction()
   const [shown, setShown] = useState(enabled)
 
   useEffect(() => {
@@ -31,17 +31,11 @@ export default function PublicDocs({
 
   async function toggle(next: boolean) {
     setShown(next)
-    setBusy(true)
-    setError('')
-    try {
+    const ok = await run('toggle', async () => {
       await api.setDocs(next)
       onChanged()
-    } catch (e) {
-      setShown(!next)
-      setError(e instanceof Error ? e.message : 'Could not change the setting.')
-    } finally {
-      setBusy(false)
-    }
+    })
+    if (!ok) setShown(!next)
   }
 
   return (

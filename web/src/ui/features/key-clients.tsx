@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { api, messageOf, type ApiKey, type GatewayConfig, type InstallFile } from '../../api/client'
-import { useLoader } from '../hooks'
+import { api, type ApiKey, type GatewayConfig, type InstallFile } from '../../api/client'
+import { useAction, useLoader } from '../hooks'
 import {
   Banner,
   Card,
@@ -46,14 +46,12 @@ export default function KeyClients({
 }) {
   const secret = useLoader(
     (signal) => (k.secret_kept ? api.keySecret(k.id, signal) : Promise.resolve({ plaintext: '' })),
-    undefined,
-    [k.id, k.secret_kept, k.display],
-    0,
+    { deps: [k.id, k.secret_kept, k.display] },
   )
   // What this key is offered — /v1/models as it sees it, the aliases first,
   // each with the facts of the model it serves for this key. Without it the
   // files are the committed ones, which are complete.
-  const offered = useLoader((signal) => api.keyOfferedModels(k.id, signal), undefined, [k.id], 0)
+  const offered = useLoader((signal) => api.keyOfferedModels(k.id, signal), { deps: [k.id] })
   const catalog = useMemo(() => new Catalog(offered.data?.data), [offered.data])
   const address = relayAddress(config)
   const gateway = address !== '' ? address : EXAMPLE_BASE
@@ -155,12 +153,9 @@ export default function KeyClients({
 export function KeySecret({ apiKey: k, onChanged }: { apiKey: ApiKey; onChanged: () => void }) {
   const secret = useLoader(
     (signal) => (k.secret_kept ? api.keySecret(k.id, signal) : Promise.resolve({ plaintext: '' })),
-    undefined,
-    [k.id, k.secret_kept, k.display],
-    0,
+    { deps: [k.id, k.secret_kept, k.display] },
   )
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const { pending: busy, error, run } = useAction()
   const plaintext = secret.data?.plaintext ?? ''
 
   const regenerate = async () => {
@@ -172,16 +167,11 @@ export function KeySecret({ apiKey: k, onChanged }: { apiKey: ApiKey; onChanged:
       )
     )
       return
-    setBusy(true)
-    setError('')
-    try {
+    await run('rotate', async () => {
       await api.rotateKey(k.id)
       onChanged()
       await secret.reload()
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy(false)
+    })
   }
 
   return (
@@ -253,20 +243,13 @@ function InstallCommand({
   )
   const [client, setClient] = useState('all')
   const [link, setLink] = useState<{ token: string; expires: Date } | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const { pending: busy, error, run } = useAction()
 
-  const create = async () => {
-    setBusy(true)
-    setError('')
-    try {
+  const create = () =>
+    run('create', async () => {
       const made = await api.createInstall(keyId, files())
       setLink({ token: made.token, expires: new Date(made.expires_at) })
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy(false)
-  }
+    })
 
   const url =
     link === null

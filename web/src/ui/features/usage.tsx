@@ -115,19 +115,18 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export default function ScopedUsage({
   scope,
   breakdown,
-  onExpired,
 }: {
   scope: UsageScope
   /** The other side: an account's page breaks down by key, a key's by account. */
   breakdown: 'account' | 'key'
-  onExpired: () => void
 }) {
   const [days, setDays] = useState<number>(7)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<Usage>(
     (signal) => api.usage(days, scope, signal),
-    onExpired,
-    [days, scope.account, scope.key],
-    REPORT_REFRESH_MS,
+    {
+      deps: [days, scope.account, scope.key],
+      refreshMs: REPORT_REFRESH_MS,
+    },
   )
 
   if (error !== '') {

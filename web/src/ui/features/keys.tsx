@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import {
   api,
-  messageOf,
   type ApiKey,
   type GatewayConfig,
   type SubscriptionShare,
 } from '../../api/client'
-import { useLoader } from '../hooks'
+import { useAction, useLoader } from '../hooks'
 import { navigate, pathOf } from '../route'
 import ScopedUsage, { accountHref, keyHref } from './usage'
 import { DetailHeader } from './detail'
@@ -71,20 +70,14 @@ const MANAGED_HINT =
  * 026) so its Clients page can show it and its configs again. Keys from
  * before that have only the hash, and say so there.
  */
-export default function Keys({
-  onExpired,
-}: {
-  onExpired: () => void
-}) {
+export default function Keys() {
   const [creating, setCreating] = useState(false)
   // The key just made, shown once over the list: its secret, and the way to
   // its Clients page, where its configurations are.
   const [created, setCreated] = useState<{ key: ApiKey; plaintext: string } | null>(null)
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     (signal) => api.listKeys(signal),
-    onExpired,
-    [],
-    REFRESH_MS,
+    { refreshMs: REFRESH_MS },
   )
 
   return (
@@ -309,22 +302,18 @@ export function KeyPage({
   id,
   page,
   config,
-  onExpired,
 }: {
   id: string
   /** An id from KEY_PAGES, or empty for the key's overview. */
   page: string
   /** The gateway's configuration, for the address and APIs its client files name. */
   config: GatewayConfig | null
-  onExpired: () => void
 }) {
   // Not on the settings page: the form is filled from the loaded key, and a
   // poll landing mid-edit would reset the fields under the cursor.
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     (signal) => api.listKeys(signal),
-    onExpired,
-    [],
-    SETTINGS_PAGES.has(page) ? 0 : REFRESH_MS,
+    { refreshMs: SETTINGS_PAGES.has(page) ? 0 : REFRESH_MS },
   )
   const k = data?.keys.find((key) => key.id === id)
 
@@ -389,8 +378,8 @@ export function KeyPage({
           onSaved={() => void reload()}
         />
       )}
-      {page === 'chats' && <ChatsPage scope={{ key: k.id }} onExpired={onExpired} />}
-      {page === 'requests' && <RequestsPanel scope={{ key: k.id }} onExpired={onExpired} />}
+      {page === 'chats' && <ChatsPage scope={{ key: k.id }} />}
+      {page === 'requests' && <RequestsPanel scope={{ key: k.id }} />}
       {page === '' && (
         <>
           {!k.managed && <KeySecret apiKey={k} onChanged={() => void reload()} />}
@@ -426,7 +415,7 @@ export function KeyPage({
         </>
       )}
       {page === 'usage' && (
-        <ScopedUsage scope={{ key: k.id }} breakdown="account" onExpired={onExpired} />
+        <ScopedUsage scope={{ key: k.id }} breakdown="account" />
       )}
     </div>
   )
@@ -455,8 +444,7 @@ function KeySettings({
   config: GatewayConfig | null
   onSaved: () => void
 }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const { pending: busy, error, run } = useAction<'save' | 'delete'>()
   const [saved, setSaved] = useState(false)
 
   if (k.managed) {
@@ -468,30 +456,20 @@ function KeySettings({
   }
 
   const save = async (name: string, rpm: number, periodS: number, tokenBudget: number) => {
-    setBusy(true)
-    setError('')
     setSaved(false)
-    try {
+    await run('save', async () => {
       await api.updateKey(k.id, name, rpm, periodS, tokenBudget)
       setSaved(true)
       onSaved()
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy(false)
+    })
   }
 
   const remove = async () => {
     if (!window.confirm(`Delete ${k.name}? Clients using it stop working immediately.`)) return
-    setBusy(true)
-    setError('')
-    try {
+    await run('delete', async () => {
       await api.deleteKey(k.id)
       navigate('/keys')
-    } catch (err) {
-      setError(messageOf(err))
-      setBusy(false)
-    }
+    })
   }
 
   const card = (() => {
@@ -852,8 +830,7 @@ function NewKey({
   const [rpm, setRpm] = useState(0)
   const [periodS, setPeriodS] = useState(DEFAULT_PERIOD_S)
   const [budget, setBudget] = useState(0)
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
+  const { pending: busy, error, setError, run } = useAction()
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -861,14 +838,9 @@ function NewKey({
       setError('Give the key a name — it is how you will recognise it later.')
       return
     }
-    setBusy(true)
-    setError('')
-    try {
+    await run('create', async () => {
       onCreated(await api.createKey(name.trim(), rpm, periodS, budget))
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy(false)
+    })
   }
 
   return (

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { api, messageOf, type Account, type AccountModel, type ApiKey } from '../../api/client'
-import { useLoader } from '../hooks'
+import { api, type Account, type AccountModel, type ApiKey } from '../../api/client'
+import { useAction, useLoader } from '../hooks'
 import { Banner, ErrorState, SmallButton, Spinner, Switch, compact, tile } from '../primitives'
 
 function released(at?: string): string {
@@ -35,12 +35,11 @@ function ModelSwitches({
   onChanged: () => void
   deps: unknown[]
 }) {
-  const { data, error, loading, reload } = useLoader(load, undefined, deps, 0)
+  const { data, error, loading, reload } = useLoader(load, { deps })
   // What was switched here since the list was read, so a switch moves at once
   // rather than after a round trip and a re-read.
   const [flipped, setFlipped] = useState<Record<string, boolean>>({})
-  const [busy, setBusy] = useState('')
-  const [failure, setFailure] = useState('')
+  const { busy, error: failure, run } = useAction()
 
   if (loading && data === null) {
     return (
@@ -63,17 +62,12 @@ function ModelSwitches({
   const count = data.models.filter(on).length
 
   const toggle = async (m: AccountModel, enabled: boolean) => {
-    setBusy(m.id)
-    setFailure('')
     setFlipped((f) => ({ ...f, [m.id]: enabled }))
-    try {
+    const ok = await run(m.id, async () => {
       await set(m.id, enabled)
       onChanged()
-    } catch (err) {
-      setFlipped((f) => ({ ...f, [m.id]: !enabled }))
-      setFailure(messageOf(err))
-    }
-    setBusy('')
+    })
+    if (!ok) setFlipped((f) => ({ ...f, [m.id]: !enabled }))
   }
 
   // Every model at once, one switch at a time: the API takes one model per

@@ -619,6 +619,42 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Where a lapsed session is reported: to one handler, which the shell installs,
+ * because only the shell can put the sign-in screen up.
+ *
+ * request() does not call it on every 401 by itself. Two endpoints answer 401
+ * to an operator who is signed in and mistyped a password — changing it and
+ * deleting the admin account both ask for it again — and treating that as a
+ * lapsed session would sign them out over a typo. The callers that do mean "the
+ * session is gone" report here instead: useLoader for every read, and useAction
+ * for every write except those two.
+ */
+export class SessionExpiry {
+  private handler: (() => void) | null = null
+
+  /** Installs the handler, and returns what takes it away again. */
+  listen(handler: () => void): () => void {
+    this.handler = handler
+    return () => {
+      if (this.handler === handler) this.handler = null
+    }
+  }
+
+  /**
+   * Hands `err` to the shell when it says the session lapsed. False when it is
+   * any other failure, or when nobody is signed in to be signed out — on the
+   * sign-in screen a 401 is the expected answer, not news.
+   */
+  report(err: unknown): boolean {
+    if (this.handler === null || !(err instanceof ApiError) || !err.isUnauthenticated) return false
+    this.handler()
+    return true
+  }
+}
+
+export const sessionExpiry = new SessionExpiry()
+
 /** Anything thrown at us, as a sentence worth showing. */
 export function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)

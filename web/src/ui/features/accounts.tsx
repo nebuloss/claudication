@@ -3,8 +3,8 @@ import { status } from './account-card'
 import AddAccount from './add-account'
 import { accountHref } from './usage'
 import { byProvider, providerLabel } from '../providers'
-import { api, messageOf, type Account } from '../../api/client'
-import { useLoader } from '../hooks'
+import { api, type Account } from '../../api/client'
+import { useAction, useLoader } from '../hooks'
 import {
   Banner,
   Card,
@@ -37,11 +37,12 @@ const FALLBACK_REFRESH_MS = 20_000
  * The gateway serves from the top and falls to the next when Anthropic says
  * the one above is out of room.
  */
-export default function Accounts({ onExpired }: { onExpired: () => void }) {
+export default function Accounts() {
   const [adding, setAdding] = useState(false)
   // What the last consent flow did, when that was not what was asked for.
   const [notice, setNotice] = useState('')
-  const [ordering, setOrdering] = useState(false)
+  const order = useAction()
+  const ordering = order.pending
   // A drag is within one provider's group: priority is per provider, since a
   // request for a Claude model can only be served by a Claude account.
   const [dragging, setDragging] = useState<{ provider: string; at: number } | null>(null)
@@ -58,11 +59,9 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
   // `data`, and it changes far less often than the figures do.
   const [pollMs, setPollMs] = useState(FALLBACK_REFRESH_MS)
 
-  const { data, error, loading, reload, setError, refreshing, updatedAt, live } = useLoader(
+  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
     (signal) => api.listAccounts(signal),
-    onExpired,
-    [],
-    settled ? pollMs : 0,
+    { refreshMs: settled ? pollMs : 0 },
   )
 
   useEffect(() => {
@@ -88,14 +87,10 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
     let next = 0
     const ids = accounts.map((a) => (a.provider === provider ? reordered[next++] : a.id))
 
-    setOrdering(true)
-    try {
+    await order.run('order', async () => {
       await api.reorderAccounts(ids)
       await reload()
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setOrdering(false)
+    })
   }
 
   return (
@@ -156,9 +151,9 @@ export default function Accounts({ onExpired }: { onExpired: () => void }) {
           </p>
         }
       >
-        {error !== '' && (
+        {(error || order.error) !== '' && (
           <Banner tone="error" className="mb-4">
-            {error}
+            {error || order.error}
           </Banner>
         )}
 

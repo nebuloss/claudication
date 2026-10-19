@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { api, messageOf, type Session } from '../../api/client'
+import { api, type Session } from '../../api/client'
+import { useAction } from '../hooks'
 import {
   Banner,
   Card,
@@ -69,8 +70,13 @@ function ChangePassword({ onDone, onCancel }: { onDone: () => void; onCancel: ()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
+  // useAction clears busy however the call ends, and this form is the reason
+  // it must: onDone() re-renders Settings rather than unmounting the form, so
+  // a reset on the error path alone left the button on "Changing…" for ever
+  // with both passwords still on screen — and the operator, who had no way to
+  // tell it worked, tried again with a password that was now the old one and
+  // concluded they were locked out.
+  const { pending: busy, error, setError, run } = useAction({ asksPassword: true })
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -78,21 +84,10 @@ function ChangePassword({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       setError('The two new passwords do not match.')
       return
     }
-    setBusy(true)
-    setError('')
-    try {
+    await run('change', async () => {
       await api.changePassword(current, next)
       onDone()
-    } catch (err) {
-      setError(messageOf(err))
-    } finally {
-      // Not only on the error path. onDone() re-renders Settings rather than
-      // unmounting this form, so without this the button stays on "Changing…"
-      // for ever with both passwords still on screen — and the operator, who
-      // has no way to tell it worked, tries again with a password that is now
-      // the old one and concludes they are locked out.
-      setBusy(false)
-    }
+    })
   }
 
   return (
@@ -138,20 +133,14 @@ function ChangePassword({ onDone, onCancel }: { onDone: () => void; onCancel: ()
 
 function DeleteAccount({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
+  const { pending: busy, error, run } = useAction({ asksPassword: true })
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setBusy(true)
-    setError('')
-    try {
+    await run('delete', async () => {
       await api.deleteAdminAccount(password)
       onDone()
-    } catch (err) {
-      setError(messageOf(err))
-      setBusy(false)
-    }
+    })
   }
 
   return (

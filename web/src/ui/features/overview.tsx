@@ -118,9 +118,10 @@ function TrafficCard() {
   const [days, setDays] = useState(14)
   const { data: usage } = useLoader<Usage>(
     (signal) => api.usage(days, {}, signal),
-    undefined,
-    [days],
-    TRAFFIC_REFRESH_MS,
+    {
+      deps: [days],
+      refreshMs: TRAFFIC_REFRESH_MS,
+    },
   )
   return (
     <Card>
@@ -151,10 +152,8 @@ function TrafficCard() {
  * missing from them.
  */
 export default function Overview({
-  onExpired,
   docsURL,
 }: {
-  onExpired: () => void
   /**
    * The public docs page, or empty when there is none. Setup used to be a tab
    * and this used to be a link to it; now it is a page of its own, on its own
@@ -165,9 +164,7 @@ export default function Overview({
 }) {
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<OverviewData>(
     (signal) => api.overview(signal),
-    onExpired,
-    [],
-    REFRESH_MS,
+    { refreshMs: REFRESH_MS },
   )
 
   if (loading) {

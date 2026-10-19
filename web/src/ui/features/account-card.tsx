@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { ConsentFlow } from './add-account'
 import AccountModels from './account-models'
-import { api, messageOf, type Account, type ProbeResult } from '../../api/client'
+import { useAction } from '../hooks'
+import { api, type Account, type ProbeResult } from '../../api/client'
 import {
   Banner,
   Note,
@@ -17,7 +18,7 @@ import {
   type ChipTone,
 } from '../primitives'
 
-type Busy = '' | 'test' | 'refresh' | 'disable' | 'delete'
+type Busy = 'test' | 'refresh' | 'disable' | 'delete'
 
 export function formatDate(iso?: string): string {
   if (!iso) return 'never'
@@ -82,37 +83,24 @@ export default function AccountSettings({
   onRemoved: () => void
 }) {
   const [probe, setProbe] = useState<ProbeResult | null>(null)
-  const [busy, setBusy] = useState<Busy>('')
-  const [error, setError] = useState('')
+  const { busy, error, setError, run: act } = useAction<Busy>()
   const [reconnecting, setReconnecting] = useState(false)
 
   // Reconnecting is the fix for a dead refresh token and the only cure for an
   // expiring one, so it leads the actions when either is the case.
   const reauthDue = account.needs_reauth === true || account.needs_reauth_soon === true
 
-  const run = async (what: Busy, fn: () => Promise<unknown>) => {
-    setBusy(what)
-    setError('')
-    try {
-      await fn()
-    } catch (err) {
-      setError(messageOf(err))
-    }
-    setBusy('')
+  const run = async (what: Exclude<Busy, 'delete'>, fn: () => Promise<unknown>) => {
+    await act(what, fn)
     onChanged()
   }
 
   const runDelete = async () => {
     if (!window.confirm(`Remove ${account.email}? The stored credentials are destroyed.`)) return
-    setBusy('delete')
-    setError('')
-    try {
+    await act('delete', async () => {
       await api.deleteAccount(account.id)
       onRemoved()
-    } catch (err) {
-      setError(messageOf(err))
-      setBusy('')
-    }
+    })
   }
 
   if (section === 'models') {

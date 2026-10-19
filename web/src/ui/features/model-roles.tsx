@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { api, messageOf, type Model, type ModelRole } from '../../api/client'
-import { useLoader } from '../hooks'
+import { api, type Model, type ModelRole } from '../../api/client'
+import { useAction, useLoader } from '../hooks'
 import {
   Banner,
   Card,
@@ -57,11 +57,12 @@ function choicesFor(family: string, real: Model[]): SelectOption[] {
 
 /** The aliases as a short form: for the gateway (keyId empty) or one key. */
 export function RolesEditor({ keyId = '' }: { keyId?: string }) {
-  const { data, error, loading, reload } = useLoader((signal) => api.modelRoles(keyId, signal), undefined, [keyId], 0)
-  const { data: models } = useLoader((signal) => api.models(signal), undefined, [], 0)
+  const { data, error, loading, reload } = useLoader((signal) => api.modelRoles(keyId, signal), {
+    deps: [keyId],
+  })
+  const { data: models } = useLoader((signal) => api.models(signal))
   const real = (models?.data ?? []).filter((m) => m.virtual !== true)
-  const [busy, setBusy] = useState('')
-  const [failure, setFailure] = useState('')
+  const { busy, error: failure, run } = useAction()
 
   if (loading && data === null) {
     return (
@@ -80,30 +81,19 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
     )
   }
 
-  const bind = async (r: ModelRole, model: string) => {
-    setBusy(r.role)
-    setFailure('')
-    try {
+  const bind = (r: ModelRole, model: string) =>
+    run(r.role, async () => {
       await api.setModelRole(keyId, r.role, model)
       await reload()
-    } catch (err) {
-      setFailure(messageOf(err))
-    }
-    setBusy('')
-  }
+    })
 
   const remove = async (r: ModelRole) => {
     if (!window.confirm(`Delete ${r.role}? Clients configured with it will be told no such model.`))
       return
-    setBusy(r.role)
-    setFailure('')
-    try {
+    await run(r.role, async () => {
       await api.deleteAlias(r.role)
       await reload()
-    } catch (err) {
-      setFailure(messageOf(err))
-    }
-    setBusy('')
+    })
   }
 
   // One alias as a row like any list's: what it is and what it is for on
@@ -195,20 +185,12 @@ export function RolesEditor({ keyId = '' }: { keyId?: string }) {
             <NewAlias
               real={real}
               busy={busy !== ''}
-              onCreate={async (name, model) => {
-                setBusy(name)
-                setFailure('')
-                try {
+              onCreate={(name, model) =>
+                run(name, async () => {
                   await api.setModelRole('', name, model)
                   await reload()
-                  return true
-                } catch (err) {
-                  setFailure(messageOf(err))
-                  return false
-                } finally {
-                  setBusy('')
-                }
-              }}
+                })
+              }
             />
           ) : (
             custom.length === 0 && <Note>None. Custom aliases are made in Settings › Aliases.</Note>

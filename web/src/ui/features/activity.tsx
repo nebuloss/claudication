@@ -12,10 +12,10 @@ import RequestsPanel from './requests'
  * and Requests pages narrow. The log keeps its filters in the query string, so
  * a link to a filtered log lands on the log.
  */
-export default function Activity({ page, onExpired }: { page: string; onExpired: () => void }) {
+export default function Activity({ page }: { page: string }) {
   return page === 'requests' ? (
-    <RequestsPanel onExpired={onExpired} />
+    <RequestsPanel />
   ) : (
-    <ChatsPage onExpired={onExpired} />
+    <ChatsPage />
   )
 }

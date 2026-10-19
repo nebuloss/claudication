@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, messageOf } from '../api/client'
+import { messageOf } from '../api/client'
 import { canonical, segments } from './route'
 import { Runs } from './runs'
+import { useSession } from './session'
 
 /**
  * Where we are: the path's segments, after canonical() has completed it to a
@@ -115,14 +116,11 @@ export function useLive(): [boolean, (on: boolean) => void] {
  */
 export function useLoader<T>(
   load: (signal: AbortSignal) => Promise<T>,
-  onUnauthenticated?: () => void,
-  deps: unknown[] = [],
-  refreshMs = 0,
+  { deps = [], refreshMs = 0 }: { deps?: unknown[]; refreshMs?: number } = {},
 ) {
   const loadRef = useRef(load)
   loadRef.current = load
-  const authRef = useRef(onUnauthenticated)
-  authRef.current = onUnauthenticated
+  const session = useSession()
   const [runs] = useState(() => new Runs())
 
   const [data, setData] = useState<T | null>(null)
@@ -155,10 +153,7 @@ export function useLoader<T>(
       if (!runs.owns(ticket)) return
       // A 401 means the session lapsed while the tab was open. Only the shell
       // can show a sign-in screen, so it decides what happens next.
-      if (authRef.current !== undefined && err instanceof ApiError && err.isUnauthenticated) {
-        authRef.current()
-        return
-      }
+      if (session.report(err)) return
       if (!background) setError(messageOf(err))
     } finally {
       // Only the run that still holds the turn settles the panel: one that was
@@ -168,7 +163,7 @@ export function useLoader<T>(
         setRefreshing(false)
       }
     }
-  }, [runs])
+  }, [runs, session])
 
   const reload = useCallback(() => run(false), [run])
 
@@ -197,6 +192,58 @@ export function useLoader<T>(
   }, [refreshMs, live, run, ...deps])
 
   return { data, error, loading, reload, setError, refreshing, updatedAt, live }
+}
+
+/**
+ * A write, with the two states every button that makes one needs: which one
+ * is in flight, and what went wrong.
+ *
+ * About fifteen mutations wrote this out by hand and each got a different part
+ * of it wrong. Some reset the busy state only on the error path, which is fine
+ * until success re-renders rather than unmounts — Change password sat on
+ * "Changing…" for ever that way, with both passwords still on screen. Some
+ * spelled the message their own way rather than through messageOf, and only
+ * one of them sent a lapsed session to the sign-in screen instead of printing
+ * "session has expired" in a banner.
+ *
+ * So `run(key, fn)` always clears the busy state, however `fn` ends; reports a
+ * failure through messageOf; and hands a lapsed session to the shell. It says
+ * whether `fn` succeeded, for the callers that undo an optimistic change.
+ *
+ * `key` names which of a panel's actions is running, so one row can show a
+ * spinner while the others are merely disabled; a panel with one action
+ * passes any name and reads `pending`.
+ *
+ * `asksPassword` is for the two writes that check the password again. Their
+ * 401 means it was mistyped, and signing the operator out over a typo would be
+ * the wrong answer to it.
+ */
+export function useAction<K extends string = string>({
+  asksPassword = false,
+}: { asksPassword?: boolean } = {}) {
+  const session = useSession()
+  const [busy, setBusy] = useState<K | ''>('')
+  const [error, setError] = useState('')
+
+  const run = useCallback(
+    async (key: K, fn: () => Promise<unknown>): Promise<boolean> => {
+      setBusy(key)
+      setError('')
+      try {
+        await fn()
+        return true
+      } catch (err) {
+        if (!asksPassword && session.report(err)) return false
+        setError(messageOf(err))
+        return false
+      } finally {
+        setBusy('')
+      }
+    },
+    [asksPassword, session],
+  )
+
+  return { busy, pending: busy !== '', error, setError, run }
 }
 
 /**

@@ -1,14 +1,12 @@
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from 'react'
 import {
-  ApiError,
   api,
-  messageOf,
   type Chat,
   type Chats,
   type UsageScope,
 } from '../../api/client'
 import { LogScale, Palette } from '../charts'
-import { useLoader } from '../hooks'
+import { useAction, useLoader } from '../hooks'
 import ChatContextDetail from './chat-context'
 import { requestsHref, type RequestFilter } from './requests'
 import { navigate } from '../route'
@@ -181,7 +179,7 @@ const CHAT_WINDOWS = [1, 7, 30] as const
  * account's or one key's. The tab above it says what it is, so it carries no
  * heading of its own — only the window to look over.
  */
-export function ChatsPage({ scope = {}, onExpired }: { scope?: UsageScope; onExpired: () => void }) {
+export function ChatsPage({ scope = {} }: { scope?: UsageScope }) {
   const [days, setDays] = useState<number>(7)
   // The window above the card rather than in it, so the card starts with
   // the chats.
@@ -200,7 +198,7 @@ export function ChatsPage({ scope = {}, onExpired }: { scope?: UsageScope; onExp
         />
       </div>
       <Card>
-        <ChatsPanel days={days} scope={scope} onExpired={onExpired} />
+        <ChatsPanel days={days} scope={scope} />
       </Card>
     </div>
   )
@@ -209,12 +207,10 @@ export function ChatsPage({ scope = {}, onExpired }: { scope?: UsageScope; onExp
 export default function ChatsPanel({
   days,
   scope = {},
-  onExpired,
 }: {
   days: number
   /** One account's or one key's chats, or every chat when empty. */
   scope?: UsageScope
-  onExpired: () => void
 }) {
   const [sort, setSort] = useState<SortKey>('tokens')
   // The chat whose context curve is open, if any. One at a time: each is a
@@ -222,35 +218,27 @@ export default function ChatsPanel({
   const [open, setOpen] = useState<string | null>(null)
   const { data, error, loading, reload } = useLoader<Chats>(
     (signal) => api.chats(days, scope, signal),
-    onExpired,
-    [days, scope.account, scope.key],
-    // A chat gains requests as it is being held, and this panel is the one an
-    // operator watches while using the gateway from another window.
-    CHATS_REFRESH_MS,
+    {
+      deps: [days, scope.account, scope.key],
+      // A chat gains requests as it is being held, and this panel is the one an
+      // operator watches while using the gateway from another window.
+      refreshMs: CHATS_REFRESH_MS,
+    },
   )
 
   // The right-click menu, the title being edited, and what went wrong saving
   // one.
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const rename = useAction()
   const closeMenu = useCallback(() => setMenu(null), [])
 
   const saveTitle = (c: Chat, title: string) => {
     setEditing(null)
-    api.setChatTitle(c.id, title).then(
-      () => {
-        setNotice(null)
-        void reload()
-      },
-      (err) => {
-        if (err instanceof ApiError && err.isUnauthenticated) {
-          onExpired()
-          return
-        }
-        setNotice(messageOf(err))
-      },
-    )
+    void rename.run(c.id, async () => {
+      await api.setChatTitle(c.id, title)
+      void reload()
+    })
   }
 
   const report = data?.report
@@ -354,7 +342,7 @@ export default function ChatsPanel({
                     onClick={() => setOpen(open === c.id ? null : c.id)}
                     onContextMenu={(e) => {
                       e.preventDefault()
-                      setNotice(null)
+                      rename.setError('')
                       setMenu({ id: c.id, x: e.clientX, y: e.clientY })
                     }}
                     className="state-layer flex w-full min-w-0 flex-col rounded-[var(--radius-md3-xs)] text-left"
@@ -463,7 +451,7 @@ export default function ChatsPanel({
                   <ChatContextDetail
                     id={c.id}
                     colour={palette.colour(c.context?.model || c.models[0] || '')}
-                    onExpired={onExpired}
+                   
                   />
                 </td>
               </tr>
@@ -500,9 +488,9 @@ export default function ChatsPanel({
         )}
       </Table>
 
-      {notice !== null && (
+      {rename.error !== '' && (
         <p role="alert" className="m-0 text-sm text-error">
-          {notice}
+          {rename.error}
         </p>
       )}
 

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  ApiError,
   api,
   messageOf,
   type FacetValue,
@@ -28,6 +27,7 @@ import {
 import { useLive } from '../hooks'
 import { pathOf } from '../route'
 import { Runs } from '../runs'
+import { useSession } from '../session'
 
 /**
  * Every request that reached the gateway, newest first.
@@ -169,10 +169,8 @@ function toggled(current: string[], value: string): string[] {
  */
 export default function RequestsPanel({
   scope = {},
-  onExpired,
 }: {
   scope?: RequestScope
-  onExpired: () => void
 }) {
   // Read once per mount and on Back, so a link lands on its filter and the
   // browser's history still works.
@@ -200,17 +198,15 @@ export default function RequestsPanel({
     window.history.pushState(null, '', withQuery(logPath(scope), rest))
   }
 
-  return <RecentRequests filter={scoped} onNarrow={narrow} onExpired={onExpired} />
+  return <RecentRequests filter={scoped} onNarrow={narrow} />
 }
 
 function RecentRequests({
   filter,
   onNarrow,
-  onExpired,
 }: {
   filter: RequestFilter
   onNarrow: (f: RequestFilter) => void
-  onExpired: () => void
 }) {
   const [rows, setRows] = useState<RequestRow[]>([])
   const [cursor, setCursor] = useState('')
@@ -225,6 +221,7 @@ function RecentRequests({
   const [live] = useLive()
   const [runs] = useState(() => new Runs())
   useEffect(() => () => runs.cancel(), [runs])
+  const session = useSession()
 
   // What the column menus can offer, counted over the whole log rather than
   // the page on screen — a menu built from fifty rows can only offer what you
@@ -370,10 +367,7 @@ function RecentRequests({
         setUpdatedAt(Date.now())
       } catch (err) {
         if (!runs.owns(run)) return
-        if (err instanceof ApiError && err.isUnauthenticated) {
-          onExpired()
-          return
-        }
+        if (session.report(err)) return
         setError(messageOf(err))
       } finally {
         if (runs.end(run)) {
@@ -383,7 +377,7 @@ function RecentRequests({
       }
     },
     // filter is part of the query, so a change to it makes a different list.
-    [onExpired, filter, runs],
+    [session, filter, runs],
   )
 
   /**

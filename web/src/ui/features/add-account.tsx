@@ -18,6 +18,7 @@ import {
   TextButton,
 } from '../primitives'
 import { PROVIDERS } from '../providers'
+import { useSession } from '../session'
 
 type Phase = 'idle' | 'starting' | 'waiting' | 'exchanging'
 
@@ -56,6 +57,7 @@ export function ConsentFlow({
   const [pasted, setPasted] = useState('')
   const [error, setError] = useState('')
   const [blocked, setBlocked] = useState(false)
+  const session = useSession()
   const who = account?.email
 
   /**
@@ -92,8 +94,8 @@ export function ConsentFlow({
       })
       .catch((err: unknown) => {
         tab?.close()
-        setError(messageOf(err))
         setPhase('idle')
+        if (!session.report(err)) setError(messageOf(err))
       })
   }
 
@@ -111,6 +113,7 @@ export function ConsentFlow({
       reset()
       onDone(result)
     } catch (err) {
+      if (session.report(err)) return
       setError(messageOf(err))
       // A redeemed code cannot be pasted again, and a refused reconnect has
       // been redeemed: back to the start rather than to a form that can only
