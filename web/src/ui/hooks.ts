@@ -89,6 +89,40 @@ export function useLive(): [boolean, (on: boolean) => void] {
 }
 
 /**
+ * Call `tick` every `everyMs` while the tab is visible and Live is on, and as
+ * soon as the tab becomes visible again; says whether Live is on.
+ *
+ * A hidden tab does not poll. Browsers throttle background timers anyway, and
+ * a laptop that wakes after a night asleep would otherwise fire a backlog of
+ * them at once; coming back to the tab should show current figures, not wait
+ * out an interval that has been stalled for however long it was hidden.
+ *
+ * `tick` is read through a ref, so a caller passes a fresh closure each render
+ * without restarting the interval. Shared by useLoader and the request log,
+ * which had each written it out.
+ */
+export function usePoll(tick: () => void, everyMs: number): boolean {
+  const [live] = useLive()
+  const tickRef = useRef(tick)
+  tickRef.current = tick
+
+  useEffect(() => {
+    if (everyMs <= 0 || !live) return
+    const fire = () => {
+      if (document.visibilityState === 'visible') tickRef.current()
+    }
+    const timer = window.setInterval(fire, everyMs)
+    document.addEventListener('visibilitychange', fire)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', fire)
+    }
+  }, [everyMs, live])
+
+  return live
+}
+
+/**
  * Load something, with the three states every panel needs.
  *
  * `load` is held in a ref so `reload` stays stable across renders — a panel can
@@ -103,9 +137,7 @@ export function useLive(): [boolean, (on: boolean) => void] {
  * Pass `refreshMs` and the panel keeps itself current. Three things keep that
  * from being a nuisance:
  *
- *   - A hidden tab does not poll. Browsers throttle background timers anyway,
- *     and a laptop that wakes after a night asleep would otherwise fire a
- *     backlog of them at once; becoming visible re-fetches instead.
+ *   - A hidden tab does not poll, and becoming visible re-fetches (usePoll).
  *   - Only one request is ever in flight. A poll that outlives its interval —
  *     the usage report over a slow link — must not queue a second behind it.
  *     A change of `deps` or a reload is different: it is a new question, so
@@ -128,8 +160,6 @@ export function useLoader<T>(
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [updatedAt, setUpdatedAt] = useState(0)
-
-  const [live] = useLive()
 
   const run = useCallback(async (background: boolean) => {
     const ticket = runs.begin(background ? 'background' : 'replace')
@@ -174,22 +204,7 @@ export function useLoader<T>(
 
   useEffect(() => () => runs.cancel(), [runs])
 
-  useEffect(() => {
-    if (refreshMs <= 0 || !live) return
-
-    const tick = () => {
-      if (document.visibilityState === 'visible') void run(true)
-    }
-    const timer = window.setInterval(tick, refreshMs)
-    // Coming back to the tab should show current figures, not wait out an
-    // interval that has been stalled for however long it was hidden.
-    document.addEventListener('visibilitychange', tick)
-    return () => {
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', tick)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshMs, live, run, ...deps])
+  const live = usePoll(() => void run(true), refreshMs)
 
   return { data, error, loading, reload, setError, refreshing, updatedAt, live }
 }

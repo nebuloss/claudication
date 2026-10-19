@@ -8,7 +8,7 @@ import {
 import { LogScale, Palette } from '../charts'
 import { useAction, useLoader } from '../hooks'
 import ChatContextDetail from './chat-context'
-import { requestsHref, type RequestFilter } from './requests'
+import { requestsHref, type FilterFields } from './requests/filter'
 import {
   AppLink,
   Card,
@@ -121,7 +121,7 @@ function RequestLink({
   tone,
   children,
 }: {
-  filter: Partial<RequestFilter>
+  filter: Partial<FilterFields>
   tone?: 'error'
   children: ReactNode
 }) {

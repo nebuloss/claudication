@@ -1012,7 +1012,7 @@ export const api = {
   recentRequests: async (
     limit = 50,
     after = '',
-    filter: Record<string, string | string[]> = {},
+    filter: Record<string, string | readonly string[]> = {},
     signal?: AbortSignal,
   ): Promise<{ rows: RequestRow[]; nextCursor: string }> => {
     const query = new URLSearchParams({ limit: String(limit) })
@@ -1026,9 +1026,9 @@ export const api = {
     // empty member is appended too, because "the rows with nothing here" is a
     // choice the menus offer and `?model=` is how it travels.
     for (const [k, v] of Object.entries(filter)) {
-      if (Array.isArray(v)) {
+      if (typeof v !== 'string') {
         for (const one of v) query.append(k, one)
-      } else if (v !== undefined && v !== '') {
+      } else if (v !== '') {
         query.set(k, v)
       }
     }

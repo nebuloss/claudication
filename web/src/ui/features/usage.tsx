@@ -4,7 +4,7 @@ import { RankedBars } from '../charts'
 import { Traffic } from './traffic'
 import { useLoader } from '../hooks'
 import { navigate, pathOf } from '../route'
-import { requestsHref } from './requests'
+import { requestsHref } from './requests/filter'
 import {
   AppLink,
   Button,
