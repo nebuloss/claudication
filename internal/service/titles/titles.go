@@ -23,6 +23,7 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/relay"
 	"claudication/internal/request"
+	"claudication/internal/service/limits"
 	"claudication/internal/service/settings"
 	"claudication/internal/store"
 )
@@ -761,7 +762,7 @@ func (t *Titler) ask(ctx context.Context, conversation, model, pinTo string, bod
 	// on the internal key is how an operator caps what titling may cost, using
 	// the control they already know rather than a second mechanism.
 	if k, err := t.deps.Store.Key(ctx, keyID); err == nil && k.TokenBudget > 0 {
-		spent, err := t.deps.Store.KeySpend(ctx, keyID, time.Now().Add(-24*time.Hour))
+		spent, err := t.deps.Store.KeySpend(ctx, keyID, time.Now().Add(-limits.BudgetWindow))
 		if err == nil && spent >= k.TokenBudget {
 			return "", errBudgetSpent
 		}
