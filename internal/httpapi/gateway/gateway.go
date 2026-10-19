@@ -117,9 +117,9 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /install", s.handleInstall)
 
 	mux.Handle("GET /v1/models",
-		s.surface(messages, s.requireAPIKey(http.HandlerFunc(s.handleModels))))
+		s.surface(messages, s.requireAPIKey(messages, http.HandlerFunc(s.handleModels))))
 	mux.Handle("POST /v1/messages",
-		s.surface(messages, s.requireAPIKey(
+		s.surface(messages, s.requireAPIKey(messages,
 			s.inference(messages, "/v1/messages", "/v1/messages?beta=true"))))
 
 	// Serving count_tokens matters, and the client says so in its own
@@ -129,12 +129,12 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 	// arithmetic, once per measurement. Removing this route because
 	// "nothing seems to call it" would turn that on silently.
 	mux.Handle("POST /v1/messages/count_tokens",
-		s.surface(messages, s.requireAPIKey(
+		s.surface(messages, s.requireAPIKey(messages,
 			s.inference(messages, "/v1/messages/count_tokens",
 				"/v1/messages/count_tokens?beta=true"))))
 
 	mux.Handle("POST /v1/responses",
-		s.surface(responses, s.requireAPIKey(
+		s.surface(responses, s.requireAPIKey(responses,
 			s.inference(responses, "/v1/responses", "/v1/messages?beta=true"))))
 }
 

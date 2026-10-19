@@ -284,6 +284,77 @@ func TestASwitchedOffSurfaceAnswersInItsOwnDialect(t *testing.T) {
 	})
 }
 
+// A refusal from the key check — a bad key, a key going too fast — comes back
+// in the caller's own envelope, like every other failure on the same path. It
+// used to come back in the admin API's generic shape, which neither Claude Code
+// nor Codex reads: Codex looks for error.code, and slow_down is the one that
+// makes it back off.
+func TestAKeyRefusalAnswersInTheCallersDialect(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	base, _ := relayTo(t, srv, st, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, anthropicStream)
+	}))
+	const messages = `{"model":"claude-sonnet-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`
+
+	anthropicType := func(t *testing.T, body []byte) string {
+		t.Helper()
+		var out struct {
+			Type  string `json:"type"`
+			Error struct {
+				Type string `json:"type"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(body, &out); err != nil || out.Type != "error" {
+			t.Fatalf("not an Anthropic error envelope: %s", body)
+		}
+		return out.Error.Type
+	}
+	openaiCode := func(t *testing.T, body []byte) string {
+		t.Helper()
+		var out struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(body, &out); err != nil || out.Error.Code == "" {
+			t.Fatalf("not an OpenAI error envelope: %s", body)
+		}
+		return out.Error.Code
+	}
+	call := func(t *testing.T, path, key, body string, want int) []byte {
+		t.Helper()
+		resp := post(t, base+path, key, body)
+		defer resp.Body.Close()
+		got, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != want {
+			t.Fatalf("%s: status = %d, want %d: %s", path, resp.StatusCode, want, got)
+		}
+		return got
+	}
+
+	const bad = "clc_deadbeefdeadbeefdeadbeef"
+	if got := anthropicType(t, call(t, "/v1/messages", bad, messages, http.StatusUnauthorized)); got != "authentication_error" {
+		t.Errorf("anthropic, bad key: type = %q, want authentication_error", got)
+	}
+	if got := openaiCode(t, call(t, "/v1/responses", bad, codexRequest, http.StatusUnauthorized)); got != "usage_not_included" {
+		t.Errorf("openai, bad key: code = %q, want usage_not_included", got)
+	}
+
+	_, slow, err := st.CreateKey(context.Background(), "slow", store.KeyLimits{RPMLimit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call(t, "/v1/responses", slow, codexRequest, http.StatusOK)
+	if got := openaiCode(t, call(t, "/v1/responses", slow, codexRequest, http.StatusTooManyRequests)); got != "slow_down" {
+		t.Errorf("openai, rate limited: code = %q, want slow_down", got)
+	}
+	if got := anthropicType(t, call(t, "/v1/messages", slow, messages, http.StatusTooManyRequests)); got != "rate_limit_error" {
+		t.Errorf("anthropic, rate limited: type = %q, want rate_limit_error", got)
+	}
+}
+
 // One surface off must not take the other with it.
 func TestSurfacesSwitchIndependently(t *testing.T) {
 	srv, st, _ := newTestServer(t)

@@ -73,12 +73,9 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 		// credential not allowed something: a client stops there rather than
 		// retrying, and the message says who can change it.
 		if key, ok := httpx.APIKey(r.Context()); ok && !key.Allows(model) {
-			s.recorder.Record(store.UsageEvent{
-				At: time.Now(), KeyID: key.ID, KeyName: key.Name, Model: model,
-				Path: route, Status: http.StatusForbidden,
-				Client: api.ClientName(r.UserAgent()), IP: httpx.ClientIP(r.Context()),
-				Rejected: true, Error: "model not allowed for this API key",
-			}, 0)
+			ev := rejection(r, key, http.StatusForbidden, "model not allowed for this API key")
+			ev.Model, ev.Path = model, route
+			s.recorder.Record(ev, 0)
 			p.WriteError(w, http.StatusForbidden, "permission_error",
 				"this API key may not use model "+model+
 					"; an administrator can allow it on the key's Models page")
@@ -97,12 +94,9 @@ func (s *Gateway) inference(p api.Protocol, route, upstreamPath string) http.Han
 			role := store.ModelKey(model)
 			target, why := s.RoleTarget(r.Context(), key, role)
 			if why != "" {
-				s.recorder.Record(store.UsageEvent{
-					At: time.Now(), KeyID: key.ID, KeyName: key.Name, Model: target,
-					VirtualModel: role, Path: route, Status: http.StatusNotFound,
-					Client: api.ClientName(r.UserAgent()), IP: httpx.ClientIP(r.Context()),
-					Rejected: true, Error: why,
-				}, 0)
+				ev := rejection(r, key, http.StatusNotFound, why)
+				ev.Model, ev.VirtualModel, ev.Path = target, role, route
+				s.recorder.Record(ev, 0)
 				p.WriteError(w, http.StatusNotFound, "not_found_error",
 					why+"; an administrator can change "+role+" in Settings › Aliases")
 				return

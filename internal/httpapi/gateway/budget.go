@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"claudication/internal/api"
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/service/limits"
 	"claudication/internal/store"
@@ -18,7 +19,7 @@ import (
 // A key can overshoot its budget by one request, necessarily: what a request
 // will cost is only known once it has been served. The budget is a ceiling on
 // what has already been spent, not a reservation against what is about to be.
-func (s *Gateway) withinBudget(w http.ResponseWriter, r *http.Request, key store.APIKey) bool {
+func (s *Gateway) withinBudget(w http.ResponseWriter, r *http.Request, p api.Protocol, key store.APIKey) bool {
 	if key.TokenBudget <= 0 || !s.cfg.Usage.Enabled() {
 		// No budget, or no usage history to measure one against — enforcing a
 		// budget with retention off would refuse everything the moment the
@@ -53,8 +54,10 @@ func (s *Gateway) withinBudget(w http.ResponseWriter, r *http.Request, key store
 		"request_id", httpx.RequestID(r.Context()))
 
 	// rate_limit_error because that is the type a client knows how to read, and
-	// this is the same shape of problem: too much, too soon, try later.
-	httpx.WriteError(w, http.StatusTooManyRequests, "rate_limit_error",
+	// this is the same shape of problem: too much, too soon, try later. In the
+	// caller's own envelope: the Responses dialect turns it into slow_down,
+	// the code Codex backs off on.
+	p.WriteError(w, http.StatusTooManyRequests, "rate_limit_error",
 		fmt.Sprintf("this API key has spent %d of its %d token budget for the last %s",
 			spent, key.TokenBudget, limits.BudgetWindow))
 	return false
