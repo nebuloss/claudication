@@ -71,7 +71,7 @@ func cmdBackup(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	cfg, st, _, err := openState(ctx, *configPath)
+	cfg, st, err := openState(ctx, *configPath)
 	if err != nil {
 		return err
 	}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -20,9 +21,9 @@ func testSealer(t *testing.T) *secret.Sealer {
 	return s
 }
 
-func addAccount(t *testing.T, st *Store, sealer *secret.Sealer, email string) Account {
+func addAccount(t *testing.T, st *Store, email string) Account {
 	t.Helper()
-	a, err := st.UpsertAccount(context.Background(), sealer,
+	a, err := st.UpsertAccount(context.Background(),
 		Account{Provider: "anthropic", Email: email, AccountUUID: "uuid-" + email,
 			ExpiresAt: time.Now().Add(time.Hour)},
 		Tokens{AccessToken: "at-" + email, RefreshToken: "rt-" + email})
@@ -37,10 +38,9 @@ func addAccount(t *testing.T, st *Store, sealer *secret.Sealer, email string) Ac
 func TestUpsertAccountNewAccount(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
-	sealer := testSealer(t)
 
-	a := addAccount(t, st, sealer, "a@example.com")
-	b := addAccount(t, st, sealer, "b@example.com")
+	a := addAccount(t, st, "a@example.com")
+	b := addAccount(t, st, "b@example.com")
 
 	if a.ID == "" || a.ID == b.ID {
 		t.Fatalf("ids %q and %q, want two distinct generated ids", a.ID, b.ID)
@@ -64,7 +64,7 @@ func TestUpsertAccountNewAccount(t *testing.T) {
 		t.Errorf("RefreshExpiresAt = %v, want zero when the provider did not say", a.RefreshExpiresAt)
 	}
 
-	tok, err := st.AccountTokens(ctx, sealer, a.ID)
+	tok, err := st.AccountTokens(ctx, a.ID)
 	if err != nil {
 		t.Fatalf("AccountTokens: %v", err)
 	}
@@ -88,10 +88,9 @@ func TestUpsertAccountNewAccount(t *testing.T) {
 func TestUpsertAccountReloginClearsFailureState(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
-	sealer := testSealer(t)
 
-	first := addAccount(t, st, sealer, "a@example.com")
-	addAccount(t, st, sealer, "b@example.com")
+	first := addAccount(t, st, "a@example.com")
+	addAccount(t, st, "b@example.com")
 
 	st.MarkAccountError(ctx, first.ID, "  boom  ")
 	if err := st.MarkRefreshDead(ctx, first.ID, "invalid_grant"); err != nil {
@@ -102,7 +101,7 @@ func TestUpsertAccountReloginClearsFailureState(t *testing.T) {
 	}
 
 	refreshBy := time.Now().Add(30 * 24 * time.Hour).UTC().Truncate(time.Second)
-	again, err := st.UpsertAccount(ctx, sealer,
+	again, err := st.UpsertAccount(ctx,
 		Account{ID: "ignored", Provider: "anthropic", Email: "a@example.com",
 			ExpiresAt: time.Now().Add(time.Hour), RefreshExpiresAt: refreshBy},
 		Tokens{AccessToken: "new-at", RefreshToken: "new-rt"})
@@ -121,7 +120,7 @@ func TestUpsertAccountReloginClearsFailureState(t *testing.T) {
 	if !again.RefreshExpiresAt.Equal(refreshBy) {
 		t.Errorf("RefreshExpiresAt = %v, want %v", again.RefreshExpiresAt, refreshBy)
 	}
-	tok, err := st.AccountTokens(ctx, sealer, first.ID)
+	tok, err := st.AccountTokens(ctx, first.ID)
 	if err != nil || tok.AccessToken != "new-at" || tok.RefreshToken != "new-rt" {
 		t.Errorf("tokens after relogin = %+v, %v", tok, err)
 	}
@@ -136,10 +135,9 @@ func TestUpsertAccountReloginClearsFailureState(t *testing.T) {
 func TestUpdateAccountTokensKeepsKnownRefreshExpiry(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
-	sealer := testSealer(t)
 
 	refreshBy := time.Now().Add(10 * 24 * time.Hour).UTC().Truncate(time.Second)
-	a, err := st.UpsertAccount(ctx, sealer,
+	a, err := st.UpsertAccount(ctx,
 		Account{Provider: "anthropic", Email: "a@example.com",
 			ExpiresAt: time.Now(), RefreshExpiresAt: refreshBy},
 		Tokens{AccessToken: "at", RefreshToken: "rt"})
@@ -149,7 +147,7 @@ func TestUpdateAccountTokensKeepsKnownRefreshExpiry(t *testing.T) {
 	st.MarkAccountError(ctx, a.ID, "refresh failed")
 
 	expires := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
-	if err := st.UpdateAccountTokens(ctx, sealer, a.ID,
+	if err := st.UpdateAccountTokens(ctx, a.ID,
 		Tokens{AccessToken: "at2", RefreshToken: "rt2"}, expires, time.Time{}); err != nil {
 		t.Fatalf("UpdateAccountTokens: %v", err)
 	}
@@ -166,14 +164,14 @@ func TestUpdateAccountTokensKeepsKnownRefreshExpiry(t *testing.T) {
 	if got.LastError != "" {
 		t.Errorf("LastError = %q, want cleared by a successful refresh", got.LastError)
 	}
-	tok, _ := st.AccountTokens(ctx, sealer, a.ID)
+	tok, _ := st.AccountTokens(ctx, a.ID)
 	if tok.AccessToken != "at2" || tok.RefreshToken != "rt2" {
 		t.Errorf("tokens = %+v", tok)
 	}
 
 	// A new deadline, when given, replaces the old one.
 	later := refreshBy.Add(24 * time.Hour)
-	if err := st.UpdateAccountTokens(ctx, sealer, a.ID,
+	if err := st.UpdateAccountTokens(ctx, a.ID,
 		Tokens{AccessToken: "at3", RefreshToken: "rt3"}, expires, later); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +180,7 @@ func TestUpdateAccountTokensKeepsKnownRefreshExpiry(t *testing.T) {
 		t.Errorf("RefreshExpiresAt = %v, want %v", got.RefreshExpiresAt, later)
 	}
 
-	if err := st.UpdateAccountTokens(ctx, sealer, "nope", Tokens{}, expires, later); !errors.Is(err, ErrAccountNotFound) {
+	if err := st.UpdateAccountTokens(ctx, "nope", Tokens{}, expires, later); !errors.Is(err, ErrAccountNotFound) {
 		t.Errorf("UpdateAccountTokens(unknown) = %v, want ErrAccountNotFound", err)
 	}
 }
@@ -192,7 +190,7 @@ func TestUpdateAccountTokensKeepsKnownRefreshExpiry(t *testing.T) {
 func TestMarkRefreshDeadKeepsTheFirstTime(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
-	a := addAccount(t, st, testSealer(t), "a@example.com")
+	a := addAccount(t, st, "a@example.com")
 
 	if err := st.MarkRefreshDead(ctx, a.ID, "first"); err != nil {
 		t.Fatal(err)
@@ -222,10 +220,9 @@ func TestMarkRefreshDeadKeepsTheFirstTime(t *testing.T) {
 func TestSetAccountOrder(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
-	sealer := testSealer(t)
-	a := addAccount(t, st, sealer, "a@example.com")
-	b := addAccount(t, st, sealer, "b@example.com")
-	c := addAccount(t, st, sealer, "c@example.com")
+	a := addAccount(t, st, "a@example.com")
+	b := addAccount(t, st, "b@example.com")
+	c := addAccount(t, st, "c@example.com")
 
 	if err := st.SetAccountOrder(ctx, []string{c.ID, "ghost", a.ID}); err != nil {
 		t.Fatalf("SetAccountOrder: %v", err)
@@ -247,7 +244,7 @@ func TestSetAccountOrder(t *testing.T) {
 	}
 
 	// A new account still lands last after a reorder.
-	d := addAccount(t, st, sealer, "d@example.com")
+	d := addAccount(t, st, "d@example.com")
 	list, _ = st.ListAccounts(ctx)
 	if list[len(list)-1].ID != d.ID {
 		t.Errorf("new account not last: %v", list[len(list)-1].Email)
@@ -259,7 +256,7 @@ func TestSetAccountOrder(t *testing.T) {
 func TestSetAccountQuotaRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
-	a := addAccount(t, st, testSealer(t), "a@example.com")
+	a := addAccount(t, st, "a@example.com")
 
 	reset5 := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
 	q := AccountQuota{
@@ -362,7 +359,7 @@ func TestAccountReauthHelpers(t *testing.T) {
 func TestAccountDisableUseAndDelete(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
-	a := addAccount(t, st, testSealer(t), "a@example.com")
+	a := addAccount(t, st, "a@example.com")
 
 	if err := st.SetAccountDisabled(ctx, a.ID, true); err != nil {
 		t.Fatal(err)
@@ -402,7 +399,7 @@ func TestAccountDisableUseAndDelete(t *testing.T) {
 	if _, err := st.AccountByEmail(ctx, "anthropic", "a@example.com"); !errors.Is(err, ErrAccountNotFound) {
 		t.Errorf("AccountByEmail after delete = %v", err)
 	}
-	if _, err := st.AccountTokens(ctx, testSealer(t), a.ID); !errors.Is(err, ErrAccountNotFound) {
+	if _, err := st.AccountTokens(ctx, a.ID); !errors.Is(err, ErrAccountNotFound) {
 		t.Errorf("AccountTokens after delete = %v", err)
 	}
 }
@@ -411,10 +408,20 @@ func TestAccountDisableUseAndDelete(t *testing.T) {
 // as an error, never as garbage tokens sent upstream.
 func TestAccountTokensWithTheWrongKey(t *testing.T) {
 	ctx := context.Background()
-	st := newTestStore(t)
-	a := addAccount(t, st, testSealer(t), "a@example.com")
+	path := filepath.Join(t.TempDir(), "test.db")
+	st, err := Open(ctx, path, testSealer(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	a := addAccount(t, st, "a@example.com")
 
-	if _, err := st.AccountTokens(ctx, testSealer(t), a.ID); err == nil {
+	other, err := Open(ctx, path, testSealer(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if _, err := other.AccountTokens(ctx, a.ID); err == nil {
 		t.Error("AccountTokens with another key succeeded")
 	}
 }

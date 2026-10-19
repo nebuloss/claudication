@@ -24,16 +24,16 @@ import (
 func fixture(t *testing.T) (*Pool, *store.Store) {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"))
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	t.Cleanup(func() { st.Close() })
 	sealer, err := secret.Load(dir)
 	if err != nil {
 		t.Fatalf("secret.Load: %v", err)
 	}
-	p := New(st, sealer, &http.Client{}, slog.New(slog.DiscardHandler),
+	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"), sealer)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	p := New(st, &http.Client{}, slog.New(slog.DiscardHandler),
 		func(context.Context, *http.Client, string) (oauth.Result, error) {
 			t.Error("unexpected token exchange")
 			return oauth.Result{}, errors.New("unexpected exchange")
@@ -45,7 +45,7 @@ func fixture(t *testing.T) (*Pool, *store.Store) {
 // expires at expires.
 func connect(t *testing.T, p *Pool, email string, expires time.Time) string {
 	t.Helper()
-	a, err := p.store.UpsertAccount(context.Background(), p.sealer,
+	a, err := p.store.UpsertAccount(context.Background(),
 		store.Account{Provider: "anthropic", Email: email, ExpiresAt: expires},
 		store.Tokens{AccessToken: "access-" + email, RefreshToken: "refresh-" + email})
 	if err != nil {

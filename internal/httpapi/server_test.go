@@ -19,7 +19,11 @@ import (
 func newTestServer(t *testing.T) (*Server, *store.Store, config.Config) {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"))
+	sealer, err := secret.Load(dir)
+	if err != nil {
+		t.Fatalf("secret.Load: %v", err)
+	}
+	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"), sealer)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -32,12 +36,7 @@ func newTestServer(t *testing.T) (*Server, *store.Store, config.Config) {
 	// The tests need no network; one that wants the catalogue serves its own.
 	cfg.ModelsCatalog = "off"
 
-	sealer, err := secret.Load(dir)
-	if err != nil {
-		t.Fatalf("secret.Load: %v", err)
-	}
-
-	srv, err := New(cfg, slog.New(slog.DiscardHandler), st, sealer)
+	srv, err := New(cfg, slog.New(slog.DiscardHandler), st)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -48,7 +47,7 @@ func newTestServer(t *testing.T) (*Server, *store.Store, config.Config) {
 // so the pool can hand out a lease without reaching a real provider.
 func seedAccount(t *testing.T, st *store.Store, srv *Server) error {
 	t.Helper()
-	_, err := st.UpsertAccount(context.Background(), srv.sealer,
+	_, err := st.UpsertAccount(context.Background(),
 		store.Account{
 			Provider:  "anthropic",
 			Email:     "test@example.com",

@@ -11,7 +11,7 @@ import (
 // The schema a fresh database lands on, and the index migration 011 removes.
 func TestSchemaAfterAllMigrations(t *testing.T) {
 	dir := t.TempDir()
-	st, err := Open(context.Background(), filepath.Join(dir, "schema.db"))
+	st, err := Open(context.Background(), filepath.Join(dir, "schema.db"), testSealer(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestSchemaAfterAllMigrations(t *testing.T) {
 // the overview screen reads one while the Usage tab reads the other.
 func TestTotalsMatchesTheReport(t *testing.T) {
 	dir := t.TempDir()
-	st, err := Open(context.Background(), filepath.Join(dir, "usage.db"))
+	st, err := Open(context.Background(), filepath.Join(dir, "usage.db"), testSealer(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

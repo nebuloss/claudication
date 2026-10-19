@@ -9,7 +9,7 @@ import (
 
 func usageStore(t *testing.T) *Store {
 	t.Helper()
-	st, err := Open(context.Background(), filepath.Join(t.TempDir(), "usage.db"))
+	st, err := Open(context.Background(), filepath.Join(t.TempDir(), "usage.db"), testSealer(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

@@ -7,29 +7,20 @@ import (
 	"testing"
 )
 
-// A kept secret opens to exactly what was issued; a key from before secrets
-// were kept says so rather than failing obscurely; rotating drops the stale
-// sealed copy until the new one is stored.
+// A key's secret is kept sealed as it is made, and opens to exactly what was
+// issued; rotating keeps the new one in its place; a key made without keeping
+// it says so rather than failing obscurely.
 func TestKeySecretIsKeptSealed(t *testing.T) {
 	st := usageStore(t)
 	ctx := context.Background()
-	sealer := testSealer(t)
 	key, plaintext, err := st.CreateKey(ctx, "laptop", KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if _, err := st.KeySecret(ctx, sealer, key.ID); err != ErrSecretNotKept {
-		t.Errorf("before it is stored: %v, want ErrSecretNotKept", err)
+	if !key.SecretKept {
+		t.Error("CreateKey did not report the secret kept")
 	}
-	if k, _ := st.Key(ctx, key.ID); k.SecretKept {
-		t.Error("SecretKept before anything was stored")
-	}
-
-	if err := st.StoreKeySecret(ctx, sealer, key.ID, plaintext); err != nil {
-		t.Fatal(err)
-	}
-	got, err := st.KeySecret(ctx, sealer, key.ID)
+	got, err := st.KeySecret(ctx, key.ID)
 	if err != nil || got != plaintext {
 		t.Fatalf("KeySecret = %q, %v", got, err)
 	}
@@ -43,17 +34,22 @@ func TestKeySecretIsKeptSealed(t *testing.T) {
 		t.Error("the secret is readable in the database")
 	}
 
-	if _, _, err := st.RotateKey(ctx, key.ID); err != nil {
+	rotated, fresh, err := st.RotateKey(ctx, key.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.KeySecret(ctx, sealer, key.ID); err != ErrSecretNotKept {
-		t.Errorf("after rotating: %v, want the stale secret gone", err)
+	if got, err := st.KeySecret(ctx, key.ID); err != nil || got != fresh || !rotated.SecretKept {
+		t.Errorf("after rotating: %q, %v, kept %v; want the new secret kept", got, err, rotated.SecretKept)
 	}
 
-	if err := st.StoreKeySecret(ctx, sealer, "nope", "x"); err != ErrKeyNotFound {
-		t.Errorf("unknown key: %v", err)
+	unkept, _, err := st.CreateUnkeptKey(ctx, "internal", KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := st.KeySecret(ctx, sealer, "nope"); err != ErrKeyNotFound {
+	if _, err := st.KeySecret(ctx, unkept.ID); err != ErrSecretNotKept || unkept.SecretKept {
+		t.Errorf("an unkept key: %v, kept %v; want ErrSecretNotKept", err, unkept.SecretKept)
+	}
+	if _, err := st.KeySecret(ctx, "nope"); err != ErrKeyNotFound {
 		t.Errorf("unknown key: %v", err)
 	}
 }
@@ -159,13 +155,12 @@ func TestKeyModelSwitches(t *testing.T) {
 func TestReissueUnkeptKeys(t *testing.T) {
 	st := usageStore(t)
 	ctx := context.Background()
-	sealer := testSealer(t)
 
-	legacy, legacySecret, err := st.CreateKey(ctx, "legacy", KeyLimits{})
+	legacy, legacySecret, err := st.CreateUnkeptKey(ctx, "legacy", KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	own, _, err := st.CreateKey(ctx, "gateway (internal)", KeyLimits{})
+	own, _, err := st.CreateUnkeptKey(ctx, "gateway (internal)", KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,11 +168,8 @@ func TestReissueUnkeptKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.StoreKeySecret(ctx, sealer, kept.ID, keptSecret); err != nil {
-		t.Fatal(err)
-	}
 
-	names, err := st.ReissueUnkeptKeys(ctx, sealer, map[string]bool{own.ID: true})
+	names, err := st.ReissueUnkeptKeys(ctx, map[string]bool{own.ID: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,14 +180,14 @@ func TestReissueUnkeptKeys(t *testing.T) {
 	if _, err := st.Authenticate(ctx, legacySecret); err == nil {
 		t.Error("the legacy key's old secret still authenticates")
 	}
-	fresh, err := st.KeySecret(ctx, sealer, legacy.ID)
+	fresh, err := st.KeySecret(ctx, legacy.ID)
 	if err != nil {
 		t.Fatalf("the reissued secret is not kept: %v", err)
 	}
 	if k, err := st.Authenticate(ctx, fresh); err != nil || k.ID != legacy.ID {
 		t.Errorf("the reissued secret does not authenticate as its key: %v", err)
 	}
-	if _, err := st.KeySecret(ctx, sealer, own.ID); err != ErrSecretNotKept {
+	if _, err := st.KeySecret(ctx, own.ID); err != ErrSecretNotKept {
 		t.Errorf("the skipped key was given a secret: %v", err)
 	}
 	if k, err := st.Authenticate(ctx, keptSecret); err != nil || k.ID != kept.ID {
@@ -203,7 +195,7 @@ func TestReissueUnkeptKeys(t *testing.T) {
 	}
 
 	// Run again, nothing is left to do.
-	if again, err := st.ReissueUnkeptKeys(ctx, sealer, map[string]bool{own.ID: true}); err != nil || len(again) != 0 {
+	if again, err := st.ReissueUnkeptKeys(ctx, map[string]bool{own.ID: true}); err != nil || len(again) != 0 {
 		t.Errorf("second run reissued %v (%v)", again, err)
 	}
 }

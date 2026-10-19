@@ -290,7 +290,7 @@ const retitleBackoff = 10 * time.Minute
 // Store is what the titler keeps and reads. The database is one.
 type Store interface {
 	settings.Store
-	CreateKey(ctx context.Context, name string, limits store.KeyLimits) (store.APIKey, string, error)
+	CreateUnkeptKey(ctx context.Context, name string, limits store.KeyLimits) (store.APIKey, string, error)
 	Key(ctx context.Context, id string) (store.APIKey, error)
 	KeySpend(ctx context.Context, keyID string, since time.Time) (int64, error)
 	ListAccounts(ctx context.Context) ([]store.Account, error)
@@ -561,7 +561,7 @@ func (t *Titler) key(ctx context.Context) (id, name string, err error) {
 		// recording usage against a key that does not exist.
 	}
 
-	key, _, err := t.deps.Store.CreateKey(ctx, internalKeyName, store.KeyLimits{})
+	key, _, err := t.deps.Store.CreateUnkeptKey(ctx, internalKeyName, store.KeyLimits{})
 	if err != nil {
 		return "", "", err
 	}

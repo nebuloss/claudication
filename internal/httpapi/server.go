@@ -39,7 +39,6 @@ import (
 	"claudication/internal/provider/anthropic"
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
-	"claudication/internal/secret"
 	accountsvc "claudication/internal/service/accounts"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
@@ -105,7 +104,6 @@ type Server struct {
 	docsServer     *http.Server
 	adminAddr      string
 	stopSweeper    chan struct{}
-	sealer         *secret.Sealer
 	pool           *pool.Pool
 	relay          *relay.Relay
 	httpClient     *http.Client
@@ -160,7 +158,7 @@ func servingWhat(combined bool) string {
 	return "relay only"
 }
 
-func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Sealer) (*Server, error) {
+func New(cfg config.Config, log *slog.Logger, st *store.Store) (*Server, error) {
 	trusted, err := httpx.ParseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {
 		return nil, fmt.Errorf("trusted-proxies: %w", err)
@@ -175,7 +173,6 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		budgets:        limits.NewBudgets(st),
 		trustedProxies: trusted,
 		stopSweeper:    make(chan struct{}),
-		sealer:         sealer,
 		trimmer:        memlimit.NewTrimmer(log),
 		// Upstream calls made by the gateway itself: token exchange, refresh,
 		// credential probes. Short timeout, because these are all small.
@@ -225,7 +222,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	// Anthropic is the only provider. It is named here, in the composition
 	// root, and nowhere below: the pool is handed its token refresh and the
 	// relay its wire, and neither knows whose they are.
-	s.pool = pool.New(st, sealer, s.httpClient, log, anthropic.Refresh)
+	s.pool = pool.New(st, s.httpClient, log, anthropic.Refresh)
 	s.poller = &accountsvc.Poller{
 		Store:  st,
 		Tokens: s.pool,
@@ -285,7 +282,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 	// each is named in the log so its owner knows to fetch new configs.
 	{
 		own, _, _ := st.Setting(loadCtx, titles.KeySetting)
-		reissued, err := st.ReissueUnkeptKeys(loadCtx, sealer, map[string]bool{own: true})
+		reissued, err := st.ReissueUnkeptKeys(loadCtx, map[string]bool{own: true})
 		if err != nil {
 			log.Error("reissue unkept api keys", "err", err)
 		}
@@ -311,7 +308,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store, sealer *secret.Se
 		HTTPClient: s.httpClient, Install: installs,
 	})
 	s.admin = admin.New(admin.Deps{
-		Config: s.cfg, Log: log, Store: st, Sealer: sealer, Pool: s.pool,
+		Config: s.cfg, Log: log, Store: st, Pool: s.pool,
 		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
 		Titles: s.titles, Images: s.images, Docs: s.docs, Surfaces: s.surfaces,
 		Protocols: s.protocols, HTTPClient: s.httpClient,

@@ -21,7 +21,6 @@ import (
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
 	"claudication/internal/provider/anthropic"
-	"claudication/internal/secret"
 	accountsvc "claudication/internal/service/accounts"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
@@ -37,7 +36,6 @@ type Admin struct {
 	cfg            *config.Config
 	log            *slog.Logger
 	store          *store.Store
-	sealer         *secret.Sealer
 	pool           *pool.Pool
 	pending        *oauth.Pending
 	poller         *accountsvc.Poller
@@ -65,7 +63,6 @@ type Deps struct {
 	Config         *config.Config
 	Log            *slog.Logger
 	Store          *store.Store
-	Sealer         *secret.Sealer
 	Pool           *pool.Pool
 	Pending        *oauth.Pending
 	Poller         *accountsvc.Poller
@@ -98,7 +95,7 @@ type Deps struct {
 // New builds an Admin with no session open.
 func New(d Deps) *Admin {
 	return &Admin{
-		cfg: d.Config, log: d.Log, store: d.Store, sealer: d.Sealer, pool: d.Pool,
+		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
 		pending: d.Pending, poller: d.Poller, titles: d.Titles, images: d.Images,
 		docs: d.Docs, surfaces: d.Surfaces, protocols: d.Protocols,
 		httpClient: d.HTTPClient, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
@@ -754,9 +751,9 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 	var acct store.Account
 	renewed := target.ID != ""
 	if renewed {
-		acct, err = s.store.RenewAccount(r.Context(), s.sealer, target.ID, fresh, tokens)
+		acct, err = s.store.RenewAccount(r.Context(), target.ID, fresh, tokens)
 	} else {
-		acct, err = s.store.UpsertAccount(r.Context(), s.sealer, fresh, tokens)
+		acct, err = s.store.UpsertAccount(r.Context(), fresh, tokens)
 	}
 	if err != nil {
 		s.log.Error("store account", "err", err)
@@ -811,7 +808,7 @@ func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := s.store.AccountTokens(r.Context(), s.sealer, id)
+	tokens, err := s.store.AccountTokens(r.Context(), id)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -826,7 +823,7 @@ func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	// is the failure this button exists to diagnose, not to cause.
 	if acct.Expired() {
 		if rerr := s.pool.Refresh(r.Context(), id); rerr == nil {
-			if fresh, ferr := s.store.AccountTokens(r.Context(), s.sealer, id); ferr == nil {
+			if fresh, ferr := s.store.AccountTokens(r.Context(), id); ferr == nil {
 				tokens = fresh
 			}
 		}
@@ -917,7 +914,7 @@ func (s *Admin) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	// Best-effort, and deliberately not fatal. The operator asked for this
 	// account to be gone; an upstream that is down, slow or has already
 	// forgotten the token must not be able to prevent that.
-	if tokens, err := s.store.AccountTokens(r.Context(), s.sealer, id); err == nil {
+	if tokens, err := s.store.AccountTokens(r.Context(), id); err == nil {
 		if err := anthropic.Revoke(r.Context(), s.httpClient,
 			tokens.RefreshToken, anthropic.ClientID); err != nil {
 			s.log.Warn("could not revoke the refresh token upstream; deleting locally anyway",

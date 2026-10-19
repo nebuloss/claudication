@@ -12,18 +12,8 @@ import (
 	"time"
 
 	"claudication/internal/httpapi/httpx"
-	"claudication/internal/secret"
 	"claudication/internal/store"
 )
-
-func mustSealer(t *testing.T, dir string) *secret.Sealer {
-	t.Helper()
-	s, err := secret.Load(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
 
 // The first-run screen asks this before anything else; it must flip the
 // moment a password exists, or the setup form stays offered to whoever finds
@@ -221,7 +211,7 @@ func TestRunFailsOnAListenerClash(t *testing.T) {
 			case "relay":
 				cfg.Listen = taken.Addr().String()
 			}
-			srv, err := New(cfg, slog.New(slog.DiscardHandler), st, mustSealer(t, cfg.StateDir))
+			srv, err := New(cfg, slog.New(slog.DiscardHandler), st)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -239,7 +229,7 @@ func TestRunFailsOnAListenerClash(t *testing.T) {
 func TestDocsListenerRunsAndDrains(t *testing.T) {
 	_, st, cfg := newTestServer(t)
 	cfg.DocsListen = "127.0.0.1:0"
-	srv, err := New(cfg, slog.New(slog.DiscardHandler), st, mustSealer(t, cfg.StateDir))
+	srv, err := New(cfg, slog.New(slog.DiscardHandler), st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +250,7 @@ func TestDocsListenerRunsAndDrains(t *testing.T) {
 func TestNewRefusesBadTrustedProxies(t *testing.T) {
 	_, st, cfg := newTestServer(t)
 	cfg.TrustedProxies = []string{"not-a-network"}
-	if _, err := New(cfg, slog.New(slog.DiscardHandler), st, mustSealer(t, cfg.StateDir)); err == nil {
+	if _, err := New(cfg, slog.New(slog.DiscardHandler), st); err == nil {
 		t.Error("New accepted an unparseable trusted proxy")
 	}
 }

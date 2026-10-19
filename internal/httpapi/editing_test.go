@@ -101,7 +101,7 @@ func TestAnAccountCanBePausedAndResumed(t *testing.T) {
 	}
 
 	// And the credentials survived, so resuming needs no browser.
-	if _, err := st.AccountTokens(ctx, srv.sealer, id); err != nil {
+	if _, err := st.AccountTokens(ctx, id); err != nil {
 		t.Errorf("pausing destroyed the credentials: %v", err)
 	}
 

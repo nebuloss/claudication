@@ -107,7 +107,7 @@ func TestReconnectRenewsTheAccountInPlace(t *testing.T) {
 	if n := accountCount(t, st); n != 2 {
 		t.Errorf("%d accounts after a reconnect, want 2", n)
 	}
-	tokens, err := st.AccountTokens(ctx, srv.sealer, dead.ID)
+	tokens, err := st.AccountTokens(ctx, dead.ID)
 	if err != nil || tokens.RefreshToken != "new-refresh" {
 		t.Errorf("stored tokens = %+v, %v", tokens, err)
 	}
@@ -149,7 +149,7 @@ func TestReconnectAsSomeoneElseChangesNothing(t *testing.T) {
 	if n := accountCount(t, st); n != 1 {
 		t.Errorf("%d accounts, want 1: the other account was added", n)
 	}
-	tokens, _ := st.AccountTokens(ctx, srv.sealer, mine.ID)
+	tokens, _ := st.AccountTokens(ctx, mine.ID)
 	if tokens.RefreshToken != "my-refresh" {
 		t.Errorf("the account's own tokens were replaced: %+v", tokens)
 	}
@@ -170,7 +170,7 @@ func TestReconnectMatchesByAccountIDOverAddress(t *testing.T) {
 	fake.install(srv)
 	base, c := adminAPI(t, srv)
 
-	renamed, err := st.UpsertAccount(context.Background(), srv.sealer,
+	renamed, err := st.UpsertAccount(context.Background(),
 		store.Account{Provider: "anthropic", Email: "old-name@example.com", AccountUUID: "uuid-1",
 			ExpiresAt: time.Now().Add(time.Hour)},
 		store.Tokens{AccessToken: "a", RefreshToken: "r"})
@@ -190,7 +190,7 @@ func TestReconnectMatchesByAccountIDOverAddress(t *testing.T) {
 
 	// The other way round: same address, a different account id upstream, is
 	// a different account.
-	other, err := st.UpsertAccount(context.Background(), srv.sealer,
+	other, err := st.UpsertAccount(context.Background(),
 		store.Account{Provider: "anthropic", Email: "twin@example.com", AccountUUID: "uuid-other",
 			ExpiresAt: time.Now().Add(time.Hour)},
 		store.Tokens{AccessToken: "a2", RefreshToken: "r2"})

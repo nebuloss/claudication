@@ -143,25 +143,25 @@ func resolveConfigPath(explicit string) string {
 	return ""
 }
 
-// openState loads config and opens the database, the two steps every command
-// shares.
-func openState(ctx context.Context, configPath string) (config.Config, *store.Store, *secret.Sealer, error) {
+// openState loads config and opens the database with its sealing key, the
+// steps every command shares.
+func openState(ctx context.Context, configPath string) (config.Config, *store.Store, error) {
 	cfg, err := config.Load(resolveConfigPath(configPath))
 	if err != nil {
-		return config.Config{}, nil, nil, err
+		return config.Config{}, nil, err
 	}
 	if err := cfg.EnsureStateDir(); err != nil {
-		return config.Config{}, nil, nil, err
+		return config.Config{}, nil, err
 	}
 	sealer, err := secret.Load(cfg.StateDir)
 	if err != nil {
-		return config.Config{}, nil, nil, err
+		return config.Config{}, nil, err
 	}
-	st, err := store.Open(ctx, cfg.DBPath())
+	st, err := store.Open(ctx, cfg.DBPath(), sealer)
 	if err != nil {
-		return config.Config{}, nil, nil, err
+		return config.Config{}, nil, err
 	}
-	return cfg, st, sealer, nil
+	return cfg, st, nil
 }
 
 func cmdServe(args []string) error {
@@ -176,7 +176,7 @@ func cmdServe(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cfg, st, sealer, err := openState(ctx, *configPath)
+	cfg, st, err := openState(ctx, *configPath)
 	if err != nil {
 		return err
 	}
@@ -188,7 +188,7 @@ func cmdServe(args []string) error {
 	limit, _ := memlimit.ParseSize(cfg.MemoryLimit)
 	memlimit.Apply(limit, log)
 
-	srv, err := httpapi.New(cfg, log, st, sealer)
+	srv, err := httpapi.New(cfg, log, st)
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func cmdLoginURL(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	cfg, st, _, err := openState(ctx, *configPath)
+	cfg, st, err := openState(ctx, *configPath)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func cmdVacuum(args []string) error {
 	// is a transaction — but pointless.
 	ctx := context.Background()
 
-	_, st, _, err := openState(ctx, *configPath)
+	_, st, err := openState(ctx, *configPath)
 	if err != nil {
 		return err
 	}
@@ -333,7 +333,7 @@ func cmdPasswd(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	_, st, _, err := openState(ctx, *configPath)
+	_, st, err := openState(ctx, *configPath)
 	if err != nil {
 		return err
 	}
@@ -420,7 +420,7 @@ func cmdKeys(args []string) error {
 			return errors.New("keys add: -name is required")
 		}
 
-		_, st, sealer, err := openState(ctx, *configPath)
+		_, st, err := openState(ctx, *configPath)
 		if err != nil {
 			return err
 		}
@@ -435,12 +435,6 @@ func cmdKeys(args []string) error {
 			return err
 		}
 		fmt.Printf("Created API key %q (id %s)\n\n  %s\n\n", key.Name, key.ID, plaintext)
-		// Kept sealed, as the admin API keeps the keys it makes, so the key's
-		// Clients page can show it and its client configs again.
-		if err := st.StoreKeySecret(ctx, sealer, key.ID, plaintext); err != nil {
-			fmt.Printf("The key works, but could not be kept (%v): store it now.\n", err)
-			return nil
-		}
 		fmt.Println("Its settings page in the admin UI can show it and its client configs again.")
 		return nil
 
@@ -450,7 +444,7 @@ func cmdKeys(args []string) error {
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		_, st, _, err := openState(ctx, *configPath)
+		_, st, err := openState(ctx, *configPath)
 		if err != nil {
 			return err
 		}
@@ -496,7 +490,7 @@ func cmdKeys(args []string) error {
 		if *id == "" {
 			return errors.New("keys delete: -id is required")
 		}
-		_, st, _, err := openState(ctx, *configPath)
+		_, st, err := openState(ctx, *configPath)
 		if err != nil {
 			return err
 		}

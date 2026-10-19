@@ -58,7 +58,7 @@ func TestKeySecretCanBeShownAgain(t *testing.T) {
 	}
 
 	// Made before secrets were kept: only its hash exists.
-	old, _, err := st.CreateKey(context.Background(), "old", store.KeyLimits{})
+	old, _, err := st.CreateUnkeptKey(context.Background(), "old", store.KeyLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}

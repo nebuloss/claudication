@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -17,6 +18,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"claudication/internal/secret"
 )
 
 //go:embed migrations/*.sql
@@ -24,10 +27,21 @@ var migrationFS embed.FS
 
 type Store struct {
 	db *sql.DB
+	// sealer seals every credential the store keeps: account tokens and the
+	// secrets of api keys. Given once, to Open, rather than to each method that
+	// needs it: the store is the only thing that reads or writes a sealed
+	// column, and handing the sealer to every caller meant every caller could
+	// forget a step — keeping a new key's secret was a second call each place
+	// a key was made.
+	sealer *secret.Sealer
 }
 
 // Open connects to the database at path and brings the schema up to date.
-func Open(ctx context.Context, dbPath string) (*Store, error) {
+// sealer is what the database's credentials are sealed with.
+func Open(ctx context.Context, dbPath string, sealer *secret.Sealer) (*Store, error) {
+	if sealer == nil {
+		return nil, errors.New("open database: no sealer")
+	}
 	// WAL keeps readers from blocking the writer; busy_timeout stops a
 	// concurrent write from failing outright under load.
 	//
@@ -77,7 +91,7 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("secure database file: %w", err)
 	}
 
-	return &Store{db: db}, nil
+	return &Store{db: db, sealer: sealer}, nil
 }
 
 // migrate applies every embedded migration whose version is not yet recorded,

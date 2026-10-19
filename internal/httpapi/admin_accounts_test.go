@@ -197,7 +197,7 @@ func errType(t *testing.T, b []byte) string {
 // addAccount connects one account with the given tokens and expiry.
 func addAccount(t *testing.T, srv *Server, st *store.Store, email, access, refresh string, expires time.Time) store.Account {
 	t.Helper()
-	a, err := st.UpsertAccount(context.Background(), srv.sealer,
+	a, err := st.UpsertAccount(context.Background(),
 		store.Account{Provider: "anthropic", Email: email, ExpiresAt: expires},
 		store.Tokens{AccessToken: access, RefreshToken: refresh})
 	if err != nil {
@@ -404,7 +404,7 @@ func TestOAuthConnectsAnAccount(t *testing.T) {
 		t.Errorf("quota = %+v, want the first poll's figures", got.Quota)
 	}
 
-	tokens, err := st.AccountTokens(context.Background(), srv.sealer, got.ID)
+	tokens, err := st.AccountTokens(context.Background(), got.ID)
 	if err != nil || tokens.AccessToken != "new-access" || tokens.RefreshToken != "new-refresh" {
 		t.Errorf("stored tokens = %+v, %v", tokens, err)
 	}
@@ -477,7 +477,7 @@ func TestRefreshAccount(t *testing.T) {
 	}](t, body).Account; a.LastRefreshAt == "" {
 		t.Errorf("refreshed account shows no last_refresh_at: %+v", a)
 	}
-	if tok, _ := st.AccountTokens(ctx, srv.sealer, ok.ID); tok.RefreshToken != "refreshed-refresh" {
+	if tok, _ := st.AccountTokens(ctx, ok.ID); tok.RefreshToken != "refreshed-refresh" {
 		t.Errorf("the rotated refresh token was not kept: %+v", tok)
 	}
 

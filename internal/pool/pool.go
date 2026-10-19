@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"claudication/internal/oauth"
-	"claudication/internal/secret"
 	"claudication/internal/store"
 )
 
@@ -96,7 +95,6 @@ type refreshCall struct {
 
 type Pool struct {
 	store  *store.Store
-	sealer *secret.Sealer
 	client *http.Client
 	log    *slog.Logger
 
@@ -118,10 +116,9 @@ type RefreshFunc func(ctx context.Context, client *http.Client, refreshToken str
 
 // New returns a pool over the accounts in st, refreshing their tokens with
 // refresh.
-func New(st *store.Store, sealer *secret.Sealer, client *http.Client, log *slog.Logger, refresh RefreshFunc) *Pool {
+func New(st *store.Store, client *http.Client, log *slog.Logger, refresh RefreshFunc) *Pool {
 	return &Pool{
 		store:    st,
-		sealer:   sealer,
 		client:   client,
 		log:      log,
 		states:   make(map[string]*health),
@@ -273,7 +270,7 @@ func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[
 		}
 	}
 
-	tokens, err := p.store.AccountTokens(ctx, p.sealer, chosen.ID)
+	tokens, err := p.store.AccountTokens(ctx, chosen.ID)
 	if err != nil {
 		return Lease{}, err
 	}
@@ -362,7 +359,7 @@ func (p *Pool) AccessToken(ctx context.Context, id string) (string, error) {
 			return "", err
 		}
 	}
-	tokens, err := p.store.AccountTokens(ctx, p.sealer, id)
+	tokens, err := p.store.AccountTokens(ctx, id)
 	if err != nil {
 		return "", err
 	}
@@ -437,7 +434,7 @@ func (p *Pool) refresh(ctx context.Context, id string, h *health) error {
 	exchangeCtx, cancel := context.WithTimeout(ctx, refreshTimeout)
 	defer cancel()
 
-	tokens, err := p.store.AccountTokens(exchangeCtx, p.sealer, id)
+	tokens, err := p.store.AccountTokens(exchangeCtx, id)
 	if err != nil {
 		return err
 	}
@@ -464,7 +461,7 @@ func (p *Pool) refresh(ctx context.Context, id string, h *health) error {
 	defer cancelPersist()
 
 	// Identity is never taken from a refresh response; only the tokens are.
-	if err := p.store.UpdateAccountTokens(persistCtx, p.sealer, id,
+	if err := p.store.UpdateAccountTokens(persistCtx, id,
 		store.Tokens{AccessToken: res.AccessToken, RefreshToken: res.RefreshToken},
 		res.ExpiresAt, res.RefreshTokenExpiresAt); err != nil {
 		// The account is now in the state this function exists to avoid. Say

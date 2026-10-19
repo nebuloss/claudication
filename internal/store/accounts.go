@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"claudication/internal/secret"
 )
 
 var ErrAccountNotFound = errors.New("account not found")
@@ -130,17 +128,24 @@ type Tokens struct {
 	RefreshToken string
 }
 
+// sealTokens seals both halves of a credential, the one way either is written.
+func (s *Store) sealTokens(tok Tokens) (access, refresh []byte, err error) {
+	if access, err = s.sealer.Seal(tok.AccessToken); err != nil {
+		return nil, nil, fmt.Errorf("seal access token: %w", err)
+	}
+	if refresh, err = s.sealer.Seal(tok.RefreshToken); err != nil {
+		return nil, nil, fmt.Errorf("seal refresh token: %w", err)
+	}
+	return access, refresh, nil
+}
+
 // UpsertAccount stores a freshly authorised account, or replaces the tokens of
 // one that already exists for this provider and email.
 //
 // Identity (email, uuid) is set at login and never changed afterwards by a
 // refresh; see the note in 002_accounts.sql.
-func (s *Store) UpsertAccount(ctx context.Context, sealer *secret.Sealer, acct Account, tok Tokens) (Account, error) {
-	sealedAccess, err := sealer.Seal(tok.AccessToken)
-	if err != nil {
-		return Account{}, err
-	}
-	sealedRefresh, err := sealer.Seal(tok.RefreshToken)
+func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Account, error) {
+	sealedAccess, sealedRefresh, err := s.sealTokens(tok)
 	if err != nil {
 		return Account{}, err
 	}
@@ -318,7 +323,7 @@ func (s *Store) SetAccountQuota(ctx context.Context, id string, q AccountQuota) 
 }
 
 // AccountTokens unseals the credentials for one account.
-func (s *Store) AccountTokens(ctx context.Context, sealer *secret.Sealer, id string) (Tokens, error) {
+func (s *Store) AccountTokens(ctx context.Context, id string) (Tokens, error) {
 	var sealedAccess, sealedRefresh []byte
 	err := s.db.QueryRowContext(ctx,
 		`SELECT access_token, refresh_token FROM accounts WHERE id = ?`, id).
@@ -330,11 +335,11 @@ func (s *Store) AccountTokens(ctx context.Context, sealer *secret.Sealer, id str
 		return Tokens{}, fmt.Errorf("load tokens: %w", err)
 	}
 
-	access, err := sealer.Open(sealedAccess)
+	access, err := s.sealer.Open(sealedAccess)
 	if err != nil {
 		return Tokens{}, fmt.Errorf("unseal access token: %w", err)
 	}
-	refresh, err := sealer.Open(sealedRefresh)
+	refresh, err := s.sealer.Open(sealedRefresh)
 	if err != nil {
 		return Tokens{}, fmt.Errorf("unseal refresh token: %w", err)
 	}
@@ -343,12 +348,8 @@ func (s *Store) AccountTokens(ctx context.Context, sealer *secret.Sealer, id str
 
 // UpdateAccountTokens replaces the credentials after a refresh. It deliberately
 // takes no identity fields.
-func (s *Store) UpdateAccountTokens(ctx context.Context, sealer *secret.Sealer, id string, tok Tokens, expiresAt, refreshExpiresAt time.Time) error {
-	sealedAccess, err := sealer.Seal(tok.AccessToken)
-	if err != nil {
-		return err
-	}
-	sealedRefresh, err := sealer.Seal(tok.RefreshToken)
+func (s *Store) UpdateAccountTokens(ctx context.Context, id string, tok Tokens, expiresAt, refreshExpiresAt time.Time) error {
+	sealedAccess, sealedRefresh, err := s.sealTokens(tok)
 	if err != nil {
 		return err
 	}
@@ -382,12 +383,8 @@ func (s *Store) UpdateAccountTokens(ctx context.Context, sealer *secret.Sealer, 
 // and a pause, as UpsertAccount does. The refresh token's lifetime is replaced
 // outright rather than kept when absent, because the old one described the old
 // grant.
-func (s *Store) RenewAccount(ctx context.Context, sealer *secret.Sealer, id string, acct Account, tok Tokens) (Account, error) {
-	sealedAccess, err := sealer.Seal(tok.AccessToken)
-	if err != nil {
-		return Account{}, err
-	}
-	sealedRefresh, err := sealer.Seal(tok.RefreshToken)
+func (s *Store) RenewAccount(ctx context.Context, id string, acct Account, tok Tokens) (Account, error) {
+	sealedAccess, sealedRefresh, err := s.sealTokens(tok)
 	if err != nil {
 		return Account{}, err
 	}

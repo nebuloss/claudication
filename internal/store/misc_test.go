@@ -328,7 +328,7 @@ func TestKeyAndAccountUsage(t *testing.T) {
 func TestReopenIsIdempotentAndPrivate(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "re.db")
-	st, err := Open(ctx, path)
+	st, err := Open(ctx, path, testSealer(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestReopenIsIdempotentAndPrivate(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	st, err = Open(ctx, path)
+	st, err = Open(ctx, path, testSealer(t))
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestReopenIsIdempotentAndPrivate(t *testing.T) {
 // request.
 func TestOpenFailsOnAnUnusablePath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing", "dir", "x.db")
-	if st, err := Open(context.Background(), path); err == nil {
+	if st, err := Open(context.Background(), path, testSealer(t)); err == nil {
 		st.Close()
 		t.Error("Open succeeded in a directory that does not exist")
 	}
@@ -381,11 +381,10 @@ func TestOpenFailsOnAnUnusablePath(t *testing.T) {
 // writers on the request path must neither panic nor block.
 func TestClosedStoreReportsErrors(t *testing.T) {
 	ctx := context.Background()
-	st, err := Open(ctx, filepath.Join(t.TempDir(), "closed.db"))
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "closed.db"), testSealer(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	sealer := testSealer(t)
 	st.Close()
 
 	st.TouchKey(ctx, "k")
@@ -397,14 +396,14 @@ func TestClosedStoreReportsErrors(t *testing.T) {
 
 	since := time.Now().Add(-time.Hour)
 	checks := map[string]error{}
-	_, checks["UpsertAccount"] = st.UpsertAccount(ctx, sealer, Account{Provider: "p", Email: "e"}, Tokens{})
+	_, checks["UpsertAccount"] = st.UpsertAccount(ctx, Account{Provider: "p", Email: "e"}, Tokens{})
 	_, checks["ListAccounts"] = st.ListAccounts(ctx)
 	_, checks["Account"] = st.Account(ctx, "a")
 	_, checks["AccountByEmail"] = st.AccountByEmail(ctx, "p", "e")
 	checks["SetAccountOrder"] = st.SetAccountOrder(ctx, []string{"a"})
 	checks["SetAccountQuota"] = st.SetAccountQuota(ctx, "a", AccountQuota{})
-	_, checks["AccountTokens"] = st.AccountTokens(ctx, sealer, "a")
-	checks["UpdateAccountTokens"] = st.UpdateAccountTokens(ctx, sealer, "a", Tokens{}, time.Now(), time.Time{})
+	_, checks["AccountTokens"] = st.AccountTokens(ctx, "a")
+	checks["UpdateAccountTokens"] = st.UpdateAccountTokens(ctx, "a", Tokens{}, time.Now(), time.Time{})
 	checks["MarkRefreshDead"] = st.MarkRefreshDead(ctx, "a", "x")
 	checks["SetAccountDisabled"] = st.SetAccountDisabled(ctx, "a", true)
 	checks["SetAccountEnabled"] = st.SetAccountDisabled(ctx, "a", false)

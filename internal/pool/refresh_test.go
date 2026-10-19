@@ -20,18 +20,17 @@ import (
 func refreshFixture(t *testing.T) (*Pool, *store.Store, string) {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"))
+	sealer, err := secret.Load(dir)
+	if err != nil {
+		t.Fatalf("secret.Load: %v", err)
+	}
+	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"), sealer)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
 
-	sealer, err := secret.Load(dir)
-	if err != nil {
-		t.Fatalf("secret.Load: %v", err)
-	}
-
-	acct, err := st.UpsertAccount(context.Background(), sealer,
+	acct, err := st.UpsertAccount(context.Background(),
 		store.Account{
 			Provider:  "anthropic",
 			Email:     "only@example.com",
@@ -42,7 +41,7 @@ func refreshFixture(t *testing.T) (*Pool, *store.Store, string) {
 		t.Fatalf("UpsertAccount: %v", err)
 	}
 
-	p := New(st, sealer, &http.Client{}, slog.New(slog.DiscardHandler), nil) // each test sets exchange
+	p := New(st, &http.Client{}, slog.New(slog.DiscardHandler), nil) // each test sets exchange
 	return p, st, acct.ID
 }
 
@@ -77,7 +76,7 @@ func TestRefreshSurvivesTheCallerGivingUp(t *testing.T) {
 	}
 	<-reached
 
-	tokens, err := st.AccountTokens(context.Background(), p.sealer, id)
+	tokens, err := st.AccountTokens(context.Background(), id)
 	if err != nil {
 		t.Fatalf("AccountTokens: %v", err)
 	}

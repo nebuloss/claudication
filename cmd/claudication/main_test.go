@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/secret"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
@@ -76,7 +77,11 @@ func withStdin(t *testing.T, s string) {
 // effect rather than the message.
 func openStore(t *testing.T, dir string) *store.Store {
 	t.Helper()
-	st, err := store.Open(context.Background(), filepath.Join(dir, "claudication.db"))
+	sealer, err := secret.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(context.Background(), filepath.Join(dir, "claudication.db"), sealer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +157,7 @@ func TestConfigResolution(t *testing.T) {
 		t.Errorf("explicit path = %q", got)
 	}
 	stateDir(t)
-	if _, _, _, err := openState(context.Background(), "/nonexistent/claudication.yaml"); err == nil {
+	if _, _, err := openState(context.Background(), "/nonexistent/claudication.yaml"); err == nil {
 		t.Error("a missing explicit config opened anyway")
 	}
 }

@@ -177,8 +177,9 @@ func decodeKeyLimits(w http.ResponseWriter, r *http.Request) (string, store.KeyL
 	}, true
 }
 
-// handleCreateKey mints a key and returns the plaintext — once, here, and
-// never again. The store keeps only sha256(key) and a lookup prefix.
+// handleCreateKey mints a key and returns the plaintext. The store keeps its
+// hash to authenticate with and the secret sealed beside it, so the key's
+// Clients page can show it again.
 func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	name, limits, ok := decodeKeyLimits(w, r)
 	if !ok {
@@ -191,7 +192,6 @@ func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not create the key")
 		return
 	}
-	s.keepSecret(r, &key, plaintext)
 
 	s.log.Info("api key created", "id", key.ID, "name", key.Name,
 		"ip", httpx.ClientIP(r.Context()))
@@ -199,17 +199,6 @@ func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		"key":       s.toKeyJSON(key, store.UsageBucket{}),
 		"plaintext": plaintext,
 	})
-}
-
-// keepSecret seals a new secret beside its key so it can be shown again. A
-// failure is logged and not fatal: the key works either way, and the operator
-// has the plaintext in this response — it just cannot be shown a second time.
-func (s *Admin) keepSecret(r *http.Request, key *store.APIKey, plaintext string) {
-	if err := s.store.StoreKeySecret(r.Context(), s.sealer, key.ID, plaintext); err != nil {
-		s.log.Warn("could not keep an api key's secret", "id", key.ID, "err", err)
-		return
-	}
-	key.SecretKept = true
 }
 
 // handleKeySecret shows a key's secret again, for its client configs.
@@ -220,7 +209,7 @@ func (s *Admin) keepSecret(r *http.Request, key *store.APIKey, plaintext string)
 // answers 409 secret_not_kept, and the UI offers a new secret instead.
 func (s *Admin) handleKeySecret(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	plaintext, err := s.store.KeySecret(r.Context(), s.sealer, id)
+	plaintext, err := s.store.KeySecret(r.Context(), id)
 	switch {
 	case errors.Is(err, store.ErrKeyNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "no such key")
@@ -260,7 +249,6 @@ func (s *Admin) handleRotateKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not issue a new secret")
 		return
 	}
-	s.keepSecret(r, &key, plaintext)
 	s.log.Warn("api key rotated", "id", key.ID, "name", key.Name, "ip", httpx.ClientIP(r.Context()))
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"key":       s.toKeyJSON(key, store.UsageBucket{}),

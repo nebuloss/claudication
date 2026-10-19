@@ -30,8 +30,7 @@ func TestModelKey(t *testing.T) {
 func TestAccountModelSwitches(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
-	sealer := testSealer(t)
-	a, err := st.UpsertAccount(ctx, sealer, Account{Provider: "anthropic", Email: "a@x", ExpiresAt: time.Now().Add(time.Hour)},
+	a, err := st.UpsertAccount(ctx, Account{Provider: "anthropic", Email: "a@x", ExpiresAt: time.Now().Add(time.Hour)},
 		Tokens{AccessToken: "a", RefreshToken: "r"})
 	if err != nil {
 		t.Fatal(err)

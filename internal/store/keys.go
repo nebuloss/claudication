@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"claudication/internal/secret"
 )
 
 // KeyPrefix marks claudication-issued credentials so they are recognisable in logs
@@ -130,25 +128,8 @@ func hashKey(plaintext string) string {
 // stored: made before migration 026, or the gateway's own.
 var ErrSecretNotKept = errors.New("this key's secret was not kept; issue it a new one")
 
-// StoreKeySecret seals a key's secret beside its hash, so its client configs
-// can be written again later. See migration 026 for why this is safe to keep.
-func (s *Store) StoreKeySecret(ctx context.Context, sealer *secret.Sealer, id, plaintext string) error {
-	sealed, err := sealer.Seal(plaintext)
-	if err != nil {
-		return fmt.Errorf("seal api key: %w", err)
-	}
-	res, err := s.db.ExecContext(ctx, `UPDATE api_keys SET sealed_secret = ? WHERE id = ?`, sealed, id)
-	if err != nil {
-		return fmt.Errorf("store api key secret: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrKeyNotFound
-	}
-	return nil
-}
-
 // KeySecret opens a key's sealed secret.
-func (s *Store) KeySecret(ctx context.Context, sealer *secret.Sealer, id string) (string, error) {
+func (s *Store) KeySecret(ctx context.Context, id string) (string, error) {
 	var sealed []byte
 	err := s.db.QueryRowContext(ctx, `SELECT sealed_secret FROM api_keys WHERE id = ?`, id).Scan(&sealed)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -160,7 +141,7 @@ func (s *Store) KeySecret(ctx context.Context, sealer *secret.Sealer, id string)
 	if len(sealed) == 0 {
 		return "", ErrSecretNotKept
 	}
-	plaintext, err := sealer.Open(sealed)
+	plaintext, err := s.sealer.Open(sealed)
 	if err != nil {
 		return "", fmt.Errorf("open api key secret: %w", err)
 	}
@@ -181,7 +162,7 @@ func (s *Store) KeySecret(ctx context.Context, sealer *secret.Sealer, id string)
 //
 // skip is for the gateway's own key, which nothing authenticates with and
 // whose secret is thrown away by design (see the titles service).
-func (s *Store) ReissueUnkeptKeys(ctx context.Context, sealer *secret.Sealer, skip map[string]bool) ([]string, error) {
+func (s *Store) ReissueUnkeptKeys(ctx context.Context, skip map[string]bool) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name FROM api_keys WHERE sealed_secret IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("list unkept api keys: %w", err)
@@ -209,9 +190,9 @@ func (s *Store) ReissueUnkeptKeys(ctx context.Context, sealer *secret.Sealer, sk
 		if err != nil {
 			return names, err
 		}
-		sealed, err := sealer.Seal(plaintext)
+		sealed, err := s.sealKey(plaintext)
 		if err != nil {
-			return names, fmt.Errorf("seal api key: %w", err)
+			return names, err
 		}
 		if _, err := s.db.ExecContext(ctx,
 			`UPDATE api_keys SET prefix = ?, hash = ?, sealed_secret = ? WHERE id = ? AND sealed_secret IS NULL`,
@@ -221,6 +202,15 @@ func (s *Store) ReissueUnkeptKeys(ctx context.Context, sealer *secret.Sealer, sk
 		names = append(names, u.name)
 	}
 	return names, nil
+}
+
+// sealKey seals a key's secret for sealed_secret.
+func (s *Store) sealKey(plaintext string) ([]byte, error) {
+	sealed, err := s.sealer.Seal(plaintext)
+	if err != nil {
+		return nil, fmt.Errorf("seal api key: %w", err)
+	}
+	return sealed, nil
 }
 
 // newSecret is a fresh credential: its random body, and the plaintext a client
@@ -234,26 +224,27 @@ func newSecret() (body, plaintext string, err error) {
 	return body, KeyPrefix + body, nil
 }
 
-// RotateKey gives a key a new secret and returns its plaintext, once, as
-// CreateKey does. Everything else about the key stays — its id, name, limits,
-// model switches and the usage recorded against it — and the old secret stops
-// authenticating as this returns.
+// RotateKey gives a key a new secret and returns its plaintext, as CreateKey
+// does, kept sealed beside its hash in the same statement. Everything else
+// about the key stays — its id, name, limits, model switches and the usage
+// recorded against it — and the old secret stops authenticating as this
+// returns.
 //
-// It exists because the secret is the one thing about a key that cannot be
-// read back: only its hash is stored. A client config can only be written
-// with a plaintext in hand, so writing one for an existing key means issuing
-// a new secret for it, not deleting the key and losing its settings and
-// history with it.
+// It exists for a secret that has gone somewhere it should not have: the way
+// to withdraw it without deleting the key and losing its settings and history
+// with it.
 func (s *Store) RotateKey(ctx context.Context, id string) (APIKey, string, error) {
 	body, plaintext, err := newSecret()
 	if err != nil {
 		return APIKey{}, "", err
 	}
-	// The old sealed secret goes with the old hash: it no longer authenticates,
-	// so a config written from it would only fail.
+	sealed, err := s.sealKey(plaintext)
+	if err != nil {
+		return APIKey{}, "", err
+	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE api_keys SET prefix = ?, hash = ?, sealed_secret = NULL WHERE id = ?`,
-		body[:prefixLen], hashKey(plaintext), id)
+		`UPDATE api_keys SET prefix = ?, hash = ?, sealed_secret = ? WHERE id = ?`,
+		body[:prefixLen], hashKey(plaintext), sealed, id)
 	if err != nil {
 		return APIKey{}, "", fmt.Errorf("rotate api key: %w", err)
 	}
@@ -267,9 +258,28 @@ func (s *Store) RotateKey(ctx context.Context, id string) (APIKey, string, error
 	return key, plaintext, nil
 }
 
-// CreateKey mints a credential and returns the plaintext exactly once. The
-// caller must show it to the operator immediately; it is unrecoverable after.
+// CreateKey mints a credential and returns its plaintext. The secret is kept
+// sealed beside its hash, in the same INSERT, so the key's Clients page can
+// show it and its client configs again (see migration 026 for why that is
+// safe to keep).
+//
+// In the same statement because a key whose secret was not kept is one the
+// startup reissue (ReissueUnkeptKeys) gives a new secret — which would break
+// the client that was handed this one. Kept as a second call, a failure
+// between the two left exactly that key behind.
 func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (APIKey, string, error) {
+	return s.createKey(ctx, name, limits, true)
+}
+
+// CreateUnkeptKey mints a credential whose secret is not kept: only its hash
+// is stored, and the plaintext returned here is the only copy there will ever
+// be. It is for the gateway's own key, which nothing authenticates with and
+// whose secret is thrown away by design (see the titles service).
+func (s *Store) CreateUnkeptKey(ctx context.Context, name string, limits KeyLimits) (APIKey, string, error) {
+	return s.createKey(ctx, name, limits, false)
+}
+
+func (s *Store) createKey(ctx context.Context, name string, limits KeyLimits, keep bool) (APIKey, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return APIKey{}, "", errors.New("key name must not be empty")
@@ -282,6 +292,12 @@ func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (A
 	if err != nil {
 		return APIKey{}, "", err
 	}
+	var sealed []byte // NULL: not kept
+	if keep {
+		if sealed, err = s.sealKey(plaintext); err != nil {
+			return APIKey{}, "", err
+		}
+	}
 
 	idBytes := make([]byte, 8)
 	if _, err := rand.Read(idBytes); err != nil {
@@ -289,19 +305,21 @@ func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (A
 	}
 
 	key := APIKey{
-		ID:        hex.EncodeToString(idBytes),
-		Name:      name,
-		Prefix:    body[:prefixLen],
-		CreatedAt: time.Now().UTC(),
-		KeyLimits: limits,
+		ID:         hex.EncodeToString(idBytes),
+		Name:       name,
+		Prefix:     body[:prefixLen],
+		CreatedAt:  time.Now().UTC(),
+		KeyLimits:  limits,
+		SecretKept: keep,
 	}
 
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO api_keys (id, name, prefix, hash, created_at, rpm_limit, rate_period_s, token_budget)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO api_keys (id, name, prefix, hash, created_at, rpm_limit, rate_period_s, token_budget,
+		                       sealed_secret)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		key.ID, key.Name, key.Prefix, hashKey(plaintext),
 		key.CreatedAt.Format(time.RFC3339), key.RPMLimit,
-		int64(key.Period().Seconds()), key.TokenBudget,
+		int64(key.Period().Seconds()), key.TokenBudget, sealed,
 	); err != nil {
 		return APIKey{}, "", fmt.Errorf("insert api key: %w", err)
 	}

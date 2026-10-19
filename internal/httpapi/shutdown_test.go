@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"claudication/internal/config"
-	"claudication/internal/secret"
 )
 
 // A drain on the relay must not hold the admin port. With the servers shut
@@ -18,11 +17,7 @@ func TestDrainReleasesAdminPort(t *testing.T) {
 	_, st, cfg := newTestServer(t)
 	cfg.AdminListen = "127.0.0.1:0"
 	cfg.Shutdown.Grace = config.Duration(5 * time.Second)
-	sealer, err := secret.Load(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv, err := New(cfg, slog.New(slog.DiscardHandler), st, sealer)
+	srv, err := New(cfg, slog.New(slog.DiscardHandler), st)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

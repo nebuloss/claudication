@@ -16,7 +16,7 @@ import (
 // gateway is the account you just connected.
 func TestSnapshotIsCompleteWhileWritesContinue(t *testing.T) {
 	dir := t.TempDir()
-	st, err := Open(context.Background(), filepath.Join(dir, "live.db"))
+	st, err := Open(context.Background(), filepath.Join(dir, "live.db"), testSealer(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestSnapshotIsCompleteWhileWritesContinue(t *testing.T) {
 	}
 
 	// And it opens, migrates clean, and holds what was there.
-	restored, err := Open(context.Background(), snap)
+	restored, err := Open(context.Background(), snap, testSealer(t))
 	if err != nil {
 		t.Fatalf("the snapshot will not open: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestSnapshotIsCompleteWhileWritesContinue(t *testing.T) {
 // silently replaces yesterday's is not a backup.
 func TestSnapshotWillNotOverwrite(t *testing.T) {
 	dir := t.TempDir()
-	st, err := Open(context.Background(), filepath.Join(dir, "live.db"))
+	st, err := Open(context.Background(), filepath.Join(dir, "live.db"), testSealer(t))
 	if err != nil {
 		t.Fatal(err)
 	}

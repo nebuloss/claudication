@@ -13,7 +13,7 @@ import (
 // peak for ever — so lowering retention-days to recover disk recovers nothing.
 func TestPruningReclaimsDiskSpace(t *testing.T) {
 	dir := t.TempDir()
-	st, err := Open(context.Background(), filepath.Join(dir, "usage.db"))
+	st, err := Open(context.Background(), filepath.Join(dir, "usage.db"), testSealer(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestPruningReclaimsDiskSpace(t *testing.T) {
 // configured, and must be safe to run on one that needs nothing.
 func TestVacuumIsSafeOnACompactDatabase(t *testing.T) {
 	dir := t.TempDir()
-	st, err := Open(context.Background(), filepath.Join(dir, "compact.db"))
+	st, err := Open(context.Background(), filepath.Join(dir, "compact.db"), testSealer(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

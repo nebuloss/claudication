@@ -10,7 +10,7 @@ import (
 func pagingFixture(t *testing.T, n int) (*Store, time.Time) {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := Open(context.Background(), filepath.Join(dir, "paging.db"))
+	st, err := Open(context.Background(), filepath.Join(dir, "paging.db"), testSealer(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestNewRowsDoNotDisturbAPageBoundary(t *testing.T) {
 // is why the cursor carries the row id and not just the time.
 func TestPagingWithIdenticalTimestamps(t *testing.T) {
 	dir := t.TempDir()
-	st, err := Open(context.Background(), filepath.Join(dir, "ties.db"))
+	st, err := Open(context.Background(), filepath.Join(dir, "ties.db"), testSealer(t))
 	if err != nil {
 		t.Fatal(err)
 	}

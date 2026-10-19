@@ -75,7 +75,7 @@ func (s *fakeStore) SetSetting(_ context.Context, key, value string) error {
 	return nil
 }
 
-func (s *fakeStore) CreateKey(_ context.Context, name string, limits store.KeyLimits) (store.APIKey, string, error) {
+func (s *fakeStore) CreateUnkeptKey(_ context.Context, name string, limits store.KeyLimits) (store.APIKey, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.createErr != nil {

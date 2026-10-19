@@ -8,7 +8,7 @@ import (
 
 func TestSettingsDistinguishUnsetFromEmpty(t *testing.T) {
 	ctx := context.Background()
-	st, err := Open(ctx, filepath.Join(t.TempDir(), "settings.db"))
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "settings.db"), testSealer(t))
 	if err != nil {
 		t.Fatal(err)
 	}
