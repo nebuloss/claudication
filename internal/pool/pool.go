@@ -258,9 +258,7 @@ func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[
 		return Lease{}, ErrAllCoolingUp
 	}
 
-	// Refresh slightly ahead of expiry so a request never rides a token that
-	// dies mid-flight.
-	if p.now().Add(2 * time.Minute).After(chosen.ExpiresAt) {
+	if p.refreshDue(chosen) {
 		if err := p.Refresh(ctx, chosen.ID); err != nil {
 			p.ReportFailure(chosen.ID, FailureAuth, err.Error())
 			return Lease{}, fmt.Errorf("refresh %s: %w", chosen.Email, err)
@@ -334,6 +332,16 @@ func (p *Pool) pick(candidates []store.Account) (store.Account, bool) {
 	return best, found
 }
 
+// refreshAhead is how long before its expiry a token is refreshed, so a
+// request never rides a token that dies mid-flight.
+const refreshAhead = 2 * time.Minute
+
+// refreshDue reports whether an account's token is at or near expiry. One
+// rule for the lease and the status poll, which each spelled it out.
+func (p *Pool) refreshDue(a store.Account) bool {
+	return p.now().Add(refreshAhead).After(a.ExpiresAt)
+}
+
 // outOfRoom reports whether the upstream has said this account cannot serve.
 func outOfRoom(a store.Account) bool {
 	if !a.Quota.Allowed() {
@@ -350,7 +358,7 @@ func (p *Pool) AccessToken(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if p.now().Add(2 * time.Minute).After(a.ExpiresAt) {
+	if p.refreshDue(a) {
 		if err := p.Refresh(ctx, id); err != nil {
 			return "", err
 		}
