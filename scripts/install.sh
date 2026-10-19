@@ -764,22 +764,24 @@ ensure_dirs() {
 # claims it. On a headless box nobody is watching that window, so close it here
 # and hand the password back once.
 #
-# Runs on updates too, and leaves an existing account alone: login-url succeeds
-# only when there is already an admin to mint a link for.
+# Runs on updates too, and leaves an existing account alone. passwd --if-unset
+# decides that in the same command that would set the password: probing first
+# and setting one when the probe failed read every failure on the way — a slow
+# upgrade, a locked database — as "nobody has claimed it", and replaced the
+# operator's password.
 claim_gateway() {
   [ "$SET_PASSWORD" = "1" ] || return 0
 
-  if run_as_service "CLAUDICATION_STATE_DIR='$STATE_DIR' '$BINARY' login-url" >/dev/null 2>&1; then
-    return 0
-  fi
-
   ADMIN_PASSWORD="$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-  if printf '%s\n' "$ADMIN_PASSWORD" |
-       run_as_service "CLAUDICATION_STATE_DIR='$STATE_DIR' '$BINARY' passwd" >/dev/null 2>&1; then
-    info "Admin password set"
+  if claimed="$(printf '%s\n' "$ADMIN_PASSWORD" |
+       run_as_service "CLAUDICATION_STATE_DIR='$STATE_DIR' '$BINARY' passwd --if-unset" 2>/dev/null)"; then
+    case "$claimed" in
+      "Admin password set"*) info "Admin password set" ;;
+      *) ADMIN_PASSWORD="" ;;
+    esac
   else
     ADMIN_PASSWORD=""
-    warn "could not set an admin password — claim the gateway yourself before anyone else does"
+    warn "could not check the admin password — if this gateway is new, claim it yourself before anyone else does"
   fi
 }
 

@@ -185,6 +185,9 @@ func cmdServe(args []string) error {
 	defer st.Close()
 
 	log := logging.New(cfg.Log.Level, cfg.Log.Format)
+	if err := st.CompactErr(); err != nil {
+		log.Warn("database not compacted", "err", err)
+	}
 
 	// Before anything allocates in earnest. Validated by config.Load already.
 	limit, _ := memlimit.ParseSize(cfg.MemoryLimit)
@@ -350,9 +353,16 @@ func humanBytes(n int64) string {
 // old password: whoever can run this can already read the database it protects,
 // so demanding the forgotten password would lock out the one person the
 // account belongs to while stopping nobody.
+//
+// --if-unset is for the installer, which runs on updates too: it claims a
+// gateway nobody has claimed and leaves an existing password alone, deciding
+// both in the one command. Asking another command "is there an admin?" first
+// and setting a password when that failed overwrote the operator's password
+// whenever the first command failed for any other reason.
 func cmdPasswd(args []string) error {
 	fs := flag.NewFlagSet("passwd", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to config.yaml (optional)")
+	ifUnset := fs.Bool("if-unset", false, "set the password only if none is set yet")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -369,6 +379,10 @@ func cmdPasswd(args []string) error {
 	existed, err := st.AdminExists(ctx)
 	if err != nil {
 		return err
+	}
+	if existed && *ifUnset {
+		fmt.Println("An admin password is already set; left as it is.")
+		return nil
 	}
 
 	password, err := readPassword("New admin password: ")
