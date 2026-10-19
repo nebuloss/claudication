@@ -81,7 +81,9 @@ export function monthYear(iso: string | undefined): string {
 /** "3 minutes ago", give or take, for something that happened. */
 export function ago(iso: string | undefined): string {
   if (iso === undefined || iso === '') return 'never'
-  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
+  const d = parse(iso)
+  if (d === null) return ''
+  const seconds = Math.max(0, (Date.now() - d.getTime()) / 1000)
   if (seconds < 60) return 'just now'
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
