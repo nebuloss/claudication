@@ -555,3 +555,34 @@ func TestWindowLabels(t *testing.T) {
 		}
 	}
 }
+
+// A response.completed line longer than anything held — a turn that wrote a
+// large file repeats it there — still gives up its usage, wherever in the
+// line the usage object sits, and fed in pieces that split its key.
+func TestMeterFindsTheUsageInAHugeLine(t *testing.T) {
+	usage := `"usage":{"input_tokens":1000,"input_tokens_details":{"cached_tokens":600},` +
+		`"output_tokens":4000,"output_tokens_details":{"reasoning_tokens":7}}`
+	huge := `"output":[{"type":"message","content":[{"type":"output_text","text":"` +
+		strings.Repeat("x", 9<<20) + `"}]}]`
+	for name, payload := range map[string]string{
+		"usage last":  `{"response":{"id":"r",` + huge + `,` + usage + `}}`,
+		"usage first": `{"response":{"id":"r",` + usage + `,` + huge + `}}`,
+	} {
+		var u provider.Usage
+		var streamErr string
+		m := Provider{}.Meter("text/event-stream", provider.Reading{Usage: &u, StreamError: &streamErr})
+		stream := "event: response.completed\ndata: " + payload + "\n\n"
+		for len(stream) > 0 {
+			n := min(65531, len(stream)) // odd, so the key is split somewhere
+			m.Feed([]byte(stream[:n]))
+			stream = stream[n:]
+		}
+		m.Done()
+		if u.InputTokens != 400 || u.CacheReadTokens != 600 || u.OutputTokens != 4000 || u.ReasoningTokens != 7 {
+			t.Errorf("%s: usage = %+v", name, u)
+		}
+		if streamErr != "" {
+			t.Errorf("%s: stream error %q", name, streamErr)
+		}
+	}
+}

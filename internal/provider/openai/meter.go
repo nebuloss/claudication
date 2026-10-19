@@ -58,10 +58,23 @@ func (u usageJSON) applyTo(dst *provider.Usage) {
 	dst.ReasoningTokens = u.OutputTokensDetails.ReasoningTokens
 }
 
-// maxPending bounds the bytes held while waiting for a newline. Larger than
-// Anthropic's: response.completed repeats the whole response, every output
-// item included, on one data line.
-const maxPending = 8 << 20
+// maxPending bounds the bytes held while waiting for a newline.
+//
+// A line can be far longer: response.completed repeats the whole response,
+// every output item included, on one data line, and a turn that wrote a large
+// file makes it megabytes. Such a line is not held. It is read as it passes
+// for the one thing wanted from it, the usage object, with only that object
+// kept (see cut), so a long answer is recorded with its tokens rather than as
+// none, and the meter's memory does not grow with the answer.
+const maxPending = 1 << 20
+
+// maxCapture bounds what is kept of a cut line from its usage key on. The
+// usage object is a few hundred bytes, its attribution block a few
+// kilobytes per item; this is slack.
+const maxCapture = 256 << 10
+
+// usageKey starts the usage object in a terminal event.
+var usageKey = []byte(`"usage":{`)
 
 // sseScanner reads a relayed Responses stream for its usage and for a failure
 // reported inside it, without touching the bytes on their way to the client.
@@ -72,11 +85,19 @@ const maxPending = 8 << 20
 // would record as a success — the same reason Anthropic's meter exists.
 type sseScanner struct {
 	buf          []byte
-	start        int
 	event        string
 	into         provider.Reading
 	stopped      bool
 	firstContent bool
+
+	// A line past maxPending, being read as it passes: cut is that one is,
+	// wanted that it is a terminal event's data whose usage is worth
+	// finding, capture the bytes from its last usage key on, carry the tail
+	// of the last chunk, for a key split across two.
+	cut     bool
+	wanted  bool
+	capture []byte
+	carry   []byte
 }
 
 func newSSEScanner(into provider.Reading) *sseScanner {
@@ -84,27 +105,89 @@ func newSSEScanner(into provider.Reading) *sseScanner {
 }
 
 // Feed implements provider.Meter.
+//
+// Only a partial line is ever copied: a chunk's complete lines are read where
+// they are, so a line is copied at most once however many chunks it came in.
 func (s *sseScanner) Feed(chunk []byte) {
-	if s.stopped {
-		return
-	}
-	if s.start > 0 {
-		s.buf = append(s.buf[:0], s.buf[s.start:]...)
-		s.start = 0
-	}
-	if len(s.buf)+len(chunk) > maxPending {
-		s.buf = s.buf[:0]
-	}
-	s.buf = append(s.buf, chunk...)
-	for {
-		i := bytes.IndexByte(s.buf[s.start:], '\n')
+	for len(chunk) > 0 && !s.stopped {
+		i := bytes.IndexByte(chunk, '\n')
+		if s.cut {
+			if i < 0 {
+				s.cutFeed(chunk)
+				return
+			}
+			s.cutFeed(chunk[:i])
+			s.cutDone()
+			chunk = chunk[i+1:]
+			continue
+		}
 		if i < 0 {
+			if len(s.buf)+len(chunk) > maxPending {
+				s.startCut(chunk)
+				return
+			}
+			s.buf = append(s.buf, chunk...)
 			return
 		}
-		line := s.buf[s.start : s.start+i]
-		s.start += i + 1
+		line := chunk[:i]
+		if len(s.buf) > 0 {
+			s.buf = append(s.buf, line...)
+			line = s.buf
+		}
 		s.line(bytes.TrimSuffix(line, []byte("\r")))
+		s.buf = s.buf[:0]
+		chunk = chunk[i+1:]
 	}
+}
+
+// startCut stops holding a line that has grown past maxPending and reads the
+// rest of it as it passes.
+func (s *sseScanner) startCut(chunk []byte) {
+	pending := append(s.buf, chunk...)
+	s.cut = true
+	s.wanted = s.event != "" && bytes.HasPrefix(pending, []byte("data:"))
+	s.capture, s.carry = nil, nil
+	// The held bytes go now; nothing of them is kept but what cutFeed finds.
+	s.buf = nil
+	s.cutFeed(pending)
+}
+
+// cutFeed reads part of a cut line, keeping the bytes from the last usage key
+// it has seen on, up to maxCapture.
+func (s *sseScanner) cutFeed(b []byte) {
+	if !s.wanted {
+		return
+	}
+	data := append(s.carry, b...)
+	if i := bytes.LastIndex(data, usageKey); i >= 0 {
+		s.capture = append(s.capture[:0], data[i+len(usageKey)-1:]...)
+	} else if s.capture != nil {
+		s.capture = append(s.capture, b...)
+	}
+	if len(s.capture) > maxCapture {
+		s.capture = s.capture[:maxCapture]
+	}
+	keep := min(len(usageKey)-1, len(data))
+	s.carry = append(s.carry[:0], data[len(data)-keep:]...)
+}
+
+// cutDone ends a cut line: its usage, read from what was kept, and — for a
+// failure — the failure, without the message that was not kept.
+func (s *sseScanner) cutDone() {
+	if s.wanted && s.capture != nil && s.into.Usage != nil {
+		var u usageJSON
+		if json.NewDecoder(bytes.NewReader(s.capture)).Decode(&u) == nil {
+			u.applyTo(s.into.Usage)
+		}
+	}
+	switch {
+	case !s.wanted:
+	case s.event == evFailed, s.event == evError:
+		s.fail("response_failed", "the response failed; its message was too long to keep")
+	case s.event == evIncomplete:
+		s.fail("incomplete", "the response ended early")
+	}
+	s.cut, s.wanted, s.capture, s.carry = false, false, nil, nil
 }
 
 // Done implements provider.Meter.
