@@ -4,13 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Working on claudication
 
-A gateway that proxies Claude subscription accounts over OAuth, with an
-embedded admin UI. Go, no CGO; the UI is built into the binary with
+A gateway that proxies Claude and ChatGPT subscription accounts over OAuth,
+with an embedded admin UI. Go, no CGO; the UI is built into the binary with
 `go:embed`.
 
 It serves two client-facing APIs — Anthropic Messages and OpenAI Responses,
-which is what Codex CLI speaks — and speaks only Anthropic upstream. Both can
-be switched on and off at runtime from Settings.
+which is what Codex CLI speaks — and has two upstreams: Anthropic, and
+ChatGPT's Codex backend. Both APIs can be switched on and off at runtime from
+Settings.
+
+A request goes to the provider whose accounts serve the model it names, after
+its alias is resolved (`go doc ./internal/service/models`, route.go). Responses
+reaches ChatGPT as it came and Claude translated; Messages reaches Claude only,
+and is refused a ChatGPT-served model rather than translated.
 
 ## Where code goes
 
@@ -28,11 +34,15 @@ one needs from another.
 ## Read these before changing the relay
 
 1. `go doc ./internal/relay/passes` — the rule the relay follows, its seven
-   exceptions, and why each exists. `go doc ./internal/relay` is the relay
-   itself: accounts, retries, streaming, the stall retry. `go doc
-   ./internal/provider` is the line between it and Anthropic, and
-   `internal/provider/anthropic` the only place Anthropic's URLs, headers,
-   event names and error shapes appear.
+   exceptions, and why each exists; `passes.OpenAI` is the ChatGPT wire's
+   pipeline, which runs one of them. `go doc ./internal/relay` is the relay
+   itself: accounts, retries, streaming, the stall retry. There is one relay
+   per provider. `go doc ./internal/provider` is the line between the relay
+   and the upstreams — `Wire` for the relay, `Accounts` for the pool, the
+   poller and the admin API — and `internal/provider/anthropic` and
+   `internal/provider/openai` the only places each one's URLs, headers, event
+   names and error shapes appear. `go doc ./internal/provider/openai` is the
+   measurement record for the ChatGPT backend.
 2. [`docs/`](docs/) — `refused-requests.md` first: every refusal with the
    measurements behind it. Then `upstream-request-pipeline.md` for what the
    official client sends, and `reversing.md` for how to check any of it.
@@ -67,8 +77,8 @@ an eighth on a hunch — see below.
 
 ## When a request fails for no visible reason
 
-The subscription backend refuses some requests on their *content* and answers
-with a message about billing that names nothing:
+Anthropic's subscription backend refuses some requests on their *content* and
+answers with a message about billing that names nothing:
 
     Third-party apps now draw from your extra usage, not your plan limits.
 
@@ -110,9 +120,9 @@ API is a script under `scripts/`, run by hand, and says so.
 ## Conventions
 
 - Comments say *why*, and record what was measured. The measurement tables in
-  `internal/relay/passes`, `internal/relay` and `internal/provider/anthropic`
-  are the reason nobody has to reverse the client again; keep them accurate or
-  delete them, but do not let them drift.
+  `internal/relay/passes`, `internal/relay`, `internal/provider/anthropic` and
+  `internal/provider/openai` are the reason nobody has to reverse the client
+  again; keep them accurate or delete them, but do not let them drift.
 - Commit messages are imperative and explain the reasoning, not the diff.
   Commits are authored by the repository owner and carry no co-author or
   generated-by trailers.
