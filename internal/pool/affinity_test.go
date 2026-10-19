@@ -139,3 +139,21 @@ func TestNoteQuotaStoresTheWindowsByLength(t *testing.T) {
 		t.Errorf("limited quota reads as allowed: %+v", a.Quota)
 	}
 }
+
+// A report with no windows — a refusal that carried none of its headers —
+// leaves the figures known as they were, rather than reading as every window
+// unknown and closed.
+func TestNoteQuotaWithoutWindowsKeepsTheFigures(t *testing.T) {
+	p, st := fixture(t)
+	id := connectAs(t, p, "openai", "a@example.com")
+	p.NoteQuota(id, provider.Quota{Windows: []provider.Window{{Seconds: 18000, UsedPercent: 40}, {Seconds: 604800, UsedPercent: 9}}})
+	p.quotaSeen = map[string]quotaNote{}
+	p.NoteQuota(id, provider.Quota{Limited: true})
+	a, err := st.Account(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Quota.FiveHourUtil != 40 || a.Quota.SevenDayUtil != 9 || !a.Quota.Allowed() {
+		t.Errorf("quota after an empty report = %+v", a.Quota)
+	}
+}

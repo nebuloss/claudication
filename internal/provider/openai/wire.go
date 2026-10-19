@@ -123,12 +123,14 @@ func (Provider) Inspect(status int, h http.Header, body []byte) provider.Verdict
 	switch e.kind() {
 	case "usage_limit_reached":
 		// The plan's own limit, with its reset: sit the account out until
-		// then rather than for a minute's backoff, and say it is out.
+		// then rather than for a minute's backoff. That is what keeps it out
+		// of rotation. The windows are marked closed only when the answer
+		// carried them: a refusal without its headers says nothing about the
+		// figures, and a quota of no windows would wipe the ones known.
 		v.Until = e.resetsAt()
-		if v.Quota == nil {
-			v.Quota = &provider.Quota{}
+		if v.Quota != nil {
+			v.Quota.Limited = true
 		}
-		v.Quota.Limited = true
 	case "usage_not_included":
 		// The plan does not include Codex at all. Not a rate limit to wait
 		// out: another account may have a plan that does, and this one will

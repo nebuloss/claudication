@@ -43,7 +43,13 @@ const quotaWriteEvery = 15 * time.Second
 //
 // Written at once when it changes whether the account can serve — that is
 // what routing reads — and otherwise at most every quotaWriteEvery.
+//
+// A report of no windows is nothing to record — the store would read it as
+// every window unknown — and is dropped.
 func (p *Pool) NoteQuota(id string, q provider.Quota) {
+	if len(q.Windows) == 0 {
+		return
+	}
 	stored := StoredQuota(q)
 	p.mu.Lock()
 	last, seen := p.quotaSeen[id]

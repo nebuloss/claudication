@@ -253,9 +253,16 @@ func TestInspectReadsTheWindowsOffTheHeaders(t *testing.T) {
 func TestInspectReadsTheRefusal(t *testing.T) {
 	limit := []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached",` +
 		`"plan_type":"plus","resets_at":1792446828,"limit_window_minutes":300}}`)
+	// Without the windows' headers: the reset alone, and no quota to write
+	// over the figures already known.
 	v := Provider{}.Inspect(http.StatusTooManyRequests, http.Header{}, limit)
-	if !v.Until.Equal(time.Unix(1792446828, 0)) || v.Quota == nil || !v.Quota.Limited {
-		t.Errorf("usage_limit_reached = %+v", v)
+	if !v.Until.Equal(time.Unix(1792446828, 0)) || v.Quota != nil {
+		t.Errorf("usage_limit_reached without headers = %+v", v)
+	}
+	// With them: the windows, closed.
+	v = Provider{}.Inspect(http.StatusTooManyRequests, fixture(t, "baseline.json").header(), limit)
+	if v.Quota == nil || len(v.Quota.Windows) != 2 || !v.Quota.Limited {
+		t.Errorf("usage_limit_reached with headers = %+v", v.Quota)
 	}
 	if ErrorCode(429, string(limit)) != "usage_limit_reached" {
 		t.Errorf("ErrorCode = %q", ErrorCode(429, string(limit)))
