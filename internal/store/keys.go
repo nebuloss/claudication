@@ -380,10 +380,14 @@ func (s *Store) Key(ctx context.Context, id string) (APIKey, error) {
 	return key, nil
 }
 
-// TouchKey records last use. Best-effort: a failure here must never fail the
-// request it belongs to.
+// TouchKey records last use, at most once a minute per key (see lastUse).
+// Best-effort: a failure here must never fail the request it belongs to.
 func (s *Store) TouchKey(ctx context.Context, id string) {
-	_, _ = s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, ms(time.Now()), id)
+	now := time.Now()
+	if !s.keysUsed.due(id, now) {
+		return
+	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, ms(now), id)
 }
 
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
@@ -451,5 +455,6 @@ func (s *Store) DeleteKey(ctx context.Context, id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrKeyNotFound
 	}
+	s.keysUsed.forget(id)
 	return nil
 }

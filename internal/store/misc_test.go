@@ -78,6 +78,40 @@ func TestKeyPeriodDefault(t *testing.T) {
 }
 
 // Last use is how an operator spots a key nothing uses any more.
+// Last use is written once a minute per id, and an error marked in between
+// lets the next success through at once, since that write is what clears it.
+func TestLastUseIsWrittenOnceAMinute(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	key, _, err := st.CreateKey(ctx, "k", KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.TouchKey(ctx, key.ID)
+	if _, err := st.db.Exec(`UPDATE api_keys SET last_used_at = 1000 WHERE id = ?`, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	st.TouchKey(ctx, key.ID) // within the minute: not written
+	if got, _ := st.Key(ctx, key.ID); got.LastUsedAt == nil || got.LastUsedAt.UnixMilli() != 1000 {
+		t.Errorf("a second touch inside the minute wrote %v", got.LastUsedAt)
+	}
+
+	a := addAccount(t, st, "a@example.com")
+	st.MarkAccountUsed(ctx, a.ID)
+	st.MarkAccountError(ctx, a.ID, "boom")
+	st.MarkAccountUsed(ctx, a.ID)
+	if got, _ := st.Account(ctx, a.ID); got.LastError != "" {
+		t.Errorf("a success after an error left the error %q", got.LastError)
+	}
+	if _, err := st.db.Exec(`UPDATE accounts SET last_used_at = 1000 WHERE id = ?`, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	st.MarkAccountUsed(ctx, a.ID)
+	if got, _ := st.Account(ctx, a.ID); got.LastUsedAt == nil || got.LastUsedAt.UnixMilli() != 1000 {
+		t.Errorf("a second success inside the minute wrote %v", got.LastUsedAt)
+	}
+}
+
 func TestTouchKeyRecordsLastUse(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)

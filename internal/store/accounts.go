@@ -459,14 +459,27 @@ func (s *Store) RenewAccount(ctx context.Context, id string, acct Account, tok T
 	return s.Account(ctx, id)
 }
 
+// MarkAccountError records why the account last failed.
+//
+// It lets the next MarkAccountUsed write at once, whatever its once-a-minute
+// limit says: that write is what clears the error, and an account that has
+// recovered must not show a failure for up to a minute more.
 func (s *Store) MarkAccountError(ctx context.Context, id, msg string) {
 	_, _ = s.db.ExecContext(ctx, `UPDATE accounts SET last_error = ? WHERE id = ?`,
 		strings.TrimSpace(msg), id)
+	s.accountsUsed.forget(id)
 }
 
+// MarkAccountUsed records a success: when, and that there is no error any
+// more. At most once a minute per account (see lastUse), unless an error was
+// marked since.
 func (s *Store) MarkAccountUsed(ctx context.Context, id string) {
+	now := time.Now()
+	if !s.accountsUsed.due(id, now) {
+		return
+	}
 	_, _ = s.db.ExecContext(ctx, `UPDATE accounts SET last_used_at = ?, last_error = '' WHERE id = ?`,
-		ms(time.Now()), id)
+		ms(now), id)
 }
 
 // MarkRefreshDead records that the refresh token was refused for good.
@@ -481,6 +494,7 @@ func (s *Store) MarkRefreshDead(ctx context.Context, id, detail string) error {
 	if err != nil {
 		return fmt.Errorf("mark refresh dead: %w", err)
 	}
+	s.accountsUsed.forget(id) // it set last_error, as MarkAccountError does
 	return nil
 }
 
@@ -521,5 +535,6 @@ func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrAccountNotFound
 	}
+	s.accountsUsed.forget(id)
 	return nil
 }

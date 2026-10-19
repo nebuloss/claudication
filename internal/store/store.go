@@ -33,6 +33,9 @@ type Store struct {
 	// forget a step — keeping a new key's secret was a second call each place
 	// a key was made.
 	sealer *secret.Sealer
+	// keysUsed and accountsUsed hold TouchKey and MarkAccountUsed to one
+	// write a minute per id; see lastUse.
+	keysUsed, accountsUsed lastUse
 }
 
 // Open connects to the database at path and brings the schema up to date.
