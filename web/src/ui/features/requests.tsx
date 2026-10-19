@@ -20,10 +20,10 @@ import {
   type Column,
   TonalButton,
   Verbatim,
-  compact,
   copyText,
   menuItem,
 } from '../primitives'
+import { compact, millis, sameDayStamp } from '../format'
 import { useLive } from '../hooks'
 import { pathOf } from '../route'
 import { Runs } from '../runs'
@@ -592,7 +592,7 @@ function RecentRequests({
                 title={r.at}
                 className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant"
               >
-                {stamp(r.at)}
+                {sameDayStamp(r.at, 'second')}
               </td>
               {/* Clickable for the same reason the address is: the model is
                   right there in the row you are reading, and hunting for it
@@ -706,7 +706,7 @@ function RecentRequests({
                     long answer from one that sat silent before starting. */}
                 {r.first_token_ms !== undefined && (
                   <div className="text-[11px] text-on-surface-variant" title="Time to first token">
-                    first {firstToken(r.first_token_ms)}
+                    first {millis(r.first_token_ms)}
                   </div>
                 )}
               </td>
@@ -836,7 +836,7 @@ function RequestLog({ row, onClose }: { row: RequestRow; onClose: () => void }) 
             ['Path', <Mono>{row.path}</Mono>],
             ['Tokens', tokens],
             ['Duration', `${row.duration_ms}ms`],
-            ['First token', row.first_token_ms === undefined ? '—' : firstToken(row.first_token_ms)],
+            ['First token', row.first_token_ms === undefined ? '—' : millis(row.first_token_ms)],
           ]}
         />
 
@@ -894,30 +894,6 @@ function CopyButton({ label, value }: { label: string; value: string }) {
       <TonalButton onClick={() => void copy()}>{state === 'done' ? 'Copied' : label}</TonalButton>
     </span>
   )
-}
-
-/**
- * An absolute local timestamp, seconds kept.
- *
- * "3m ago" reads well until the moment it matters, which is lining a request
- * up against something outside this page — an upstream request_id, a service
- * log, whoever reported the error. Then it is the one thing that cannot be
- * matched. Seconds stay because a retry storm puts a dozen rows in one minute.
- *
- * The date is dropped for today's rows, which is nearly all of them at a
- * fortnight's retention, and the full instant is on the row's title either way.
- */
-function stamp(iso: string): string {
-  const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return iso
-  const time = at.toLocaleTimeString(undefined, { hour12: false })
-  const now = new Date()
-  const today =
-    at.getFullYear() === now.getFullYear() &&
-    at.getMonth() === now.getMonth() &&
-    at.getDate() === now.getDate()
-  if (today) return time
-  return `${at.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })} ${time}`
 }
 
 /** The row as something worth pasting somewhere else. */
@@ -994,11 +970,6 @@ function sortRows(rows: RequestRow[], sort: Sort): RequestRow[] {
 
 function dash(v: string | undefined): string {
   return v === undefined || v === '' ? '—' : v
-}
-
-/** Time to first token, in seconds once it is long enough to matter. */
-function firstToken(ms: number): string {
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
 function statusTone(r: RequestRow): 'ok' | 'warn' | 'error' {

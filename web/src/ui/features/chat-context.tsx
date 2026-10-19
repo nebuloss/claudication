@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { api, type ChatContext, type ChatDetail, type RequestRow } from '../../api/client'
 import { HoverValues, LineChart, tipPosition, type LineSeries, Line } from '../charts'
 import { useLoader } from '../hooks'
-import { ErrorState, Spinner, compact } from '../primitives'
+import { ErrorState, Spinner } from '../primitives'
+import { compact, timeOfDay } from '../format'
 
 /** The request the gateway makes on its own behalf; see store.InternalPath. */
 const INTERNAL_PATH = '/internal/title'
@@ -15,13 +16,6 @@ type Point = { at: string; prompt: number }
 /** A request's context, by the rule the server counts with: everything in the prompt. */
 function prompt(r: RequestRow): number {
   return r.input_tokens + r.cache_tokens
-}
-
-function clock(at: string): string {
-  const d = new Date(at)
-  return Number.isNaN(d.getTime())
-    ? at
-    : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
 /**
@@ -94,7 +88,7 @@ export default function ChatContextDetail({
         <LineChart
           data={points}
           series={series}
-          label={(p) => clock(p.at)}
+          label={(p) => timeOfDay(p.at)}
           format={compact}
           log={false}
           height={200}

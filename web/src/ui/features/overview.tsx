@@ -16,10 +16,9 @@ import {
   Freshness,
   Spinner,
   Stat,
-  compact,
-  duration,
   UsageBar,
 } from '../primitives'
+import { compact, duration, mib } from '../format'
 
 /**
  * How often the status figures re-read themselves.
@@ -85,12 +84,6 @@ function MemoryCard({ memory }: { memory: MemorySnapshot }) {
       </div>
     </Card>
   )
-}
-
-/** Bytes as MiB, the unit memory limits are set in. */
-function mib(bytes: number): string {
-  const v = bytes / (1 << 20)
-  return v >= 100 ? `${Math.round(v)} MiB` : `${v.toFixed(1)} MiB`
 }
 
 /** How many days of history the chart can show. */

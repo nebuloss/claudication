@@ -3,6 +3,7 @@ import { ConsentFlow } from './add-account'
 import AccountModels from './account-models'
 import { useAction } from '../hooks'
 import { api, type Account, type ProbeResult } from '../../api/client'
+import { dateTime, relative } from '../format'
 import {
   Banner,
   Note,
@@ -15,47 +16,10 @@ import {
   TonalButton,
   Verbatim,
   tile,
-  type Tone,
   useConfirm,
 } from '../primitives'
 
 type Busy = 'test' | 'refresh' | 'disable'
-
-export function formatDate(iso?: string): string {
-  if (!iso) return 'never'
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
-}
-
-/** "in 7h", "12m ago" — enough to judge a token at a glance. */
-export function relative(iso: string): string {
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return 'unknown'
-  const delta = then - Date.now()
-  const mins = Math.round(Math.abs(delta) / 60000)
-  const text = mins < 60 ? `${mins}m` : mins < 1440 ? `${Math.round(mins / 60)}h` : `${Math.round(mins / 1440)}d`
-  return delta < 0 ? `${text} ago` : `in ${text}`
-}
-
-export function status(a: Account): { tone: Tone; label: string } {
-  if (a.disabled) return { tone: 'error', label: 'disabled' }
-  // Terminal, and the only state a human has to act on: nothing the gateway
-  // does brings a refused refresh token back.
-  if (a.needs_reauth === true) return { tone: 'error', label: 'reconnect this account' }
-  // Cooling down comes first among the recoverable states, because it is the
-  // only one that answers "why is this account not being used right now" —
-  // and it is the one the card could not show at all until the pool started
-  // reporting it.
-  if (a.cooling_until !== undefined && a.cooling_until !== '') {
-    return { tone: 'warn', label: `cooling down, back ${relative(a.cooling_until)}` }
-  }
-  // A subscription window the upstream is refusing outranks a stale token:
-  // refreshing fixes one and does nothing at all for the other.
-  if (a.quota !== undefined && !a.quota.allowed) return { tone: 'error', label: 'limit reached' }
-  if (a.expired) return { tone: 'warn', label: 'token expired' }
-  if (a.last_error) return { tone: 'warn', label: 'last call failed' }
-  return { tone: 'ok', label: 'ready' }
-}
 
 /**
  * An account's settings: everything that changes it, a page per section
@@ -122,10 +86,10 @@ export default function AccountSettings({
       <Card>
         <KeyValue
           items={[
-            ['Token expires', `${formatDate(account.expires_at)} (${relative(account.expires_at)})`],
-            ['Refreshed', formatDate(account.last_refresh_at)],
-            ['Last used', formatDate(account.last_used_at)],
-            ['Connected', formatDate(account.created_at)],
+            ['Token expires', `${dateTime(account.expires_at)} (${relative(account.expires_at)})`],
+            ['Refreshed', dateTime(account.last_refresh_at)],
+            ['Last used', dateTime(account.last_used_at)],
+            ['Connected', dateTime(account.created_at)],
           ]}
         />
 

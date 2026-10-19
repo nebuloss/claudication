@@ -19,9 +19,9 @@ import {
   Segmented,
   Spinner,
   Table,
-  compact,
   type Column,
 } from '../primitives'
+import { between, compact, sameDayStamp } from '../format'
 
 /**
  * Usage, per conversation.
@@ -92,29 +92,6 @@ function useModelPalette(chats: Chat[]): Palette {
     }
     return new Palette(names)
   }, [chats])
-}
-
-/** A span in the units someone reads off a clock, not milliseconds. */
-function span(first: string, last: string): string {
-  const ms = new Date(last).getTime() - new Date(first).getTime()
-  if (!Number.isFinite(ms) || ms < 0) return '—'
-  const mins = Math.round(ms / 60000)
-  if (mins < 1) return '<1m'
-  if (mins < 60) return `${mins}m`
-  const h = Math.floor(mins / 60)
-  return `${h}h ${mins % 60}m`
-}
-
-function started(at: string): string {
-  const d = new Date(at)
-  if (Number.isNaN(d.getTime())) return '—'
-  const today = new Date()
-  const sameDay =
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate()
-  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-  return sameDay ? time : `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${time}`
 }
 
 /**
@@ -439,10 +416,10 @@ export default function ChatsPanel({
                 title={c.first}
                 className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant"
               >
-                {started(c.first)}
+                {sameDayStamp(c.first, 'minute', '—')}
               </td>
               <td className="px-2 py-2 tabular-nums whitespace-nowrap text-on-surface-variant">
-                {span(c.first, c.last)}
+                {between(c.first, c.last)}
               </td>
             </tr>
             {open === c.id && (

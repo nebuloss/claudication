@@ -1352,41 +1352,6 @@ export function Table({
   )
 }
 
-/** Thousands separators and a k/M suffix, so a token count stays readable. */
-export function compact(n: number): string {
-  // A billion tokens is an ordinary week here — cache reads are counted, and
-  // they dwarf everything else. Without this tier the biggest number on the
-  // screen read "1936M", which is four digits and a unit that has run out: the
-  // eye has to divide by a thousand to learn it is about two billion.
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(n >= 10_000_000_000 ? 0 : 1)}B`
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
-  // One decimal below ten of a unit and none above it, everywhere: 1.9B, 19B,
-  // 1.9M, 19M, 1.9k, 19k. Three significant figures is more than a chart label
-  // can be read to anyway, and the exact value is a hover away.
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`
-  return n.toLocaleString()
-}
-
-/** "3 minutes ago", give or take. */
-export function ago(iso: string | undefined): string {
-  if (iso === undefined || iso === '') return 'never'
-  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
-  if (seconds < 60) return 'just now'
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
-  return `${Math.floor(seconds / 86400)}d ago`
-}
-
-/** A duration in seconds as "3d 4h", for uptime. */
-export function duration(seconds: number): string {
-  const d = Math.floor(seconds / 86400)
-  const h = Math.floor((seconds % 86400) / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (d > 0) return `${d}d ${h}h`
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
-}
-
 /** A square icon-only button. `children` is the SVG path data. */
 export function IconButton({
   label,

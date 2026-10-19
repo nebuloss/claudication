@@ -1,6 +1,7 @@
 import type { Quota } from '../../api/client'
 import { QuotaWindow } from '../domain/quota'
 import { UsageBar } from '../primitives'
+import { relative } from '../format'
 
 /**
  * The two headline windows, short enough for a row: the account list, and the
@@ -163,23 +164,4 @@ function Row({
       {children}
     </div>
   )
-}
-
-/** "in 3h", "12m ago" — enough to know whether it is worth waiting. */
-function relative(iso: string | undefined): string {
-  if (iso === undefined || iso === '') return 'unknown'
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return 'unknown'
-  const delta = then - Date.now()
-  const mins = Math.round(Math.abs(delta) / 60000)
-  const text =
-    mins < 1
-      ? 'now'
-      : mins < 60
-        ? `${mins}m`
-        : mins < 1440
-          ? `${Math.round(mins / 60)}h`
-          : `${Math.round(mins / 1440)}d`
-  if (text === 'now') return 'just now'
-  return delta < 0 ? `${text} ago` : `in ${text}`
 }

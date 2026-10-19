@@ -9,7 +9,8 @@ import {
   tipPosition,
   type LineSeries,
 } from '../charts'
-import { Segmented, SubNav, compact } from '../primitives'
+import { Segmented, SubNav } from '../primitives'
+import { compact } from '../format'
 
 /**
  * The traffic widget: one chart, and tabs for what its lines are.

@@ -40,10 +40,9 @@ import {
   Switch,
   Table,
   tile,
-  ago,
-  compact,
   useConfirm,
 } from '../primitives'
+import { ago, compact, smallPercent } from '../format'
 
 /**
  * Keys change when someone mints one, but "last used" and the spent budget
@@ -227,19 +226,14 @@ const SUBSCRIPTION_NOTE =
   'every account’s capacity together. Anything else using an account is counted against ' +
   'the keys that used it here.'
 
-function pct(v: number): string {
-  if (v > 0 && v < 0.1) return '<0.1%'
-  return `${v < 10 ? v.toFixed(1) : Math.round(v)}%`
-}
-
 /** A key's estimated part of the subscription, both windows, for a table cell. */
 function SubscriptionCell({ share }: { share: SubscriptionShare | undefined }) {
   if (share === undefined) return <span className="text-on-surface-variant">—</span>
   return (
     <span className="whitespace-nowrap text-xs tabular-nums text-on-surface">
-      <span className="text-on-surface-variant">5h</span> {pct(share.five_hour)}
+      <span className="text-on-surface-variant">5h</span> {smallPercent(share.five_hour)}
       <span className="mx-1.5 text-on-surface-variant">·</span>
-      <span className="text-on-surface-variant">7d</span> {pct(share.seven_day)}
+      <span className="text-on-surface-variant">7d</span> {smallPercent(share.seven_day)}
     </span>
   )
 }
@@ -254,8 +248,8 @@ function SubscriptionCard({ share }: { share: SubscriptionShare }) {
     <Card>
       <CardTitle info={<p>{SUBSCRIPTION_NOTE}</p>}>Share of the Claude subscription</CardTitle>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="5-hour" value={pct(share.five_hour)} hint="of all accounts" />
-        <Stat label="7-day" value={pct(share.seven_day)} hint="of all accounts" />
+        <Stat label="5-hour" value={smallPercent(share.five_hour)} hint="of all accounts" />
+        <Stat label="7-day" value={smallPercent(share.seven_day)} hint="of all accounts" />
       </div>
       {share.accounts.length > 0 && (
         <div className="mt-4">
@@ -268,13 +262,13 @@ function SubscriptionCard({ share }: { share: SubscriptionShare }) {
                   </AppLink>
                 </td>
                 <td className="px-2 py-2 tabular-nums">
-                  {pct(a.five_hour)}{' '}
+                  {smallPercent(a.five_hour)}{' '}
                   <span className="text-xs text-on-surface-variant">
                     ({Math.round(a.five_hour_share * 100)}% of its traffic here)
                   </span>
                 </td>
                 <td className="px-2 py-2 tabular-nums">
-                  {pct(a.seven_day)}{' '}
+                  {smallPercent(a.seven_day)}{' '}
                   <span className="text-xs text-on-surface-variant">
                     ({Math.round(a.seven_day_share * 100)}% of its traffic here)
                   </span>

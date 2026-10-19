@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import AccountSettings, { formatDate, relative, status } from './account-card'
+import AccountSettings from './account-card'
 import { ChatsPage } from './chats'
 import { DetailHeader } from './detail'
 import QuotaMeter, { QuotaGauges } from './quota-meter'
@@ -20,8 +20,9 @@ import {
   SmallButton,
   Spinner,
   Stat,
-  compact,
 } from '../primitives'
+import { accountStatus } from '../domain/account'
+import { compact, dateTime, relative } from '../format'
 
 /** As on the list: the server says how often it re-reads the quota. */
 const REFRESH_MS = 20_000
@@ -76,7 +77,7 @@ export default function AccountPage({
     )
   }
 
-  const chip = status(account)
+  const chip = accountStatus(account)
 
   return (
     <div className="flex flex-col gap-5">
@@ -176,8 +177,8 @@ export default function AccountPage({
                   ),
                 ],
                 ['Token expires', relative(account.expires_at)],
-                ['Last used', formatDate(account.last_used_at)],
-                ['Connected', formatDate(account.created_at)],
+                ['Last used', dateTime(account.last_used_at)],
+                ['Connected', dateTime(account.created_at)],
               ]}
             />
           </Card>

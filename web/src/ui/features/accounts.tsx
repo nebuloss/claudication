@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { status } from './account-card'
 import AddAccount from './add-account'
 import { QuotaGauges } from './quota-meter'
 import { accountHref } from './usage'
@@ -18,8 +17,9 @@ import {
   ListRow,
   RowBadge,
   Spinner,
-  compact,
 } from '../primitives'
+import { accountStatus } from '../domain/account'
+import { compact } from '../format'
 
 /**
  * Until the server has said how often it re-reads the subscription figures,
@@ -252,7 +252,7 @@ function AccountRow({
   onMoveUp: () => void
   onMoveDown: () => void
 }) {
-  const chip = status(a)
+  const chip = accountStatus(a)
   return (
     <ListRow
       href={accountHref(a.id)}

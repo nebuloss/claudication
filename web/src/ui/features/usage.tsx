@@ -16,8 +16,8 @@ import {
   Segmented,
   SmallButton,
   Stat,
-  compact,
 } from '../primitives'
+import { compact } from '../format'
 
 const WINDOWS = [1, 7, 30] as const
 

@@ -1,15 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { api, type Account, type AccountModel, type ApiKey } from '../../api/client'
 import { useAction, useLoader } from '../hooks'
-import { Banner, ErrorState, SmallButton, Spinner, Switch, compact, tile } from '../primitives'
-
-function released(at?: string): string {
-  if (at === undefined) return ''
-  const d = new Date(at)
-  return Number.isNaN(d.getTime())
-    ? ''
-    : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
-}
+import { Banner, ErrorState, SmallButton, Spinner, Switch, tile } from '../primitives'
+import { compact, monthYear } from '../format'
 
 /**
  * A list of models, each with a switch: what an account may serve, or what a
@@ -114,7 +107,7 @@ function ModelSwitches({
                   {m.max_tokens !== undefined && ` · ${compact(m.max_tokens)} out`}
                 </span>
               )}
-              {released(m.created_at) !== '' && <span>{released(m.created_at)}</span>}
+              {monthYear(m.created_at) !== '' && <span>{monthYear(m.created_at)}</span>}
               {!m.listed && <span className="text-warning">no longer listed upstream</span>}
             </span>
           </li>
