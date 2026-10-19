@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -59,6 +58,7 @@ func (s *Admin) handleChats(w http.ResponseWriter, r *http.Request) {
 // have one: this decides whether the gateway may spend the operator's
 // subscription on its own behalf, and the answer to "stop doing that" cannot be
 // "edit a file and restart".
+//
 // Two switches, because they are two different bargains. Capture only notices
 // a name already going past and costs nothing; generation spends the
 // operator's subscription. Either may be sent alone.
@@ -67,9 +67,8 @@ func (s *Admin) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
 		Enabled *bool `json:"enabled"`
 		Capture *bool `json:"capture"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
-			`expected {"enabled": true|false} or {"capture": true|false}`)
+	if !httpx.DecodeJSONLimit(w, r, &body, 1<<10,
+		`expected {"enabled": true|false} or {"capture": true|false}`) {
 		return
 	}
 	if body.Enabled == nil && body.Capture == nil {
@@ -113,8 +112,12 @@ func (s *Admin) handleSetChatTitle(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title string `json:"title"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil || id == "" {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, `expected {"title": "…"}`)
+	const usage = `expected {"title": "…"}`
+	if !httpx.DecodeJSONLimit(w, r, &body, 1<<10, usage) {
+		return
+	}
+	if id == "" {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, usage)
 		return
 	}
 	if strings.TrimSpace(body.Title) == "" {

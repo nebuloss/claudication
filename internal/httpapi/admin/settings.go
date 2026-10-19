@@ -2,11 +2,11 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
 	"claudication/internal/httpapi/httpx"
+	"claudication/internal/service/settings"
 )
 
 // handleConfig reports every configuration value and where it came from.
@@ -80,8 +80,7 @@ func (s *Admin) handleSetSurface(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Enabled *bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "expected {\"enabled\": true|false}")
+	if !httpx.DecodeJSONLimit(w, r, &body, 1<<10, switchUsage) {
 		return
 	}
 	if body.Enabled == nil {
@@ -96,4 +95,36 @@ func (s *Admin) handleSetSurface(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Warn("API surface switched", "surface", id, "title", p.Title(), "enabled", *body.Enabled)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"surfaces": s.surfaces.State()})
+}
+
+// switchUsage is what an on/off endpoint says to a body of the wrong shape.
+const switchUsage = `expected {"enabled": true|false}`
+
+// switchHandler serves one runtime switch: it stores the new state, logs it,
+// and answers it back under field, which is the name the config screen reads
+// it by.
+//
+// One handler for every switch that is only on or off, because each used to
+// be its own copy of this — decode, store, log, answer — and copies are where
+// one of them stops logging, or answers under a different name.
+func (s *Admin) switchHandler(sw *settings.Switch, what, field string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if !httpx.DecodeJSONLimit(w, r, &body, 1<<10, switchUsage) {
+			return
+		}
+		if body.Enabled == nil {
+			httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, switchUsage)
+			return
+		}
+		if err := sw.Set(r.Context(), *body.Enabled); err != nil {
+			s.log.Error("could not store the "+what+" switch", "err", err)
+			httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not store the setting")
+			return
+		}
+		s.log.Warn(what+" switched", "enabled", *body.Enabled)
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{field: sw.On()})
+	}
 }

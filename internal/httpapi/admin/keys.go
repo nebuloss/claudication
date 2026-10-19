@@ -282,14 +282,11 @@ func (s *Admin) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 		"rpm_limit", limits.RPMLimit, "rate_period", limits.Period().String(),
 		"token_budget", limits.TokenBudget, "ip", httpx.ClientIP(r.Context()))
 
-	keys, err := s.store.ListKeys(r.Context())
-	if err == nil {
-		for _, k := range keys {
-			if k.ID == id {
-				httpx.WriteJSON(w, http.StatusOK, map[string]any{"key": s.toKeyJSON(k, store.UsageBucket{})})
-				return
-			}
-		}
+	// The change is committed; a failure to read it back is not a failure to
+	// make it, so it is not answered as one.
+	if k, err := s.store.Key(r.Context(), id); err == nil {
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"key": s.toKeyJSON(k, store.UsageBucket{})})
+		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }

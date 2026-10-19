@@ -72,9 +72,22 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// DecodeJSON reads a JSON request body of up to 1 MiB into dst, answering 400
+// and returning false when it cannot.
 func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(dst); err != nil {
-		WriteError(w, http.StatusBadRequest, KindInvalidRequest, "could not read the request body: "+err.Error())
+	return DecodeJSONLimit(w, r, dst, 1<<20, "")
+}
+
+// DecodeJSONLimit is DecodeJSON for a body that is never more than limit
+// bytes: a switch, a title. usage is what the 400 says instead of the decoder's
+// own error, so a caller who sent the wrong shape is told the right one.
+func DecodeJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64, usage string) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(dst); err != nil {
+		msg := usage
+		if msg == "" {
+			msg = "could not read the request body: " + err.Error()
+		}
+		WriteError(w, http.StatusBadRequest, KindInvalidRequest, msg)
 		return false
 	}
 	return true
