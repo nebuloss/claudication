@@ -160,7 +160,11 @@ function ShareCell({ parts }: { parts: SharePart[] }) {
     <div className="flex flex-col items-end gap-1">
       {used.map((p) => (
         <span key={p.who ?? ''} className="inline-flex items-center gap-2">
-          {p.who !== undefined && <span className="text-xs text-on-surface-variant">{p.who}</span>}
+          {/* A fixed width, so the bars of a column line up whichever
+              provider each row names, stacked on a phone as in a table. */}
+          {p.who !== undefined && (
+            <span className="w-[7ch] truncate text-right text-xs text-on-surface-variant">{p.who}</span>
+          )}
           <Share points={p.points} />
         </span>
       ))}
