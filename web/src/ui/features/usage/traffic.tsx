@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import { type UsageCell } from '../../../api/client'
 import {
   FAILURE_LINE,
@@ -18,10 +18,9 @@ import { compact } from '../../format'
  * One chart, given the breakdown to draw, rather than one per question.
  * Overview used to draw its own columns and Usage its own bars, which meant
  * two places deciding what a colour meant and two places to fix when the
- * answer changed. Which breakdown is the page's to say: Activity draws each
- * on the page whose table holds the same names — models over the models,
- * outcomes over the request log — and an account's or a client's Usage page
- * offers the choice beside the chart's own controls (`lead`).
+ * answer changed. Which breakdown is the page's to say, not a tab bar's
+ * inside the chart: Activity draws each on the page whose table holds the
+ * same names — models over the models, outcomes over the request log.
  */
 
 export type Dimension = 'model' | 'key' | 'account' | 'status'
@@ -35,7 +34,7 @@ type Spec = {
   failureLine?: boolean
 }
 
-export const DIMENSIONS: Record<Dimension, Spec> = {
+const DIMENSIONS: Record<Dimension, Spec> = {
   model: { label: 'Models', unit: 'model' },
   key: { label: 'Clients', unit: 'client' },
   account: { label: 'Accounts', unit: 'account' },
@@ -95,7 +94,6 @@ export function Traffic({
   days,
   onDays,
   windows,
-  lead,
 }: {
   /** The cross-tabs, keyed by dimension, as /admin/usage returns them. */
   cross: Record<string, UsageCell[]> | undefined
@@ -105,8 +103,6 @@ export function Traffic({
   /** A window picker of the chart's own, where nothing else on the page picks one. */
   onDays?: (d: number) => void
   windows?: readonly number[]
-  /** Controls ahead of the chart's own, in the same row: a choice of breakdown. */
-  lead?: ReactNode
 }) {
   const [metric, setMetric] = useState<'requests' | 'tokens'>('requests')
   const [log, setLog] = useState(true)
@@ -150,7 +146,6 @@ export function Traffic({
       {/* A row that wraps, not the tab bar's aside it once rode in: that bar
           scrolled sideways, so on a phone the controls sat off the screen. */}
       <div className="flex flex-wrap items-center gap-2">
-        {lead}
         {current.tokens !== false && (
           <Segmented
             label="Metric"
