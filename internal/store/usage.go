@@ -219,6 +219,13 @@ func (s *Store) KeyUsage(ctx context.Context, since time.Time) (map[string]Usage
 	return s.usageBy(ctx, "key_id", since)
 }
 
+// KeyUsageOf is KeyUsage for one key: a map holding its bucket, or nothing
+// when it sent nothing. For a page about one client, which has no use for
+// every other client's totals.
+func (s *Store) KeyUsageOf(ctx context.Context, keyID string, since time.Time) (map[string]UsageBucket, error) {
+	return s.usageBy(ctx, "key_id", since, keyID)
+}
+
 // AccountUsage totals each account's traffic since a point in time, keyed by
 // account id.
 func (s *Store) AccountUsage(ctx context.Context, since time.Time) (map[string]UsageBucket, error) {
@@ -229,14 +236,20 @@ func (s *Store) AccountUsage(ctx context.Context, since time.Time) (map[string]U
 // keyed by that id. The column is a constant from the caller, never anything a
 // request carries: it is the one part of the statement that cannot be a
 // parameter.
-func (s *Store) usageBy(ctx context.Context, column string, since time.Time) (map[string]UsageBucket, error) {
+//
+// only, when given, narrows it to that one id.
+func (s *Store) usageBy(ctx context.Context, column string, since time.Time, only ...string) (map[string]UsageBucket, error) {
+	where, args := ``, []any{ms(since)}
+	if len(only) > 0 {
+		where, args = ` AND `+column+` = ?`, append(args, only[0])
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+column+`, COUNT(*),
 		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(`+sqlCacheTokens+`), 0)
-		   FROM usage_events WHERE `+sqlCounted+` AND at >= ? GROUP BY `+column,
-		ms(since))
+		   FROM usage_events WHERE `+sqlCounted+` AND at >= ?`+where+` GROUP BY `+column,
+		args...)
 	if err != nil {
 		return nil, fmt.Errorf("usage by %s: %w", column, err)
 	}

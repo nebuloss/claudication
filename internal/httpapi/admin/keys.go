@@ -90,10 +90,19 @@ type keyStats struct {
 	windows      []accountWindows
 }
 
-func (s *Admin) keyStats(ctx context.Context) keyStats {
+// keyStats reads every key's figures, for a list; with only, one key's, for
+// its own page. The subscription windows are read whole either way: a key's
+// share of an account is of what every key sent it.
+func (s *Admin) keyStats(ctx context.Context, only ...string) keyStats {
 	var st keyStats
 	var err error
-	if st.usage, err = s.store.KeyUsage(ctx, time.Now().Add(-s.cfg.Usage.Window())); err != nil {
+	usage := s.store.KeyUsage
+	if len(only) > 0 {
+		usage = func(ctx context.Context, since time.Time) (map[string]store.UsageBucket, error) {
+			return s.store.KeyUsageOf(ctx, only[0], since)
+		}
+	}
+	if st.usage, err = usage(ctx, time.Now().Add(-s.cfg.Usage.Window())); err != nil {
 		s.log.Warn("key usage unavailable", "err", err)
 		st.usage = map[string]store.UsageBucket{}
 	}
@@ -101,7 +110,7 @@ func (s *Admin) keyStats(ctx context.Context) keyStats {
 	// so it takes its own pass — one grouped query for every key, rather than
 	// a lookup each.
 	if s.cfg.Usage.Enabled() {
-		if st.spend, err = s.store.KeyUsage(ctx, time.Now().Add(-limits.BudgetWindow)); err != nil {
+		if st.spend, err = usage(ctx, time.Now().Add(-limits.BudgetWindow)); err != nil {
 			s.log.Warn("key budget usage unavailable", "err", err)
 			st.spend = nil
 		}

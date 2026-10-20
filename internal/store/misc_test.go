@@ -339,6 +339,11 @@ func TestKeyAndAccountUsage(t *testing.T) {
 	if keys["k2"].Errors != 1 {
 		t.Errorf("k2 = %+v, want the failed stream counted as an error", keys["k2"])
 	}
+	// One key's alone, for its own page: the same bucket, and no other key's.
+	one, err := st.KeyUsageOf(ctx, "k1", now.Add(-time.Hour))
+	if err != nil || len(one) != 1 || one["k1"] != k1 {
+		t.Errorf("KeyUsageOf(k1) = %+v, %v; want only k1's bucket %+v", one, err, k1)
+	}
 
 	accts, err := st.AccountUsage(ctx, now.Add(-time.Hour))
 	if err != nil {

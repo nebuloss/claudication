@@ -184,7 +184,7 @@ func (s *Admin) writeClient(w http.ResponseWriter, r *http.Request, id string, e
 		httpx.Internal(w, s.log, "read the client", err)
 		return
 	}
-	out := map[string]any{"client": s.clientJSON(ctx, c, s.keyStats(ctx).of(s, c.APIKey))}
+	out := map[string]any{"client": s.clientJSON(ctx, c, s.keyStats(ctx, c.ID).of(s, c.APIKey))}
 	for k, v := range extra {
 		out[k] = v
 	}
