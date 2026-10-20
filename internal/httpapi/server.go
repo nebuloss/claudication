@@ -15,7 +15,9 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -124,6 +126,10 @@ type Server struct {
 	// /health says so, which is how the installer tells a running gateway it
 	// can hand over to from one it has to stop (scripts/install.sh).
 	reloadable bool
+	// instance tells this process from any other serving the same version:
+	// a handover to the same release is proven by it changing, which the
+	// version string cannot show (scripts/install.sh).
+	instance string
 
 	mu   sync.Mutex
 	addr string
@@ -171,6 +177,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store) (*Server, error) 
 		trustedProxies: trusted,
 		stopSweeper:    make(chan struct{}),
 		trimmer:        memlimit.NewTrimmer(log),
+		instance:       newInstanceID(),
 		// Upstream calls made by the gateway itself: token exchange, refresh,
 		// credential probes. Short timeout, because these are all small.
 		httpClient: &http.Client{Timeout: 60 * time.Second},
@@ -592,9 +599,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		// A binary from before the handover says nothing here, which the
 		// installer reads the same as false.
 		"reloadable": s.reloadable,
+		"instance":   s.instance,
 	})
 }
 
+// newInstanceID is random, so it says nothing about the process — not its
+// pid, not when it started — beyond being a different one.
+func newInstanceID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 // uptimeState is the gateway's state for the uptime record: paused when its
 // operator switched it off, up when some account of some provider could take

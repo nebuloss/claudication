@@ -797,8 +797,14 @@ can_hand_over() {
 }
 
 # The update without a stop: the new binary in place, then a reload.
+#
+# BEFORE_INSTANCE is which process is serving now. The version cannot say
+# whether a new one took over — reinstalling the same release, or two builds
+# stamped alike, answer the same version before and after — so the handover
+# is done when a different instance answers.
 hand_over() {
   info "Handing over to $NEW_VERSION ($BEFORE serves until it answers)"
+  BEFORE_INSTANCE="$(serving_instance)"
   swap_binary
   service_reload || { fail "the reload was refused"; return 1; }
   wait_handed_over
@@ -811,15 +817,23 @@ hand_over() {
 #   - nothing answers for a while: the new binary needs a schema change, so
 #     the supervisor stopped the old worker first and is waiting out its drain
 #     — up to STOP_TIMEOUT — before the new one migrates and starts.
+# The new version answers on every port, from another process than the one
+# serving before the reload.
+handed_over() {
+  now="$(serving_instance)"
+  [ -n "$now" ] && [ "$now" != "${BEFORE_INSTANCE:-}" ] && ready
+}
+
 wait_handed_over() {
   i=0
   limit=$((STOP_TIMEOUT + BOOT_TIMEOUT))
   while [ "$i" -lt "$limit" ]; do
-    if ready; then
+    if handed_over; then
       endline
       return 0
     fi
-    if [ "$i" -ge "$HANDOVER_TIMEOUT" ] && [ "$(serving_version)" = "$BEFORE" ]; then
+    if [ "$i" -ge "$HANDOVER_TIMEOUT" ] && [ -n "${BEFORE_INSTANCE:-}" ] &&
+       [ "$(serving_instance)" = "$BEFORE_INSTANCE" ]; then
       endline
       fail "$BEFORE is still serving after ${HANDOVER_TIMEOUT}s: $NEW_VERSION never got ready"
       dump_logs
@@ -863,7 +877,7 @@ rollback() {
   warn "rolling back to $BEFORE"
   mv -f "$BINARY.prev" "$BINARY"
   NEW_VERSION="$BEFORE"
-  if [ "$(serving_version)" = "$BEFORE" ] && ready; then
+  if [ -n "${BEFORE_INSTANCE:-}" ] && [ "$(serving_instance)" = "$BEFORE_INSTANCE" ] && ready; then
     warn "$BEFORE never stopped serving; its binary is back in place"
     return 0
   fi
@@ -928,6 +942,13 @@ claim_gateway() {
 serving_version() {
   curl -fsS -m 2 "http://127.0.0.1:$(relay_port)/health" 2>/dev/null |
     sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+# Which process is answering: an id each worker makes up when it starts. Empty
+# from a release before the handover.
+serving_instance() {
+  curl -fsS -m 2 "http://127.0.0.1:$(relay_port)/health" 2>/dev/null |
+    sed -n 's/.*"instance"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
 }
 
 # Ready means the NEW version answers on the relay and every configured port is

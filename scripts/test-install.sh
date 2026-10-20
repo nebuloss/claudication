@@ -42,6 +42,7 @@ running=1            # service_running
 health=''            # what /health answers
 handover_ok=1        # whether the new worker takes over
 serving=''           # what serving_version says
+instance=''          # what serving_instance says
 
 stub_world() {
   : > "$calls"
@@ -119,6 +120,23 @@ check "a failed handover rolls back" \
 stub_world
 ready() { [ "$serving" = "$NEW_VERSION" ]; }
 serving_version() { printf '%s' "$serving"; }
+serving_instance() { printf '%s' "$instance"; }
+
+# A handover is proven by another process answering, not by the version:
+# reinstalling the same release answers the same version before and after,
+# and calling that done before the new worker is serving would claim the
+# gateway — and run the new binary against the database — under the old one.
+: > "$calls"
+BEFORE=v1 NEW_VERSION=v1 serving=v1 BEFORE_INSTANCE=i1
+gateway_ports() { :; }
+instance=i1
+handed_over || echo "same instance: not yet" >> "$calls"
+instance=i2
+handed_over && echo "another instance: done" >> "$calls"
+instance=''
+handed_over || echo "no instance: not yet" >> "$calls"
+check "a same-version reinstall is done only when another instance answers" \
+  "same instance: not yet another instance: done no instance: not yet"
 mkdir -p "$BIN_DIR"
 
 prepare_rollback() {
@@ -132,7 +150,7 @@ prepare_rollback() {
 # The new worker never got ready: the old one is still serving, so putting
 # its binary back is all there is to do — nothing is stopped.
 prepare_rollback
-serving=v1
+serving=v1 instance=i1 BEFORE_INSTANCE=i1
 wait_ready() { record wait_ready; }
 (rollback) >/dev/null 2>&1 && echo "exit 0" >> "$calls"
 [ "$(cat "$BINARY")" = old ] && echo "binary=old" >> "$calls"
@@ -141,7 +159,7 @@ check "rollback with the old version still serving touches nothing" "exit 0 bina
 # The handover happened and the new version then failed: hand back to the
 # previous one the same way it was handed over.
 prepare_rollback
-serving=v2
+serving=v2 instance=i2
 BEFORE_RELOADABLE=1
 health='{"reloadable":true}'
 wait_ready() { record wait_ready; serving=$NEW_VERSION; }
@@ -151,7 +169,7 @@ check "rollback after a handover hands back" "service_reload wait_ready exit 0"
 # The previous version was not serving under the supervisor: its binary
 # cannot be a worker, so the way back is a stop and a start.
 prepare_rollback
-serving=v2
+serving=v2 instance=i2
 BEFORE_RELOADABLE=0
 (rollback) >/dev/null 2>&1 && echo "exit 0" >> "$calls"
 check "rollback to an old binary stops and starts" "stop_and_release service_start wait_ready exit 0"
