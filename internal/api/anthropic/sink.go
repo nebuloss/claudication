@@ -150,7 +150,10 @@ func (s *responsesSink) begin() {
 		// written by Close itself, with nobody left to stop a pinger.
 		if !s.closed {
 			s.pinging = make(chan struct{})
-			go s.ping(s.pinging)
+			// The interval is read here, on the caller's goroutine, not in
+			// the pinger: a pinger outlives the request it was started for
+			// by up to a tick, and a test that changes pingEvery raced it.
+			go s.ping(s.pinging, pingEvery)
 		}
 		return
 	}
@@ -159,8 +162,8 @@ func (s *responsesSink) begin() {
 }
 
 // ping keeps the caller's stream from going idle until the answer is done.
-func (s *responsesSink) ping(done chan struct{}) {
-	t := time.NewTicker(pingEvery / 2)
+func (s *responsesSink) ping(done chan struct{}, every time.Duration) {
+	t := time.NewTicker(every / 2)
 	defer t.Stop()
 	for {
 		select {
@@ -168,7 +171,7 @@ func (s *responsesSink) ping(done chan struct{}) {
 			return
 		case <-t.C:
 			s.mu.Lock()
-			if !s.closed && s.conv.started && !s.conv.finished && time.Since(s.stream.last) >= pingEvery {
+			if !s.closed && s.conv.started && !s.conv.finished && time.Since(s.stream.last) >= every {
 				s.stream.emit(anthropicwire.EventPing, map[string]any{"type": anthropicwire.EventPing})
 			}
 			s.mu.Unlock()
