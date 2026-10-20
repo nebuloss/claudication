@@ -2,9 +2,9 @@ package web
 
 import (
 	"log/slog"
-	"regexp"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"

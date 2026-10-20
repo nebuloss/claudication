@@ -42,10 +42,12 @@ export default defineConfig(({ mode }) => ({
     // uses is left in what it loads. scripts/check-welcome.mjs proves it on
     // every build.
     rollupOptions: {
-      input:
-        mode === 'welcome'
-          ? { welcome: resolve(import.meta.dirname, 'welcome.html') }
-          : { index: resolve(import.meta.dirname, 'index.html') },
+      input: {
+        [mode === 'welcome' ? 'welcome' : 'index']: resolve(
+          import.meta.dirname,
+          mode === 'welcome' ? 'welcome.html' : 'index.html',
+        ),
+      },
     },
   },
   server: {
