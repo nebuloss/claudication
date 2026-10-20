@@ -4,7 +4,8 @@
 // name has to look like for the client to treat it right.
 //
 // A client of the gateway is a named thing the operator set up — "laptop",
-// "work crush" — holding one API key; its type is one of the Types below.
+// "work crush" — holding one API key; its type is one of the Types below, and
+// it keeps that type and the API it was made with (Type.Initial says why).
 // Each slot of a client has a model name of that client's own (crush's
 // "large"), which its configuration asks for and which means something only
 // for that client's key: two clients may both have a "large", bound to
@@ -84,9 +85,9 @@ const (
 // Valid reports whether m is a mode.
 func (m Mode) Valid() bool { return m == Binding || m == Direct }
 
-// Role is what a slot is for, in words the types share, so a client whose
-// type changes keeps the slots the two types have in common: crush's large
-// and opencode's main are both the main model.
+// Role is what a slot is for, in words the types share — crush's large and
+// opencode's main are both the main model — so the UI writing a type's files
+// finds the slot a field takes by what it is for rather than by its id.
 type Role string
 
 const (
@@ -100,8 +101,8 @@ const (
 	RoleSonnet     Role = "sonnet"
 	RoleHaiku      Role = "haiku"
 	RoleFable      Role = "fable"
-	// RoleCustom is an operator's own slot on a custom client: it maps to
-	// nothing in another type.
+	// RoleCustom is an operator's own slot on a custom client: no type's
+	// field takes it.
 	RoleCustom Role = "custom"
 )
 
@@ -491,155 +492,36 @@ func itoa(i int) string {
 	return itoa(i/10) + digits[i%10:i%10+1]
 }
 
-// Existing is one slot a client has now.
-type Existing struct {
-	ID   string `json:"id"`
-	Role Role   `json:"role"`
-	Name string `json:"name"`
+// Initial is one slot a new client is made with: one of its type's, under the
+// name its dialect needs, following the slot's default target.
+type Initial struct {
+	Slot    string
+	Name    string
+	Follows Follow
 }
 
-// Kept is a slot that survives a change: its name and binding move to the
-// new type's slot of the same role, and its name may change to fit the new
-// dialect (Renamed).
-type Kept struct {
-	From    string `json:"from"`
-	To      string `json:"to"`
-	Name    string `json:"name"`
-	Renamed string `json:"renamed,omitempty"`
-}
-
-// Added is a slot the change creates, with its new name, following its
-// type's default.
-type Added struct {
-	Slot    string `json:"slot"`
-	Name    string `json:"name"`
-	Follows Follow `json:"follows"`
-}
-
-// Change is what moving a client to a type and a dialect does to its slots:
-// which names stay, which are added and which go. Computed before it is
-// applied, so the operator is shown it first.
-type Change struct {
-	Type    string     `json:"type"`
-	Dialect Dialect    `json:"dialect"`
-	Keep    []Kept     `json:"keep"`
-	Add     []Added    `json:"add"`
-	Remove  []Existing `json:"remove"`
-}
-
-// Empty reports whether the change touches no slot.
-func (c Change) Empty() bool {
-	if len(c.Add) > 0 || len(c.Remove) > 0 {
-		return false
-	}
-	for _, k := range c.Keep {
-		if k.From != k.To || k.Renamed != "" {
-			return false
-		}
-	}
-	return true
-}
-
-// Plan is the change that moves a client with slots have to type to on
-// dialect want — the type's default when it cannot speak want.
+// Initial are the slots a new client of this type starts with on dialect d,
+// the type's default when it cannot speak d. A custom client starts with its
+// one slot; the rest are the operator's to add.
 //
-// A slot of to takes the existing slot of the same role, its name and its
-// binding, the first such for a role; to's other slots are added under
-// their type's names; the existing slots left over are removed and their
-// names freed. A kept name that does not fit the new dialect's mark is
-// renamed to one that does. Moving to a custom client keeps every existing
-// slot: its slots are the operator's, and none of them is anything the
-// custom type lacks.
-func Plan(have []Existing, to Type, want Dialect) Change {
-	d := want
-	if !to.Speaks(d) {
-		d = to.DefaultDialect()
+// A client keeps the type and dialect it was made with: its key was handed
+// out for that client, and the names its configuration asks for carry the
+// dialect's mark, so another dialect would be another set of names — another
+// client, with a key of its own.
+func (t Type) Initial(d Dialect) (Dialect, []Initial) {
+	if !t.Speaks(d) {
+		d = t.DefaultDialect()
 	}
-	ch := Change{Type: to.ID, Dialect: d, Keep: []Kept{}, Add: []Added{}, Remove: []Existing{}}
-	used := map[string]bool{}
-	// Names are the client's own, so the only names a new one can clash
-	// with are the ones this change keeps or gives.
-	planned := map[string]bool{}
-	taken := func(n string) bool { return planned[n] }
-	keep := func(e Existing, slot string) {
-		ch.Keep = append(ch.Keep, Kept{From: e.ID, To: slot, Name: e.Name})
+	slots := t.Slots
+	if t.Custom {
+		slots = slots[:1]
 	}
-	// Kept names that fit stay as they are, so they are claimed before any
-	// other kept name is renamed: crush's "large" moving to Responses becomes
-	// gpt-5-large, which must not be the name its other slot already has.
-	settle := func() {
-		for _, k := range ch.Keep {
-			if to.Fits(d, k.Name) {
-				planned[k.Name] = true
-			}
-		}
-		for i, k := range ch.Keep {
-			if !to.Fits(d, k.Name) {
-				ch.Keep[i].Renamed = to.Name(d, k.Name, taken)
-				planned[ch.Keep[i].Renamed] = true
-			}
-		}
+	taken := map[string]bool{}
+	out := make([]Initial, 0, len(slots))
+	for _, s := range slots {
+		n := t.Name(d, s.ID, func(n string) bool { return taken[n] })
+		taken[n] = true
+		out = append(out, Initial{Slot: s.ID, Name: n, Follows: s.Follows})
 	}
-	add := func(s Slot) {
-		n := to.Name(d, s.ID, taken)
-		planned[n] = true
-		ch.Add = append(ch.Add, Added{Slot: s.ID, Name: n, Follows: s.Follows})
-	}
-	if to.Custom {
-		for _, e := range have {
-			used[e.ID] = true
-			keep(e, e.ID)
-		}
-		settle()
-		if len(have) == 0 {
-			add(to.Slots[0])
-		}
-		return ch
-	}
-	// Names first, so an added slot never takes a name a kept one has.
-	type match struct {
-		e    Existing
-		slot Slot
-	}
-	var matches []match
-	var missing []Slot
-	for _, s := range to.Slots {
-		found := false
-		for _, e := range have {
-			if used[e.ID] || e.Role != s.Role {
-				continue
-			}
-			used[e.ID], found = true, true
-			matches = append(matches, match{e, s})
-			break
-		}
-		if !found && s.Role == RoleMain {
-			// A custom client's first slot of its own is its main one,
-			// whatever it was called.
-			for _, e := range have {
-				if used[e.ID] || e.Role != RoleCustom {
-					continue
-				}
-				used[e.ID], found = true, true
-				matches = append(matches, match{e, s})
-				break
-			}
-		}
-		if !found {
-			missing = append(missing, s)
-		}
-	}
-	for _, m := range matches {
-		keep(m.e, m.slot.ID)
-	}
-	settle()
-	for _, s := range missing {
-		add(s)
-	}
-	for _, e := range have {
-		if !used[e.ID] {
-			ch.Remove = append(ch.Remove, e)
-		}
-	}
-	return ch
+	return d, out
 }

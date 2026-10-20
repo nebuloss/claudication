@@ -173,8 +173,8 @@ export interface BindingOption {
 /**
  * Everything a slot can be bound to, grouped: the moving targets first —
  * which move with each release — then each provider's models. A model the
- * client's API cannot reach is listed all the same, marked, so a binding can
- * be made before the API is switched; the slot then shows the warning.
+ * client's API cannot reach is listed all the same, marked; the slot then
+ * shows the warning.
  */
 export function bindingOptions(
   models: readonly Model[],

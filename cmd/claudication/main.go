@@ -451,14 +451,14 @@ func cmdClients(args []string) error {
 		// one. A custom one from here is for a provisioning script, which
 		// names real models: direct mode, as every key from before clients
 		// became one.
-		ch := clients.Plan(nil, t, t.DefaultDialect())
+		dialect, initial := t.Initial("")
 		var slots []store.NewSlot
 		if !t.Custom {
-			for _, a := range ch.Add {
+			for _, a := range initial {
 				slots = append(slots, store.NewSlot{Slot: a.Slot, Name: a.Name, Binding: store.Binding{Follows: a.Follows}})
 			}
 		}
-		c, plaintext, err := st.CreateClient(ctx, *name, t.ID, ch.Dialect, store.KeyLimits{
+		c, plaintext, err := st.CreateClient(ctx, *name, t.ID, dialect, store.KeyLimits{
 			RPMLimit:    *rpm,
 			RatePeriod:  *ratePeriod,
 			TokenBudget: *budget,

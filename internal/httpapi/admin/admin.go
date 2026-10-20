@@ -154,8 +154,6 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/clients", admin(s.handleListClients))
 	mux.Handle("POST /admin/clients", admin(s.handleCreateClient))
 	mux.Handle("GET /admin/clients/{id}", admin(s.handleGetClient))
-	mux.Handle("POST /admin/clients/{id}/plan", admin(s.handlePlanClient))
-	mux.Handle("POST /admin/clients/{id}/type", admin(s.handleChangeClient))
 	mux.Handle("POST /admin/clients/{id}/mode", admin(s.handleSetClientMode))
 	mux.Handle("POST /admin/clients/{id}/disabled", admin(s.handleSetClientDisabled))
 	mux.Handle("POST /admin/clients/{id}/name-chats", admin(s.handleSetClientNameChats))

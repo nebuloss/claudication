@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api, type ClientChange, type DialectId, type GatewayConfig } from '../../../api/client'
+import { api, type GatewayConfig } from '../../../api/client'
 import { useAction } from '../../hooks'
 import { navigate } from '../../route'
 import {
@@ -8,9 +8,8 @@ import {
   DangerZone,
   ErrorBanner,
   Field,
+  KeyValue,
   Note,
-  Segmented,
-  Select,
   SettingSwitch,
   Stack,
   useConfirm,
@@ -46,14 +45,16 @@ export function ClientOverview({
 }
 
 /**
- * What the client is: its name, its type and API — a change of either shown
- * as what it does to the model names before it is made — and its switches.
+ * What the client is: its name, its type and API, and its switches.
+ *
+ * The type and the API are shown, not offered: a client is made with them and
+ * keeps them. Its key was handed out for that one client, and its model names
+ * carry what its API needs, so another type or API is another client — made
+ * on its own, with a key of its own.
  */
 function AboutCard({ client: c, types, onChanged }: { client: Client; types: ClientTypes; onChanged: () => void }) {
   const [name, setName] = useState(c.name)
-  const [typeId, setTypeId] = useState(c.type.id)
   const { busy, error, run } = useAction()
-  const confirm = useConfirm()
   const k = c.wire
 
   const rename = () =>
@@ -62,25 +63,6 @@ function AboutCard({ client: c, types, onChanged }: { client: Client; types: Cli
         rpmLimit: k.rpm_limit, ratePeriodS: k.rate_period_s, tokenBudget: k.token_budget,
       })
       onChanged()
-    })
-
-  // A change of type or API is planned by the server and shown before it is
-  // made: which names stay (renamed where the new API needs a mark), which
-  // are added following their defaults, and which go.
-  const change = (type: string, dialect: DialectId) =>
-    run('plan', async () => {
-      const plan = await api.clients.plan(c.id, type, dialect)
-      await confirm({
-        title: type === c.type.id ? `Point ${c.name} at the ${types.dialectTitle(plan.dialect)} API?` :
-          `Make ${c.name} a ${types.type(type).label} client?`,
-        body: <ChangeSummary change={plan} />,
-        confirmLabel: 'Apply',
-        action: async () => {
-          await api.clients.change(c.id, type, dialect)
-          onChanged()
-        },
-      })
-      setTypeId(c.type.id)
     })
 
   const switchChats = (on: boolean) =>
@@ -106,27 +88,16 @@ function AboutCard({ client: c, types, onChanged }: { client: Client; types: Cli
         </div>
         <Note>The model names stay as they are: a rename never touches the client&rsquo;s configuration.</Note>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <Select
-            label="Type"
-            value={typeId}
-            width="fixed"
-            onChange={(t) => {
-              setTypeId(t)
-              void change(t, c.dialect)
-            }}
-            options={types.all.map((t) => ({ value: t.id, label: t.label }))}
-          />
-          {c.type.choosesDialect && (
-            <Segmented
-              label="API"
-              value={c.dialect}
-              onChange={(d) => void change(c.type.id, d)}
-              options={c.type.dialects.map((d) => ({ id: d, label: types.dialectTitle(d), content: types.dialectTitle(d) }))}
-            />
-          )}
-        </div>
-        {c.type.why !== '' && <Note>{c.type.why}</Note>}
+        <KeyValue
+          items={[
+            ['Type', c.type.label],
+            ['API', types.dialectTitle(c.dialect)],
+          ]}
+        />
+        <Note>
+          A client keeps the type and API it was made with: its key was issued for it. For another, add a new
+          client.
+        </Note>
 
         {c.type.custom && (
           <SettingSwitch
@@ -152,23 +123,6 @@ function AboutCard({ client: c, types, onChanged }: { client: Client; types: Cli
         <ErrorBanner error={error} />
       </Stack>
     </Card>
-  )
-}
-
-/** What a change of type or API does to the model names, as the confirmation shows it. */
-function ChangeSummary({ change }: { change: ClientChange }) {
-  const kept = change.keep.map((k) => (k.renamed !== undefined && k.renamed !== '' ? `${k.name} → ${k.renamed}` : k.name))
-  return (
-    <Stack gap={2}>
-      {kept.length > 0 && <p className="m-0">These model names stay, with what they serve: {kept.join(', ')}.</p>}
-      {change.add.length > 0 && (
-        <p className="m-0">Added, following their defaults: {change.add.map((a) => a.name).join(', ')}.</p>
-      )}
-      {change.remove.length > 0 && (
-        <p className="m-0">Removed, and their names freed: {change.remove.map((r) => r.name).join(', ')}.</p>
-      )}
-      <Note>Re-run the install command on the client afterwards: its files name the new set.</Note>
-    </Stack>
   )
 }
 

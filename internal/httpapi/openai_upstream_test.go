@@ -194,11 +194,9 @@ func newClient(t *testing.T, st *store.Store, name, typ string, d clients.Dialec
 	t.Helper()
 	ctx := context.Background()
 	ty, _ := clients.Find(typ)
-	if d == "" {
-		d = ty.DefaultDialect()
-	}
+	d, initial := ty.Initial(d)
 	var slots []store.NewSlot
-	for _, a := range clients.Plan(nil, ty, d).Add {
+	for _, a := range initial {
 		b := store.Binding{Follows: a.Follows}
 		if got, ok := binds[a.Slot]; ok {
 			b = got

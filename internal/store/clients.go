@@ -21,8 +21,9 @@ import (
 // its type, its dialect, its mode, its slots' names and bindings — and checks
 // what has to hold whatever the type: a model name has a model's shape and is
 // the client's only once, and a slot is bound to one model or one moving
-// target. Which slots a type has, and what a change of type does to them, is
-// internal/service/clients's to say; the store applies it.
+// target. Which slots a type has is internal/service/clients's to say. A
+// client's type and dialect are written once, when it is made, and nothing
+// here changes them.
 
 // ErrClientNotFound is a client that does not exist, or a key that is no
 // client (the gateway's own).
@@ -90,20 +91,6 @@ func (c Client) Spec() clients.Type {
 		return t
 	}
 	return clients.Custom
-}
-
-// Existing is the client's slots as clients.Plan takes them.
-func (c Client) Existing() []clients.Existing {
-	t := c.Spec()
-	out := make([]clients.Existing, 0, len(c.Slots))
-	for _, s := range c.Slots {
-		role := clients.RoleCustom
-		if spec, ok := t.SlotFor(s.Slot); ok {
-			role = spec.Role
-		}
-		out = append(out, clients.Existing{ID: s.Slot, Role: role, Name: s.Name})
-	}
-	return out
 }
 
 // NewSlot is a slot a client is created with.
@@ -397,8 +384,8 @@ func (s *Store) AddSlot(ctx context.Context, keyID, name string, b Binding) erro
 // its API: Claude Code keeps only ids with "claude", crush speaks Responses
 // only for one with "gpt-5" (internal/service/clients, Type.Marks). The page
 // says so beside the field; this is what holds when the API is called
-// directly. A name the slot already has is not checked again: a change of
-// type or API renames what no longer fits (ApplyChange).
+// directly. A name the slot already has is not checked again: it was given
+// under the same type and API, so it fit then and still does.
 func checkMark(typ string, d clients.Dialect, name string) error {
 	t, ok := clients.Find(typ)
 	if !ok || t.Fits(d, name) {
@@ -425,7 +412,7 @@ func (s *Store) RemoveSlot(ctx context.Context, keyID, slot string) error {
 		return err
 	}
 	if !c.Spec().Custom {
-		return invalidClient(c.Spec().Label + "'s slots are its configuration's; change its type instead")
+		return invalidClient(c.Spec().Label + "'s slots are its configuration's; only a custom client's can be removed")
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM client_slots WHERE key_id = ? AND slot = ?`, keyID, slot)
 	if err != nil {
@@ -435,80 +422,6 @@ func (s *Store) RemoveSlot(ctx context.Context, keyID, slot string) error {
 		return ErrClientNotFound
 	}
 	return nil
-}
-
-// ApplyChange moves a client to the type and dialect ch names, its slots as
-// ch says: kept ones moved to their new slot, binding and all, and renamed
-// where ch renames them; removed ones deleted and their names freed; added
-// ones created following their type's default. The key, its name, limits,
-// switches and history are not touched, and a typed client is put in binding
-// mode, the only one it has. All or nothing.
-func (s *Store) ApplyChange(ctx context.Context, keyID string, ch clients.Change) error {
-	t, ok := clients.Find(ch.Type)
-	if !ok {
-		return invalidClient("no such client type: " + ch.Type)
-	}
-	if !t.Speaks(ch.Dialect) {
-		return invalidClient(t.Label + " cannot be pointed at the " + ch.Dialect.Title() + " API")
-	}
-	return s.inTx(ctx, "change client", func(tx *sql.Tx) error {
-		q := `UPDATE clients SET type = ?, dialect = ? WHERE key_id = ?`
-		if !t.Custom {
-			q = `UPDATE clients SET type = ?, dialect = ?, mode = 'binding' WHERE key_id = ?`
-		}
-		res, err := tx.ExecContext(ctx, q, t.ID, string(ch.Dialect), keyID)
-		if err != nil {
-			return fmt.Errorf("change client: %w", err)
-		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return ErrClientNotFound
-		}
-		for _, r := range ch.Remove {
-			if _, err := tx.ExecContext(ctx,
-				`DELETE FROM client_slots WHERE key_id = ? AND slot = ?`, keyID, r.ID); err != nil {
-				return fmt.Errorf("change client: %w", err)
-			}
-		}
-		// Kept slots move in two steps, through an id and a name no slot can
-		// have ("~" is no model name's), so one slot taking another's id or
-		// name — crush's small becoming opencode's small while large becomes
-		// main — never meets a UNIQUE half-way.
-		now := time.Now()
-		for _, k := range ch.Keep {
-			if _, err := tx.ExecContext(ctx,
-				`UPDATE client_slots SET slot = ?, name = ? WHERE key_id = ? AND slot = ?`,
-				"~"+k.To, "~"+k.To, keyID, k.From); err != nil {
-				return fmt.Errorf("change client: %w", err)
-			}
-		}
-		for _, k := range ch.Keep {
-			if _, ok := t.SlotFor(k.To); !ok {
-				return invalidClient(t.Label + " has no slot " + k.To)
-			}
-			name := k.Name
-			if k.Renamed != "" {
-				name = k.Renamed
-			}
-			if name, err = checkSlotName(name); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx,
-				`UPDATE client_slots SET slot = ?, name = ?, updated_at = ? WHERE key_id = ? AND slot = ?`,
-				k.To, name, ms(now), keyID, "~"+k.To); err != nil {
-				return slotWriteError(err, name)
-			}
-		}
-		for i, a := range ch.Add {
-			if _, ok := t.SlotFor(a.Slot); !ok {
-				return invalidClient(t.Label + " has no slot " + a.Slot)
-			}
-			if err := insertSlot(ctx, tx, keyID, NewSlot{Slot: a.Slot, Name: a.Name, Binding: Binding{Follows: a.Follows}},
-				now.Add(time.Duration(i+1)*time.Millisecond)); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }
 
 // SetClientMode puts a custom client in binding or direct mode. Both stay

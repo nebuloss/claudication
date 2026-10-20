@@ -117,9 +117,10 @@ extended thinking). A slot bound to a GPT model on a Messages client is
 refused rather than translated, saying which slot to rebind, and the client's
 page warns beside it. See [client-apis.md](client-apis.md).
 
-Changing a client's type, or its API, shows what happens to each slot before
-anything is applied — kept, renamed to fit the new type's rule, added or
-removed — matched by what each slot is for.
+A client keeps the type and the API it was made with. Its key was issued for
+that one client, and its names carry what its API needs (`claude`, `gpt-5`),
+so a crush on Responses is a different client from a crush on Messages: make
+another, with its own key, rather than change one.
 
 ### The files carry the models' facts
 
@@ -280,7 +281,7 @@ already the higher privilege, so none of these asks for the admin password.
 | 404 saying the gateway is switched off | The **Gateway** switch in Settings is off. |
 | 403 "this client is disabled" | The client's own switch is off, on its row or its page. |
 | 400 naming the client's model names | A typed client asked for a name that is none of its slots — usually a model typed into its picker by hand. |
-| 400 saying a slot's model is not on this client's API | A Messages client's slot is bound to a GPT model. Rebind it, or point the client at Responses. |
+| 400 saying a slot's model is not on this client's API | A Messages client's slot is bound to a GPT model. Rebind it to a Claude model, or make a client on Responses for GPT. |
 | 401 | The key is wrong, regenerated, or in a header this client does not send. Either header works, on either API. |
 | 429 whose message is the single word `Error` | Not a rate limit. The attribution gate — see [refused-requests.md](refused-requests.md). Leave `passthrough.claude-code-attribution` on. |
 | "Third-party apps now draw from your extra usage" | Not a billing message. A content check refused the request; bisect it with `scripts/bisect-refusal.py`. |

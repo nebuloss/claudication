@@ -669,15 +669,6 @@ export interface ClientWire extends ApiKey {
   slots: SlotWire[]
 }
 
-/** What a change of type or dialect does to a client's slots. */
-export interface ClientChange {
-  type: string
-  dialect: DialectId
-  keep: { from: string; to: string; name: string; renamed?: string }[]
-  add: { slot: string; name: string; follows: string }[]
-  remove: { id: string; role: string; name: string }[]
-}
-
 /** What a client is doing now, for its Usage page. */
 export interface ClientLive {
   per_minute: number[]

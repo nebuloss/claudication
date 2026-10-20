@@ -15,11 +15,12 @@ import (
 func makeClient(t *testing.T, st *Store, name, typ string) Client {
 	t.Helper()
 	ty, _ := clients.Find(typ)
+	d, initial := ty.Initial("")
 	var slots []NewSlot
-	for _, a := range clients.Plan(nil, ty, ty.DefaultDialect()).Add {
+	for _, a := range initial {
 		slots = append(slots, NewSlot{Slot: a.Slot, Name: a.Name, Binding: Binding{Follows: a.Follows}})
 	}
-	c, plain, err := st.CreateClient(context.Background(), name, typ, ty.DefaultDialect(), KeyLimits{}, slots)
+	c, plain, err := st.CreateClient(context.Background(), name, typ, d, KeyLimits{}, slots)
 	if err != nil || plain == "" {
 		t.Fatalf("create %s: %v", name, err)
 	}
@@ -193,66 +194,6 @@ func TestCustomClientModes(t *testing.T) {
 	}
 	if err := st.SetClientMode(ctx, c.ID, "sideways"); !errors.Is(err, ErrInvalidClient) {
 		t.Errorf("no such mode: %v", err)
-	}
-}
-
-// A change of type moves the slots the two types share, binding and all,
-// adds the new type's others following their defaults and frees the rest;
-// the key and its name stay, and a typed client is in binding mode.
-// The review's case, applied: crush on Messages whose small slot is named
-// gpt-5-large moves to Responses without a name clash.
-func TestApplyChangeRenamesPastAKeptName(t *testing.T) {
-	st := newTestStore(t)
-	ctx := context.Background()
-	c := makeClient(t, st, "box", "crush")
-	if err := st.SetSlot(ctx, c.ID, "small", "gpt-5-large", Binding{Follows: clients.FollowHaiku}); err != nil {
-		t.Fatal(err)
-	}
-	c, _ = st.Client(ctx, c.ID)
-	if err := st.ApplyChange(ctx, c.ID, clients.Plan(c.Existing(), clients.Crush, clients.Responses)); err != nil {
-		t.Fatalf("crush to Responses: %v", err)
-	}
-	got, _ := st.Client(ctx, c.ID)
-	if slotNamed(t, got, "gpt-5-large") != "small" || slotNamed(t, got, "gpt-5-large-2") != "large" {
-		t.Errorf("slots %+v", got.Slots)
-	}
-}
-
-func TestApplyChange(t *testing.T) {
-	st := newTestStore(t)
-	ctx := context.Background()
-	c := makeClient(t, st, "box", "crush")
-	if err := st.SetSlot(ctx, c.ID, "small", "", Binding{Model: "gpt-6-luna"}); err != nil {
-		t.Fatal(err)
-	}
-	ch := clients.Plan(c.Existing(), clients.Opencode, clients.Messages)
-	if err := st.ApplyChange(ctx, c.ID, ch); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := st.Client(ctx, c.ID)
-	if got.Type != "opencode" || got.Dialect != clients.Messages || got.Name != "box" || len(got.Slots) != 2 ||
-		got.Slots[0].Slot != "main" || got.Slots[0].Name != "claude-large" ||
-		got.Slots[1].Slot != "small" || got.Slots[1].Name != "claude-small" || got.Slots[1].Model != "gpt-6-luna" {
-		t.Errorf("crush → opencode: %+v", got)
-	}
-	// To Claude Code, from a custom client in direct mode: binding mode, the
-	// one slot kept as the main one, the rest added.
-	cu := makeClient(t, st, "tool", "custom")
-	if err := st.SetClientMode(ctx, cu.ID, clients.Direct); err != nil {
-		t.Fatal(err)
-	}
-	cu, _ = st.Client(ctx, cu.ID)
-	if err := st.ApplyChange(ctx, cu.ID, clients.Plan(cu.Existing(), clients.ClaudeCode, clients.Messages)); err != nil {
-		t.Fatal(err)
-	}
-	got, _ = st.Client(ctx, cu.ID)
-	if got.Mode != clients.Binding || len(got.Slots) != len(clients.ClaudeCode.Slots) ||
-		got.Slots[0].Name != "claude-large" || got.Slots[1].Name != "claude-small" ||
-		got.Slots[1].Follows != clients.FollowHaiku {
-		t.Errorf("custom → claude-code: %+v", got)
-	}
-	if err := st.ApplyChange(ctx, cu.ID, clients.Change{Type: "codex", Dialect: clients.Messages}); !errors.Is(err, ErrInvalidClient) {
-		t.Errorf("codex on Messages: %v", err)
 	}
 }
 

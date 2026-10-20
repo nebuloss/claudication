@@ -623,8 +623,6 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodGet, "/admin/clients"},
 		{http.MethodPost, "/admin/clients"},
 		{http.MethodGet, "/admin/clients/x"},
-		{http.MethodPost, "/admin/clients/x/plan"},
-		{http.MethodPost, "/admin/clients/x/type"},
 		{http.MethodPost, "/admin/clients/x/mode"},
 		{http.MethodPost, "/admin/clients/x/disabled"},
 		{http.MethodPost, "/admin/clients/x/slots"},

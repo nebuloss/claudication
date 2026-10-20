@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -49,6 +50,19 @@ func TestClientLifecycleOverTheAdminAPI(t *testing.T) {
 		len(c.Slots) != 2 || c.Slots[0].Name != "large" || c.Slots[1].Name != "small" ||
 		c.Slots[0].Bound != "claude:opus" {
 		t.Errorf("created %+v", c)
+	}
+	// A client keeps the type and API it was made with: its key was issued
+	// for it, so there is no endpoint that changes either.
+	for _, p := range []string{"/plan", "/type"} {
+		r := postJSON(t, base, http.MethodPost, "/admin/clients/"+c.ID+p,
+			map[string]any{"type": "codex", "dialect": "openai"}, cookie)
+		r.Body.Close()
+		if r.StatusCode == http.StatusOK {
+			t.Errorf("POST %s changed a client", p)
+		}
+	}
+	if got, err := st.Client(context.Background(), c.ID); err != nil || got.Type != "crush" || got.Dialect != "anthropic" {
+		t.Errorf("after the attempts: %+v %v", got, err)
 	}
 
 	// The key works against the proxy surface. What is under test here is the

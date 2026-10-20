@@ -22,7 +22,7 @@ import { Binding, bindingOptions, providerTitle, type Client, type ClientTypes }
  * a target that moves with each release. Moving the client from Claude to GPT
  * is a change here and nothing else — for a client on an API that reaches
  * both. A binding its API cannot reach is allowed and said: the gateway
- * refuses those requests until the binding or the API changes.
+ * refuses those requests until the binding changes.
  */
 export function SlotsCard({ client: c, types, onChanged }: { client: Client; types: ClientTypes; onChanged: () => void }) {
   const models = useLoader((signal) => api.models.list(signal))
@@ -53,8 +53,7 @@ export function SlotsCard({ client: c, types, onChanged }: { client: Client; typ
           <Note tone="warn">
             {c.unreachable.map((s) => s.name).join(', ')} {c.unreachable.length === 1 ? 'is' : 'are'} bound to a{' '}
             {providerTitle(c.unreachable[0]?.provider)} model, which the {types.dialectTitle(c.dialect)} API this
-            client is pointed at cannot reach: those requests are refused.
-            {c.type.speaks('openai') && c.dialect !== 'openai' && ' Point the client at the OpenAI Responses API to serve it.'}
+            client is pointed at cannot reach: those requests are refused. Bind it to a model this API reaches.
           </Note>
         )}
         {c.slots.map((s) => (

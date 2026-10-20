@@ -59,8 +59,7 @@ type SlotJSON struct {
 	Problem  string `json:"problem,omitempty"`
 	// Unreachable says the client's dialect cannot reach Provider: a
 	// Messages client bound to a GPT model, which the gateway refuses. The
-	// slot is shown with a warning rather than refused here, so a binding
-	// can be made before the dialect is switched.
+	// slot is shown with a warning rather than refused here.
 	Unreachable bool `json:"unreachable,omitempty"`
 }
 
@@ -199,18 +198,15 @@ func (s *Admin) handleGetClient(w http.ResponseWriter, r *http.Request) {
 
 // createClient makes a client of a type, on a dialect ("" for the type's
 // default), with the type's slots under its names, each following its
-// default target.
+// default target. The type and the dialect are the client's for good.
 func (s *Admin) createClient(ctx context.Context, name string, t clients.Type, d clients.Dialect,
 	lim store.KeyLimits) (store.Client, string, error) {
-	if d == "" {
-		d = t.DefaultDialect()
-	}
-	ch := clients.Plan(nil, t, d)
-	slots := make([]store.NewSlot, 0, len(ch.Add))
-	for _, a := range ch.Add {
+	d, initial := t.Initial(d)
+	slots := make([]store.NewSlot, 0, len(initial))
+	for _, a := range initial {
 		slots = append(slots, store.NewSlot{Slot: a.Slot, Name: a.Name, Binding: store.Binding{Follows: a.Follows}})
 	}
-	return s.store.CreateClient(ctx, name, t.ID, ch.Dialect, lim, slots)
+	return s.store.CreateClient(ctx, name, t.ID, d, lim, slots)
 }
 
 // handleCreateClient makes a client and its key, and answers the key's
@@ -263,63 +259,6 @@ func (s *Admin) clientError(w http.ResponseWriter, err error, what string) bool 
 		httpx.Internal(w, s.log, what, err)
 	}
 	return true
-}
-
-// changeBody is a change of type and dialect, for planning and applying.
-type changeBody struct {
-	Type    string          `json:"type"`
-	Dialect clients.Dialect `json:"dialect"`
-}
-
-// plan reads a change of type or dialect and works out what it does to the
-// client's slots, answering itself when it cannot.
-func (s *Admin) plan(w http.ResponseWriter, r *http.Request) (store.Client, clients.Change, bool) {
-	c, ok := s.loadClient(w, r)
-	if !ok {
-		return store.Client{}, clients.Change{}, false
-	}
-	var body changeBody
-	if !httpx.DecodeJSON(w, r, &body) {
-		return store.Client{}, clients.Change{}, false
-	}
-	if body.Type == "" {
-		body.Type = c.Type
-	}
-	t, found := clients.Find(body.Type)
-	if !found {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "no such client type")
-		return store.Client{}, clients.Change{}, false
-	}
-	if body.Dialect == "" {
-		body.Dialect = c.Dialect
-	}
-	return c, clients.Plan(c.Existing(), t, body.Dialect), true
-}
-
-// handlePlanClient answers what a change of type or dialect would do, without
-// doing it: the names that stay, the ones added and the ones freed, which the
-// UI shows before the operator confirms.
-func (s *Admin) handlePlanClient(w http.ResponseWriter, r *http.Request) {
-	if _, ch, ok := s.plan(w, r); ok {
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"change": ch})
-	}
-}
-
-// handleChangeClient changes a client's type or dialect. The change is
-// worked out again here rather than taken from the caller, so what is applied
-// is what the client's slots allow now.
-func (s *Admin) handleChangeClient(w http.ResponseWriter, r *http.Request) {
-	c, ch, ok := s.plan(w, r)
-	if !ok {
-		return
-	}
-	if s.clientError(w, s.store.ApplyChange(r.Context(), c.ID, ch), "change the client") {
-		return
-	}
-	s.log.Warn("client changed", "id", c.ID, "from", c.Type+"/"+string(c.Dialect),
-		"to", ch.Type+"/"+string(ch.Dialect), "kept", len(ch.Keep), "added", len(ch.Add),
-		"removed", len(ch.Remove), "ip", httpx.ClientIP(r.Context()))
-	s.writeClient(w, r, c.ID, map[string]any{"change": ch})
 }
 
 // slotBody is a slot's name and binding as the UI sends them: a model or a

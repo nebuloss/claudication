@@ -453,8 +453,8 @@ func unreachable(p api.Protocol, up Upstream, dest modelsvc.Route, requested str
 		" cannot reach on this gateway"
 	switch {
 	case dest.Slot != "":
-		msg += "; an administrator can bind " + dest.Slot + " to a model this API can reach, or point the " +
-			"client at the " + up.Title + " account's API, on the client's page"
+		msg += "; an administrator can bind " + dest.Slot + " to a model this API can reach, on the " +
+			"client's page"
 	case up.Native != "":
 		msg += "; ask for it over the API that account speaks, as Codex does over /v1/responses"
 	case requested != "":

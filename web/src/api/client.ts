@@ -22,7 +22,6 @@ import type {
   AccountShare,
   ApiKey,
   ChatDetail,
-  ClientChange,
   ClientLive,
   ClientMode,
   ClientTypesWire,
@@ -242,13 +241,6 @@ const clients = {
     http.patch<{ key: ApiKey }>(path`/admin/keys/${id}`, toKeyBody(name, limits)),
 
   remove: (id: string) => http.send('DELETE', path`/admin/keys/${id}`),
-
-  /** What a change of type or dialect would do to its slots, without doing it. */
-  plan: async (id: string, type: string, dialect: DialectId | ''): Promise<ClientChange> =>
-    (await http.post<{ change: ClientChange }>(path`/admin/clients/${id}/plan`, { type, dialect })).change,
-
-  change: async (id: string, type: string, dialect: DialectId | ''): Promise<ClientWire> =>
-    (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/type`, { type, dialect })).client,
 
   setMode: async (id: string, mode: ClientMode): Promise<ClientWire> =>
     (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/mode`, { mode })).client,

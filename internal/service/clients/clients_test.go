@@ -38,7 +38,7 @@ func TestNameCarriesTheMark(t *testing.T) {
 
 // Every type's default dialect is one it speaks, every slot follows a target
 // and is named, and the slot ids, roles and names are unique within a type:
-// Plan maps by role, and a client's names are its own table.
+// the files find a slot by role, and a client's names are its own table.
 func TestTypesAreWellFormed(t *testing.T) {
 	for _, typ := range All {
 		if len(typ.Dialects) == 0 || len(typ.Slots) == 0 {
@@ -87,128 +87,27 @@ func TestFollow(t *testing.T) {
 	}
 }
 
-func existing(typ Type, d Dialect) []Existing {
-	var out []Existing
-	for _, s := range typ.Slots {
-		out = append(out, Existing{ID: s.ID, Role: s.Role, Name: typ.Name(d, s.ID, nil)})
+// A new client starts with every slot of its type under the name its dialect
+// needs, each following its default; a custom one with its one slot; and a
+// dialect the type cannot speak is its default.
+func TestInitial(t *testing.T) {
+	d, slots := ClaudeCode.Initial(Responses)
+	if d != Messages {
+		t.Errorf("Claude Code on Responses started on %s, want its only dialect", d)
 	}
-	return out
-}
-
-func TestPlanCustomToCrush(t *testing.T) {
-	have := []Existing{
-		{ID: "model", Role: RoleMain, Name: "model"},
-		{ID: "extra", Role: RoleCustom, Name: "extra"},
+	var names []string
+	for _, s := range slots {
+		names = append(names, s.Name)
 	}
-	ch := Plan(have, Crush, Messages)
-	if ch.Dialect != Messages {
-		t.Errorf("dialect %s", ch.Dialect)
+	if !reflect.DeepEqual(names, []string{"claude-large", "claude-small", "claude-opus", "claude-sonnet",
+		"claude-haiku", "claude-fable", "claude-auto"}) {
+		t.Errorf("Claude Code's names %v", names)
 	}
-	if !reflect.DeepEqual(ch.Keep, []Kept{{From: "model", To: "large", Name: "model"}}) {
-		t.Errorf("keep %+v", ch.Keep)
+	if _, slots := Crush.Initial(Responses); slots[0].Name != "gpt-5-large" || slots[1].Follows != FollowHaiku {
+		t.Errorf("crush on Responses %+v", slots)
 	}
-	if !reflect.DeepEqual(ch.Add, []Added{{Slot: "small", Name: "small", Follows: FollowHaiku}}) {
-		t.Errorf("add %+v", ch.Add)
-	}
-	if len(ch.Remove) != 1 || ch.Remove[0].Name != "extra" {
-		t.Errorf("remove %+v: the custom slot crush has no place for must go", ch.Remove)
-	}
-}
-
-func TestPlanCrushToOpencode(t *testing.T) {
-	have := existing(Crush, Messages)
-	ch := Plan(have, Opencode, Responses)
-	want := []Kept{{From: "large", To: "main", Name: "large"}, {From: "small", To: "small", Name: "small"}}
-	if !reflect.DeepEqual(ch.Keep, want) || len(ch.Add) != 0 || len(ch.Remove) != 0 {
-		t.Errorf("change %+v", ch)
-	}
-	// On Messages opencode wants "claude" in its names: both are renamed,
-	// keeping their bindings, which travel with the slot row.
-	ch = Plan(have, Opencode, Messages)
-	if ch.Keep[0].Renamed != "claude-large" || ch.Keep[1].Renamed != "claude-small" {
-		t.Errorf("keep %+v", ch.Keep)
-	}
-}
-
-func TestPlanCodexToClaudeCode(t *testing.T) {
-	have := existing(Codex, Responses)
-	ch := Plan(have, ClaudeCode, Responses)
-	// Claude Code speaks Messages only, so the dialect resets.
-	if ch.Dialect != Messages {
-		t.Errorf("dialect %s, want the type's default", ch.Dialect)
-	}
-	if len(ch.Keep) != 1 || ch.Keep[0].From != "main" || ch.Keep[0].To != "main" ||
-		ch.Keep[0].Renamed != "claude-large" {
-		t.Errorf("keep %+v", ch.Keep)
-	}
-	var added []string
-	for _, a := range ch.Add {
-		added = append(added, a.Name)
-	}
-	if !reflect.DeepEqual(added, []string{"claude-small", "claude-opus", "claude-sonnet", "claude-haiku",
-		"claude-fable", "claude-auto"}) {
-		t.Errorf("added %v", added)
-	}
-	var removed []string
-	for _, r := range ch.Remove {
-		removed = append(removed, r.Name)
-	}
-	if !reflect.DeepEqual(removed, []string{"review", "agents", "small"}) {
-		t.Errorf("removed %v, want the names Claude Code has no slot for freed", removed)
-	}
-}
-
-// A dialect change alone renames only what no longer fits; the same type and
-// dialect is no change at all.
-func TestPlanDialectOnly(t *testing.T) {
-	have := existing(Crush, Messages)
-	ch := Plan(have, Crush, Responses)
-	if ch.Keep[0].Renamed != "gpt-5-large" || ch.Keep[1].Renamed != "gpt-5-small" || ch.Empty() {
-		t.Errorf("keep %+v", ch.Keep)
-	}
-	if !Plan(have, Crush, Messages).Empty() {
-		t.Error("the same type and dialect is no change")
-	}
-}
-
-// An added slot never takes a name a kept one holds.
-func TestPlanAvoidsKeptNames(t *testing.T) {
-	have := []Existing{{ID: "model", Role: RoleMain, Name: "small"}}
-	ch := Plan(have, Crush, Messages)
-	if ch.Keep[0].Name != "small" || ch.Add[0].Name != "small-2" {
-		t.Errorf("change %+v", ch)
-	}
-}
-
-// A kept name renamed to fit the new dialect never lands on the name another
-// kept slot already has: crush on Messages with its small slot named
-// gpt-5-large, moved to Responses, keeps that name and renames large past it.
-func TestPlanRenamesPastKeptNames(t *testing.T) {
-	have := []Existing{{ID: "large", Role: RoleMain, Name: "large"}, {ID: "small", Role: RoleFast, Name: "gpt-5-large"}}
-	ch := Plan(have, Crush, Responses)
-	names := map[string]bool{}
-	for _, k := range ch.Keep {
-		n := k.Name
-		if k.Renamed != "" {
-			n = k.Renamed
-		}
-		if names[n] {
-			t.Fatalf("two kept slots named %q: %+v", n, ch.Keep)
-		}
-		names[n] = true
-	}
-	if ch.Keep[1].Renamed != "" || ch.Keep[0].Renamed != "gpt-5-large-2" {
-		t.Errorf("keep %+v, want small kept as gpt-5-large and large renamed past it", ch.Keep)
-	}
-}
-
-func TestPlanToCustomKeepsEverything(t *testing.T) {
-	ch := Plan(existing(Crush, Messages), Custom, Messages)
-	if len(ch.Keep) != 2 || len(ch.Add) != 0 || len(ch.Remove) != 0 {
-		t.Errorf("change %+v", ch)
-	}
-	ch = Plan(nil, Custom, Messages)
-	if len(ch.Add) != 1 || ch.Add[0].Slot != "large" || ch.Add[0].Follows != FollowOpus {
-		t.Errorf("a custom client with no slot is given its one: %+v", ch)
+	if d, slots := Custom.Initial(""); d != Messages || !reflect.DeepEqual(slots,
+		[]Initial{{Slot: "large", Name: "large", Follows: FollowOpus}}) {
+		t.Errorf("custom %s %+v", d, slots)
 	}
 }
