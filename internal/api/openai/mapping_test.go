@@ -80,7 +80,7 @@ func TestFixtureBecomesAValidAnthropicRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := ResponsesToAnthropic(body, Options{Model: "claude-sonnet-5"})
+	got, err := ResponsesToAnthropic(body, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,38 +152,20 @@ func TestFixtureBecomesAValidAnthropicRequest(t *testing.T) {
 	}
 }
 
-func TestOnlyANonClaudeModelIsSubstituted(t *testing.T) {
-	for _, tc := range []struct {
-		asked string
-		want  string
-	}{
-		// gpt-5-codex means nothing upstream; sending it on would just be
-		// refused, so the configured model stands in.
-		{"gpt-5-codex", "claude-sonnet-5"},
-		{"gpt-4.1", "claude-sonnet-5"},
-		// An operator who put a real model in Codex's config keeps control of
-		// which one runs.
-		{"claude-opus-5", "claude-opus-5"},
-	} {
-		t.Run(tc.asked, func(t *testing.T) {
-			body := []byte(`{"model":"` + tc.asked + `","input":[]}`)
-			got, err := ResponsesToAnthropic(body, Options{Model: "claude-sonnet-5"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.Model != tc.want {
-				t.Errorf("model = %q, want %q", got.Model, tc.want)
-			}
-			var out struct {
-				Model string `json:"model"`
-			}
-			if err := json.Unmarshal(got.Body, &out); err != nil {
-				t.Fatal(err)
-			}
-			if out.Model != tc.want {
-				t.Errorf("body model = %q, want %q", out.Model, tc.want)
-			}
-		})
+// The model passes through as the caller named it: the gateway resolves a
+// client's own names before the translation, and there is no stand-in left.
+func TestTheModelPassesThrough(t *testing.T) {
+	for _, asked := range []string{"gpt-5-codex", "claude-opus-5"} {
+		got, err := ResponsesToAnthropic([]byte(`{"model":"`+asked+`","input":[]}`), Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Model != asked {
+			t.Errorf("model = %q, want %q", got.Model, asked)
+		}
+	}
+	if _, err := ResponsesToAnthropic([]byte(`{"input":[]}`), Options{}); err == nil {
+		t.Error("a request naming no model was translated")
 	}
 }
 

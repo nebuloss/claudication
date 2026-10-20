@@ -12,18 +12,7 @@ type Options struct {
 	// requires max_tokens and Codex sends no max_output_tokens at all, so
 	// without a figure here every request would be rejected.
 	MaxTokens int
-	// Model is the Claude model to send when the caller asked for something
-	// else. A caller that already names a Claude model keeps it, so an
-	// operator who configured Codex with `model = "claude-opus-5"` stays in
-	// control of what runs; a caller asking for gpt-5-codex gets this
-	// instead, because that name means nothing upstream and the request would
-	// simply be refused. Empty passes every model through untouched.
-	Model string
 }
-
-// claudeModelPrefix marks a model name the upstream might actually know. It is
-// a prefix test rather than a list because the list changes without us.
-const claudeModelPrefix = "claude-"
 
 // defaultMaxTokens is generous on purpose. It bounds one answer, not a budget:
 // the account's own limits do that, and a ceiling low enough to truncate a
@@ -110,11 +99,8 @@ func ResponsesToAnthropic(body []byte, opts Options) (Request, error) {
 	out := map[string]any{}
 
 	model := in.Model
-	if opts.Model != "" && !strings.HasPrefix(model, claudeModelPrefix) {
-		model = opts.Model
-	}
 	if model == "" {
-		return Request{}, fmt.Errorf("no model in the request and none configured")
+		return Request{}, fmt.Errorf("no model in the request")
 	}
 	out["model"] = model
 

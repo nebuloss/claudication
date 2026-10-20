@@ -324,8 +324,6 @@ const gateway = {
 
   setServing: (enabled: boolean) => http.send('POST', '/admin/gateway', { body: { enabled } }),
   setFitImages: (enabled: boolean) => http.send('POST', '/admin/fit-images', { body: { enabled } }),
-  setChatTitles: (change: { enabled?: boolean; capture?: boolean }) =>
-    http.send('POST', '/admin/chat-titles', { body: change }),
 
   /**
    * Liveness and the build, as every listener answers them to anyone: all the

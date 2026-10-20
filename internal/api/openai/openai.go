@@ -26,27 +26,23 @@ const ID = "openai"
 //
 // See doc.go for what Codex actually sends, what it does with the answer, and
 // the measurements behind both.
-type API struct {
-	// model stands in, when set, for a name that is not Claude's. The
-	// gateway sets none: a client's request names one of its own slots,
-	// which the gateway resolves before the translation sees it, and a
-	// direct-mode client names the real model it means. Empty passes every
-	// name through.
-	model string
-}
+//
+// The model a request names passes through: a client's request names one of
+// its own slots, which the gateway resolves before the translation sees it,
+// and a direct-mode client names the real model it means.
+type API struct{}
 
-// New returns the surface, sending model, if any, when a request names no
-// Claude model of its own.
-func New(model string) API {
-	return API{model: model}
+// New returns the surface.
+func New() API {
+	return API{}
 }
 
 func (API) ID() string       { return ID }
 func (API) Title() string    { return "OpenAI Responses API" }
 func (API) Routes() []string { return []string{"/v1/responses"} }
 
-func (a API) Decode(body []byte) (api.Exchange, error) {
-	req, err := ResponsesToAnthropic(body, Options{Model: a.model})
+func (API) Decode(body []byte) (api.Exchange, error) {
+	req, err := ResponsesToAnthropic(body, Options{})
 	if err != nil {
 		return nil, err
 	}

@@ -624,13 +624,6 @@ func (t *Titler) Consider(ev Request) {
 	if IsClientTitleRequest(ev.Body) {
 		return
 	}
-	// Nor a chat whose client names it itself: its own title request is on
-	// its way through, and CaptureTitle reads the answer for nothing. Asking
-	// as well spends a call on a name that would be replaced the moment the
-	// client's arrived (SetClientTitle).
-	if ev.SelfNaming {
-		return
-	}
 	if !t.claim(ev.Conversation) {
 		return
 	}
@@ -675,9 +668,6 @@ func (t *Titler) CaptureTitle(conversation, model string, answer []byte) {
 // prompted it because that request is over by the time this runs.
 type Request struct {
 	Conversation string
-	// SelfNaming is a chat whose client's type names its chats itself
-	// (clients.Type.NamesItsChats).
-	SelfNaming bool
 	// KeyID and KeyName are the client's: a title is asked for under the key
 	// of the client whose chat it names, so it is that client's spend, held
 	// to that client's limits. Budget is that key's, for the recorder.

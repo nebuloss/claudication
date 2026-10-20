@@ -184,7 +184,7 @@ func (s *Server) loadSwitches(ctx context.Context) {
 	// Order is what the admin UI lists.
 	s.protocols = api.Registry{
 		anthropicapi.New(),
-		openai.New(""),
+		openai.New(),
 	}
 	// On unless an operator switched it off: a switch that cannot be read
 	// leaves the gateway serving, which is the state it was in before there
