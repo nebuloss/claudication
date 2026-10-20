@@ -1,11 +1,8 @@
-import { useState } from 'react'
 import {
   api,
   type MemorySnapshot,
   type Overview as OverviewData,
-  type Usage,
 } from '../../../api/client'
-import { Traffic } from '../usage/traffic'
 import { AvailabilityCard } from '../status'
 import { useLoader } from '../../hooks'
 import {
@@ -16,7 +13,6 @@ import {
   InlineLink,
   Loading,
   MeterRow,
-  Muted,
   Page,
   Stat,
   StatGrid,
@@ -82,48 +78,6 @@ function MemoryCard({ memory }: { memory: MemorySnapshot }) {
         <Stat label="Goroutines" value={memory.goroutines} hint="streams and workers" />
         <Stat label="Collections" value={compact(memory.gc_cycles)} hint="since start" />
       </StatGrid>
-    </Card>
-  )
-}
-
-/** How many days of history the chart can show. */
-const WINDOWS = [7, 14, 30] as const
-
-/** The chart aggregates whole days, so it barely moves minute to minute. */
-const TRAFFIC_REFRESH_MS = 60_000
-
-/**
- * What the gateway has been doing, as one chart over time.
- *
- * Only the chart. The totals are the status card's 24-hour figures above, and
- * the breakdowns by account and by key are on each account's and each key's
- * own page — the Overview carrying them too was the same numbers twice, in a
- * card long enough to push everything else off the screen.
- *
- * Its own loader, so changing the window does not re-fetch the status, and a
- * usage table that is off or empty cannot take the screen down with it.
- */
-function TrafficCard() {
-  const [days, setDays] = useState(14)
-  const { data: usage } = useLoader<Usage>(
-    (signal) => api.traffic.usage(days, {}, signal),
-    {
-      deps: [days],
-      refreshMs: TRAFFIC_REFRESH_MS,
-    },
-  )
-  return (
-    <Card title="Traffic">
-      {usage === null ? (
-        <Loading />
-      ) : usage.enabled === false ? (
-        <Muted>
-          Per-request history is off — <code>usage.retention-days</code> is 0, so the gateway
-          records nothing to chart.
-        </Muted>
-      ) : (
-        <Traffic cross={usage.report?.cross} days={days} onDays={setDays} windows={WINDOWS} />
-      )}
     </Card>
   )
 }
@@ -268,7 +222,6 @@ export default function Overview({
         </Banner>
       )}
 
-      <TrafficCard />
     </Page>
   )
 }
