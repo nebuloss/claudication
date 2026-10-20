@@ -56,7 +56,7 @@ PLATFORMS ?= linux/amd64 linux/arm64 linux/arm linux/riscv64 \
              freebsd/amd64
 
 .PHONY: help all build backend web web-deps dev dev-api run dist repro \
-        fmt fmt-check vet tidy test test-go test-web typecheck web-build \
+        fmt fmt-check vet tidy test test-go test-sh test-web typecheck web-build \
         check clean
 
 ## help: list the targets worth knowing about
@@ -153,8 +153,14 @@ test-web:
 	@node scripts/check-charts.mjs
 	@rm -rf web/.charts-check
 
+## test-sh: install.sh's update decisions, against stubs; no root needed
+test-sh:
+	sh -n scripts/install.sh
+	sh -n scripts/deploy.sh
+	sh scripts/test-install.sh
+
 ## check: everything CI runs — formatting, vet, tests, typecheck and the UI build
-check: fmt-check vet test typecheck test-web web-build
+check: fmt-check vet test test-sh typecheck test-web web-build
 
 # tsc does not run Tailwind, so a stylesheet that cannot compile sails through
 # a typecheck. Building the UI is the only thing that proves it compiles.

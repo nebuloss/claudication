@@ -9,6 +9,16 @@ ExecStart=/usr/local/bin/claudication serve -config /etc/claudication/config.yam
 Restart=on-failure
 RestartSec=2s
 
+# The main process is the gateway's own supervisor, which holds the sockets
+# and outlives every worker (internal/handover, docs/deploying.md). Reload
+# starts a worker from the binary on disk beside the running one, which lets
+# go only once the new one serves: an upgrade is a binary swap and a
+# `systemctl reload`, and refuses no connection. `restart` is still a stop.
+ExecReload=/bin/kill -HUP $MAINPID
+# A stop goes to the supervisor alone, which lets go of the sockets and then
+# stops its workers; the whole group is killed only at the timeout.
+KillMode=mixed
+
 # SIGTERM is the default KillSignal; claudication drains in-flight streams within its
 # configured grace period, so give systemd more patience than that grace.
 KillSignal=SIGTERM
@@ -22,6 +32,8 @@ TimeoutStopSec=150s
 # collection. MemoryMax is the backstop for when the runtime is wrong.
 # Both are generous for this workload — steady state is tens of megabytes —
 # and exist so a burst degrades into GC pressure instead of a killed process.
+# MemoryMax is the whole unit's: for the length of a handover's drain two
+# workers count against it, which tens of megabytes each leaves room for.
 Environment=GOMEMLIMIT=384MiB
 MemoryMax=512M
 MemoryAccounting=yes

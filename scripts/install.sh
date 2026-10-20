@@ -21,6 +21,13 @@
 # anything is touched, the state is backed up first, and if the new version
 # does not come up answering on every port, the previous one is put back.
 #
+# Nor does it refuse a connection, when the running gateway can hand over
+# (it says so on /health): the new binary is put in place and the service
+# reloaded, and the running worker serves until the new one answers, then
+# finishes what it was answering. One that cannot — a release from before the
+# handover, or HANDOVER=0 — is stopped and started, as every update used to
+# be. See internal/handover.
+#
 # Systems: Alpine Linux (OpenRC), Debian/Ubuntu (systemd)
 #
 # Layout: settings, output helpers, a platform layer holding every
@@ -75,6 +82,12 @@ BINARY_SHA256="${BINARY_SHA256:-}"
 # Pre-upgrade snapshots of the state, newest kept, in $STATE_DIR/backups.
 # 0 skips the snapshot — only for a version too old to have `backup`.
 BACKUPS_KEPT="${BACKUPS_KEPT:-5}"
+# 0 stops and starts the service even when the running gateway could hand over.
+HANDOVER="${HANDOVER:-1}"
+# Seconds a handover may leave the old version answering before it is called
+# failed. Longer than the 45 s the supervisor gives a new worker to be ready,
+# after which it abandons the reload and the old one carries on.
+HANDOVER_TIMEOUT="${HANDOVER_TIMEOUT:-60}"
 QUIET="${QUIET:-0}"                   # 1 to drop the progress dots
 
 BINARY="$BIN_DIR/claudication"
@@ -184,6 +197,14 @@ service_running() {
   esac
 }
 
+# Hand the service over to the binary on disk, without a stop.
+service_reload() {
+  case "$OS" in
+    alpine) rc-service "$SERVICE_NAME" reload >/dev/null 2>&1 ;;
+    debian) systemctl reload "$SERVICE_NAME" ;;
+  esac
+}
+
 service_tail() {
   case "$OS" in
     alpine) tail -25 "$LOG_FILE" 2>/dev/null || true ;;
@@ -195,11 +216,13 @@ service_hints() {
   case "$OS" in
     alpine)
       step "logs:    tail -f $LOG_FILE"
-      step "restart: rc-service $SERVICE_NAME restart"
+      step "reload:  rc-service $SERVICE_NAME reload   (no connection refused)"
+      step "restart: rc-service $SERVICE_NAME restart  (a stop: refuses until it is back)"
       ;;
     debian)
       step "logs:    journalctl -u $SERVICE_NAME -f"
-      step "restart: systemctl restart $SERVICE_NAME"
+      step "reload:  systemctl reload $SERVICE_NAME    (no connection refused)"
+      step "restart: systemctl restart $SERVICE_NAME   (a stop: refuses until it is back)"
       ;;
   esac
 }
@@ -348,6 +371,19 @@ respawn_period=1800
 # new process while the old one still holds the ports and a stream is open.
 retry="TERM/150/KILL/5"
 
+# The process supervise-daemon tracks is the gateway's own supervisor, which
+# holds the sockets and outlives every worker (internal/handover): SIGHUP to
+# it starts a worker from the binary on disk beside the running one, and the
+# running one lets go only once the new one is serving. supervise-daemon never
+# sees a pid change, so a reload is not a respawn.
+extra_started_commands="reload"
+description_reload="Hand over to the binary on disk; no connection is refused"
+reload() {
+	ebegin "Handing \$RC_SVCNAME over to \$command"
+	supervise-daemon "\$RC_SVCNAME" --signal HUP
+	eend \$?
+}
+
 # Only the state directory, which the CLI subcommands need before any config
 # is read. Everything else lives in the config file, because an environment
 # variable silently overrides it and half a configuration is worse than either.
@@ -449,6 +485,15 @@ Group=$SERVICE_USER
 ExecStart=$BINARY serve -config $CONFIG_FILE
 Restart=on-failure
 RestartSec=2s
+
+# The main process is the gateway's own supervisor: it holds the sockets and
+# outlives every worker (internal/handover). SIGHUP to it starts a worker from
+# the binary on disk beside the running one, which lets go only once the new
+# one is serving, so a reload refuses nothing and MAINPID never changes.
+ExecReload=/bin/kill -HUP \$MAINPID
+# A stop goes to the supervisor alone, which lets go of the sockets and then
+# stops its workers; the whole group is killed only at the timeout.
+KillMode=mixed
 
 # Only the state directory, which the CLI subcommands need before any config
 # is read. Everything else lives in the config file, because an environment
@@ -717,23 +762,117 @@ backup_state() {
 }
 
 # Put the checked binary in place, keeping the one it replaces beside it.
-# Only called with the service stopped: replacing the file under a running
-# service leaves it executing a binary that is no longer the one on disk.
+#
+# With the service stopped, or running and about to hand over: the reload
+# starts whatever is at $BINARY, so it has to be the new one first. Copied
+# beside it and renamed over it, because $NEW_DIR is usually on another
+# filesystem, and mv across one writes into the file in place — which a
+# running executable refuses ("Text file busy"), and a half-written one is
+# what the next start would run. The rename leaves the running process its
+# own inode.
 swap_binary() {
   mkdir -p "$BIN_DIR"
   if [ -x "$BINARY" ]; then cp -p "$BINARY" "$BINARY.prev"; fi
-  mv "$NEW_BIN" "$BINARY"
+  cp "$NEW_BIN" "$BINARY.new"
+  chmod 755 "$BINARY.new"
+  mv -f "$BINARY.new" "$BINARY"
   rm -rf "$NEW_DIR"
 }
 
-# The update did not come up: put the previous binary back and start that.
+# Whether the running gateway can take the new binary without a stop. Only a
+# worker under the supervisor says "reloadable":true on /health; a release
+# from before the handover says nothing, and is stopped and started instead.
+# Also what a rollback asks: the previous version could be handed back to only
+# if it was serving this way itself. Sets RELOADABLE.
+running_reloadable() {
+  RELOADABLE=0
+  service_running || return 1
+  curl -fsS -m 2 "http://127.0.0.1:$(relay_port)/health" 2>/dev/null |
+    grep -q '"reloadable":true' || return 1
+  RELOADABLE=1
+}
+
+can_hand_over() {
+  [ "$HANDOVER" = 1 ] && [ -n "$BEFORE" ] && running_reloadable
+}
+
+# The update without a stop: the new binary in place, then a reload.
+hand_over() {
+  info "Handing over to $NEW_VERSION ($BEFORE serves until it answers)"
+  swap_binary
+  service_reload || { fail "the reload was refused"; return 1; }
+  wait_handed_over
+}
+
+# Like wait_ready, for a handover, which ends one of three ways:
+#   - the new version answers: done, in a second or two;
+#   - the old version goes on answering: the new worker never got ready and
+#     the supervisor abandoned the reload (HANDOVER_TIMEOUT);
+#   - nothing answers for a while: the new binary needs a schema change, so
+#     the supervisor stopped the old worker first and is waiting out its drain
+#     — up to STOP_TIMEOUT — before the new one migrates and starts.
+wait_handed_over() {
+  i=0
+  limit=$((STOP_TIMEOUT + BOOT_TIMEOUT))
+  while [ "$i" -lt "$limit" ]; do
+    if ready; then
+      endline
+      return 0
+    fi
+    if [ "$i" -ge "$HANDOVER_TIMEOUT" ] && [ "$(serving_version)" = "$BEFORE" ]; then
+      endline
+      fail "$BEFORE is still serving after ${HANDOVER_TIMEOUT}s: $NEW_VERSION never got ready"
+      dump_logs
+      return 1
+    fi
+    if [ "$i" -gt 3 ] && ! service_running; then
+      endline
+      fail "the service stopped unexpectedly"
+      dump_logs
+      return 1
+    fi
+    i=$((i + 1))
+    [ $((i % 2)) -eq 0 ] && tick
+    sleep 1
+  done
+  endline
+  got="$(serving_version)"
+  fail "$NEW_VERSION not serving on every port after ${limit}s${got:+ (health reports $got)}"
+  dump_logs
+  return 1
+}
+
+# The update with a stop, for a gateway that cannot hand over.
+stop_and_start() {
+  stop_and_release
+  swap_binary
+  claim_gateway
+  service_start
+  wait_ready
+}
+
+# The update did not come up: put the previous binary back and serve that.
+#
+# After a handover that never happened — the new worker did not get ready —
+# the previous version is still the one serving, and putting its binary back
+# is the whole of it. After one that did, it is handed back the same way, if it
+# was serving under the supervisor before (BEFORE_RELOADABLE: only then does
+# its binary know how to be a worker); otherwise it is a stop and a start.
 rollback() {
   [ -n "$BEFORE" ] && [ -x "$BINARY.prev" ] || return 1
   warn "rolling back to $BEFORE"
-  stop_and_release
-  mv "$BINARY.prev" "$BINARY"
+  mv -f "$BINARY.prev" "$BINARY"
   NEW_VERSION="$BEFORE"
-  service_start
+  if [ "$(serving_version)" = "$BEFORE" ] && ready; then
+    warn "$BEFORE never stopped serving; its binary is back in place"
+    return 0
+  fi
+  if [ "${BEFORE_RELOADABLE:-0}" = 1 ] && running_reloadable; then
+    service_reload
+  else
+    stop_and_release
+    service_start
+  fi
   if wait_ready; then
     warn "$BEFORE is serving again; the failed version's log lines are above"
     return 0
@@ -868,16 +1007,24 @@ main() {
   ensure_dirs
   backup_state
 
-  # The unit first, so the stop below already runs under its patience.
+  # The unit first, so the stop below already runs under its patience, and
+  # a reload under the new unit's reload.
   service_install
-  stop_and_release
-  swap_binary
-  claim_gateway
-  service_start
 
   ready=0
-  if wait_ready; then
-    ready=1
+  BEFORE_RELOADABLE=0
+  if can_hand_over; then
+    BEFORE_RELOADABLE=1
+    # Claimed once the new version serves: run before, the new binary would
+    # open — and migrate — the database under the old worker.
+    hand_over && ready=1 && claim_gateway
+  else
+    [ -n "$BEFORE" ] && service_running && [ "$HANDOVER" = 1 ] &&
+      warn "$BEFORE cannot hand over: stopping it, so new connections are refused until $NEW_VERSION is up"
+    stop_and_start && ready=1
+  fi
+
+  if [ "$ready" = 1 ]; then
     print_summary
   else
     rollback || true
@@ -888,4 +1035,5 @@ main() {
   [ "$ready" = "1" ]
 }
 
-main "$@"
+# Sourced by scripts/test-install.sh, which calls the steps one at a time.
+[ "${INSTALL_SH_SOURCED:-0}" = 1 ] || main "$@"
