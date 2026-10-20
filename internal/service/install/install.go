@@ -238,8 +238,25 @@ func (l *Links) Create(b Bundle) (string, time.Time, error) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.sweep()
 	l.byClient[b.ClientID] = &link{token: token, bundle: b, expires: expires}
 	return token, expires, nil
+}
+
+// sweep empties every link past its time that was never fetched: its files
+// carry the client's key, and an expired link has no use for them. What is
+// left is what StateOf needs to say "expired". Run on every call, so a key
+// waits in memory no longer than the link's own lifetime plus the next call,
+// rather than until the process restarts. A fetched link already holds no
+// files (Take).
+func (l *Links) sweep() {
+	now := l.now()
+	for _, k := range l.byClient {
+		if k.used == nil && !now.Before(k.expires) {
+			k.token = ""
+			k.bundle = Bundle{ClientID: k.bundle.ClientID}
+		}
+	}
 }
 
 // ErrUsed is Take's answer for a link already fetched once.
@@ -257,6 +274,7 @@ var ErrUnknown = errors.New("this install command has expired or its token is wr
 func (l *Links) Take(token, ip, shell string) (Bundle, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.sweep()
 	for _, k := range l.byClient {
 		if token == "" || k.token != token {
 			continue
@@ -281,6 +299,7 @@ func (l *Links) Take(token, ip, shell string) (Bundle, error) {
 func (l *Links) StateOf(clientID string) State {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.sweep()
 	k, ok := l.byClient[clientID]
 	switch {
 	case !ok:

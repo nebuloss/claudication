@@ -69,6 +69,35 @@ func TestLinksAreSingleUse(t *testing.T) {
 	}
 }
 
+// An expired link that was never fetched lets go of its files, which carry the
+// client's key, at the next call rather than at the next restart — and still
+// says it expired.
+func TestAnExpiredLinkDropsItsKey(t *testing.T) {
+	l := New(time.Minute)
+	now := time.Now()
+	l.now = func() time.Time { return now }
+	if _, _, err := l.Create(Bundle{ClientID: "c1", Key: "laptop",
+		Files: []File{{ClientID: "crush", Client: "crush", Path: ".config/crush/crush.json", Body: "clc_secret"}}}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Minute)
+	// Any call sweeps: another client's link being made is one.
+	if _, _, err := l.Create(Bundle{ClientID: "c2", Key: "box",
+		Files: []File{{ClientID: "crush", Client: "crush", Path: ".config/crush/crush.json", Body: "x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	l.mu.Lock()
+	k := l.byClient["c1"]
+	held := len(k.bundle.Files) > 0 || k.bundle.Key != "" || k.token != ""
+	l.mu.Unlock()
+	if held {
+		t.Error("an expired link still holds its files, key name or token")
+	}
+	if st := l.StateOf("c1"); st.State != Expired {
+		t.Errorf("after the sweep: %+v, want expired", st)
+	}
+}
+
 // Nothing a bundle names may land outside the home directory.
 func TestBundleStaysUnderHome(t *testing.T) {
 	for _, p := range []string{"/etc/passwd", "../x", ".codex/../../x", "a/./b", "a b", "a;b", "$HOME/x", ""} {
