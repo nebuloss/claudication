@@ -111,7 +111,7 @@ func NewStream(w api.FlushWriter, req Request) *Stream {
 func (s *Stream) Write(p []byte) (int, error) {
 	s.pending.Write(p)
 	for {
-		raw, ok := takeFrame(&s.pending)
+		raw, ok := api.NextFrame(&s.pending)
 		if !ok {
 			return len(p), nil
 		}
@@ -153,51 +153,14 @@ func (s *Stream) Run(src io.Reader) error {
 	return err
 }
 
-// takeFrame removes the next complete SSE frame from buf, if there is one.
-// Frames end at a blank line, in either line ending.
-func takeFrame(buf *bytes.Buffer) ([]byte, bool) {
-	b := buf.Bytes()
-	lf := bytes.Index(b, []byte("\n\n"))
-	crlf := bytes.Index(b, []byte("\r\n\r\n"))
-	end, sep := lf, 2
-	if crlf >= 0 && (end < 0 || crlf < end) {
-		end, sep = crlf, 4
-	}
-	if end < 0 {
-		return nil, false
-	}
-	frame := make([]byte, end)
-	copy(frame, b[:end])
-	buf.Next(end + sep)
-	return frame, true
-}
-
-// frame parses one SSE frame and dispatches it.
+// frame parses one SSE frame and dispatches it. The frame reading is
+// internal/api's, shared with the Messages translation's.
 func (s *Stream) frame(raw []byte) error {
-	var event, data string
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSuffix(line, "\r")
-		switch {
-		case strings.HasPrefix(line, "event:"):
-			event = strings.TrimSpace(line[len("event:"):])
-		case strings.HasPrefix(line, "data:"):
-			// Multi-line data fields concatenate with a newline. Anthropic
-			// does not use them, but the format allows them and a parser that
-			// dropped the second line would silently truncate the JSON.
-			part := strings.TrimPrefix(line[len("data:"):], " ")
-			if data == "" {
-				data = part
-			} else {
-				data += "\n" + part
-			}
-		default:
-			// A comment (": ping") or a field we do not use.
-		}
-	}
-	if data == "" && event == "" {
+	event, data := api.FrameFields(raw)
+	if len(data) == 0 && event == "" {
 		return nil
 	}
-	return s.handle(event, []byte(data))
+	return s.handle(event, data)
 }
 
 // anthropicEvent is the union of the streaming events, read loosely: fields

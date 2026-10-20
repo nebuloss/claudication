@@ -5,7 +5,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -181,62 +180,8 @@ func (s *Gateway) handleModels(p api.Protocol) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(s.reachableFrom("/v1/messages", body))
+		_, _ = w.Write(body)
 	}
-}
-
-// reachableFrom is a model list less the models a client on route could not
-// use: a model, or a client's name serving one, whose provider that route cannot
-// reach. A Claude client offered a GPT model would only meet it as a
-// refusal. An entry is a provider's when it says so ("provider", which every
-// provider but the default one's list sets); one that does not is the
-// default's. A list it cannot read is returned as it was.
-func (s *Gateway) reachableFrom(route string, body []byte) []byte {
-	var list map[string]json.RawMessage
-	if json.Unmarshal(body, &list) != nil {
-		return body
-	}
-	var data []json.RawMessage
-	if json.Unmarshal(list["data"], &data) != nil {
-		return body
-	}
-	kept := make([]json.RawMessage, 0, len(data))
-	var ids []string
-	for _, e := range data {
-		var m struct {
-			ID       string `json:"id"`
-			Provider string `json:"provider"`
-		}
-		if json.Unmarshal(e, &m) == nil && m.Provider != "" {
-			if _, ok := s.upstreams[m.Provider].Paths[route]; !ok {
-				continue
-			}
-		}
-		kept = append(kept, e)
-		ids = append(ids, m.ID)
-	}
-	if len(kept) == len(data) {
-		return body
-	}
-	set := func(field string, v any) {
-		if raw, err := json.Marshal(v); err == nil {
-			list[field] = raw
-		}
-	}
-	set("data", kept)
-	// The paging fields name what is in it now.
-	if len(ids) > 0 {
-		set("first_id", ids[0])
-		set("last_id", ids[len(ids)-1])
-	} else {
-		delete(list, "first_id")
-		delete(list, "last_id")
-	}
-	out, err := json.Marshal(list)
-	if err != nil {
-		return body
-	}
-	return out
 }
 
 // Setting is the settings row holding the gateway switch (see serving). It

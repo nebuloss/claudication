@@ -109,3 +109,33 @@ type Sink interface {
 	// error that ended the exchange, or nil.
 	Close(cause error)
 }
+
+// Target is the upstream a request is to be rebuilt for, and what about the
+// request the translation needs beyond its body.
+type Target struct {
+	// Dialect is the protocol the upstream speaks itself: a Protocol's ID.
+	Dialect string
+	// Route is the client route the request arrived on, which for a surface
+	// owning several says what was asked: an answer, or a count of tokens.
+	Route string
+	// Conversation names the chat, or "": an upstream that caches by a key
+	// of the caller's choosing is given this one.
+	Conversation string
+}
+
+// Translator is a dialect that can rebuild its request for an upstream that
+// speaks another dialect: the Anthropic surface, for ChatGPT's backend. A
+// dialect whose only other upstream is Anthropic's needs none: its Decode is
+// that translation.
+type Translator interface {
+	Translate(body []byte, to Target) (Exchange, error)
+}
+
+// Answerer is an exchange the gateway answers itself, relaying nothing,
+// because its upstream has no endpoint for what was asked — count_tokens on
+// a backend that counts nothing. Answer writes the whole answer and returns
+// its status.
+type Answerer interface {
+	Exchange
+	Answer(w http.ResponseWriter) int
+}

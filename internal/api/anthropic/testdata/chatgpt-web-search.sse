@@ -1,0 +1,54 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_002e53aafb78eeea016ad75a78204c87d29ae79adc01919912","object":"response","created_at":1792498296,"status":"in_progress","access_programs":null,"background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":"Be terse.","max_output_tokens":null,"max_tool_calls":null,"model":"large","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":"m2r-probe","prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"low","mode":"standard","summary":null},"safety_identifier":"user-REDACTED","service_tier":"auto","store":false,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"web_search","return_token_budget":"default","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+event: response.in_progress
+data: {"type":"response.in_progress","response":{"id":"resp_002e53aafb78eeea016ad75a78204c87d29ae79adc01919912","object":"response","created_at":1792498296,"status":"in_progress","access_programs":null,"background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":"Be terse.","max_output_tokens":null,"max_tool_calls":null,"model":"large","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":"m2r-probe","prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"low","mode":"standard","summary":null},"safety_identifier":"user-REDACTED","service_tier":"auto","store":false,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"web_search","return_token_budget":"default","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"id":"ws_002e53aafb78eeea016ad75a78e82c87d29056deb340bc13ae","type":"web_search_call","status":"in_progress"},"output_index":0,"sequence_number":2}
+
+event: response.web_search_call.in_progress
+data: {"type":"response.web_search_call.in_progress","item_id":"ws_002e53aafb78eeea016ad75a78e82c87d29056deb340bc13ae","output_index":0,"sequence_number":3}
+
+event: response.web_search_call.searching
+data: {"type":"response.web_search_call.searching","item_id":"ws_002e53aafb78eeea016ad75a78e82c87d29056deb340bc13ae","output_index":0,"sequence_number":4}
+
+event: response.web_search_call.completed
+data: {"type":"response.web_search_call.completed","item_id":"ws_002e53aafb78eeea016ad75a78e82c87d29056deb340bc13ae","output_index":0,"sequence_number":5}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"id":"ws_002e53aafb78eeea016ad75a78e82c87d29056deb340bc13ae","type":"web_search_call","status":"completed","action":{"type":"search","queries":["site:go.dev/dl latest stable Go release"],"query":"site:go.dev/dl latest stable Go release","sources":[{"type":"url","url":"https://go.dev/dl/"},{"type":"url","url":"https://go.dev/dl/?source=post_page-----d17ce769c9aa---------------------------------------"},{"type":"url","url":"https://go.dev/doc/devel/release"},{"type":"url","url":"https://pkg.go.dev/golang.org/dl/go1.26.0"},{"type":"url","url":"https://pkg.go.dev/golang.org/dl/go1.26.1"},{"type":"url","url":"https://pkg.go.dev/golang.org/dl/go1.27.2"},{"type":"url","url":"https://pkg.go.dev/golang.org/dl/go1.20.7"},{"type":"url","url":"https://pkg.go.dev/golang.org/dl/go1.25.6"},{"type":"url","url":"https://pkg.go.dev/golang.org/dl/go1.26.9"},{"type":"url","url":"https://pkg.go.dev/golang.org/dl/go1.24.2"},{"type":"url","url":"https://pkg.go.dev/golang.org/x/website/internal/dl"},{"type":"url","url":"https://pkg.go.dev/golang.org/dl/go1.22.7"},{"type":"url","url":"https://go.dev/blog/go-brand/Go-brand-book-v1.0.pdf"},{"type":"url","url":"https://go.dev/assets/go-brand-book-v1.9.5.pdf"},{"type":"url","url":"https://go.dev/talks/2011/Real_World_Go.pdf"},{"type":"url","url":"https://go.dev/talks/2011/Writing_Web_Apps_in_Go.pdf"}]}},"output_index":0,"sequence_number":6}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"id":"msg_002e53aafb78eeea016ad75a7bbfa487d2a6da84e48e94fcbb","type":"message","status":"in_progress","content":[],"phase":"final_answer","role":"assistant"},"output_index":1,"sequence_number":7}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","content_index":0,"item_id":"msg_002e53aafb78eeea016ad75a7bbfa487d2a6da84e48e94fcbb","output_index":1,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":""},"sequence_number":8}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"The latest stable Go release is **Go 1","item_id":"msg_002e53aafb78eeea016ad75a7bbfa487d2a6da84e48e94fcbb","logprobs":[],"obfuscation":"aDAtMLDuo6","output_index":1,"sequence_number":9}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":".27.3**. ","item_id":"msg_002e53aafb78eeea016ad75a7bbfa487d2a6da84e48e94fcbb","logprobs":[],"obfuscation":"iBX042q","output_index":1,"sequence_number":10}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","content_index":0,"delta":"([go.dev](https://go.dev/dl/?utm_source=openai))","item_id":"msg_002e53aafb78eeea016ad75a7bbfa487d2a6da84e48e94fcbb","logprobs":[],"obfuscation":"","output_index":1,"sequence_number":11}
+
+event: response.output_text.annotation.added
+data: {"type":"response.output_text.annotation.added","annotation":{"type":"url_citation","end_index":95,"start_index":47,"title":"All releases - The Go Programming Language","url":"https://go.dev/dl/?utm_source=openai"},"annotation_index":0,"content_index":0,"item_id":"msg_002e53aafb78eeea016ad75a7bbfa487d2a6da84e48e94fcbb","output_index":1,"sequence_number":12}
+
+event: response.metadata
+data: {"type":"response.metadata","response_id":"resp_002e53aafb78eeea016ad75a78204c87d29ae79adc01919912","sequence_number":13,"metadata":{"openai_chatgpt_moderation_metadata":{"prompt":{"omnimod":{"protection_type":"omnimod","outputs":[{"results":[{"category_flags":{"A1":false,"A2":false,"A3":false,"C1":false,"C11":false,"C2":false,"E1":false,"E2":false,"E3":false,"H1":false,"H2":false,"H3":false,"JB1":false,"K1":false,"K2":false,"K3":false,"K4":false,"P1":false,"P2":false,"P3":false,"P4":false,"PD1":false,"PD4":false,"S1":false,"S3+":false,"S4":false,"SH":false,"TXT-C3":false,"TXT-C4":false,"V1":false,"V2+":false,"V4+":false,"REFUSED":false,"CBRN-B1+":false,"IMG-C1":false,"IMG-C11":false,"IMG-C2":false,"IMG-S1":false,"IMG-SH":false,"IMG-V1":false,"IMG-V2+":false,"IMG-V4+":false}}],"is_blocked":false}]}},"generation":{},"tool_call":{},"tool_response":{}}}}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","content_index":0,"item_id":"msg_002e53aafb78eeea016ad75a7bbfa487d2a6da84e48e94fcbb","logprobs":[],"output_index":1,"sequence_number":14,"text":"The latest stable Go release is **Go 1.27.3**. ([go.dev](https://go.dev/dl/?utm_source=openai))"}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","content_index":0,"item_id":"msg_002e53aafb78eeea016ad75a7bbfa487d2a6da84e48e94fcbb","output_index":1,"part":{"type":"output_text","annotations":[{"type":"url_citation","end_index":95,"start_index":47,"title":"All releases - The Go Programming Language","url":"https://go.dev/dl/?utm_source=openai"}],"logprobs":[],"text":"The latest stable Go release is **Go 1.27.3**. ([go.dev](https://go.dev/dl/?utm_source=openai))"},"sequence_number":15}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"id":"msg_002e53aafb78eeea016ad75a7bbfa487d2a6da84e48e94fcbb","type":"message","status":"completed","content":[{"type":"output_text","annotations":[{"type":"url_citation","end_index":95,"start_index":47,"title":"All releases - The Go Programming Language","url":"https://go.dev/dl/?utm_source=openai"}],"logprobs":[],"text":"The latest stable Go release is **Go 1.27.3**. ([go.dev](https://go.dev/dl/?utm_source=openai))"}],"phase":"final_answer","role":"assistant"},"output_index":1,"sequence_number":16}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_002e53aafb78eeea016ad75a78204c87d29ae79adc01919912","object":"response","created_at":1792498296,"status":"completed","access_programs":null,"background":false,"completed_at":1792498300,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":"Be terse.","max_output_tokens":null,"max_tool_calls":null,"model":"large","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":"m2r-probe","prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"low","mode":"standard","summary":null},"safety_identifier":"user-REDACTED","service_tier":"default","store":false,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":1}},"tools":[{"type":"web_search","return_token_budget":"default","search_content_types":["text"],"search_context_size":"medium","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"input_tokens":8496,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":4096},"output_tokens":67,"output_tokens_details":{"reasoning_tokens":33},"total_tokens":8563},"user":null,"metadata":{}},"sequence_number":17}
+

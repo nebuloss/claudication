@@ -145,9 +145,9 @@ func (s *Catalog) defaultProvider() string {
 // binding has become unavailable is left out until it is rebound, and before
 // the first sign-in a client is offered nothing.
 //
-// Every provider's models are in it; a ChatGPT one carries "provider":
-// "openai", and so does a slot serving one, so a surface that cannot reach a
-// provider can leave its entries out (the gateway's /v1/models does).
+// Every provider's models are in it, and every client-facing API reaches
+// every provider; a ChatGPT one carries "provider": "openai", and so does a
+// slot serving one, which is how a reader tells them apart.
 func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
 	body, err := s.List(ctx)
 	if err != nil {

@@ -377,16 +377,17 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 // routes may, and where each goes.
 //
 //	                  Anthropic                  ChatGPT
-//	/v1/messages      /v1/messages?beta=true     refused
-//	…/count_tokens    …/count_tokens?beta=true   refused
+//	/v1/messages      /v1/messages?beta=true     /responses (translated)
+//	…/count_tokens    …/count_tokens?beta=true   answered here (estimated)
 //	/v1/responses     /v1/messages?beta=true     /responses
 //	                  (translated)               (as it came)
 //
-// The ?beta=true is the official client's own, and the Responses dialect
-// reaches Anthropic translated, as it always has. Messages does not reach
-// ChatGPT at all: that translation is a mapping of its own and not one this
-// gateway has, so a Claude client asking for a model only ChatGPT serves is
-// refused, saying which of its names to rebind.
+// The ?beta=true is the official client's own. Each API reaches the other's
+// provider translated: Responses into Messages for Claude
+// (internal/api/openai), Messages into Responses for ChatGPT
+// (internal/api/anthropic). count_tokens has no path on ChatGPT because the
+// backend counts nothing; the translation answers it with an estimate that
+// says it is one, and the gateway never relays it.
 func (s *Server) upstreams() map[string]gateway.Upstream {
 	return map[string]gateway.Upstream{
 		anthropic.ID: {
@@ -399,7 +400,10 @@ func (s *Server) upstreams() map[string]gateway.Upstream {
 		},
 		chatgpt.ID: {
 			Relay: s.relays[chatgpt.ID], Title: "ChatGPT", Native: openai.ID,
-			Paths: map[string]string{"/v1/responses": "/responses"},
+			Paths: map[string]string{
+				"/v1/messages":  "/responses",
+				"/v1/responses": "/responses",
+			},
 		},
 	}
 }

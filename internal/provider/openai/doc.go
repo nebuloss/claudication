@@ -7,11 +7,12 @@
 // It is the only package that knows any of those details. The relay sees it
 // through provider.Wire, and everything else through provider.Accounts.
 //
-// The gateway relays to it only what an OpenAI Responses client sent — Codex,
-// above all — and sends it on as it came (see internal/api/openai for the
-// exchange that does): the caller already speaks this backend's protocol, so
-// there is nothing to translate. A Claude client asking for a model this
-// backend serves is refused, not translated; see internal/httpapi/gateway.
+// The gateway relays to it what an OpenAI Responses client sent — Codex, above
+// all — as it came (see internal/api/openai for the exchange that does): the
+// caller already speaks this backend's protocol, so there is nothing to
+// translate. A Messages client asking for a model this backend serves — Claude
+// Code, crush, opencode — is translated into Responses on the way
+// (internal/api/anthropic), and its answer back into Messages.
 //
 // # Where the facts come from
 //

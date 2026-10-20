@@ -8,8 +8,9 @@
 // dialect and produces the request to relay, then wraps the caller's writer
 // so the answer comes back in the dialect it asked in. A dialect that is its
 // upstream's own — Messages to Claude, Responses to ChatGPT — is the identity
-// adapter; the OpenAI surface is both, an identity exchange (DecodeNative) for
-// the backend that speaks it and a translation for Claude. Which upstream a
+// adapter, and each surface is also a translation for the other upstream: the
+// OpenAI surface's Decode rebuilds a Responses request for Claude, the
+// Anthropic surface's Translate a Messages one for ChatGPT. Which upstream a
 // request goes to is decided before either, by the model it names (see
 // internal/service/models).
 //
@@ -24,7 +25,8 @@
 //	internal/api            this package: the contract, and the parts every
 //	                        dialect would otherwise reimplement
 //	internal/api/anthropic  the Anthropic Messages surface — the identity
-//	                        adapter, which translates nothing
+//	                        adapter to Claude, and Messages into Responses
+//	                        for ChatGPT
 //	internal/api/openai     the OpenAI surface: /v1/responses today, which is
 //	                        what Codex CLI speaks
 //

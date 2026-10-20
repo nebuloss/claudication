@@ -116,14 +116,58 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			p.WriteError(w, http.StatusNotFound, api.KindNotFound, dest.Why)
 			return
 		}
+		// Read before anything is translated, and before Headers strips
+		// anything: for a translating dialect the headers naming the
+		// conversation are exactly the ones that must not travel upstream —
+		// Codex's session_id is in dialectHeaders — and a translation may
+		// need the id itself (the ChatGPT backend's prompt_cache_key). This
+		// is the only point at which the caller's own request is still
+		// intact.
+		//
+		// Where the client's type says it names its chat first (its spec's
+		// Sessions, internal/service/clients), then where the API reads any
+		// client's, which is all a custom client has.
+		spec, typed := clients.Find(key.ClientType)
+		conversation := ""
+		if typed {
+			conversation = api.HeaderID(r.Header, spec.Sessions...)
+		}
+		if conversation == "" {
+			conversation = p.ConversationID(r.Header, body)
+		}
+
+		// The request as it goes upstream: as it came, to an upstream that
+		// speaks the caller's dialect; translated, to one that does not.
 		up, known := s.upstreams[dest.Provider]
+		ex := first
+		if known && up.Native != p.ID() {
+			target := api.Target{Dialect: up.Native, Route: route, Conversation: conversation}
+			if ex, err = translate(p, body, target); err != nil {
+				ev := rejection(r, key, http.StatusBadRequest, err.Error())
+				ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Slot, route
+				s.recorder.Record(ev, 0)
+				p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, err.Error())
+				return
+			}
+		}
+		// An exchange whose upstream has nothing to ask is answered here:
+		// count_tokens for a model the ChatGPT backend serves, which counts
+		// nothing (internal/api/anthropic, counttokens.go).
+		if a, ok := ex.(api.Answerer); ok {
+			status := a.Answer(w)
+			s.recorder.Record(store.UsageEvent{
+				At: time.Now(), KeyID: key.ID, KeyName: key.Name, Provider: dest.Provider,
+				Model: model, VirtualModel: slot, Path: route, Status: status,
+				ConversationID: conversation, Client: client, Surface: surface, IP: httpx.ClientIP(r.Context()),
+			}, key.TokenBudget)
+			return
+		}
 		upstreamPath, reachable := up.Paths[route]
 		if !known || !reachable {
-			// The model is served, but not to this API: a ChatGPT model asked
-			// for over Anthropic Messages. Translating Messages into
-			// Responses is a mapping of its own, with its own pitfalls, and
-			// not one this gateway has; refusing with what to change beats
-			// sending a Claude Code turn somewhere that cannot read it.
+			// The model is served, but not to this route. Every route reaches
+			// every provider today; this stays so that a provider added with
+			// fewer routes is refused saying what to change, rather than sent
+			// a request it cannot read.
 			why := unreachable(p, up, dest, requested)
 			ev := rejection(r, key, http.StatusBadRequest, why)
 			ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Slot, route
@@ -132,15 +176,6 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			return
 		}
 
-		// The request as it goes upstream: as it came, to an upstream that
-		// speaks the caller's dialect; translated, to one that does not.
-		ex := first
-		if up.Native != p.ID() {
-			if ex, err = p.Decode(body); err != nil {
-				p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, err.Error())
-				return
-			}
-		}
 		outbound := ex.Request()
 		rewrote := false
 		if slot != "" {
@@ -158,25 +193,6 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			model = ex.Model()
 		}
 
-		// Read before the clone, and before Headers strips anything.
-		//
-		// For a translating dialect the headers naming the conversation are
-		// exactly the ones that must not travel upstream — Codex's session_id
-		// is in dialectHeaders — so after the two lines below they are gone.
-		// This is the only point at which the caller's own request is still
-		// intact.
-		//
-		// Where the client's type says it names its chat first (its spec's
-		// Sessions, internal/service/clients), then where the API reads any
-		// client's, which is all a custom client has.
-		spec, typed := clients.Find(key.ClientType)
-		conversation := ""
-		if typed {
-			conversation = api.HeaderID(r.Header, spec.Sessions...)
-		}
-		if conversation == "" {
-			conversation = p.ConversationID(r.Header, body)
-		}
 		// Which machine made this. A key says who is paying and a client says
 		// what they are running; neither says where it ran, and when one host
 		// out of several is burning a subscription that is the only question
@@ -443,6 +459,16 @@ func decodeNative(p api.Protocol, body []byte) (api.Exchange, error) {
 	return p.Decode(body)
 }
 
+// translate rebuilds a request for an upstream speaking to.Dialect: through
+// the dialect's Translator when it has one, else its Decode, which for a
+// dialect whose only other upstream is Anthropic's is that translation.
+func translate(p api.Protocol, body []byte, to api.Target) (api.Exchange, error) {
+	if t, ok := p.(api.Translator); ok {
+		return t.Translate(body, to)
+	}
+	return p.Decode(body)
+}
+
 // unreachable says why a request was routed to an upstream its API cannot
 // reach, and what to change: the slot it named, or the API to use instead.
 func unreachable(p api.Protocol, up Upstream, dest modelsvc.Route, requested string) string {
@@ -460,8 +486,6 @@ func unreachable(p api.Protocol, up Upstream, dest modelsvc.Route, requested str
 	case dest.Slot != "":
 		msg += "; an administrator can bind " + dest.Slot + " to a model this API can reach, on the " +
 			"client's page"
-	case up.Native != "":
-		msg += "; ask for it over the API that account speaks, as Codex does over /v1/responses"
 	case requested != "":
 		msg += "; ask for a model this API can reach"
 	}

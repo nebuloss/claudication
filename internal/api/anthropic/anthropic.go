@@ -1,11 +1,3 @@
-// Package anthropic serves the Anthropic Messages API — the dialect the
-// gateway already speaks upstream.
-//
-// It is the identity adapter, and keeping it an implementation rather than a
-// bypass is what makes the abstraction worth having. The relay's contract —
-// the caller's bytes go upstream unchanged, the answer comes back verbatim —
-// is expressed here, once, as a Protocol that does nothing, instead of as a
-// branch every other layer has to remember not to take.
 package anthropic
 
 import (
@@ -21,11 +13,15 @@ import (
 const ID = "anthropic"
 
 // API is the Anthropic Messages surface.
-type API struct{}
+type API struct {
+	// reasoning keeps a GPT model's reasoning for the next turn of a caller
+	// that does not carry it itself (reasoningstore.go). Nil keeps none.
+	reasoning *reasoningStore
+}
 
-// New returns the surface. It takes nothing: there is nothing to configure
-// about relaying a request unchanged.
-func New() API { return API{} }
+// New returns the surface. Relaying a request unchanged takes nothing to
+// configure; translating one for ChatGPT keeps its reasoning between turns.
+func New() API { return API{reasoning: newReasoningStore(maxReasoningBytes)} }
 
 func (API) ID() string    { return ID }
 func (API) Title() string { return "Anthropic Messages API" }

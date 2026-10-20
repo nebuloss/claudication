@@ -30,8 +30,9 @@
 // # The OpenAI wire
 //
 // A request the gateway relays to a ChatGPT account is an OpenAI Responses
-// body, sent on as Codex wrote it, and its pipeline is [OpenAI]: the first
-// pass alone. The rest repair an Anthropic envelope and have nothing to repair
+// body, sent on as Codex wrote it or as internal/api/anthropic rebuilt a
+// Messages one, and its pipeline is [OpenAI]: the first pass alone, which
+// repairs a translated body exactly as a relayed one. The rest repair an Anthropic envelope and have nothing to repair
 // in this one. Measured against the backend on 2026-10-19
 // (internal/provider/openai/doc.go has the record):
 //

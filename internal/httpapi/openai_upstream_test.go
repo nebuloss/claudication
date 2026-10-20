@@ -399,26 +399,90 @@ func TestCodexClaudeSlotTranslatesToAnthropic(t *testing.T) {
 // A Claude Code slot bound to a GPT model is refused, before anything is
 // spent, in its own envelope, naming the slot and what to do — and its model
 // list offers its own names that it can use and nothing else.
-func TestClaudeCodeIsRefusedAGPTSlot(t *testing.T) {
+func TestClaudeCodeReachesAGPTSlot(t *testing.T) {
 	_, st, base, _, claude, chatgpt := twoUpstreams(t)
 	_, key := newClient(t, st, "laptop", "claude-code", map[string]store.Binding{"main": {Model: "gpt-6.1-sol"}})
 	const claudeUA = "claude-cli/2.1.274 (external, sdk-cli)"
-	resp, body := send(t, base+"/v1/messages", key, claudeUA,
-		`{"model":"claude-large","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
-	if resp.StatusCode != http.StatusBadRequest || errType(t, body) != "invalid_request_error" {
-		t.Fatalf("status = %d: %s", resp.StatusCode, body)
-	}
-	msg := string(body)
-	if !strings.Contains(msg, "claude-large") || !strings.Contains(msg, "ChatGPT") || !strings.Contains(msg, "client's page") {
-		t.Errorf("the refusal does not say what or how: %s", msg)
-	}
-	if n := len(claude.turns()) + len(chatgpt.turns()); n != 0 {
-		t.Errorf("%d turns reached an upstream", n)
-	}
-	if e := nthEvent(t, st, 1); !e.Rejected || e.Status != http.StatusBadRequest || e.VirtualModel != "claude-large" {
-		t.Errorf("the refusal was recorded as %+v", e)
+	session := map[string]string{
+		"X-Claude-Code-Session-Id": "sess-1",
+		"Anthropic-Beta":           "claude-code-20250219",
+		"Anthropic-Version":        "2023-06-01",
+		"X-Stainless-Lang":         "js",
 	}
 
+	// Streamed: Anthropic's events, the slot's name said back, usage as the
+	// meter reads it.
+	resp, body := send(t, base+"/v1/messages", key, claudeUA,
+		`{"model":"claude-large","max_tokens":10,"stream":true,"system":"be terse",`+
+			`"messages":[{"role":"user","content":"hi"}]}`, session)
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("status = %d, type %q: %s", resp.StatusCode, resp.Header.Get("Content-Type"), body)
+	}
+	for _, want := range []string{
+		"event: message_start", `"model":"claude-large"`, `"text":"hi","type":"text_delta"`,
+		`"stop_reason":"end_turn"`, `"cache_read_input_tokens":100`, `"input_tokens":20`, "event: message_stop",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the stream lacks %s:\n%s", want, body)
+		}
+	}
+	if n := len(claude.turns()); n != 0 {
+		t.Errorf("%d turns reached Claude", n)
+	}
+	turns := chatgpt.turns()
+	if len(turns) != 1 || turns[0].path != "/responses" {
+		t.Fatalf("ChatGPT was sent %+v", turns)
+	}
+	sent := turns[0]
+	for _, want := range []string{`"model":"gpt-6.1-sol"`, `"instructions":"be terse"`, `"stream":true`,
+		`"store":false`, `"prompt_cache_key":"sess-1"`, `"text":"hi","type":"input_text"`, `"max_output_tokens":16`} {
+		if !strings.Contains(string(sent.body), want) {
+			t.Errorf("the translated request lacks %s: %s", want, sent.body)
+		}
+	}
+	for _, h := range []string{"Anthropic-Beta", "Anthropic-Version", "X-Stainless-Lang", "X-Claude-Code-Session-Id"} {
+		if sent.header.Get(h) != "" {
+			t.Errorf("%s went to ChatGPT", h)
+		}
+	}
+	if e := nthEvent(t, st, 1); e.Provider != "openai" || e.Model != "gpt-6.1-sol" || e.VirtualModel != "claude-large" ||
+		e.InputTokens != 20 || e.CacheReadTokens != 100 || e.OutputTokens != 9 {
+		t.Errorf("the turn was recorded as %+v", e)
+	}
+
+	// Not streamed: the same answer, gathered, though the backend streamed.
+	resp, body = send(t, base+"/v1/messages", key, claudeUA,
+		`{"model":"claude-large","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}`, session)
+	var msg struct {
+		Model   string `json:"model"`
+		Content []struct {
+			Type, Text string
+		} `json:"content"`
+		StopReason string `json:"stop_reason"`
+	}
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(body, &msg) != nil || msg.Model != "claude-large" ||
+		len(msg.Content) != 1 || msg.Content[0].Text != "hi" || msg.StopReason != "end_turn" {
+		t.Errorf("status = %d: %s", resp.StatusCode, body)
+	}
+	if got := chatgpt.turns(); len(got) != 2 || !strings.Contains(string(got[1].body), `"stream":true`) {
+		t.Errorf("the second turn went up as %s", got[len(got)-1].body)
+	}
+
+	// count_tokens is answered here, an estimate that says so.
+	resp, body = send(t, base+"/v1/messages/count_tokens", key, claudeUA,
+		`{"model":"claude-large","messages":[{"role":"user","content":"hello there, how are you"}]}`, session)
+	var count struct {
+		InputTokens int `json:"input_tokens"`
+	}
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(body, &count) != nil || count.InputTokens < 6 ||
+		resp.Header.Get("X-Claudication-Token-Estimate") == "" {
+		t.Errorf("count_tokens: %d %v %s", resp.StatusCode, resp.Header, body)
+	}
+	if got := chatgpt.turns(); len(got) != 2 {
+		t.Errorf("count_tokens reached ChatGPT: %d turns", len(got))
+	}
+
+	// And the model list offers the slot, which now serves.
 	req, _ := http.NewRequest(http.MethodGet, base+"/v1/models", nil)
 	req.Header.Set("X-Api-Key", key)
 	req.Header.Set("User-Agent", claudeUA)
@@ -428,12 +492,8 @@ func TestClaudeCodeIsRefusedAGPTSlot(t *testing.T) {
 	}
 	listed, _ := io.ReadAll(r.Body)
 	r.Body.Close()
-	if strings.Contains(string(listed), "gpt-") || strings.Contains(string(listed), `"id":"claude-large"`) ||
-		strings.Contains(string(listed), `"id":"claude-sonnet-5"`) {
-		t.Errorf("Claude Code was offered what it cannot use: %s", listed)
-	}
-	if !strings.Contains(string(listed), `"id":"claude-small"`) || !strings.Contains(string(listed), `"serving":"claude-haiku-5"`) {
-		t.Errorf("Claude Code lost its own names: %s", listed)
+	if !strings.Contains(string(listed), `"id":"claude-large"`) || !strings.Contains(string(listed), `"id":"claude-small"`) {
+		t.Errorf("Claude Code was not offered its names: %s", listed)
 	}
 }
 
