@@ -14,18 +14,13 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
 	"golang.org/x/term"
 
 	"claudication/internal/config"
-	"claudication/internal/httpapi"
-	"claudication/internal/logging"
-	"claudication/internal/memlimit"
 	"claudication/internal/secret"
 	"claudication/internal/service/clients"
 	"claudication/internal/store"
@@ -35,7 +30,7 @@ import (
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "claudication: "+err.Error())
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }
 
@@ -164,40 +159,6 @@ func openState(ctx context.Context, configPath string) (config.Config, *store.St
 		return config.Config{}, nil, err
 	}
 	return cfg, st, nil
-}
-
-func cmdServe(args []string) error {
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	configPath := fs.String("config", "", "path to config.yaml (optional)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	// Both signals drain the same way. SIGTERM is what containers and
-	// systemd actually send.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	cfg, st, err := openState(ctx, *configPath)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-
-	log := logging.New(cfg.Log.Level, cfg.Log.Format)
-	if err := st.CompactErr(); err != nil {
-		log.Warn("database not compacted", "err", err)
-	}
-
-	// Before anything allocates in earnest. Validated by config.Load already.
-	limit, _ := memlimit.ParseSize(cfg.MemoryLimit)
-	memlimit.Apply(limit, log)
-
-	srv, err := httpapi.New(cfg, log, st)
-	if err != nil {
-		return err
-	}
-	return srv.Run(ctx)
 }
 
 // cmdLoginURL mints a fresh single-use sign-in link.
