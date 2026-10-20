@@ -562,14 +562,23 @@ func Plan(have []Existing, to Type, want Dialect) Change {
 	planned := map[string]bool{}
 	taken := func(n string) bool { return planned[n] }
 	keep := func(e Existing, slot string) {
-		k := Kept{From: e.ID, To: slot, Name: e.Name}
-		if !to.Fits(d, e.Name) {
-			k.Renamed = to.Name(d, e.Name, taken)
-			planned[k.Renamed] = true
-		} else {
-			planned[e.Name] = true
+		ch.Keep = append(ch.Keep, Kept{From: e.ID, To: slot, Name: e.Name})
+	}
+	// Kept names that fit stay as they are, so they are claimed before any
+	// other kept name is renamed: crush's "large" moving to Responses becomes
+	// gpt-5-large, which must not be the name its other slot already has.
+	settle := func() {
+		for _, k := range ch.Keep {
+			if to.Fits(d, k.Name) {
+				planned[k.Name] = true
+			}
 		}
-		ch.Keep = append(ch.Keep, k)
+		for i, k := range ch.Keep {
+			if !to.Fits(d, k.Name) {
+				ch.Keep[i].Renamed = to.Name(d, k.Name, taken)
+				planned[ch.Keep[i].Renamed] = true
+			}
+		}
 	}
 	add := func(s Slot) {
 		n := to.Name(d, s.ID, taken)
@@ -581,6 +590,7 @@ func Plan(have []Existing, to Type, want Dialect) Change {
 			used[e.ID] = true
 			keep(e, e.ID)
 		}
+		settle()
 		if len(have) == 0 {
 			add(to.Slots[0])
 		}
@@ -622,6 +632,7 @@ func Plan(have []Existing, to Type, want Dialect) Change {
 	for _, m := range matches {
 		keep(m.e, m.slot.ID)
 	}
+	settle()
 	for _, s := range missing {
 		add(s)
 	}

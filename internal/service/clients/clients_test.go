@@ -180,6 +180,28 @@ func TestPlanAvoidsKeptNames(t *testing.T) {
 	}
 }
 
+// A kept name renamed to fit the new dialect never lands on the name another
+// kept slot already has: crush on Messages with its small slot named
+// gpt-5-large, moved to Responses, keeps that name and renames large past it.
+func TestPlanRenamesPastKeptNames(t *testing.T) {
+	have := []Existing{{ID: "large", Role: RoleMain, Name: "large"}, {ID: "small", Role: RoleFast, Name: "gpt-5-large"}}
+	ch := Plan(have, Crush, Responses)
+	names := map[string]bool{}
+	for _, k := range ch.Keep {
+		n := k.Name
+		if k.Renamed != "" {
+			n = k.Renamed
+		}
+		if names[n] {
+			t.Fatalf("two kept slots named %q: %+v", n, ch.Keep)
+		}
+		names[n] = true
+	}
+	if ch.Keep[1].Renamed != "" || ch.Keep[0].Renamed != "gpt-5-large-2" {
+		t.Errorf("keep %+v, want small kept as gpt-5-large and large renamed past it", ch.Keep)
+	}
+}
+
 func TestPlanToCustomKeepsEverything(t *testing.T) {
 	ch := Plan(existing(Crush, Messages), Custom, Messages)
 	if len(ch.Keep) != 2 || len(ch.Add) != 0 || len(ch.Remove) != 0 {

@@ -179,6 +179,25 @@ func TestCustomClientModes(t *testing.T) {
 // A change of type moves the slots the two types share, binding and all,
 // adds the new type's others following their defaults and frees the rest;
 // the key and its name stay, and a typed client is in binding mode.
+// The review's case, applied: crush on Messages whose small slot is named
+// gpt-5-large moves to Responses without a name clash.
+func TestApplyChangeRenamesPastAKeptName(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	c := makeClient(t, st, "box", "crush")
+	if err := st.SetSlot(ctx, c.ID, "small", "gpt-5-large", Binding{Follows: clients.FollowHaiku}); err != nil {
+		t.Fatal(err)
+	}
+	c, _ = st.Client(ctx, c.ID)
+	if err := st.ApplyChange(ctx, c.ID, clients.Plan(c.Existing(), clients.Crush, clients.Responses)); err != nil {
+		t.Fatalf("crush to Responses: %v", err)
+	}
+	got, _ := st.Client(ctx, c.ID)
+	if slotNamed(t, got, "gpt-5-large") != "small" || slotNamed(t, got, "gpt-5-large-2") != "large" {
+		t.Errorf("slots %+v", got.Slots)
+	}
+}
+
 func TestApplyChange(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
