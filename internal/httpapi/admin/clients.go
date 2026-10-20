@@ -11,6 +11,7 @@ import (
 	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
+	modelsvc "claudication/internal/service/models"
 	"claudication/internal/store"
 )
 
@@ -40,6 +41,10 @@ type ClientJSON struct {
 	// Install is its install link's state, polled while its page is open.
 	Install install.State `json:"install"`
 	Slots   []SlotJSON    `json:"slots"`
+	// Choices are what its slots can be bound to now: only what is
+	// available to it (internal/service/models, available.go), so its page
+	// offers nothing that would be refused. On its own page, not the list.
+	Choices []modelsvc.Choice `json:"choices,omitempty"`
 }
 
 // SlotJSON is one of a client's slots: what its type says of it, its model
@@ -52,15 +57,17 @@ type SlotJSON struct {
 	// (the spec's Follows is the default it started on).
 	Model string         `json:"model"`
 	Bound clients.Follow `json:"bound,omitempty"`
-	// Serving is the real model a request for Name gets now, Provider whose
-	// accounts serve it, and Problem why it cannot be served, when it cannot.
+	// Title names the binding as the slot's menu does.
+	Title string `json:"title"`
+	// Serving is the real model its binding points at now and Provider whose
+	// accounts that is, shown even when it cannot be served.
 	Serving  string `json:"serving"`
 	Provider string `json:"provider,omitempty"`
-	Problem  string `json:"problem,omitempty"`
-	// Unreachable says the client's dialect cannot reach Provider: a
-	// Messages client bound to a GPT model, which the gateway refuses. The
-	// slot is shown with a warning rather than refused here.
-	Unreachable bool `json:"unreachable,omitempty"`
+	// Unavailable says why the binding is not available to this client now —
+	// no account lists it, it is switched off on every one that does, or the
+	// client's API cannot reach its provider — and is empty when it is. Such
+	// a binding is kept and shown, and replaced only by one of Choices.
+	Unavailable string `json:"unavailable,omitempty"`
 }
 
 // clientJSON is a client as the admin API reports it, its slots resolved.
@@ -83,48 +90,18 @@ func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) Cli
 			// the operator knows it by.
 			spec.Label = sl.Name
 		}
-		j := SlotJSON{Slot: spec, Name: sl.Name, Model: sl.Model, Bound: sl.Follows}
-		j.Serving, j.Problem = s.models.SlotTarget(ctx, sl)
-		if j.Serving != "" {
-			j.Provider = s.models.ServingProvider(ctx, j.Serving)
-			j.Unreachable = s.reaches != nil && !s.reaches(c.Dialect, j.Provider)
-		}
-		out.Slots = append(out.Slots, j)
-	}
-	return out
-}
-
-// FollowJSON is one moving target a slot can follow, and what it points at
-// now.
-type FollowJSON struct {
-	ID       clients.Follow `json:"id"`
-	Title    string         `json:"title"`
-	Provider string         `json:"provider"`
-	Serving  string         `json:"serving,omitempty"`
-	Problem  string         `json:"problem,omitempty"`
-}
-
-// follows are the targets a slot can follow now: the newest of each Claude
-// family the accounts list, and the ChatGPT backend's two.
-func (s *Admin) follows(ctx context.Context) []FollowJSON {
-	var ids []clients.Follow
-	for _, f := range s.models.Families(ctx) {
-		ids = append(ids, clients.ClaudeFollow(f))
-	}
-	ids = append(ids, clients.FollowFirst, clients.FollowLight)
-	out := make([]FollowJSON, 0, len(ids))
-	for _, f := range ids {
-		j := FollowJSON{ID: f, Title: f.Title(), Provider: f.Provider()}
-		j.Serving, j.Problem = s.models.FollowTarget(ctx, f)
-		out = append(out, j)
+		b, why := s.models.Resolve(ctx, c.Dialect, store.Binding{Model: sl.Model, Follows: sl.Follows})
+		out.Slots = append(out.Slots, SlotJSON{Slot: spec, Name: sl.Name, Model: sl.Model, Bound: sl.Follows,
+			Title: b.Title, Serving: b.Serving, Provider: b.Provider, Unavailable: why})
 	}
 	return out
 }
 
 // handleClientTypes is the table of client types — each type's slots, the
-// APIs it can be pointed at and why its default is the default — and the
-// targets a slot can follow. The UI builds the add-a-client picker, every
-// slot's label and the binding menus from it, so the two cannot disagree.
+// APIs it can be pointed at and why its default is the default. The UI
+// builds the add-a-client picker and every slot's label from it, so the two
+// cannot disagree. What a slot can be bound to is each client's own
+// (ClientJSON.Choices), since it depends on the client's API.
 func (s *Admin) handleClientTypes(w http.ResponseWriter, r *http.Request) {
 	type dialectJSON struct {
 		ID    clients.Dialect `json:"id"`
@@ -135,11 +112,7 @@ func (s *Admin) handleClientTypes(w http.ResponseWriter, r *http.Request) {
 	for _, d := range []clients.Dialect{clients.Messages, clients.Responses} {
 		dialects = append(dialects, dialectJSON{ID: d, Title: d.Title(), Route: d.Route()})
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"types": clients.All, "dialects": dialects, "follows": s.follows(ctx),
-	})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"types": clients.All, "dialects": dialects})
 }
 
 // handleListClients lists every client with its key's figures and its
@@ -183,7 +156,9 @@ func (s *Admin) writeClient(w http.ResponseWriter, r *http.Request, id string, e
 		httpx.Internal(w, s.log, "read the client", err)
 		return
 	}
-	out := map[string]any{"client": s.clientJSON(ctx, c, s.keyStats(ctx, c.ID).of(s, c.APIKey))}
+	j := s.clientJSON(ctx, c, s.keyStats(ctx, c.ID).of(s, c.APIKey))
+	j.Choices = s.models.Choices(ctx, c.Dialect)
+	out := map[string]any{"client": j}
 	for k, v := range extra {
 		out[k] = v
 	}
@@ -281,6 +256,12 @@ func (s *Admin) handleSetSlot(w http.ResponseWriter, r *http.Request) {
 	}
 	slot := r.PathValue("slot")
 	b := store.Binding{Model: body.Model, Follows: body.Follows}
+	// A binding the slot already has may stay, available or not — a rename
+	// sends it back unchanged — but a new one has to be available to the
+	// client, as its page offers: the API is held to what the page shows.
+	if !boundTo(c, slot, b) && !s.available(w, r, c, b) {
+		return
+	}
 	if s.clientError(w, s.store.SetSlot(r.Context(), c.ID, slot, body.Name, b), "set the slot") {
 		return
 	}
@@ -302,12 +283,44 @@ func (s *Admin) handleAddSlot(w http.ResponseWriter, r *http.Request) {
 	}
 	b := store.Binding{Model: body.Model, Follows: body.Follows}
 	if b.Model == "" && b.Follows == "" {
+		// The default every type's main slot starts on, as a new client's
+		// does, whether or not an account serves it yet.
 		b.Follows = clients.FollowOpus
+	} else if !s.available(w, r, c, b) {
+		return
 	}
 	if s.clientError(w, s.store.AddSlot(r.Context(), c.ID, strings.TrimSpace(body.Name), b), "add the slot") {
 		return
 	}
 	s.writeClient(w, r, c.ID, nil)
+}
+
+// boundTo reports whether a client's slot is bound to b already.
+func boundTo(c store.Client, slot string, b store.Binding) bool {
+	for _, sl := range c.Slots {
+		if sl.Slot == slot {
+			return sl.Model == strings.TrimSpace(b.Model) && sl.Follows == b.Follows
+		}
+	}
+	return false
+}
+
+// available refuses a binding the client cannot be offered now, saying why,
+// and reports whether it may be made.
+func (s *Admin) available(w http.ResponseWriter, r *http.Request, c store.Client, b store.Binding) bool {
+	if b.Follows != "" && !b.Follows.Valid() {
+		// The store says what is wrong with it.
+		return true
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	choice, why := s.models.Resolve(ctx, c.Dialect, store.Binding{Model: strings.TrimSpace(b.Model), Follows: b.Follows})
+	if why == "" {
+		return true
+	}
+	httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
+		choice.Title+" is not available to this client: "+why)
+	return false
 }
 
 // handleSetClientMode puts a custom client in binding or direct mode.

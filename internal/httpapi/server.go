@@ -341,6 +341,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	s.models = modelsvc.New(modelsvc.Deps{
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Relays:     []*relay.Relay{s.relays[anthropic.ID], s.relays[chatgpt.ID]},
+		Reaches:    s.reaches,
 		HTTPClient: s.httpClient,
 	})
 	s.gateway = gateway.New(gateway.Deps{
@@ -357,7 +358,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Protocols: s.protocols, HTTPClient: s.httpClient, Providers: s.providers,
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
-		Models: s.models, Install: installs, Reaches: s.reaches,
+		Models: s.models, Install: installs,
 	})
 	s.web = web.New(web.Deps{Log: log, Files: webdist})
 }
@@ -378,8 +379,8 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 // refused, saying which of its names to rebind.
 // reaches says whether a client pointed at a dialect can be served by a
 // provider: whether the dialect's route has a path on that provider's
-// upstream. The admin API warns from it on a slot; the gateway refuses by the
-// same table.
+// upstream. The model service offers a client only what it reaches; the
+// gateway refuses by the same table.
 func (s *Server) reaches(d clients.Dialect, provider string) bool {
 	_, ok := s.upstreams()[provider].Paths[d.Route()]
 	return ok

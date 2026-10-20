@@ -50,10 +50,9 @@ Then the dialect and the upstream decide what happens:
 
 The last is refused because translating Messages into Responses is a mapping
 of its own — thinking against encrypted reasoning, tool ids, cache control —
-and not one this gateway has. A client's page warns beside a slot of a
-Messages client bound to a ChatGPT model, since the client would meet that
-refusal; and the `/v1/models` a Messages client reads leaves out what it could
-not use.
+and not one this gateway has. So a Messages client is never offered a
+ChatGPT model: not in its page's menus, not in its `/v1/models`. A slot bound
+to one before is shown as unavailable, with the reason, until it is rebound.
 
 Two of the targets a slot can follow are ChatGPT's: its first-ranked model and
 its light one, read from the backend's own ranking of the models an account

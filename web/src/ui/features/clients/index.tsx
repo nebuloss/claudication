@@ -129,8 +129,7 @@ export function ClientChips({ client: c }: { client: Client }) {
     <>
       {c.wire.disabled && <Chip tone="error">off</Chip>}
       {!c.configured && <Chip tone="neutral">not set up</Chip>}
-      {c.unreachable.length > 0 && <Chip tone="warn">API cannot reach a slot</Chip>}
-      {c.failing.length > 0 && c.unreachable.length === 0 && <Chip tone="warn">a slot is not served</Chip>}
+      {c.unavailable.length > 0 && <Chip tone="warn">a slot is unavailable</Chip>}
     </>
   )
 }

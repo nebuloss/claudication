@@ -9,11 +9,10 @@
  */
 
 import type {
+  BindingChoice,
   ClientTypesWire,
   ClientWire,
   DialectId,
-  FollowTarget,
-  Model,
   SlotWire,
   TypeSpec,
 } from '../../api/types'
@@ -24,11 +23,6 @@ export const PROVIDER_TITLES: Record<string, string> = { anthropic: 'Claude', op
 /** A provider's name, or the id itself for one this UI does not know. */
 export function providerTitle(id: string | undefined): string {
   return PROVIDER_TITLES[id ?? 'anthropic'] ?? id ?? ''
-}
-
-/** Which providers an API reaches: Messages only Claude, Responses both. */
-export function reaches(dialect: DialectId, provider: string | undefined): boolean {
-  return dialect === 'openai' || (provider ?? 'anthropic') === 'anthropic'
 }
 
 /** One kind of client. */
@@ -110,11 +104,6 @@ export class ClientTypes {
   dialectTitle(d: DialectId): string {
     return this.wire.dialects.find((x) => x.id === d)?.title ?? d
   }
-
-  /** The targets a slot can follow now. */
-  get follows(): FollowTarget[] {
-    return this.wire.follows
-  }
 }
 
 const FALLBACK: TypeSpec = {
@@ -168,37 +157,46 @@ export interface BindingOption {
   label: string
   hint?: string
   group: string
+  disabled?: boolean
 }
 
 /**
- * Everything a slot can be bound to, grouped: the moving targets first —
- * which move with each release — then each provider's models. A model the
- * client's API cannot reach is listed all the same, marked; the slot then
- * shows the warning.
+ * What a slot can be bound to, grouped: the moving targets first — which
+ * move with each release, each saying what it serves now — then each
+ * provider's models. Only the server's choices, which are only what is
+ * available to the client: nothing here is filtered or guessed.
+ *
+ * A slot bound to something no longer available keeps it, and the menu shows
+ * it first, marked and not choosable again, so the operator sees what it is
+ * and can only replace it with something that works.
  */
 export function bindingOptions(
-  models: readonly Model[],
-  follows: readonly FollowTarget[],
-  dialect: DialectId,
+  choices: readonly BindingChoice[],
+  current?: Pick<SlotWire, 'model' | 'bound' | 'title' | 'unavailable'>,
 ): BindingOption[] {
-  const out: BindingOption[] = follows.map((f) => ({
-    value: Binding.follow(f.id).value,
-    label: f.title,
-    hint: f.serving ?? f.problem ?? '',
-    group: 'Follow the newest',
-  }))
-  const real = models.filter((m) => m.virtual !== true)
-  for (const provider of ['anthropic', 'openai']) {
-    for (const m of real.filter((x) => (x.provider ?? 'anthropic') === provider)) {
-      out.push({
-        value: Binding.model(m.id).value,
-        label: m.display_name ?? m.id,
-        hint: reaches(dialect, provider) ? m.id : `${m.id} — not on this client's API`,
-        group: providerTitle(provider),
-      })
-    }
-  }
-  return out
+  const out: BindingOption[] = choices.map((c) =>
+    c.model !== undefined && c.model !== ''
+      ? { value: Binding.model(c.model).value, label: c.title || c.model, hint: c.model, group: providerTitle(c.provider) }
+      : {
+          value: Binding.follow(c.follows ?? '').value,
+          label: c.title,
+          hint: `now ${c.serving}`,
+          group: 'Follow the newest',
+        },
+  )
+  if (current === undefined) return out
+  const bound = Binding.of(current)
+  if (out.some((o) => o.value === bound.value)) return out
+  return [
+    {
+      value: bound.value,
+      label: current.title || bound.model || bound.follows,
+      hint: current.unavailable !== undefined && current.unavailable !== '' ? `unavailable: ${current.unavailable}` : 'unavailable',
+      group: 'Bound now',
+      disabled: true,
+    },
+    ...out,
+  ]
 }
 
 /** A client, as its page reads it. */
@@ -239,14 +237,9 @@ export class Client {
     return !this.type.custom
   }
 
-  /** The slots its API cannot be served on as bound, for the warnings. */
-  get unreachable(): SlotWire[] {
-    return this.wire.slots.filter((s) => s.unreachable === true)
-  }
-
-  /** The slots that cannot be served at all now. */
-  get failing(): SlotWire[] {
-    return this.wire.slots.filter((s) => (s.problem ?? '') !== '')
+  /** The slots bound to something not available to it now, for the warnings. */
+  get unavailable(): SlotWire[] {
+    return this.wire.slots.filter((s) => (s.unavailable ?? '') !== '')
   }
 
   /** One line for a list row: each slot's name and what it serves. */

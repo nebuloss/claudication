@@ -272,8 +272,8 @@ every provider's: names, release dates, context windows, output limits. Its
 model list is that catalogue matched against what the connected accounts list,
 less what each account's switches turn off. A model an account lists that the
 catalogue does not know yet is listed anyway, after the rest. Until an account
-can be asked, the gateway lists the catalogue's Anthropic models as they stand —
-enough to set up clients and hand out configs before the first login.
+can be asked, the gateway lists the catalogue's Anthropic models as they stand,
+for the admin screens; no client is offered any of them until an account serves it.
 `models-catalog: off` never asks, and the list is then the accounts' own.
 
 Each client's files also carry what each name's model can do — Claude Code's

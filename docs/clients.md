@@ -114,8 +114,17 @@ existed became custom clients in direct mode.
 Messages reaches Claude only; Responses reaches both, ChatGPT as the request
 came and Claude through the gateway's translation (which does not carry
 extended thinking). A slot bound to a GPT model on a Messages client is
-refused rather than translated, saying which slot to rebind, and the client's
-page warns beside it. See [client-apis.md](client-apis.md).
+refused rather than translated, saying which slot to rebind. See
+[client-apis.md](client-apis.md).
+
+A client is only ever offered what it can be served now: its page's menus,
+a direct-mode client's Models page and its `/v1/models` list a model only when
+a connected, switched-on account lists it, has it on, and the client's API
+reaches its provider, and a target only while it resolves to such a model.
+A slot whose binding has since become unavailable keeps it, shown with the
+reason — no account lists it, it is switched off on every account, or the
+client's API cannot reach it — and leaves the client's model list until it
+is rebound to something available.
 
 A client keeps the type and the API it was made with. Its key was issued for
 that one client, and its names carry what its API needs (`claude`, `gpt-5`),

@@ -618,20 +618,23 @@ export interface TypeSpec {
   names_its_chats: boolean
 }
 
-/** A moving target a slot can follow, and what it points at now. */
-export interface FollowTarget {
-  id: string
-  title: string
-  provider: string
-  serving?: string
-  problem?: string
-}
-
-/** The table of client types, the APIs and the follow targets. */
+/** The table of client types and the APIs. */
 export interface ClientTypesWire {
   types: TypeSpec[]
   dialects: { id: DialectId; title: string; route: string }[]
-  follows: FollowTarget[]
+}
+
+/**
+ * One thing a client's slot can be bound to now — a real model, or a target
+ * it follows — and what it serves. The server offers only what is available
+ * to that client (internal/service/models, available.go).
+ */
+export interface BindingChoice {
+  model?: string
+  follows?: string
+  title: string
+  serving: string
+  provider: string
 }
 
 /** One of a client's slots, resolved. */
@@ -641,11 +644,13 @@ export interface SlotWire extends SlotSpec {
   /** The real model it is bound to, or `bound` the target it follows. */
   model: string
   bound?: string
+  /** How the slot's menu names its binding. */
+  title: string
+  /** What the binding points at now, shown even when it cannot be served. */
   serving: string
   provider?: string
-  problem?: string
-  /** The client's API cannot reach the serving provider. */
-  unreachable?: boolean
+  /** Why the binding is not available to this client now; absent when it is. */
+  unavailable?: string
 }
 
 /** An install link's state, polled while the client's page is open. */
@@ -667,6 +672,8 @@ export interface ClientWire extends ApiKey {
   configured_at?: string
   install: InstallState
   slots: SlotWire[]
+  /** What its slots can be bound to now; on its own page, not in the list. */
+  choices?: BindingChoice[]
 }
 
 /** What a client is doing now, for its Usage page. */

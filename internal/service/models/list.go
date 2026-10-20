@@ -7,7 +7,9 @@
 // of each account of each provider (list.go); the public catalogue those
 // lists are matched against (catalog.go); the moving targets a client's
 // slots can follow — the newest model of each Claude family, the ChatGPT
-// backend's ranking; and the route a requested name takes (route.go).
+// backend's ranking; and the route a requested name takes (route.go). From
+// them it says what each client may be offered (available.go), the one rule
+// for every surface that offers a model.
 //
 // A service of its own because two surfaces read it and neither owns it. It
 // lived in the gateway, which handed it to the admin API as five separate
@@ -57,6 +59,7 @@ type Catalog struct {
 	store      Store
 	pool       Pool
 	relays     []*relay.Relay
+	reaches    func(d clients.Dialect, provider string) bool
 	httpClient *http.Client
 
 	// What the accounts' lists last said, for the follow targets and the routes;
@@ -76,7 +79,14 @@ type Catalog struct {
 	served    map[string]map[string]bool
 	connected map[string]bool
 	unread    map[string]bool
-	newestAt  time.Time
+	// listed is what the accounts themselves said, the catalogue never:
+	// every model a switched-on account of each provider lists, switches or
+	// not, in the lists' order and by store.ModelKey. Which of them a client
+	// can be offered is read against the accounts as they are now
+	// (available.go), since a switch takes effect on the next request and
+	// these lists are kept for newestTTL.
+	listed   map[string][]listedModel
+	newestAt time.Time
 
 	// The public model catalogue; see catalog.go.
 	catalog catalogCache
@@ -93,6 +103,10 @@ type Deps struct {
 	// default: whose wire an account's list is read over, so each
 	// provider's address, headers and list shape stay in its own package.
 	Relays []*relay.Relay
+	// Reaches says whether a client on a dialect can be served by a
+	// provider: the gateway's routes, handed across by the root, so what a
+	// client is offered and what the gateway refuses are one table.
+	Reaches func(d clients.Dialect, provider string) bool
 	// HTTPClient makes the small upstream calls: the lists and the catalogue.
 	HTTPClient *http.Client
 }
@@ -101,7 +115,7 @@ type Deps struct {
 func New(d Deps) *Catalog {
 	return &Catalog{
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
-		relays: d.Relays, httpClient: d.HTTPClient,
+		relays: d.Relays, reaches: d.Reaches, httpClient: d.HTTPClient,
 	}
 }
 
@@ -131,18 +145,25 @@ func (s *Catalog) defaultProvider() string {
 // A client that names its own slots is offered those and nothing else, each
 // carrying the facts of the model it serves now: a model on its menu that is
 // refused when picked is worse than one not offered. A custom client in
-// direct mode is offered the real models, less
-// what it may not use.
+// direct mode is offered the real models, less what it may not use. Either
+// way only what is available to the client now (available.go): a slot whose
+// binding has become unavailable is left out until it is rebound, and before
+// the first sign-in a client is offered nothing.
 //
 // Every provider's models are in it; a ChatGPT one carries "provider":
 // "openai", and so does a slot serving one, so a surface that cannot reach a
 // provider can leave its entries out (the gateway's /v1/models does).
 func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
-	body, fromCatalog, err := s.list(ctx)
+	body, err := s.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if !key.NamesSlots() {
+		// The gateway's own key is no client: it is offered the list as it
+		// stands, and the request says what it gets.
+		if key.ClientType != "" {
+			body = s.onlyAvailable(ctx, key.ClientDialect, body)
+		}
 		// Less what the key may not use, for the reason the switched-off
 		// models are left out.
 		if len(key.ModelsOff) > 0 {
@@ -157,17 +178,14 @@ func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
 	var entries []virtualEntry
 	own := map[string]bool{}
 	for _, sl := range slots {
-		target, why := s.SlotTarget(ctx, sl)
-		// Listed from the catalogue, no Claude account can serve anything
-		// yet, and a slot is shown as it will serve once one is connected —
-		// the configs written now are the ones that will be used then.
-		if why != "" && !(fromCatalog && target != "" && s.ServingProvider(ctx, target) == s.defaultProvider()) {
+		c, why := s.Resolve(ctx, key.ClientDialect, store.Binding{Model: sl.Model, Follows: sl.Follows})
+		if why != "" {
 			continue
 		}
 		entries = append(entries, virtualEntry{
 			ID: sl.Name, DisplayName: sl.Name,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			Serving:   target, Slot: sl.Slot,
+			Serving:   c.Serving, Slot: sl.Slot,
 		})
 		own[sl.Name] = true
 	}
@@ -208,6 +226,52 @@ type remembered struct {
 	served    map[string]map[string]bool
 	connected map[string]bool
 	unread    map[string]bool
+	listed    map[string][]listedModel
+}
+
+// listedModel is one model an account offers, as a binding menu names it.
+type listedModel struct {
+	ID, Name string
+}
+
+// rememberAccounts notes what one provider's accounts said themselves: every
+// model any of them lists, switches or not, first account first.
+func (m *remembered) rememberAccounts(providerID string, lists [][]byte) {
+	if m.listed == nil {
+		m.listed = map[string][]listedModel{}
+	}
+	seen := map[string]bool{}
+	var out []listedModel
+	for _, l := range lists {
+		for _, e := range listEntries(l) {
+			if k := store.ModelKey(e.ID); !seen[k] {
+				seen[k] = true
+				out = append(out, e)
+			}
+		}
+	}
+	m.listed[providerID] = out
+}
+
+// listEntries are a model list's real models, as listed.
+func listEntries(list []byte) []listedModel {
+	var l struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+			Virtual     bool   `json:"virtual"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(list, &l) != nil {
+		return nil
+	}
+	out := make([]listedModel, 0, len(l.Data))
+	for _, e := range l.Data {
+		if e.ID != "" && !e.Virtual {
+			out = append(out, listedModel{ID: e.ID, Name: e.DisplayName})
+		}
+	}
+	return out
 }
 
 // rememberProvider notes what one provider's list says: which models it
@@ -333,6 +397,12 @@ func (s *Catalog) remember(m remembered, read bool) {
 			}
 			m.served[p] = old
 		}
+		if old, ok := s.listed[p]; ok {
+			if m.listed == nil {
+				m.listed = map[string][]listedModel{}
+			}
+			m.listed[p] = old
+		}
 		if p == clients.FollowFirst.Provider() && len(m.ranked) == 0 {
 			m.ranked = s.ranked
 		}
@@ -341,6 +411,7 @@ func (s *Catalog) remember(m remembered, read bool) {
 		}
 	}
 	s.newest, s.families, s.ranked, s.served = m.newest, m.families, m.ranked, m.served
+	s.listed = m.listed
 	s.newestAt = time.Now()
 }
 
@@ -616,16 +687,9 @@ func modelsAllowedFor(body []byte, key store.APIKey) []byte {
 // could follow, so the answer is always all of it. An account whose list cannot
 // be read is skipped; only when none can is it an error.
 func (s *Catalog) List(ctx context.Context) ([]byte, error) {
-	body, _, err := s.list(ctx)
-	return body, err
-}
-
-// list is List, saying whether the default provider's part of it is the
-// catalogue's because none of its accounts' lists could be read.
-func (s *Catalog) list(ctx context.Context) (body []byte, fromCatalog bool, err error) {
 	accounts, err := s.store.ListAccounts(ctx)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	var (
 		parts   [][]byte
@@ -663,14 +727,17 @@ func (s *Catalog) list(ctx context.Context) (body []byte, fromCatalog bool, err 
 			// Matched again over the union: each account's list was matched
 			// on its own, and the union runs first account first.
 			part = s.matchCatalog(ctx, providerID, mergeModels(lists, serving))
+			seen.rememberAccounts(providerID, lists)
 		case providerID == s.defaultProvider():
-			// No account to ask: the public catalogue, so the slots and the
-			// configs have models to name before one is connected. Nothing can be served until then either way. Only
+			// No account to ask: the public catalogue, so the admin screens
+			// have models to show before one is connected. Nothing can be
+			// served until then, and no client is offered any of it
+			// (available.go reads the accounts' own lists). Only
 			// for the default provider: Anthropic's /v1/models refuses a
 			// caller with no account token, and models.dev's other vendors
 			// are their metered APIs, not what a subscription serves.
 			if models := s.catalogModels(ctx, providerID); models != nil {
-				part, fromCatalog = catalogList(models), true
+				part = catalogList(models)
 			}
 		}
 		if part == nil {
@@ -684,9 +751,9 @@ func (s *Catalog) list(ctx context.Context) (body []byte, fromCatalog bool, err 
 		if lastErr == nil {
 			lastErr = pool.ErrNoAccounts
 		}
-		return nil, false, lastErr
+		return nil, lastErr
 	}
-	return joinLists(parts), fromCatalog, nil
+	return joinLists(parts), nil
 }
 
 // hasAccounts reports whether any account of a provider is switched on.

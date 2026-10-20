@@ -29,10 +29,10 @@ const catalogFixture = `{
 	}}
 }`
 
-// With no account, the model list is the catalogue's — and the aliases with
-// it, as they will serve once one is connected — and the catalogue is read
-// once, not once per list. With an account, the account's list is what is
-// listed, with what it leaves out filled in from the catalogue.
+// With no account, the model list is the catalogue's, read once, not once per
+// list — and no client is offered any of it, since none of it can be served.
+// With an account, the account's list is what is listed, with what it leaves
+// out filled in from the catalogue, and a client's names serve from it.
 func TestModelCatalogue(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	var reads atomic.Int32
@@ -72,32 +72,20 @@ func TestModelCatalogue(t *testing.T) {
 		return l.Data
 	}
 
-	got := list()
-	ids := []string{}
-	for _, e := range got {
-		ids = append(ids, e.ID)
-	}
-	// A crush client is offered its two names, each following the newest of
-	// its family as the catalogue has it.
-	want := []string{"large", "small"}
-	if len(ids) != len(want) {
-		t.Fatalf("no account: listed %v, want %v", ids, want)
-	}
-	for i := range want {
-		if ids[i] != want[i] {
-			t.Fatalf("no account: listed %v, want %v", ids, want)
-		}
-	}
-	if got[0].Serving != "claude-opus-5-5" || got[0].MaxInput != 1000000 || got[0].MaxOutput != 128000 {
-		t.Errorf("large from the catalogue: %+v", got[0])
-	}
-	if got[1].Serving != "claude-haiku-4-5" || got[1].MaxInput != 200000 {
-		t.Errorf("small from the catalogue: %+v", got[1])
+	// A crush client is offered none of it: with no account nothing can be
+	// served, and a client is offered only what can (models/available.go).
+	if got := list(); len(got) != 0 {
+		t.Errorf("no account: offered %+v", got)
 	}
 	_ = list()
 	if n := reads.Load(); n != 1 {
 		t.Errorf("catalogue read %d times for two lists", n)
 	}
+	// The admin screens still have the catalogue's models to show.
+	if body, err := srv.models.List(context.Background()); err != nil || !strings.Contains(string(body), `"claude-opus-5-5"`) {
+		t.Errorf("no account: the gateway's list is not the catalogue's: %s %v", body, err)
+	}
+	ids := []string{}
 
 	// An account connected: the catalogue's models that account lists, in
 	// the catalogue's order and words and under the account's ids; one the
@@ -149,5 +137,18 @@ func TestModelCatalogue(t *testing.T) {
 	}
 	if e := matched.Data[2]; e.DisplayName != "Released this morning" {
 		t.Errorf("a model the catalogue lacks lost the account's description: %+v", e)
+	}
+
+	// Now the client is offered its two names, each following the newest of
+	// its family the account lists, described as the catalogue has it.
+	got := list()
+	if len(got) != 2 || got[0].ID != "large" || got[1].ID != "small" {
+		t.Fatalf("with an account: offered %+v", got)
+	}
+	if got[0].Serving != "claude-opus-5-5" || got[0].MaxInput != 1000000 || got[0].MaxOutput != 128000 {
+		t.Errorf("large: %+v", got[0])
+	}
+	if got[1].Serving != "claude-haiku-4-5-20251001" || got[1].MaxInput != 200000 {
+		t.Errorf("small: %+v", got[1])
 	}
 }

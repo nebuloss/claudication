@@ -70,9 +70,11 @@ export function Field({
 
 /**
  * One choice in a Select. Options sharing a `group` are listed under its
- * heading, in the order they come; the heading is no choice of its own.
+ * heading, in the order they come; the heading is no choice of its own. A
+ * disabled one is shown — a current value that may no longer be chosen — and
+ * cannot be picked.
  */
-export type SelectOption = { value: string; label: string; hint?: string; group?: string }
+export type SelectOption = { value: string; label: string; hint?: string; group?: string; disabled?: boolean }
 
 /**
  * A choice from a list, as an MD3 outlined select: the field the text fields
@@ -120,6 +122,7 @@ export function Select({
   }, [p.open, p.panel, cursor])
 
   const choose = (o: SelectOption) => {
+    if (o.disabled === true) return
     p.close()
     p.anchor.current?.focus()
     if (o.value !== value) onChange(o.value)
@@ -186,10 +189,13 @@ export function Select({
               data-index={i}
               role="option"
               aria-selected={o.value === value}
+              aria-disabled={o.disabled === true || undefined}
               onMouseEnter={() => setCursor(i)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => choose(o)}
-              className={menuItem({ active: i === cursor, selected: o.value === value })}
+              className={`${menuItem({ active: i === cursor, selected: o.value === value })} ${
+                o.disabled === true ? 'cursor-default opacity-60' : ''
+              }`}
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{o.label}</span>

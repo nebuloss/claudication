@@ -19,6 +19,7 @@ import (
 	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
+	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/settings"
 	"claudication/internal/store"
 )
@@ -35,7 +36,6 @@ type Admin struct {
 	images         *settings.Switch
 	serving        *settings.Switch
 	inflight       *limits.InFlight
-	reaches        func(d clients.Dialect, provider string) bool
 	protocols      api.Registry
 	httpClient     *http.Client
 	providers      provider.Registry
@@ -62,9 +62,6 @@ type Deps struct {
 	Serving *settings.Switch
 	// InFlight counts each key's open requests.
 	InFlight *limits.InFlight
-	// Reaches says whether a dialect reaches a provider: the gateway's
-	// routes, handed across by the root, for a slot's warning.
-	Reaches    func(d clients.Dialect, provider string) bool
 	Protocols  api.Registry
 	HTTPClient *http.Client
 	// Providers are the upstreams accounts are connected to, which the
@@ -91,15 +88,14 @@ type Models interface {
 	// For is the list one key is offered, its client's slots in it: what
 	// /v1/models answers it, and what its client's configs are written from.
 	For(ctx context.Context, key store.APIKey) ([]byte, error)
-	// SlotTarget is the real model a client's slot serves now, and why not
-	// when it cannot.
-	SlotTarget(ctx context.Context, sl store.ClientSlot) (target, why string)
-	// ServingProvider is the provider a real model is sent to.
-	ServingProvider(ctx context.Context, model string) string
-	// FollowTarget is what a moving target points at now.
-	FollowTarget(ctx context.Context, f clients.Follow) (target, why string)
-	// Families are the Claude families the accounts list, newest first.
-	Families(ctx context.Context) []string
+	// Choices are what a slot of a client on a dialect can be bound to now,
+	// and nothing that is not available to it.
+	Choices(ctx context.Context, d clients.Dialect) []modelsvc.Choice
+	// Available are the real models a client on a dialect can be served now.
+	Available(ctx context.Context, d clients.Dialect) []modelsvc.Choice
+	// Resolve is what a binding serves a client on a dialect now, and why it
+	// is unavailable when it is.
+	Resolve(ctx context.Context, d clients.Dialect, b store.Binding) (modelsvc.Choice, string)
 }
 
 // New builds an Admin with no session open.
@@ -107,7 +103,7 @@ func New(d Deps) *Admin {
 	return &Admin{
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
 		pending: d.Pending, poller: d.Poller, images: d.Images,
-		serving: d.Serving, inflight: d.InFlight, reaches: d.Reaches, protocols: d.Protocols,
+		serving: d.Serving, inflight: d.InFlight, protocols: d.Protocols,
 		httpClient: d.HTTPClient, providers: d.Providers, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,

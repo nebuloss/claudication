@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { api, type SlotWire } from '../../../api/client'
-import { useAction, useLoader } from '../../hooks'
+import { api, type BindingChoice, type SlotWire } from '../../../api/client'
+import { useAction } from '../../hooks'
 import {
   Button,
   Card,
@@ -18,15 +18,17 @@ import { Binding, bindingOptions, providerTitle, type Client, type ClientTypes }
 
 /**
  * The client's model names: one per model setting its configuration has,
- * each the client's own, each bound to a real model of either provider or to
- * a target that moves with each release. Moving the client from Claude to GPT
- * is a change here and nothing else — for a client on an API that reaches
- * both. A binding its API cannot reach is allowed and said: the gateway
- * refuses those requests until the binding changes.
+ * each the client's own, each bound to a real model or to a target that
+ * moves with each release. Moving the client from Claude to GPT is a change
+ * here and nothing else — for a client on an API that reaches both.
+ *
+ * The menus offer only what the server says is available to this client now
+ * (its `choices`): listed by a connected account, on there, and reachable
+ * from its API. A binding that has since become unavailable is kept and
+ * shown, with why, until it is replaced.
  */
 export function SlotsCard({ client: c, types, onChanged }: { client: Client; types: ClientTypes; onChanged: () => void }) {
-  const models = useLoader((signal) => api.models.list(signal))
-  const options = bindingOptions(models.data ?? [], types.follows, c.dialect)
+  const choices = c.wire.choices ?? []
 
   if (!c.namesSlots) {
     return (
@@ -49,15 +51,21 @@ export function SlotsCard({ client: c, types, onChanged }: { client: Client; typ
       }
     >
       <Stack gap={3}>
-        {c.unreachable.length > 0 && (
+        {c.unavailable.length > 0 && (
           <Note tone="warn">
-            {c.unreachable.map((s) => s.name).join(', ')} {c.unreachable.length === 1 ? 'is' : 'are'} bound to a{' '}
-            {providerTitle(c.unreachable[0]?.provider)} model, which the {types.dialectTitle(c.dialect)} API this
-            client is pointed at cannot reach: those requests are refused. Bind it to a model this API reaches.
+            {c.unavailable.map((s) => s.name).join(', ')} {c.unavailable.length === 1 ? 'is' : 'are'} bound to
+            something this client cannot be served now, and {c.unavailable.length === 1 ? 'is' : 'are'} left out
+            of its model list. Pick an available model or target to serve {c.unavailable.length === 1 ? 'it' : 'them'}.
+          </Note>
+        )}
+        {choices.length === 0 && (
+          <Note>
+            Nothing is available to bind yet: connect an account that serves a model the{' '}
+            {types.dialectTitle(c.dialect)} API reaches.
           </Note>
         )}
         {c.slots.map((s) => (
-          <SlotRow key={s.id} client={c} slot={s} options={options} onChanged={onChanged} />
+          <SlotRow key={s.id} client={c} slot={s} choices={choices} onChanged={onChanged} />
         ))}
         {c.type.custom && <AddSlot client={c} onChanged={onChanged} />}
       </Stack>
@@ -69,12 +77,12 @@ export function SlotsCard({ client: c, types, onChanged }: { client: Client; typ
 function SlotRow({
   client: c,
   slot: s,
-  options,
+  choices,
   onChanged,
 }: {
   client: Client
   slot: SlotWire
-  options: ReturnType<typeof bindingOptions>
+  choices: readonly BindingChoice[]
   onChanged: () => void
 }) {
   const [name, setName] = useState(s.name)
@@ -90,11 +98,10 @@ function SlotRow({
       await api.clients.removeSlot(c.id, s.id)
       onChanged()
     })
-  // The current binding is always one of the choices, even a model no
-  // account lists any more, so the menu says what the slot is bound to.
-  const all = options.some((o) => o.value === binding.value)
-    ? options
-    : [{ value: binding.value, label: binding.model || binding.follows, group: 'Bound now' }, ...options]
+  // The current binding is always in the menu, so it says what the slot is
+  // bound to — marked, and not choosable, once it is no longer available.
+  const all = bindingOptions(choices, s)
+  const unavailable = s.unavailable ?? ''
   const misfit = !c.type.fits(c.dialect, name)
 
   return (
@@ -127,8 +134,7 @@ function SlotRow({
             now <code className="text-on-surface">{s.serving || '—'}</code>
             {s.provider !== undefined && ` on ${providerTitle(s.provider)}`}
           </span>
-          {s.unreachable === true && <Chip tone="warn">not on this client&rsquo;s API</Chip>}
-          {(s.problem ?? '') !== '' && <Chip tone="error">{s.problem}</Chip>}
+          {unavailable !== '' && <Chip tone="error">unavailable: {unavailable}</Chip>}
           {misfit && <Chip tone="warn">needs “{c.type.mark(c.dialect)}” in the name on this API</Chip>}
         </div>
         <ErrorBanner error={error} />

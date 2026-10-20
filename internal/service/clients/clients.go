@@ -145,6 +145,17 @@ func (f Follow) Valid() bool {
 	return f.Family() != "" || f == FollowFirst || f == FollowLight
 }
 
+// ProviderTitle is how a screen, or a refusal, names a provider's accounts.
+func ProviderTitle(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "Claude"
+	case "openai":
+		return "ChatGPT"
+	}
+	return provider
+}
+
 // Provider is whose models f follows: anthropic or openai.
 func (f Follow) Provider() string {
 	if f == FollowFirst || f == FollowLight {

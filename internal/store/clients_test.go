@@ -38,7 +38,7 @@ func TestClientsOwnTheirNames(t *testing.T) {
 		a.Slots[0].Follows != clients.FollowOpus || a.Mode != clients.Binding || a.Type != "crush" {
 		t.Fatalf("a = %+v", a)
 	}
-	if k, _ := st.Key(ctx, a.ID); k.ClientType != "crush" || !k.NamesSlots() {
+	if k, _ := st.Key(ctx, a.ID); k.ClientType != "crush" || k.ClientDialect != clients.Messages || !k.NamesSlots() {
 		t.Errorf("the key does not know its client: %+v", k)
 	}
 	// Bound apart: same name, two models.

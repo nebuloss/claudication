@@ -79,8 +79,11 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 
 // handleKeyModels lists the models a key could ask for — every model this
 // gateway serves, the same list /v1/models answers — each with whether the
-// key may. A model kept off the key that the gateway no longer serves is
-// listed too, unlisted, so the switch can still be found.
+// key may. For a client's key, only what is available to that client now
+// (internal/service/models, available.go): a direct-mode client is shown no
+// model it would be refused. For the gateway's own key, a model kept off it
+// that the gateway no longer serves is listed too, unlisted, so the switch
+// can still be found.
 func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	key, err := s.store.Key(r.Context(), id)
@@ -110,11 +113,18 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var available map[string]bool
+	if key.ClientType != "" {
+		available = map[string]bool{}
+		for _, c := range s.models.Available(ctx, key.ClientDialect) {
+			available[c.Model] = true
+		}
+	}
 	listed := map[string]bool{}
 	models := make([]map[string]any, 0, len(list.Data)+len(key.ModelsOff))
 	for _, m := range list.Data {
 		mid, _ := m["id"].(string)
-		if mid == "" {
+		if mid == "" || available != nil && !available[mid] {
 			continue
 		}
 		listed[store.ModelKey(mid)] = true
@@ -122,8 +132,10 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 		m["listed"] = true
 		models = append(models, m)
 	}
+	// A client's switch over a model it is not offered would switch nothing
+	// it can name; it comes back, as it was, when the model does.
 	for _, off := range key.ModelsOff {
-		if !listed[store.ModelKey(off)] {
+		if available == nil && !listed[store.ModelKey(off)] {
 			models = append(models, map[string]any{"id": off, "enabled": false, "listed": false})
 		}
 	}

@@ -384,21 +384,25 @@ console.log('\n— client configs: the committed files, with the client\'s names
 
 console.log('\n— client specs: a slot\'s binding is one menu value —')
 {
-  const { Binding, bindingOptions, reaches } = await import(`${OUT}/clients/specs.js`)
+  const { Binding, bindingOptions } = await import(`${OUT}/clients/specs.js`)
   check('a model round-trips', Binding.parse(Binding.model('claude-opus-5-5').value).body, { model: 'claude-opus-5-5' })
   check('a target too', Binding.parse(Binding.follow('claude:opus').value).body, { follows: 'claude:opus' })
   check('a model id with a colon survives', Binding.parse('model:a:b').model, 'a:b')
   check('a slot reads as its binding', Binding.of({ model: '', bound: 'openai:first' }).value, 'follow:openai:first')
-  check('Messages reaches only Claude', [reaches('anthropic', 'anthropic'), reaches('anthropic', 'openai'), reaches('openai', 'openai')], [true, false, true])
-  const opts = bindingOptions(
-    [{ id: 'large', virtual: true }, { id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }, { id: 'gpt-5.5', provider: 'openai' }],
-    [{ id: 'claude:opus', title: 'Newest Opus', serving: 'claude-opus-5-5' }],
-    'anthropic',
-  )
-  check('targets first, then each provider\'s models, names left out', opts.map((o) => [o.group, o.value]), [
+  const choices = [
+    { follows: 'claude:opus', title: 'Newest Claude Opus', serving: 'claude-opus-5-5', provider: 'anthropic' },
+    { model: 'claude-opus-5-5', title: 'Claude Opus 5.5', serving: 'claude-opus-5-5', provider: 'anthropic' },
+    { model: 'gpt-5.5', title: 'GPT-5.5', serving: 'gpt-5.5', provider: 'openai' },
+  ]
+  const opts = bindingOptions(choices)
+  check('the server\'s choices, targets first, then each provider\'s models', opts.map((o) => [o.group, o.value]), [
     ['Follow the newest', 'follow:claude:opus'], ['Claude', 'model:claude-opus-5-5'], ['ChatGPT', 'model:gpt-5.5'],
   ])
-  check('a model the API cannot reach is marked, not hidden', opts[2].hint, 'gpt-5.5 — not on this client\'s API')
+  check('a target says what it serves now', opts[0].hint, 'now claude-opus-5-5')
+  check('a current binding that is a choice adds nothing', bindingOptions(choices, { model: 'gpt-5.5', title: 'GPT-5.5' }).length, 3)
+  const kept = bindingOptions(choices, { model: 'claude-haiku-4-5', title: 'claude-haiku-4-5', unavailable: 'no connected account lists it' })
+  check('an unavailable binding stays visible, first, marked and not choosable', [kept.length, kept[0].value, kept[0].disabled, kept[0].hint],
+    [4, 'model:claude-haiku-4-5', true, 'unavailable: no connected account lists it'])
 }
 
 console.log('\n— model tests: a few at a time, each result as it lands —')
