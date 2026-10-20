@@ -61,7 +61,7 @@ type Deps struct {
 	// Serving is the gateway switch.
 	Serving *settings.Switch
 	// InFlight counts each key's open requests.
-	InFlight *limits.InFlight
+	InFlight   *limits.InFlight
 	Protocols  api.Registry
 	HTTPClient *http.Client
 	// Providers are the upstreams accounts are connected to, which the
