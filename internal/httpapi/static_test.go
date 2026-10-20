@@ -131,7 +131,9 @@ func TestRelayOnlyRootIsTheWelcomePage(t *testing.T) {
 		return ts.URL
 	}
 
-	// No UI embedded, as in this checkout: the fallback, still a page.
+	// No UI embedded: the fallback, still a page. Set explicitly rather than
+	// taken from the checkout, which holds a real build once make has run.
+	srv.web = web.New(web.Deps{Log: srv.log, Files: fstest.MapFS{}})
 	base := relay()
 	status, body := call(t, base, http.MethodGet, "/", "", nil)
 	if status != http.StatusOK || !strings.Contains(string(body), "claudication gateway") {

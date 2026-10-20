@@ -12,6 +12,9 @@ import (
 // gateway's own, so it holds however the proxy in front is configured.
 func TestSplitListenersDoNotServeEachOther(t *testing.T) {
 	s, _, _ := newTestServer(t)
+	// A UI to not serve: with none embedded, every document is the fallback
+	// and the checks below could not tell the admin app from the welcome page.
+	fakeUI(s)
 
 	gateway := s.routes(role{gateway: true})
 	adminOnly := s.routes(role{admin: true})
@@ -54,7 +57,7 @@ func TestSplitListenersDoNotServeEachOther(t *testing.T) {
 	// on top of a security one. The root answers its page and no session.
 	rec := httptest.NewRecorder()
 	gateway.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?token=whatever", nil))
-	if rec.Header().Get("Set-Cookie") != "" || strings.Contains(rec.Body.String(), "Admin UI") {
+	if rec.Header().Get("Set-Cookie") != "" || !strings.Contains(rec.Body.String(), "<title>welcome</title>") {
 		t.Errorf("a sign-in link on the relay listener reached the admin: %d %q", rec.Code, rec.Body.String())
 	}
 
