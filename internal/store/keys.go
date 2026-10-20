@@ -56,6 +56,10 @@ type APIKey struct {
 	// (clients.Type, NamesItsChats): the column is left as it was for those,
 	// rather than dropped, because Codex and custom clients still need it.
 	NameChats bool
+	// FitImages is the client's switch for capping images in a many-image
+	// request (fit_images in schema.sql), read with the key for the request
+	// path as NameChats is.
+	FitImages bool
 }
 
 // NamesSlots reports whether the key's client asks for its own slot names
@@ -79,7 +83,8 @@ const keyColumns = `id, name, prefix, created_at, last_used_at, rate_limit, rate
 		COALESCE((SELECT c.disabled_at IS NOT NULL FROM clients c WHERE c.key_id = api_keys.id), 0),
 		COALESCE((SELECT c.type FROM clients c WHERE c.key_id = api_keys.id), ''),
 		COALESCE((SELECT c.mode FROM clients c WHERE c.key_id = api_keys.id), ''),
-		COALESCE((SELECT c.name_chats FROM clients c WHERE c.key_id = api_keys.id), 0)`
+		COALESCE((SELECT c.name_chats FROM clients c WHERE c.key_id = api_keys.id), 0),
+		COALESCE((SELECT c.fit_images FROM clients c WHERE c.key_id = api_keys.id), 0)`
 
 // scanKey reads one row selected with keyColumns. lead are destinations for
 // columns selected before them, as Authenticate's hash is.
@@ -100,7 +105,7 @@ func scanKeyAround(sc scanner, lead, trail []any) (APIKey, error) {
 	)
 	dest := append(append([]any{}, lead...), &key.ID, &key.Name, &key.Prefix, &createdAt,
 		&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff,
-		&key.SecretKept, &key.Disabled, &key.ClientType, &mode, &key.NameChats)
+		&key.SecretKept, &key.Disabled, &key.ClientType, &mode, &key.NameChats, &key.FitImages)
 	dest = append(dest, trail...)
 	if err := sc.Scan(dest...); err != nil {
 		return APIKey{}, err

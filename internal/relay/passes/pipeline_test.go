@@ -15,7 +15,7 @@ import (
 func TestPipelineReportsWhatActed(t *testing.T) {
 	upper := Pass{Name: "upper", Apply: func(b []byte, _ *State) []byte { return bytes.ToUpper(b) }}
 	same := Pass{Name: "same", Apply: func(b []byte, _ *State) []byte { return b }}
-	off := Pass{Name: "off", Enabled: func() bool { return false },
+	off := Pass{Name: "off", Enabled: func(*State) bool { return false },
 		Apply: func([]byte, *State) []byte { t.Fatal("a disabled pass ran"); return nil }}
 
 	out, applied := Pipeline{same, upper, off}.Run([]byte("abc"), &State{}, nil)

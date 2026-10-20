@@ -50,8 +50,11 @@
 // The other five repair an envelope the upstream rejects over its shape, and
 // the caller cannot tell the difference. This one re-encodes the caller's own
 // picture: the model is shown something slightly different from what was sent,
-// and only the caller knows whether the detail mattered. So it is a switch an
-// operator turns on, stored where the other runtime switches are.
+// and only the caller knows whether the detail mattered. So it is a switch on
+// each client, off until its operator turns it on, and it reaches the pass as
+// a fact about the request ([State], FitImages) — set by the gateway, which
+// knows the client, through the request's context ([WithFitImages]), so the
+// passes never read the store.
 //
 // Each carries its measurements in the file that implements it. Ordering
 // matters in one place: the prologue is peeked from the body before any of

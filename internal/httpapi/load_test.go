@@ -146,16 +146,24 @@ func TestLoad(t *testing.T) {
 	}
 	if n, _ := strconv.Atoi(os.Getenv("CLAUDICATION_LOAD_IMAGES")); n > 0 {
 		loadShapeV = imageShape(t, n)
-		if err := srv.images.Set(context.Background(), true); err != nil {
-			t.Fatal(err)
+		// The gateway's pipeline with fitting on for every request, as it is
+		// for a client whose switch is on: the load key is no client, and
+		// what is measured is the pass, not the switch.
+		opts := passes.Options{
+			Attribution: srv.cfg.Passthrough.ClaudeCodeAttribution,
+			Images:      passes.NewImageCache(passes.DefaultImageCacheBytes),
 		}
 		if os.Getenv("CLAUDICATION_LOAD_IMAGECACHE") == "off" {
-			// The same pipeline with no image cache, so every request decodes.
-			srv.relay.Passes = passes.Default(passes.Options{
-				Attribution: srv.cfg.Passthrough.ClaudeCodeAttribution,
-				FitImages:   srv.images.On,
-			})
+			// No image cache, so every request decodes.
+			opts.Images = nil
 		}
+		pl := passes.Default(opts)
+		for i := range pl {
+			if pl[i].Name == "images" {
+				pl[i].Enabled = nil
+			}
+		}
+		srv.relay.Passes = pl
 	}
 	body := loadShapeV.body
 

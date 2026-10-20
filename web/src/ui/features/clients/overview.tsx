@@ -70,6 +70,11 @@ function AboutCard({ client: c, types, onChanged }: { client: Client; types: Cli
       await api.clients.setNameChats(c.id, on)
       onChanged()
     })
+  const switchImages = (on: boolean) =>
+    run('images', async () => {
+      await api.clients.setFitImages(c.id, on)
+      onChanged()
+    })
   const setMode = (mode: 'binding' | 'direct') =>
     run('mode', async () => {
       await api.clients.setMode(c.id, mode)
@@ -125,6 +130,19 @@ function AboutCard({ client: c, types, onChanged }: { client: Client; types: Cli
             info="The gateway asks the chat’s own model for a name, under this client’s key and on the account that served the chat, so it is this client’s spend — and skips it when the client is at a limit."
           />
         )}
+
+        {/* Each client's rather than the gateway's: whether it sends enough
+            screenshots to cross the threshold, and whether the detail lost
+            matters to it, is a fact about the client. Every type has it — any
+            can send images — and it acts only where Claude serves, whose rule
+            it is. */}
+        <SettingSwitch
+          checked={k.fit_images}
+          onChange={(v) => void switchImages(v)}
+          disabled={busy !== ''}
+          label="Shrink images when a request carries more than 20 — Claude refuses images over 2000 px then"
+          info="Only on a request Claude serves, and only the images over the limit; everything else goes up byte for byte. Images from earlier turns count, so a long conversation crosses the line on its own. It is the one change the gateway makes to what the model is shown, which is why it is off until switched on. The cost is bounded: Claude already downscales to 2576 px on 4.7 and later, and to 1568 px before."
+        />
         <ErrorBanner error={error} />
       </Stack>
     </Card>

@@ -26,7 +26,6 @@ func (s *Admin) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		// about together with the rest, and separating them is how a switch
 		// gets flipped and then lost.
 		"gateway_enabled": s.serving.On(),
-		"fit_images":      s.images.On(),
 	})
 }
 

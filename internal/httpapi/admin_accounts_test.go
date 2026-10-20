@@ -611,7 +611,7 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodGet, "/admin/chats/x"},
 		{http.MethodPut, "/admin/chats/x/title"},
 		{http.MethodPost, "/admin/clients/x/name-chats"},
-		{http.MethodPost, "/admin/fit-images"},
+		{http.MethodPost, "/admin/clients/x/fit-images"},
 		{http.MethodGet, "/admin/requests"},
 		{http.MethodGet, "/admin/requests/facets"},
 		{http.MethodGet, "/admin/requests/export"},

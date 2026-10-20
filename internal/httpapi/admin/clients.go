@@ -34,6 +34,10 @@ type ClientJSON struct {
 	// always for a type that names its own and so has none (clients.Type,
 	// NamesItsChats), whatever an older release stored for it.
 	NameChats bool `json:"name_chats"`
+	// FitImages is its "Shrink images" switch: whether a request of its
+	// carrying more than 20 images has each capped at 2000 px when Claude
+	// serves it (internal/relay/passes, ShrinkImages).
+	FitImages bool `json:"fit_images"`
 	// DisabledAt is when it was switched off, when it is.
 	DisabledAt string `json:"disabled_at,omitempty"`
 	// ConfiguredAt is when it was first set up with its key; from then on
@@ -75,6 +79,7 @@ type SlotJSON struct {
 func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) ClientJSON {
 	out := ClientJSON{KeyJSON: key, Type: c.Type, Mode: c.Mode, Disabled: c.DisabledAt != nil,
 		NameChats: c.NameChats || c.Spec().NamesItsChats,
+		FitImages: c.FitImages,
 		Slots:     make([]SlotJSON, 0, len(c.Slots))}
 	if c.DisabledAt != nil {
 		out.DisabledAt = c.DisabledAt.UTC().Format(time.RFC3339)
@@ -397,6 +402,30 @@ func (s *Admin) handleSetClientNameChats(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.log.Info("client chat naming switched", "id", c.ID, "enabled", *body.Enabled)
+	s.writeClient(w, r, c.ID, nil)
+}
+
+// handleSetClientFitImages switches a client's image fitting, from its next
+// request.
+func (s *Admin) handleSetClientFitImages(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.loadClient(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	if body.Enabled == nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, switchUsage)
+		return
+	}
+	if s.clientError(w, s.store.SetClientFitImages(r.Context(), c.ID, *body.Enabled), "switch image fitting") {
+		return
+	}
+	s.log.Info("client image fitting switched", "id", c.ID, "enabled", *body.Enabled)
 	s.writeClient(w, r, c.ID, nil)
 }
 

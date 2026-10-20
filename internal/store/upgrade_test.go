@@ -585,6 +585,39 @@ func TestUpgradeCarriesTheTitlingSwitch(t *testing.T) {
 	}
 }
 
+// A migrated client fits images as the gateway-wide switch did for it: on
+// only where it was switched on, absent being its default, off. The setting
+// does not survive, since nothing reads it any more.
+func TestUpgradeCarriesTheImageFitSwitch(t *testing.T) {
+	for setting, want := range map[string]bool{"": false, "true": true, "false": false} {
+		p := filepath.Join(t.TempDir(), "v28.db")
+		db := buildOld(t, dsn(p), 28)
+		f := fillV28(t, db)
+		if setting != "" {
+			if _, err := db.Exec(`INSERT INTO settings VALUES ('passthrough.fit-oversized-images', ?, 1760000000)`, setting); err != nil {
+				t.Fatal(err)
+			}
+		}
+		db.Close()
+		st, err := Open(context.Background(), p, testSealer(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		c, err := st.Client(ctx, f.keyKept)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.FitImages != want {
+			t.Errorf("fit-oversized-images %q: the migrated client fits images = %v, want %v", setting, c.FitImages, want)
+		}
+		if _, ok, _ := st.Setting(ctx, "passthrough.fit-oversized-images"); ok {
+			t.Errorf("fit-oversized-images %q: the gateway-wide setting survived", setting)
+		}
+		st.Close()
+	}
+}
+
 // A database the upgrade cannot start from is refused, with the reason, and
 // left as it was.
 func TestUpgradeRefusesWhatItCannotRead(t *testing.T) {

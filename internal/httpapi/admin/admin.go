@@ -32,7 +32,6 @@ type Admin struct {
 	pool           *pool.Pool
 	pending        *oauth.Pending
 	poller         *accountsvc.Poller
-	images         *settings.Switch
 	serving        *settings.Switch
 	inflight       *limits.InFlight
 	protocols      api.Registry
@@ -56,7 +55,6 @@ type Deps struct {
 	Pool    *pool.Pool
 	Pending *oauth.Pending
 	Poller  *accountsvc.Poller
-	Images  *settings.Switch
 	// Serving is the gateway switch.
 	Serving *settings.Switch
 	// InFlight counts each key's open requests.
@@ -101,7 +99,7 @@ type Models interface {
 func New(d Deps) *Admin {
 	return &Admin{
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
-		pending: d.Pending, poller: d.Poller, images: d.Images,
+		pending: d.Pending, poller: d.Poller,
 		serving: d.Serving, inflight: d.InFlight, protocols: d.Protocols,
 		httpClient: d.HTTPClient, providers: d.Providers, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
@@ -152,6 +150,7 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/clients/{id}/mode", admin(s.handleSetClientMode))
 	mux.Handle("POST /admin/clients/{id}/disabled", admin(s.handleSetClientDisabled))
 	mux.Handle("POST /admin/clients/{id}/name-chats", admin(s.handleSetClientNameChats))
+	mux.Handle("POST /admin/clients/{id}/fit-images", admin(s.handleSetClientFitImages))
 	mux.Handle("POST /admin/clients/{id}/slots", admin(s.handleAddSlot))
 	mux.Handle("PUT /admin/clients/{id}/slots/{slot}", admin(s.handleSetSlot))
 	mux.Handle("DELETE /admin/clients/{id}/slots/{slot}", admin(s.handleRemoveSlot))
@@ -178,7 +177,6 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/chats", admin(s.handleChats))
 	mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
 	mux.Handle("PUT /admin/chats/{id}/title", admin(s.handleSetChatTitle))
-	mux.Handle("POST /admin/fit-images", admin(s.switchHandler(s.images, "image fitting", "fit_images")))
 	mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 	mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
 	mux.Handle("GET /admin/requests/export", admin(s.handleExportRequests))

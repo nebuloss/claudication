@@ -1,5 +1,5 @@
 -- claudication's schema, whole: what a fresh database is created with, and
--- what migrations/ brings an older one to. Version 35 (schemaVersion in
+-- what migrations/ brings an older one to. Version 36 (schemaVersion in
 -- store.go).
 --
 -- Written as if from scratch. Migrations 001-028 grew it a column at a time;
@@ -91,7 +91,12 @@ CREATE TABLE clients (
     -- Whether its chats are named: read off the client's own naming request
     -- for a type that names its sessions, asked for under its own key on the
     -- chat's own model for any other. On unless switched off.
-    name_chats    INTEGER NOT NULL DEFAULT 1
+    name_chats    INTEGER NOT NULL DEFAULT 1,
+    -- Whether a request of its carrying more than 20 images has every image
+    -- capped at 2000 px, which Claude refuses it over otherwise
+    -- (internal/relay/passes, ShrinkImages). Off unless switched on: it
+    -- re-encodes the client's own pictures.
+    fit_images    INTEGER NOT NULL DEFAULT 0
 ) WITHOUT ROWID;
 
 -- A direct-mode client's models switched off. Kept as what is off, so a model

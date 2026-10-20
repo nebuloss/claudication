@@ -2,6 +2,7 @@ package passes
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"reflect"
@@ -211,19 +212,18 @@ func TestDefaultPipelineRepairsSurrogatesBeforeAttribution(t *testing.T) {
 	}
 }
 
-// Image fitting is the one pass an operator switches on, so it must do
-// nothing while off and act once on — including on an image so thin that
-// scaling would round one side to zero pixels.
-func TestDefaultPipelineImagesFollowTheSwitch(t *testing.T) {
+// Image fitting is the one pass a client is switched into, so it must do
+// nothing for a request whose client has it off and act for one whose client
+// has it on — the same pipeline, the choice riding on the request — including
+// on an image so thin that scaling would round one side to zero pixels.
+func TestDefaultPipelineImagesFollowTheClient(t *testing.T) {
 	body := bodyWith(t, ManyImages+1, MaxEdge*2+1, 1)
-	on := false
-	pl := Default(Options{FitImages: func() bool { return on }, Log: slog.New(slog.DiscardHandler)})
+	pl := Default(Options{Log: slog.New(slog.DiscardHandler)})
 
 	if _, applied := pl.Run(body, &State{Prologue: request.Peek(body)}, nil); len(applied) != 0 {
-		t.Errorf("applied = %v with fitting off", applied)
+		t.Errorf("applied = %v for a client with fitting off", applied)
 	}
-	on = true
-	out, applied := pl.Run(body, &State{Prologue: request.Peek(body)}, nil)
+	out, applied := pl.Run(body, &State{Prologue: request.Peek(body), FitImages: true}, nil)
 	if !reflect.DeepEqual(applied, []string{"images"}) {
 		t.Fatalf("applied = %v, want [images]", applied)
 	}
@@ -231,9 +231,26 @@ func TestDefaultPipelineImagesFollowTheSwitch(t *testing.T) {
 		t.Errorf("first image = %dx%d, want %dx1: never zero pixels high", d.Width, d.Height, MaxEdge)
 	}
 
-	// Few images: nothing to do even with the switch on.
+	// Few images: nothing to do even for a client with fitting on.
 	few := bodyWith(t, 2, 16, 16)
-	if _, applied := pl.Run(few, &State{Prologue: request.Peek(few)}, nil); len(applied) != 0 {
+	if _, applied := pl.Run(few, &State{Prologue: request.Peek(few), FitImages: true}, nil); len(applied) != 0 {
 		t.Errorf("applied = %v on a two-image request", applied)
+	}
+
+	// The OpenAI pipeline has no such pass: the 2000 px rule is Anthropic's.
+	if _, applied := OpenAI(Options{}).Run(body, &State{FitImages: true}, nil); len(applied) != 0 {
+		t.Errorf("OpenAI applied = %v", applied)
+	}
+}
+
+// The choice reaches the relay on the request's context; a request nothing
+// marked (the titler's own) is never fitted.
+func TestFitImagesRidesOnTheContext(t *testing.T) {
+	ctx := context.Background()
+	if FitsImages(ctx) {
+		t.Error("an unmarked request fits images")
+	}
+	if !FitsImages(WithFitImages(ctx, true)) || FitsImages(WithFitImages(ctx, false)) {
+		t.Error("the context did not carry the client's choice")
 	}
 }

@@ -416,6 +416,21 @@ func (s *Store) SetClientMode(ctx context.Context, keyID string, mode clients.Mo
 	return nil
 }
 
+// SetClientFitImages switches a client's image fitting on or off: whether
+// a request of its carrying more than 20 images has each capped at 2000 px
+// (internal/relay/passes, ShrinkImages). Any type may have it, since any can
+// send images; it acts only on a request Claude serves.
+func (s *Store) SetClientFitImages(ctx context.Context, keyID string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE clients SET fit_images = ? WHERE key_id = ?`, on, keyID)
+	if err != nil {
+		return fmt.Errorf("switch image fitting: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrClientNotFound
+	}
+	return nil
+}
+
 // SetClientNameChats switches the gateway's naming of a client's chats on or
 // off. Refused for a type that names its own (clients.Type, NamesItsChats):
 // reading that name spends nothing, so it has no switch, and a stored flag

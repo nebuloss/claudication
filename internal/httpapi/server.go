@@ -98,7 +98,6 @@ type Server struct {
 	providers provider.Registry
 	// serving is the gateway switch: off, no client-facing route answers.
 	serving *settings.Switch
-	images  *settings.Switch
 
 	// uptime samples the gateway's own state once a minute, for the status
 	// page and the Overview. See internal/service/uptime.
@@ -197,13 +196,6 @@ func (s *Server) loadSwitches(ctx context.Context) {
 	if err := settings.Load(ctx, s.store, s.serving); err != nil {
 		s.log.Warn("could not read the gateway switch; serving", "err", err)
 	}
-
-	// And again: off is the pass-through rule, so a switch we cannot read
-	// leaves the caller's bytes alone.
-	s.images = settings.NewSwitch(s.store, passes.FitImagesSetting, false)
-	if err := settings.Load(ctx, s.store, s.images); err != nil {
-		s.log.Warn("could not read the image-fit switch; leaving it off", "err", err)
-	}
 }
 
 // buildServices builds what the handlers share: the usage recorder, the
@@ -271,7 +263,6 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 		Log:  log,
 		Passes: passes.Default(passes.Options{
 			Attribution: cfg.Passthrough.ClaudeCodeAttribution,
-			FitImages:   s.images.On,
 			Images:      passes.NewImageCache(passes.DefaultImageCacheBytes),
 			Log:         log,
 		}),
@@ -364,7 +355,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	s.admin = admin.New(admin.Deps{
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
-		Images: s.images, Serving: s.serving, InFlight: s.inflight,
+		Serving: s.serving, InFlight: s.inflight,
 		Protocols: s.protocols, HTTPClient: s.httpClient, Providers: s.providers,
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),

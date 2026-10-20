@@ -9,7 +9,6 @@ import (
 
 	"claudication/internal/httpapi/admin"
 	"claudication/internal/httpapi/gateway"
-	"claudication/internal/relay/passes"
 	"claudication/internal/store"
 )
 
@@ -24,13 +23,17 @@ func TestConfigReportsSettingsAndSwitches(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	got := decode[map[string]any](t, body)
-	for _, k := range []string{"path", "settings", "gateway_enabled", "fit_images"} {
+	for _, k := range []string{"path", "settings", "gateway_enabled"} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("config is missing %q", k)
 		}
 	}
-	if got["fit_images"] != false || got["gateway_enabled"] != true {
-		t.Errorf("a fresh gateway has a switch the wrong way: %v", got)
+	if got["gateway_enabled"] != true {
+		t.Errorf("a fresh gateway has its switch the wrong way: %v", got)
+	}
+	// Image fitting is each client's now (TestImageFittingIsPerClient).
+	if _, ok := got["fit_images"]; ok {
+		t.Errorf("config still reports a gateway-wide image switch: %v", got)
 	}
 }
 
@@ -112,31 +115,14 @@ func TestGatewaySwitch(t *testing.T) {
 	}
 }
 
-// A runtime switch decides what the gateway may do on its own — serve at all,
-// re-encode a caller's image — so each must persist, report its new state,
-// and refuse a body that does not say which way to flip it.
+// The gateway switch refuses a body that does not say which way to flip it,
+// and a manual chat title is trimmed and must not be empty. The gateway-wide
+// image switch is gone: fitting is each client's (TestImageFittingIsPerClient).
 func TestRuntimeSwitches(t *testing.T) {
-	srv, st, _ := newTestServer(t)
+	srv, _, _ := newTestServer(t)
 	base, c := adminAPI(t, srv)
-	ctx := context.Background()
 
-	stored := func(key string) string {
-		v, _, err := st.Setting(ctx, key)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return v
-	}
-
-	status, body := call(t, base, http.MethodPost, "/admin/fit-images", `{"enabled":true}`, c)
-	if status != http.StatusOK || decode[map[string]bool](t, body)["fit_images"] != true {
-		t.Errorf("fit-images: %d %s", status, body)
-	}
-	if !srv.images.On() || stored(passes.FitImagesSetting) != "true" {
-		t.Error("fit-images did not take effect or did not persist")
-	}
-
-	status, body = call(t, base, http.MethodPut, "/admin/chats/c1/title", `{"title":"  ZeeOS installer "}`, c)
+	status, body := call(t, base, http.MethodPut, "/admin/chats/c1/title", `{"title":"  ZeeOS installer "}`, c)
 	if got := decode[map[string]any](t, body); status != http.StatusOK || got["title"] != "ZeeOS installer" {
 		t.Errorf("manual title: %d %s", status, body)
 	}
@@ -145,12 +131,13 @@ func TestRuntimeSwitches(t *testing.T) {
 		t.Errorf("empty manual title: %d %s", status, body)
 	}
 
-	for _, path := range []string{"/admin/fit-images", "/admin/gateway"} {
-		for _, bad := range []string{`{}`, `{"enabled":`, `{"enabled":"yes"}`} {
-			if status, _ := call(t, base, http.MethodPost, path, bad, c); status != http.StatusBadRequest {
-				t.Errorf("%s %s: %d, want 400", path, bad, status)
-			}
+	for _, bad := range []string{`{}`, `{"enabled":`, `{"enabled":"yes"}`} {
+		if status, _ := call(t, base, http.MethodPost, "/admin/gateway", bad, c); status != http.StatusBadRequest {
+			t.Errorf("/admin/gateway %s: %d, want 400", bad, status)
 		}
+	}
+	if status, _ := call(t, base, http.MethodPost, "/admin/fit-images", `{"enabled":true}`, c); status == http.StatusOK {
+		t.Error("the gateway-wide image switch still answers")
 	}
 }
 

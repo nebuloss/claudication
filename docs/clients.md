@@ -188,6 +188,15 @@ preview of what a limit would have refused. Above them all is the **Gateway**
 switch in Settings: off, every client request is refused, and `/health` says
 `"accepting": false`.
 
+A client that sends many screenshots has one more, on its page: **Shrink
+images when a request carries more than 20**. Past 20 images in one request
+Claude refuses any over 2000 px on a side, and images from earlier turns
+count, so a long conversation starts being refused over a picture already in
+its history. Switched on, the gateway caps those images at 2000 px on a
+request Claude serves, and touches nothing else. Off by default, being the one
+change it makes to what the model is shown; why, and what it costs, is in
+[refused-requests.md](refused-requests.md#the-one-rewrite-you-have-to-ask-for).
+
 ### When crush compacts
 
 crush summarises a session when the room left in `context_window` falls to
@@ -316,6 +325,7 @@ already the higher privilege, so none of these asks for the admin password.
 | 404 on every request | The `/v1` question above. Add it or drop it. |
 | 404 saying the gateway is switched off | The **Gateway** switch in Settings is off. |
 | 403 "this client is disabled" | The client's own switch is off, on its row or its page. |
+| 400 "dimensions exceed max allowed size for many-image requests" | More than 20 images in the request and one over 2000 px. Switch on **Shrink images** on the client's page. |
 | 400 naming the client's model names | A typed client asked for a name that is none of its slots — usually a model typed into its picker by hand. |
 | 401 | The key is wrong, regenerated, or in a header this client does not send. Either header works, on either API. |
 | 429 whose message is the single word `Error` | Not a rate limit. The attribution gate — see [refused-requests.md](refused-requests.md). Leave `passthrough.claude-code-attribution` on. |

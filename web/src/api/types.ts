@@ -511,12 +511,6 @@ export interface GatewayConfig {
   settings: Setting[]
   /** The gateway switch: off, every client-facing route refuses. */
   gateway_enabled: boolean
-  /**
-   * Whether the relay caps oversized images in a many-image request. The one
-   * pass that changes what the model is shown rather than the shape of the
-   * envelope, so it is off until an operator asks for it.
-   */
-  fit_images: boolean
 }
 
 /** What /health answers on every listener, unauthenticated. */
@@ -678,6 +672,12 @@ export interface ClientWire extends ApiKey {
   disabled_at?: string
   /** Whether its chats are named: its switch, or always for a type that names its own. */
   name_chats: boolean
+  /**
+   * Whether a request of its carrying more than 20 images has each capped at
+   * 2000 px when Claude serves it. The one rewrite that changes what the model
+   * is shown rather than the shape of the request, so it is off until asked for.
+   */
+  fit_images: boolean
   configured_at?: string
   install: InstallState
   slots: SlotWire[]

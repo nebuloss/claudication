@@ -1,6 +1,7 @@
 // Package settings holds the gateway's runtime switches: the on/off decisions
-// an operator makes from the admin UI while the gateway runs — which client
-// APIs are served, image fitting, chat titles.
+// an operator makes from the admin UI while the gateway runs — whether it
+// serves at all. What is a client's choice (naming its chats, fitting its
+// images) is stored with the client instead, not here.
 //
 // They live in the database rather than the config file because turning
 // something off is a thing done at three in the morning, and should not need
@@ -21,8 +22,8 @@ type Store interface {
 
 // Switch is one runtime on/off setting.
 //
-// Read on hot paths — the relay asks about image fitting on every request it
-// forwards — so the value is an atomic, not a field behind a lock that every
+// Read on hot paths — the gateway asks whether it is serving on every request
+// it takes — so the value is an atomic, not a field behind a lock that every
 // concurrent stream would take to read one bit.
 type Switch struct {
 	st  Store

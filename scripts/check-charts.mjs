@@ -254,7 +254,7 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
   check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')
   check('and goes back to the list', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients' })
-  check('settings go back to the top', lvl('/settings/images').back.href, '/')
+  check('settings go back to the top', lvl('/settings/configuration').back.href, '/')
 
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
   // Every trail starts at the root, and no level is named twice.

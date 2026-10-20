@@ -206,6 +206,9 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// served it last where the provider wants that (ChatGPT does: see
 		// internal/pool, affinity.go).
 		ctx = pool.WithConversation(ctx, conversation)
+		// The client's own image-fitting switch, for the passes. Read with the
+		// key, like its other switches; the Anthropic pipeline alone acts on it.
+		ctx = passes.WithFitImages(ctx, key.FitImages)
 		// Cloned rather than re-contexted, because the protocol is about to
 		// edit the headers and they must not be the caller's own map.
 		r = r.Clone(ctx)

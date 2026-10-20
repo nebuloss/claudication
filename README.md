@@ -104,13 +104,13 @@ subscription usage, which clients drew on it, and a switch to pause it.
 
 **Clients** — the tools that use the gateway: each one's key and setup, its
 model names, its usage with its limits beside it, its chats and its requests,
-and a switch to turn it off.
+a switch to turn it off, and one to shrink images Claude would refuse.
 
 **Activity** — the request log, every client's, with the upstream's own error
 text, paged back as far as retention keeps it.
 
-**Settings** — the Gateway switch, the admin password and sessions, image
-fitting, and the configuration as loaded.
+**Settings** — the Gateway switch, the admin password and sessions, and the
+configuration as loaded.
 
 ## Claude accounts
 

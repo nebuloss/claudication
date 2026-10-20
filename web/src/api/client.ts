@@ -249,6 +249,9 @@ const clients = {
   setNameChats: async (id: string, enabled: boolean): Promise<ClientWire> =>
     (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/name-chats`, { enabled })).client,
 
+  setFitImages: async (id: string, enabled: boolean): Promise<ClientWire> =>
+    (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/fit-images`, { enabled })).client,
+
   /** Rename a slot and bind it: to a real model, or to a target it follows. */
   setSlot: async (id: string, slot: string, name: string, binding: { model?: string; follows?: string }) =>
     (await http.send('PUT', path`/admin/clients/${id}/slots/${slot}`, { body: { name, ...binding } })),
@@ -313,7 +316,6 @@ const gateway = {
   config: (signal?: AbortSignal) => http.get<GatewayConfig>('/admin/config', signal),
 
   setServing: (enabled: boolean) => http.send('POST', '/admin/gateway', { body: { enabled } }),
-  setFitImages: (enabled: boolean) => http.send('POST', '/admin/fit-images', { body: { enabled } }),
 
   /**
    * Liveness and the build, as every listener answers them to anyone: all the

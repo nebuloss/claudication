@@ -134,8 +134,11 @@ would mean reshaping a conversation or changing what the caller is billed:
 
 ## The one rewrite you have to ask for
 
-[measured] `passthrough.fit-oversized-images`, off by default, switched from
-Settings.
+[measured] A switch on each client, **Shrink images when a request carries
+more than 20**, off by default, on the client's page. It was one gateway-wide
+setting (`passthrough.fit-oversized-images`) until schema 36, which carried it
+to every client as it was; one switch for every client re-encoded the
+pictures of clients that never needed it to rescue the one that did.
 
     messages.70.content.1.image.source.base64.data: At least one of the image
     dimensions exceed max allowed size for many-image requests: 2000 pixels
@@ -150,8 +153,10 @@ was found on served 878 requests either side of two failures a day apart
 `messages.70`: one screenshot, sitting in the history since yesterday, becoming
 illegal as the conversation accumulated images around it.
 
-With the switch on, `ShrinkImages` caps the long edge at 2000 and leaves
-everything else alone. What that costs is bounded and usually nothing — the
+With a client's switch on, `ShrinkImages` caps the long edge at 2000 on its
+requests and leaves everything else alone. Only on a request Claude serves:
+the rule is Anthropic's, and a Messages request served by a GPT model is not
+touched. What that costs is bounded and usually nothing — the
 upstream already downscales to a 2576 px long edge on Claude 4.7 and later, and
 to 1568 px before that, so the loss is at most the band between 2000 and 2576.
 The rescale is deterministic and cached per source image, because a transform

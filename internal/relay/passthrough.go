@@ -201,7 +201,9 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 	// The rewrites, once, before the first attempt: a retry has to send the
 	// same bytes. Each is a named pass — see internal/relay/passes for what
 	// they are, why each exists, and the order they must run in.
-	st := passes.State{Prologue: p}
+	// Whether to fit images is the client's, and the gateway put it on the
+	// request; the relay only hands it to the passes.
+	st := passes.State{Prologue: p, FitImages: passes.FitsImages(req.Context())}
 	body, rewrites := r.Passes.Run(body, &st, r.logger())
 	names := st.Names
 

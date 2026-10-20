@@ -1,6 +1,5 @@
 import ConfigTable from './config-table'
 import GatewaySwitch from './gateway-switch'
-import ImageFit from './image-fit'
 import Security from './security'
 import { type GatewayConfig, type Session } from '../../../api/client'
 import { Card, Empty, Loading, Page } from '../../primitives'
@@ -8,11 +7,10 @@ import type { SettingsSectionId } from '../../route'
 
 /**
  * Settings: the gateway switch and the admin account on /settings itself, and
- * a page per other section (/settings/<section>) — image fitting and the
- * configuration as loaded.
+ * the configuration as loaded on /settings/configuration.
  *
- * Model names and chat naming are not here: both are each client's, on its
- * page. The configuration is loaded by the shell, because the same request
+ * Model names, chat naming and image fitting are not here: each is the
+ * client's, on its page. The configuration is loaded by the shell, because the same request
  * carries the switches and the settings rows, and the header reads it too.
  */
 export default function Settings({
@@ -67,8 +65,6 @@ export default function Settings({
             <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
           </>
         )
-      case 'images':
-        return configured((d) => <ImageFit enabled={d.fit_images} onChanged={() => void reload()} />)
       case 'configuration':
         return configured((d) => <ConfigTable config={d} />)
     }

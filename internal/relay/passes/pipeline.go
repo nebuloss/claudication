@@ -18,6 +18,32 @@ type State struct {
 	// relay to restore on the way back (NewNameRestorer). Nil when the
 	// tool-names pass changed nothing.
 	Names map[string]string
+	// FitImages is the requesting client's own switch for capping images in
+	// a many-image request (its "Shrink images" switch, clients in
+	// schema.sql). Per request rather than per pipeline: the pipeline is one
+	// for the whole gateway, and which clients send screenshots enough to
+	// cross the threshold — and whether the detail lost matters to them — is
+	// a fact about the client. Set by the relay from the request's context
+	// (WithFitImages); the passes never read the store.
+	FitImages bool
+}
+
+// fitImagesKey carries a request's FitImages through its context.
+type fitImagesKey struct{}
+
+// WithFitImages records whether the client behind a request has image
+// fitting on. The gateway knows the client; the relay, which runs the passes,
+// knows only the request — so the choice rides on the request's context, as
+// the conversation id does for the pool.
+func WithFitImages(ctx context.Context, on bool) context.Context {
+	return context.WithValue(ctx, fitImagesKey{}, on)
+}
+
+// FitsImages is what WithFitImages recorded, false when nothing did: a
+// request from no client (the titler's own) is never re-encoded.
+func FitsImages(ctx context.Context) bool {
+	on, _ := ctx.Value(fitImagesKey{}).(bool)
+	return on
 }
 
 // Pass is one rewrite of a request body on its way upstream.
@@ -28,9 +54,10 @@ type State struct {
 type Pass struct {
 	// Name is how the pass appears in logs and in a request's rewrites.
 	Name string
-	// Enabled reports whether the pass runs at all; nil means always. A
-	// function rather than a bool because some passes are runtime switches.
-	Enabled func() bool
+	// Enabled reports whether the pass runs at all on this request; nil
+	// means always. A function of the request's State rather than a bool
+	// because one pass is a switch of the client that sent it.
+	Enabled func(st *State) bool
 	Apply   func(body []byte, st *State) []byte
 }
 
@@ -49,7 +76,7 @@ type Pipeline []Pass
 func (pl Pipeline) Run(body []byte, st *State, log *slog.Logger) ([]byte, []string) {
 	var applied []string
 	for _, p := range pl {
-		if p.Enabled != nil && !p.Enabled() {
+		if p.Enabled != nil && !p.Enabled(st) {
 			continue
 		}
 		start := time.Now()
@@ -84,8 +111,6 @@ func sameSlice(a, b []byte) bool {
 type Options struct {
 	// Attribution adds Claude Code's identity block to requests without it.
 	Attribution bool
-	// FitImages switches image fitting on and off at runtime; nil is off.
-	FitImages func() bool
 	// Images remembers fitted images across requests; nil means no caching.
 	Images *ImageCache
 	Log    *slog.Logger
@@ -99,7 +124,7 @@ type Options struct {
 // peeked from the original body and they rewrite the system field. Tool names
 // before images, and images last: it touches messages alone and is the one
 // pass that changes what the model is shown rather than the envelope's shape,
-// which is why it is the one an operator has to switch on.
+// which is why it runs only for a client whose operator switched it on.
 func Default(o Options) Pipeline {
 	log := o.Log
 	if log == nil {
@@ -109,7 +134,7 @@ func Default(o Options) Pipeline {
 		surrogates(log),
 		{
 			Name:    "attribution",
-			Enabled: func() bool { return o.Attribution },
+			Enabled: func(*State) bool { return o.Attribution },
 			Apply: func(body []byte, st *State) []byte {
 				return EnsureAttribution(body, st.Prologue)
 			},
@@ -144,10 +169,8 @@ func Default(o Options) Pipeline {
 			},
 		},
 		{
-			Name: "images",
-			Enabled: func() bool {
-				return o.FitImages != nil && o.FitImages()
-			},
+			Name:    "images",
+			Enabled: func(st *State) bool { return st.FitImages },
 			Apply: func(body []byte, st *State) []byte {
 				fitted, n := ShrinkImages(body, o.Images)
 				if n == 0 {

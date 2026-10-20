@@ -108,7 +108,6 @@ export const ACTIVITY_PAGES = [{ id: 'requests', label: 'Requests' }] as const s
 export type ActivityPageId = (typeof ACTIVITY_PAGES)[number]['id']
 
 export const GATEWAY_SETTINGS = [
-  { id: 'images', label: 'Images' },
   { id: 'configuration', label: 'Configuration' },
 ] as const satisfies readonly Section[]
 /** A Settings section, or '' for /settings itself: the gateway switch and the admin account. */
