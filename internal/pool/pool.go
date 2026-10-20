@@ -473,6 +473,9 @@ func (p *Pool) AccessToken(ctx context.Context, id string) (string, error) {
 const (
 	refreshTimeout = 60 * time.Second
 	persistTimeout = 30 * time.Second
+	// lockWait bounds waiting for another process's exchange to finish: its
+	// exchange and its write, and a little over.
+	lockWait = refreshTimeout + persistTimeout + 10*time.Second
 )
 
 // Refresh exchanges the refresh token, with one in-flight refresh per account.
@@ -523,8 +526,10 @@ func (p *Pool) refresh(ctx context.Context, id string, h *health) error {
 	// Established dead: do not ask again. The upstream's answer will not have
 	// changed, and asking costs an error line, a cooldown, and five minutes
 	// later the same again.
-	if a, err := p.store.Account(ctx, id); err == nil && a.RefreshDead() {
-		return fmt.Errorf("%w: %s", ErrNeedsReauth, a.Email)
+	before, err := p.store.Account(ctx, id)
+	beforeOK := err == nil
+	if beforeOK && before.RefreshDead() {
+		return fmt.Errorf("%w: %s", ErrNeedsReauth, before.Email)
 	}
 
 	// Detached: see Refresh. Values carried on the context — request id,
@@ -532,21 +537,39 @@ func (p *Pool) refresh(ctx context.Context, id string, h *health) error {
 	// through is not.
 	ctx = context.WithoutCancel(ctx)
 
-	exchangeCtx, cancel := context.WithTimeout(ctx, refreshTimeout)
-	defer cancel()
-
-	// Before the token is read, so the one read is the latest stored.
+	// Before the token is read, so the one read is the latest stored, and on
+	// a budget of its own: waiting out another process's exchange must not
+	// eat into this one's, which, cut off after the provider has rotated the
+	// token, loses the only copy of the new one.
 	if p.lockRefresh != nil {
-		unlock, err := p.lockRefresh(exchangeCtx, id)
+		lockCtx, cancelLock := context.WithTimeout(ctx, lockWait)
+		unlock, err := p.lockRefresh(lockCtx, id)
+		cancelLock()
 		defer unlock()
 		if err != nil {
 			return err
 		}
 	}
 
+	exchangeCtx, cancel := context.WithTimeout(ctx, refreshTimeout)
+	defer cancel()
+
 	acct, err := p.store.Account(exchangeCtx, id)
 	if err != nil {
 		return err
+	}
+	// Whoever held the lock may have done this already. Dead is dead; a
+	// token stored after the one this refresh set out to replace is the
+	// refresh, done, and exchanging again would rotate it for nothing.
+	if acct.RefreshDead() {
+		return fmt.Errorf("%w: %s", ErrNeedsReauth, acct.Email)
+	}
+	if p.lockRefresh != nil && beforeOK && acct.ExpiresAt.After(before.ExpiresAt) && !p.refreshDue(acct) {
+		p.mu.Lock()
+		h.cooldownUntil = time.Time{}
+		h.failures = 0
+		p.mu.Unlock()
+		return nil
 	}
 	exchange := p.refreshers[acct.Provider]
 	if exchange == nil {
