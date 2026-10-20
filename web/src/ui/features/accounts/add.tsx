@@ -379,8 +379,8 @@ function DeviceFlow({
               <>
                 Gives you a code to enter on OpenAI&rsquo;s own page, in any browser signed in to
                 the {label} account to add. Each workspace is an account of its own: a personal one
-                and a Team one under the same address are added separately. Its GPT models are then
-                served to every client on the OpenAI Responses API.
+                and a Team one under the same address are added separately. Its GPT models can then
+                be bound to any client's model names.
               </>
             )}
           </p>
