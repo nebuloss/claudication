@@ -5,6 +5,7 @@ import {
   Actions,
   Button,
   Card,
+  Empty,
   ErrorBanner,
   Loading,
   Muted,
@@ -16,9 +17,10 @@ import {
   Td,
   Tr,
   WindowPicker,
+  type Column,
 } from '../../primitives'
 import { ColumnChart, MAGNITUDE, Stack as ChartStack } from '../../charts'
-import { ago, compact } from '../../format'
+import { ago, compact, lastDays } from '../../format'
 import { providerTitle, type Client } from '../../clients/specs'
 import { BudgetLimit, DEFAULT_PERIOD_S, RateLimit, periodName } from './limits'
 import { Budget, SubscriptionCard } from './parts'
@@ -205,7 +207,7 @@ function SlotBreakdown({ clientId }: { clientId: string }) {
       {loading && data === null ? (
         <Loading />
       ) : rows.length === 0 ? (
-        <Muted>Nothing in this window.</Muted>
+        <Empty>This client sent nothing in {lastDays(days)}.</Empty>
       ) : (
         <SlotTable rows={rows} />
       )}
@@ -213,42 +215,79 @@ function SlotBreakdown({ clientId }: { clientId: string }) {
   )
 }
 
-/** Rows of usage by name and model: a client's own, or one client's on an account. */
-export function SlotTable({ rows }: { rows: SlotUse[] }) {
+/**
+ * Rows of usage by name and model: a client's own, or one client's on an
+ * account, unfolded under it.
+ *
+ * Every figure has a column of its own, right-aligned under a right-aligned
+ * heading. Failures and reasoning used to ride in brackets after the request
+ * and output counts, which pushed each number off the edge its neighbours sat
+ * on; they get columns only when some row has any, so a client that never
+ * failed or reasoned is not shown two columns of dashes. `provider` labels
+ * each model with whose it is, which an account's page leaves out: there it
+ * is every row's.
+ */
+export function SlotTable({ rows, provider = true }: { rows: SlotUse[]; provider?: boolean }) {
+  const failed = rows.some((r) => r.errors > 0)
+  const reasoned = rows.some((r) => r.reasoning_tokens > 0)
+  const end = (label: string): Column => ({ label, align: 'end' })
   return (
-    <Table head={['Name', 'Model', 'Requests', 'Input', 'Output', 'Cache', 'Last']}>
+    <Table
+      stack
+      head={[
+        'Name',
+        'Model',
+        end('Requests'),
+        ...(failed ? [end('Failed')] : []),
+        end('Input'),
+        end('Output'),
+        ...(reasoned ? [end('Reasoning')] : []),
+        end('Cache'),
+        end('Last'),
+      ]}
+    >
       {rows.map((r) => (
         <Tr key={`${r.client_id}/${r.slot}/${r.model}/${r.provider}`}>
-          <Td>
+          <Td label="Name">
             <code>{r.slot || '—'}</code>
           </Td>
-          <Td>
-            <code>{r.model || '—'}</code>{' '}
-            <Muted as="span" size="xs">
-              {providerTitle(r.provider)}
-            </Muted>
+          <Td label="Model">
+            <code>{r.model || '—'}</code>
+            {provider && (
+              <>
+                {' '}
+                <Muted as="span" size="xs">
+                  {providerTitle(r.provider)}
+                </Muted>
+              </>
+            )}
           </Td>
-          <Td nums>
+          <Td label="Requests" nums align="end">
             {compact(r.requests)}
-            {r.errors > 0 && (
-              <Muted as="span" size="xs">
-                {' '}
-                ({compact(r.errors)} failed)
-              </Muted>
-            )}
           </Td>
-          <Td nums>{compact(r.input_tokens)}</Td>
-          <Td nums>
+          {failed && (
+            <Td label="Failed" nums align="end">
+              {r.errors > 0 ? <span className="text-error">{compact(r.errors)}</span> : <Muted as="span">–</Muted>}
+            </Td>
+          )}
+          <Td label="Input" nums align="end">
+            {compact(r.input_tokens)}
+          </Td>
+          <Td label="Output" nums align="end">
             {compact(r.output_tokens)}
-            {r.reasoning_tokens > 0 && (
-              <Muted as="span" size="xs">
-                {' '}
-                ({compact(r.reasoning_tokens)} reasoning)
-              </Muted>
-            )}
           </Td>
-          <Td nums>{compact(r.cache_tokens)}</Td>
-          <Td>{ago(r.last)}</Td>
+          {reasoned && (
+            // Inside output already, as the provider counts it: shown, never added.
+            <Td label="Reasoning" nums align="end">
+              {r.reasoning_tokens > 0 ? compact(r.reasoning_tokens) : <Muted as="span">–</Muted>}
+            </Td>
+          )}
+          <Td label="Cache" nums align="end">
+            {compact(r.cache_tokens)}
+          </Td>
+          <Td label="Last" nowrap align="end">
+            {ago(r.last)}
+          </Td>
         </Tr>
       ))}
     </Table>

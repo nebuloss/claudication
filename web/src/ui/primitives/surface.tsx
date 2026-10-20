@@ -59,7 +59,10 @@ export function Card({
   info?: ReactNode
 }) {
   return (
-    <section className="rounded-md3-xl bg-surface-container p-6 [&_p]:max-w-[80ch]">
+    // p-4 on a phone: 24px a side inside a page that already keeps 16px is
+    // an eighth of a 400px screen spent on margins, and it was the width a
+    // table's last columns went missing in.
+    <section className="rounded-md3-xl bg-surface-container p-4 sm:p-6 [&_p]:max-w-[80ch]">
       {title !== undefined ? (
         <CardTitle aside={aside} info={info}>
           {title}

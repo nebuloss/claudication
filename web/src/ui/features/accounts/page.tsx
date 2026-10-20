@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import AccountSettings, { type AccountSettingsSection } from './settings'
 import { DetailHeader } from '../detail'
-import QuotaMeter, { QuotaGauges } from './quota-meter'
+import QuotaMeter, { QuotaGauges, ReadAgain, useQuotaRead } from './quota-meter'
 import RequestsPanel from '../requests'
-import { AccountClients } from './usage'
+import { AccountUsage } from './usage'
 import { AccountSwitch } from './index'
 import { api, type Account } from '../../../api/client'
 import { useLoader } from '../../hooks'
@@ -11,7 +11,6 @@ import { navigate, pathOf, type AccountPageId } from '../../route'
 import { planLabel, providerLabel, providerOf } from '../../providers'
 import {
   AppLink,
-  Button,
   Card,
   Chip,
   Empty,
@@ -32,8 +31,8 @@ const REFRESH_MS = 20_000
 /**
  * One account, Claude or ChatGPT, on its pages:
  *
- *   /accounts/<id>/usage     which clients drew on it, by name and model,
- *                            and each one's share of its windows
+ *   /accounts/<id>/usage     its windows and state now, then which clients
+ *                            drew on it and each one's share of its windows
  *   /accounts/<id>/requests  the request log, narrowed to it: errors,
  *                            cooldowns and refusals on this account
  *   /accounts/<id>/models, /connection, /advanced  its settings, a page each
@@ -97,7 +96,7 @@ export default function AccountPage({
         onChanged={() => void reload()}
       />
     ),
-    usage: () => <AccountClients accountId={account.id} />,
+    usage: () => <AccountUsage account={account} onChanged={() => void reload()} />,
     requests: () => <RequestsPanel scope={{ account: account.id }} />,
     models: settings('models'),
     connection: settings('connection'),
@@ -156,8 +155,7 @@ function AccountOverview({
   windowDays: number
   onChanged: () => void
 }) {
-  const [reading, setReading] = useState(false)
-  const reload = onChanged
+  const { reading, read } = useQuotaRead(account.id, onChanged)
   return (
     <>
       <StatGrid>
@@ -182,25 +180,7 @@ function AccountOverview({
             every client on this account — not only this gateway.
           </p>
         }
-        aside={
-          <Button
-            variant="outlined"
-            size="sm"
-            busy={reading}
-            onClick={() => {
-                setReading(true)
-                void api
-                  .accounts.refreshUsage(account.id)
-                  .catch(() => {})
-                  .finally(() => {
-                    setReading(false)
-                    void reload()
-                  })
-            }}
-          >
-            {reading ? 'Reading…' : 'Read again'}
-          </Button>
-        }
+        aside={<ReadAgain reading={reading} onRead={read} />}
       >
         <QuotaMeter quota={account.quota} pending={reading} provider={account.provider} />
       </Card>

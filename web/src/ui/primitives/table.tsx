@@ -1,4 +1,5 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { rowClick } from './link'
 import { MenuRow } from './menu'
 import { MenuDivider, Popover, useAnchoredPanel } from './popover'
 
@@ -27,6 +28,11 @@ export type Column = {
   menu?: ReactNode
   /** This column is narrowing the table, so the heading can say so. */
   filtered?: boolean
+  /**
+   * 'end' for a column of figures: the heading sits over the right edge its
+   * Td align="end" numbers line up on, so units and digits stack.
+   */
+  align?: 'end'
 }
 
 /**
@@ -46,7 +52,9 @@ function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
         onClick={p.toggle}
         aria-haspopup="menu"
         aria-expanded={p.open}
-        className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 text-left ${
+        className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 ${
+          col.align === 'end' ? 'justify-end text-right' : 'text-left'
+        } ${
           col.sorted !== undefined || col.filtered === true
             ? 'text-on-surface'
             : 'hover:text-on-surface'
@@ -178,6 +186,14 @@ export function Table({
    * to read — a chat name, a model list — is exactly what gets truncated.
    */
   resizable?: string
+  /**
+   * On a phone, each row as a small card rather than a strip to scroll
+   * sideways: the cells side by side two to a line, each under its column's
+   * name (Td's label), and a cell with no label — the row's name, a detail
+   * unfolded under it — across the whole card. For a table whose rows are
+   * read one at a time; a log scanned down a column still wants columns.
+   */
+  stack?: boolean
 }) {
   const [widths, setWidths] = useState<Record<string, number>>(() =>
     resizable === undefined ? {} : loadWidths(resizable),
@@ -221,9 +237,13 @@ export function Table({
     // sticky heading needs to sit above its own rows, not above the page.
     <div className={`isolate -mx-2 px-2 ${cap ? 'max-h-[30rem] overflow-auto' : 'overflow-x-auto'}`}>
       <table
-        className={`text-sm [&_td]:align-middle ${
+        className={`text-sm [&_td]:align-middle ${stack ? 'table-stack' : ''} ${
           resizable === undefined
-            ? 'w-full min-w-max'
+            ? // A stacked table is as wide as the card on a phone, which is
+              // the point of stacking it.
+              stack
+              ? 'w-full sm:min-w-max'
+              : 'w-full min-w-max'
             : // Column rules, on a resizable table only.
               //
               // On the cells, heading included, so each edge is one unbroken
@@ -276,7 +296,9 @@ export function Table({
                         ? 'ascending'
                         : 'descending'
                   }
-                  className={`relative border-b border-outline text-left text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
+                  className={`relative border-b border-outline text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
+                    col.align === 'end' ? 'text-right' : 'text-left'
+                  } ${
                     col.onSort === undefined && col.menu === undefined ? 'px-2 py-2' : 'p-0'
                   } ${cap ? 'sticky top-0 z-10 bg-surface-container' : ''}`}
                 >
@@ -291,7 +313,9 @@ export function Table({
                       // direction, and handing it the click event straight
                       // would make every heading "sort by MouseEvent".
                       onClick={() => col.onSort?.()}
-                      className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 text-left ${
+                      className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 ${
+                        col.align === 'end' ? 'justify-end text-right' : 'text-left'
+                      } ${
                         col.sorted ? 'text-on-surface' : 'hover:text-on-surface'
                       }`}
                     >
@@ -364,7 +388,9 @@ export function Table({
 /**
  * A table row, ruled under like every other.
  *
- * `onClick` makes the whole row the target, with a hover fill to say so;
+ * `onClick` makes the whole row the target, with a hover fill to say so —
+ * except over a link or a button inside it, which keeps its own click rather
+ * than also firing the row's (the rule openRow follows for a list row);
  * `selected` tints the row whose detail is open under it, and a `total` row
  * — a remainder, not one more item — is tinted and ruled above instead.
  */
@@ -382,13 +408,54 @@ export function Tr({
   const rule = total ? 'border-t' : 'border-b last:border-0'
   return (
     <tr
-      onClick={onClick}
+      onClick={onClick !== undefined ? rowClick(onClick) : undefined}
       className={`${rule} border-outline-variant ${
         onClick !== undefined ? 'state-layer cursor-pointer hover:bg-surface-container' : ''
       } ${selected || total ? 'bg-surface-container/40' : ''}`}
     >
       {children}
     </tr>
+  )
+}
+
+/**
+ * What a selected row unfolds: one cell across the table, tinted like the
+ * row above it so the two read as one item, and ruled under where the item
+ * ends.
+ */
+export function TrDetail({ colSpan, children }: { colSpan: number; children: ReactNode }) {
+  return (
+    <tr className="border-b border-outline-variant bg-surface-container/40 last:border-0">
+      <td colSpan={colSpan} className="px-2 pt-1 pb-4">
+        {children}
+      </td>
+    </tr>
+  )
+}
+
+/**
+ * The button that unfolds a row's TrDetail: a chevron that turns as it opens.
+ * A real button, so the keyboard and a screen reader reach the detail as a
+ * pointer does by clicking anywhere on the row.
+ */
+export function RowToggle({ open, onToggle, label }: { open: boolean; onToggle: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-label={label}
+      title={label}
+      onClick={onToggle}
+      className="state-layer grid size-7 shrink-0 place-items-center rounded-full text-on-surface-variant"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden
+        className={`size-5 fill-current transition-transform ${open ? 'rotate-90' : ''}`}
+      >
+        <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
+      </svg>
+    </button>
   )
 }
 
@@ -399,7 +466,10 @@ const MAX = { 9: 'max-w-[9rem]', 11: 'max-w-[11rem]', 18: 'max-w-[18rem]' } as c
  * A table cell. The flags are the only ways cells here differ: `muted` for a
  * secondary column, `nums` for figures that should line up, `nowrap` for a
  * value that must stay on one line, `mono` for an identifier, and `max` (in
- * rem) for a column that truncates.
+ * rem) for a column that truncates. `align="end"` sets a figure against the
+ * right edge, under a heading aligned the same way, so a column of 12k, 1.2M
+ * and 980 reads by its magnitude. `label` is the column's name again, which a
+ * stacked table prints over the cell on a phone, where the heading is gone.
  */
 export function Td({
   children,
@@ -410,6 +480,8 @@ export function Td({
   max,
   title,
   colSpan,
+  align,
+  label,
 }: {
   children?: ReactNode
   muted?: boolean
@@ -419,14 +491,17 @@ export function Td({
   max?: keyof typeof MAX
   title?: string
   colSpan?: number
+  align?: 'end'
+  label?: string
 }) {
   return (
     <td
       title={title}
       colSpan={colSpan}
+      data-label={label}
       className={`px-2 py-2 ${muted ? 'text-on-surface-variant' : ''} ${nums ? 'tabular-nums' : ''} ${
         nowrap ? 'whitespace-nowrap' : ''
-      } ${max !== undefined ? MAX[max] : ''}`}
+      } ${max !== undefined ? MAX[max] : ''} ${align === 'end' ? 'text-right' : ''}`}
     >
       {max !== undefined || mono ? (
         <div className={`${max !== undefined ? 'truncate' : ''} ${mono ? 'font-mono text-xs' : ''}`}>

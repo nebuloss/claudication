@@ -304,6 +304,46 @@ body {
     0 2px 6px 2px rgb(0 0 0 / 0.15);
 }
 
+/* Table's stack: below sm, each row a card of label/value pairs, two to a
+   line, and an unlabelled cell (the row's name, a detail unfolded under it)
+   across the card. Unlayered on purpose: it has to beat the cells' own
+   padding and alignment utilities, which sit in Tailwind's utilities layer
+   and would otherwise win whatever the specificity. The labels are the
+   column headings again, in the same small capitals. */
+@media (width < 40rem) {
+  .table-stack,
+  .table-stack > tbody {
+    display: block;
+  }
+  .table-stack > thead {
+    display: none;
+  }
+  .table-stack > tbody > tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.625rem 1rem;
+    padding-block: 0.875rem;
+  }
+  .table-stack > tbody > tr > td {
+    padding: 0;
+    text-align: start;
+  }
+  .table-stack > tbody > tr > td:not([data-label]) {
+    grid-column: 1 / -1;
+  }
+  .table-stack > tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.125rem;
+    font-size: 0.6875rem;
+    line-height: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.025em;
+    text-transform: uppercase;
+    color: var(--color-on-surface-variant);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

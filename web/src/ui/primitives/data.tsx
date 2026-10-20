@@ -83,6 +83,9 @@ export function Stat({
  * breaks at the same width.
  */
 const COLUMNS = {
+  // Two at every width: a grid that shares its card with something beside
+  // it, where four across would be four slivers.
+  2: 'grid-cols-2',
   3: 'grid-cols-2 lg:grid-cols-3',
   4: 'grid-cols-2 sm:grid-cols-4',
   5: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5',

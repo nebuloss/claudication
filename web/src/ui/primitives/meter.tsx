@@ -33,6 +33,41 @@ export function UsageBar({
 }
 
 /**
+ * A short bar and its figure on one line, for a row or a table cell: a
+ * window's use in a header, a client's share of a window in a column.
+ *
+ * The figure has a fixed width in ch, so a column of them keeps its bars in
+ * line whether a row reads 4%, 43% or <0.1% — the header gauges had their own
+ * copy of this with a pixel width that suited only their font size. Inline,
+ * so a cell's alignment places it.
+ */
+export function InlineMeter({
+  label,
+  percent,
+  tone,
+  figure,
+  title,
+  alert = false,
+}: {
+  /** A short name in front: 5h, 7d. */
+  label?: string
+  percent: number | null
+  tone: Tone
+  figure: ReactNode
+  title?: string
+  /** The figure in the error colour, for a window about to refuse. */
+  alert?: boolean
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 tabular-nums" title={title}>
+      {label !== undefined && <span className="w-5 text-on-surface-variant">{label}</span>}
+      <UsageBar size="sm" percent={percent} tone={tone} />
+      <span className={`w-[5.5ch] text-right ${alert ? 'text-error' : ''}`}>{figure}</span>
+    </span>
+  )
+}
+
+/**
  * A meter under its heading: what is measured on the left, the figure on the
  * right with a word on how to read it, and the bar beneath. The quota windows
  * and the gateway's memory are both this, so both were drawn twice.

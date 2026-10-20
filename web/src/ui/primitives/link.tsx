@@ -45,11 +45,20 @@ export function follow(href: string) {
  * or one that ends a text selection is left alone.
  */
 export function openRow(href: string) {
+  return rowClick(() => go(href))
+}
+
+/**
+ * The same rule for a row that does something other than open a page — a
+ * table row that unfolds its detail: the row is the wide target, and a link
+ * or button inside it keeps its own click instead of also toggling the row.
+ */
+export function rowClick(act: () => void) {
   return (e: MouseEvent) => {
     if (!isPlainLeftClick(e)) return
     if ((e.target as Element).closest('a, button, input, select, textarea, label')) return
     if ((window.getSelection()?.toString() ?? '') !== '') return
-    go(href)
+    act()
   }
 }
 

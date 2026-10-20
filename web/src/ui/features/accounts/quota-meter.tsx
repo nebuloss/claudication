@@ -1,6 +1,7 @@
-import type { Quota } from '../../../api/client'
+import { useState } from 'react'
+import { api, type Quota } from '../../../api/client'
 import { FIVE_HOURS_S, QuotaWindow, SEVEN_DAYS_S, windowShort, windowTitle } from '../../domain/quota'
-import { MeterRow, Muted, Stack, UsageBar } from '../../primitives'
+import { Button, InlineMeter, MeterRow, Muted, Stack, UsageBar } from '../../primitives'
 import { relative } from '../../format'
 import { providerOf } from '../../providers'
 
@@ -33,16 +34,43 @@ export function QuotaGauges({ quota }: { quota: Quota }) {
 
 function Gauge({ label, window: w }: { label: string; window: QuotaWindow }) {
   return (
-    <span
-      className="flex items-center gap-1.5"
+    <InlineMeter
+      label={label}
+      percent={w.percent}
+      tone={w.tone}
+      figure={w.percent === null ? '–' : w.label}
+      alert={w.level === 'critical'}
       title={w.percent === null ? `${label}: not read yet` : `${label}: ${w.label} used`}
-    >
-      <span className="w-5 text-on-surface-variant">{label}</span>
-      <UsageBar size="sm" percent={w.percent} tone={w.tone} />
-      <span className={`w-8 text-right ${w.level === 'critical' ? 'text-error' : ''}`}>
-        {w.percent === null ? '–' : w.label}
-      </span>
-    </span>
+    />
+  )
+}
+
+/**
+ * Asking the provider for an account's windows now rather than at the next
+ * poll, and the button that does it: on the account's overview and on its
+ * Usage page, which both show the windows. `reading` is for QuotaMeter's
+ * pending line.
+ */
+export function useQuotaRead(accountId: string, onDone: () => void) {
+  const [reading, setReading] = useState(false)
+  const read = () => {
+    setReading(true)
+    void api.accounts
+      .refreshUsage(accountId)
+      .catch(() => {})
+      .finally(() => {
+        setReading(false)
+        onDone()
+      })
+  }
+  return { reading, read }
+}
+
+export function ReadAgain({ reading, onRead }: { reading: boolean; onRead: () => void }) {
+  return (
+    <Button variant="outlined" size="sm" busy={reading} onClick={onRead}>
+      {reading ? 'Reading…' : 'Read again'}
+    </Button>
   )
 }
 

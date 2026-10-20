@@ -78,6 +78,15 @@ export function monthYear(iso: string | undefined): string {
   return d === null ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
 }
 
+/**
+ * A window picker's choice as a sentence ends it: "the last 24 hours", "the
+ * last 7 days". An empty table says which window it is empty for, rather
+ * than "in this window", which made the reader look up at the picker.
+ */
+export function lastDays(days: number): string {
+  return days === 1 ? 'the last 24 hours' : `the last ${days} days`
+}
+
 /** "3 minutes ago", give or take, for something that happened. */
 export function ago(iso: string | undefined): string {
   if (iso === undefined || iso === '') return 'never'
