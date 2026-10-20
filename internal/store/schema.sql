@@ -1,5 +1,5 @@
 -- claudication's schema, whole: what a fresh database is created with, and
--- what migrations/ brings an older one to. Version 33 (schemaVersion in
+-- what migrations/ brings an older one to. Version 34 (schemaVersion in
 -- store.go).
 --
 -- Written as if from scratch. Migrations 001-028 grew it a column at a time;
@@ -410,4 +410,19 @@ CREATE TABLE settings (
 CREATE TABLE login_links (
     token      TEXT    PRIMARY KEY,
     expires_at INTEGER NOT NULL
+) WITHOUT ROWID;
+
+------------------------------------------------------------------ uptime
+-- The gateway's own availability, one row per minute it was running: what the
+-- public status page and the Overview draw. A minute with no row is a minute
+-- the process was not running, which is the only way to record an outage the
+-- process cannot see itself; internal/service/uptime reads a gap longer than a
+-- restart as down. Kept for the longer of the usage retention and the 90 days
+-- the page shows: a row is a dozen bytes, a season of them a few megabytes.
+CREATE TABLE uptime_samples (
+    -- The minute's start, unix milliseconds UTC.
+    minute INTEGER PRIMARY KEY,
+    -- 1 up, 2 paused (the gateway switch off), 3 degraded (accepting, but no
+    -- account able to serve). The worst seen in the minute wins.
+    state  INTEGER NOT NULL
 ) WITHOUT ROWID;

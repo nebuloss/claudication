@@ -21,6 +21,7 @@
  *	line.tsx   LineChart, HoverValues — a time series as lines, which is what
  *	                                    a dozen series at once needs
  *	ranked.tsx RankedBars, CompositionBar — a league table, and shares of a whole
+ *	strip.tsx  StateStrip             — a period per bar, coloured by its state
  *
  * Both the Overview and Usage screens are built on these, which is the point:
  * the rule about colour meaning identity, the stable slot per entity, and the
@@ -43,3 +44,4 @@ export { Stack, type Series } from './stack'
 export { ColumnChart, Legend } from './column'
 export { LineChart, HoverValues, LineLegend, tipPosition, type LineSeries } from './line'
 export { RankedBars, CompositionBar, type Rank } from './ranked'
+export { StateStrip } from './strip'

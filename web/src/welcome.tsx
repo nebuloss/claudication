@@ -37,7 +37,7 @@ createRoot(root).render(
         <Welcome />
       </main>
       <footer className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-4 pb-6 sm:px-8">
-        <p className="text-xs text-on-surface-variant">This page shows only whether the gateway is up.</p>
+        <p className="text-xs text-on-surface-variant">This page shows only whether the gateway is, and has been, up.</p>
         <ThemeToggle />
       </footer>
     </div>

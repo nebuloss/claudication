@@ -48,6 +48,7 @@ import (
 	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/settings"
 	"claudication/internal/service/titles"
+	"claudication/internal/service/uptime"
 	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
 	"claudication/internal/version"
@@ -99,6 +100,10 @@ type Server struct {
 	// serving is the gateway switch: off, no client-facing route answers.
 	serving *settings.Switch
 	images  *settings.Switch
+
+	// uptime samples the gateway's own state once a minute, for the status
+	// page and the Overview. See internal/service/uptime.
+	uptime *uptime.Sampler
 
 	// models is the model list, which all three surfaces read.
 	models *modelsvc.Catalog
@@ -287,6 +292,13 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 		Client:       relayClient,
 	}
 	s.relays = map[string]*relay.Relay{anthropic.ID: s.relay, chatgpt.ID: openaiRelay}
+
+	s.uptime = &uptime.Sampler{
+		Store:     st,
+		Probe:     s.uptimeState,
+		Retention: cfg.Usage.Retention(),
+		Log:       log,
+	}
 
 	// Chat titles, once the relays and the recorder they use exist: a title
 	// is asked of the provider that served the chat, at the path the
@@ -480,6 +492,11 @@ func (s *Server) routes(r0 role) http.Handler {
 	// models or configuration. On every listener, because whatever watches
 	// one of them needs something to watch.
 	mux.HandleFunc("GET /health", s.handleHealth)
+	// The status page's data: availability over time, aggregated, and
+	// nothing else (see internal/service/uptime and docs/status-page.md).
+	// On every listener for the same reason as /health, and because the
+	// admin Overview draws the same history from it.
+	mux.HandleFunc("GET /status.json", s.handleStatus)
 
 	// Claude Code sends a best-effort connection-warming probe here. The
 	// gateway contract says it may be rejected, but answering it costs
@@ -565,6 +582,47 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// uptimeState is the gateway's state for the uptime record: paused when its
+// operator switched it off, up when some account of some provider could take
+// a request now, degraded when none could.
+//
+// "Could take a request" is the pool's Usable — not disabled, not cooling,
+// not out of room — rather than Serving, which names an account whenever
+// there is one at all, cooling or spent, because pick() would rather try a
+// doubtful account than refuse. That is right for a request and wrong for a
+// status: every account sidelined is exactly what degraded means.
+func (s *Server) uptimeState(ctx context.Context) uptime.State {
+	if !s.serving.On() {
+		return uptime.Paused
+	}
+	for _, p := range s.providers {
+		st, err := s.pool.Status(ctx, p.ID())
+		if err == nil && st.Usable > 0 {
+			return uptime.Up
+		}
+	}
+	return uptime.Degraded
+}
+
+// handleStatus answers the availability report. Unauthenticated, so it is
+// limited per address like every anonymous route, and cached: the report is
+// rebuilt at most once a minute however often it is asked, and says so to
+// any cache in front.
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if !s.anonLimiter.AllowPerMinute("status:"+httpx.ClientIP(r.Context()), s.cfg.Limits.AnonPerMinute) {
+		httpx.WriteError(w, http.StatusTooManyRequests, httpx.KindRateLimit, "too many requests; try again in a minute")
+		return
+	}
+	rep, err := s.uptime.Report(r.Context())
+	if err != nil {
+		s.log.Warn("could not build the status report", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "status unavailable")
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=60")
+	httpx.WriteJSON(w, http.StatusOK, rep)
+}
+
 // Run serves until ctx is cancelled, then drains within the configured grace
 // period.
 //
@@ -604,6 +662,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.recorder.RunPruner(s.stopSweeper, 24*time.Hour)
 	go s.poller.Run(ctx, s.stopSweeper, accountsvc.Tick)
 	go s.trimmer.Run(s.stopSweeper, 5*time.Second)
+	go s.uptime.Run(s.stopSweeper)
 
 	// Buffered for every listener, so no goroutine blocks on a send once
 	// another has already reported and the select has moved on.

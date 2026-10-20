@@ -6,6 +6,7 @@ import {
   type Usage,
 } from '../../../api/client'
 import { Traffic } from '../usage/traffic'
+import { AvailabilityCard } from '../status'
 import { useLoader } from '../../hooks'
 import {
   Banner,
@@ -253,6 +254,8 @@ export default function Overview({
           </div>
         )}
       </Card>
+
+      <AvailabilityCard />
 
       {data.memory !== undefined && <MemoryCard memory={data.memory} />}
 
