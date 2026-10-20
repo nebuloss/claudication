@@ -214,7 +214,7 @@ func TestChatEventsReturnEveryRecordedField(t *testing.T) {
 		KeyID: "k1", KeyName: "laptop",
 		AccountID: "a1", AccountEmail: "op@example.com", Provider: "anthropic",
 		Model: "claude-opus-5", VirtualModel: "claude-large",
-		Path: "/v1/messages", ConversationID: "c1", Client: "Claude Code",
+		Path: "/v1/messages", ConversationID: "c1", Client: "Claude Code", Surface: "sdk-ts/bot",
 		Status: 429, Streaming: true,
 		InputTokens: 1, OutputTokens: 2, CacheReadTokens: 3, CacheWriteTokens: 4, ReasoningTokens: 1,
 		Duration: 1500 * time.Millisecond, FirstToken: 250 * time.Millisecond,
