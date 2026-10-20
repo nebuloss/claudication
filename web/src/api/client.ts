@@ -22,8 +22,8 @@ import type {
   ApiKey,
   ChatDetail,
   Chats,
-  DocsInfo,
   GatewayConfig,
+  Health,
   InstallFile,
   Model,
   ModelRole,
@@ -302,16 +302,12 @@ const gateway = {
   setFitImages: (enabled: boolean) => http.send('POST', '/admin/fit-images', { body: { enabled } }),
   setChatTitles: (change: { enabled?: boolean; capture?: boolean }) =>
     http.send('POST', '/admin/chat-titles', { body: change }),
-  setDocs: (enabled: boolean) => http.send('POST', '/admin/docs', { body: { enabled } }),
 
-  /** What the public docs page is told: unauthenticated, and four facts. */
-  docsInfo: async (signal?: AbortSignal): Promise<DocsInfo> => {
-    const res = await http.get<Omit<DocsInfo, 'models'> & { models?: { data: Model[] | null } }>(
-      '/api/docs',
-      signal,
-    )
-    return { ...res, surfaces: res.surfaces ?? [], models: res.models?.data ?? [] }
-  },
+  /**
+   * Liveness and the build, as every listener answers them to anyone: all the
+   * welcome page reads, so it can say no more than a monitor already learns.
+   */
+  health: (signal?: AbortSignal) => http.get<Health>('/health', signal),
 }
 
 /** What went through the gateway: the usage report, the chats, the request log. */

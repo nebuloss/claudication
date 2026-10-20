@@ -7,9 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"claudication/internal/config"
 	"claudication/internal/httpapi/admin"
-	"claudication/internal/httpapi/web"
 	"claudication/internal/relay/passes"
 	"claudication/internal/service/surfaces"
 	"claudication/internal/service/titles"
@@ -17,11 +15,9 @@ import (
 )
 
 // The config screen answers "why is it set to that", so it has to report the
-// runtime switches beside the file settings, and the docs link it renders has
-// to point where the page actually is.
+// runtime switches beside the file settings.
 func TestConfigReportsSettingsAndSwitches(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	srv.cfg.PublicURL = "https://gw.example"
 	base, c := adminAPI(t, srv)
 
 	status, body := call(t, base, http.MethodGet, "/admin/config", "", c)
@@ -29,31 +25,13 @@ func TestConfigReportsSettingsAndSwitches(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	got := decode[map[string]any](t, body)
-	for _, k := range []string{"path", "settings", "surfaces", "chat_titles", "chat_titles_capture", "fit_images", "docs_enabled"} {
+	for _, k := range []string{"path", "settings", "surfaces", "chat_titles", "chat_titles_capture", "fit_images"} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("config is missing %q", k)
 		}
 	}
-	if got["docs_url"] != "https://gw.example" {
-		t.Errorf("docs_url = %v, want the relay's public address when docs share it", got["docs_url"])
-	}
-	if got["fit_images"] != false || got["docs_enabled"] != false || got["chat_titles"] != false {
+	if got["fit_images"] != false || got["chat_titles"] != false {
 		t.Errorf("a fresh gateway has a switch on: %v", got)
-	}
-}
-
-// Where the docs page has its own listener, the link is that listener's
-// public address, not the relay's.
-func TestDocsURLFollowsTheDocsListener(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.PublicURL = "https://relay.example"
-	if got := cfg.DocsPageURL(); got != "https://relay.example" {
-		t.Errorf("shared: %q", got)
-	}
-	cfg.DocsListen = "127.0.0.1:0"
-	cfg.DocsURL = "https://docs.example"
-	if got := cfg.DocsPageURL(); got != "https://docs.example" {
-		t.Errorf("own listener: %q", got)
 	}
 }
 
@@ -126,8 +104,7 @@ func TestSetSurfaceOverTheAPI(t *testing.T) {
 }
 
 // Each of these switches decides what the gateway may do on its own — spend
-// the subscription naming chats, re-encode a caller's image, publish a page —
-// so each must persist, report its new state, and refuse a body that does not
+// the subscription naming chats, re-encode a caller's image — so each must persist, report its new state, and refuse a body that does not
 // say which way to flip it.
 func TestRuntimeSwitches(t *testing.T) {
 	srv, st, _ := newTestServer(t)
@@ -148,14 +125,6 @@ func TestRuntimeSwitches(t *testing.T) {
 	}
 	if !srv.images.On() || stored(passes.FitImagesSetting) != "true" {
 		t.Error("fit-images did not take effect or did not persist")
-	}
-
-	status, body = call(t, base, http.MethodPost, "/admin/docs", `{"enabled":true}`, c)
-	if status != http.StatusOK || decode[map[string]bool](t, body)["docs_enabled"] != true {
-		t.Errorf("docs: %d %s", status, body)
-	}
-	if stored(web.DocsSetting) != "true" {
-		t.Error("docs switch did not persist")
 	}
 
 	// Capture alone, then generation alone: either may be sent without the
@@ -184,7 +153,7 @@ func TestRuntimeSwitches(t *testing.T) {
 		t.Errorf("empty manual title: %d %s", status, body)
 	}
 
-	for _, path := range []string{"/admin/fit-images", "/admin/docs", "/admin/chat-titles"} {
+	for _, path := range []string{"/admin/fit-images", "/admin/chat-titles"} {
 		for _, bad := range []string{`{}`, `{"enabled":`, `{"enabled":"yes"}`} {
 			if status, _ := call(t, base, http.MethodPost, path, bad, c); status != http.StatusBadRequest {
 				t.Errorf("%s %s: %d, want 400", path, bad, status)

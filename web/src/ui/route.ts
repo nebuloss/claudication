@@ -111,7 +111,6 @@ export const GATEWAY_SETTINGS = [
   { id: 'apis', label: 'APIs' },
   { id: 'titles', label: 'Titles' },
   { id: 'images', label: 'Images' },
-  { id: 'documentation', label: 'Documentation' },
   { id: 'configuration', label: 'Configuration' },
 ] as const satisfies readonly Section[]
 /** A Settings section, or '' for /settings itself: the admin account. */
@@ -133,7 +132,6 @@ const RENAMED: Record<string, Record<string, string>> = {
   settings: {
     models: 'aliases',
     chats: 'titles',
-    docs: 'documentation',
     security: 'advanced',
   },
   accounts: { availability: 'advanced' },

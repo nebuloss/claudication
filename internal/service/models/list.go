@@ -1,7 +1,7 @@
 // Package models is the gateway's model list: what it serves, under which
 // names, with which facts, and which upstream serves each — one answer for
-// /v1/models, the admin screens, the configs the admin UI writes, the public
-// docs page and the routing of every request.
+// /v1/models, the admin screens, the configs the admin UI writes and the
+// routing of every request.
 //
 // It owns the four things that answer is made of: the upstream lists, asked
 // of each account of each provider (list.go); the public catalogue those
@@ -9,10 +9,9 @@
 // newest model of each Claude family, and the operator's own; and the route
 // a requested name takes (route.go).
 //
-// A service of its own because three surfaces read it and none of them owns
-// it. It lived in the gateway, which handed it to the admin API as five
-// separate functions and to the docs page as a closure; each surface now takes
-// the narrow part of it that it reads.
+// A service of its own because two surfaces read it and neither owns it. It
+// lived in the gateway, which handed it to the admin API as five separate
+// functions; each surface now takes the narrow part of it that it reads.
 package models
 
 import (
@@ -123,13 +122,6 @@ func (s *Catalog) defaultProvider() string {
 		return ""
 	}
 	return s.relays[0].Wire.ID()
-}
-
-// Public is the list as the public docs page shows it: as a key that binds no
-// alias and is kept off nothing sees it, so the configs written from it ask
-// for the roles as every other config does.
-func (s *Catalog) Public(ctx context.Context) ([]byte, error) {
-	return s.For(ctx, store.APIKey{}, "")
 }
 
 // For is the model list one key is offered from one client: the aliases
@@ -637,7 +629,7 @@ func modelsAllowedFor(body []byte, key store.APIKey) []byte {
 }
 
 // List is the models this gateway serves: one answer for /v1/models,
-// the admin UI and the configs it writes, and the public docs page alike.
+// the admin UI and the configs it writes alike.
 //
 // The union of what each account able to serve lists, less what is switched
 // off on that account, every provider's in turn. Per account, because
@@ -701,9 +693,8 @@ func (s *Catalog) list(ctx context.Context) (body []byte, fromCatalog bool, err 
 			// on its own, and the union runs first account first.
 			part = s.matchCatalog(ctx, providerID, mergeModels(lists, serving))
 		case providerID == s.defaultProvider():
-			// No account to ask: the public catalogue, so the aliases, the
-			// configs and the docs page have models to name before one is
-			// connected. Nothing can be served until then either way. Only
+			// No account to ask: the public catalogue, so the aliases and
+			// the configs have models to name before one is connected. Nothing can be served until then either way. Only
 			// for the default provider: Anthropic's /v1/models refuses a
 			// caller with no account token, and models.dev's other vendors
 			// are their metered APIs, not what a subscription serves.

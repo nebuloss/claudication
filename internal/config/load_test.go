@@ -12,8 +12,8 @@ import (
 // envVars is every variable Load reads. Tests clear them all first so the
 // environment the suite happens to run in cannot change the outcome.
 var envVars = []string{
-	"CLAUDICATION_LISTEN", "CLAUDICATION_ADMIN_LISTEN", "CLAUDICATION_DOCS_LISTEN",
-	"CLAUDICATION_DOCS_URL", "CLAUDICATION_PUBLIC_URL", "CLAUDICATION_STATE_DIR",
+	"CLAUDICATION_LISTEN", "CLAUDICATION_ADMIN_LISTEN", "CLAUDICATION_PUBLIC_URL",
+	"CLAUDICATION_STATE_DIR",
 	"CLAUDICATION_LOG_LEVEL", "CLAUDICATION_LOG_FORMAT",
 	"CLAUDICATION_CLAUDE_CODE_ATTRIBUTION", "CLAUDICATION_REQUESTS_PER_MINUTE",
 	"CLAUDICATION_TRUSTED_PROXIES", "CLAUDICATION_MODELS_CATALOG",
@@ -47,8 +47,6 @@ func TestEveryEnvironmentOverride(t *testing.T) {
 	for k, v := range map[string]string{
 		"CLAUDICATION_LISTEN":                  "0.0.0.0:1",
 		"CLAUDICATION_ADMIN_LISTEN":            "127.0.0.1:2",
-		"CLAUDICATION_DOCS_LISTEN":             "127.0.0.1:3",
-		"CLAUDICATION_DOCS_URL":                "https://docs.example",
 		"CLAUDICATION_PUBLIC_URL":              "https://relay.example",
 		"CLAUDICATION_STATE_DIR":               state,
 		"CLAUDICATION_LOG_LEVEL":               "debug",
@@ -68,8 +66,6 @@ func TestEveryEnvironmentOverride(t *testing.T) {
 	checks := map[string][2]any{
 		"listen":       {cfg.Listen, "0.0.0.0:1"},
 		"admin-listen": {cfg.AdminListen, "127.0.0.1:2"},
-		"docs-listen":  {cfg.DocsListen, "127.0.0.1:3"},
-		"docs-url":     {cfg.DocsURL, "https://docs.example"},
 		"public-url":   {cfg.PublicURL, "https://relay.example"},
 		"state-dir":    {cfg.StateDir, state},
 		"log.level":    {cfg.Log.Level, "debug"},
@@ -141,8 +137,6 @@ func TestValidationErrors(t *testing.T) {
 	cases := map[string]struct{ body, mention string }{
 		"empty listen":        {"listen: \"\"\n", "listen"},
 		"admin same as relay": {"listen: \"a:1\"\nadmin-listen: \"a:1\"\n", "admin-listen"},
-		"docs same as relay":  {"listen: \"a:1\"\ndocs-listen: \"a:1\"\n", "docs-listen"},
-		"docs same as admin":  {"admin-listen: \"a:2\"\ndocs-listen: \"a:2\"\n", "docs-listen"},
 		"zero body cap":       {"limits:\n  max-body-bytes: 0\n", "max-body-bytes"},
 		"bad memory limit":    {"memory-limit: \"lots\"\n", "memory-limit"},
 		"tiny memory limit":   {"memory-limit: \"32MiB\"\n", "memory-limit"},
@@ -176,7 +170,7 @@ func TestValidationAcceptsTheBoundaries(t *testing.T) {
 		"passthrough:\n  stall-timeout: \"30s\"\n",
 		"memory-limit: \"64MiB\"\n",
 		"memory-limit: \"\"\n",
-		"listen: \"a:1\"\nadmin-listen: \"a:2\"\ndocs-listen: \"a:3\"\n",
+		"listen: \"a:1\"\nadmin-listen: \"a:2\"\n",
 	} {
 		if _, err := loadBody(t, body); err != nil {
 			t.Errorf("%q refused: %v", body, err)

@@ -1,17 +1,12 @@
 package web
 
 import (
-	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"testing/fstest"
-	"time"
 )
 
 func get(t *testing.T, h http.Handler, method, path string, header map[string]string) *httptest.ResponseRecorder {
@@ -69,75 +64,5 @@ func TestNoUIBuiltSaysSo(t *testing.T) {
 	}
 	if w := get(t, h, http.MethodGet, "/app.js", nil); w.Code != http.StatusNotFound {
 		t.Errorf("an asset with no UI: %d, want 404", w.Code)
-	}
-}
-
-// The public page's model list is cached: the page is unauthenticated, and
-// uncached anyone could spend the subscription by reloading it. A burst
-// collapses into one fetch, and a failure keeps serving the last good answer.
-func TestModelCache(t *testing.T) {
-	var c modelCache
-	var calls atomic.Int32
-	release := make(chan struct{})
-	fetch := func(context.Context) ([]byte, error) {
-		calls.Add(1)
-		<-release
-		return []byte("v1"), nil
-	}
-
-	var wg sync.WaitGroup
-	results := make([]string, 5)
-	for i := range results {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			results[i] = string(c.get(context.Background(), fetch))
-		}()
-	}
-	// Let the burst pile up on the one in flight, then answer it.
-	deadline := time.Now().Add(2 * time.Second)
-	for calls.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	time.Sleep(20 * time.Millisecond)
-	close(release)
-	wg.Wait()
-	if n := calls.Load(); n != 1 {
-		t.Errorf("a burst of 5 fetched %d times", n)
-	}
-	for _, r := range results {
-		if r != "v1" {
-			t.Errorf("a caller got %q", r)
-		}
-	}
-
-	// Fresh: no fetch at all.
-	if got := c.get(context.Background(), func(context.Context) ([]byte, error) {
-		t.Error("fetched while fresh")
-		return nil, nil
-	}); string(got) != "v1" {
-		t.Errorf("cached = %q", got)
-	}
-
-	// Expired and failing: the stale copy is served, and the next caller may
-	// try again soon rather than after a whole TTL.
-	c.mu.Lock()
-	c.at = time.Now().Add(-2 * modelsTTL)
-	c.mu.Unlock()
-	failing := func(context.Context) ([]byte, error) { return nil, errors.New("upstream down") }
-	if got := c.get(context.Background(), failing); string(got) != "v1" {
-		t.Errorf("on failure = %q, want the stale copy", got)
-	}
-	c.mu.Lock()
-	age := time.Since(c.at)
-	c.mu.Unlock()
-	if age < modelsTTL-2*time.Minute || age > modelsTTL {
-		t.Errorf("after a failure the copy is %s old; the next caller should retry within a minute", age)
-	}
-
-	// Never fetched and failing: nothing, rather than an error.
-	var empty modelCache
-	if got := empty.get(context.Background(), failing); got != nil {
-		t.Errorf("empty cache on failure = %q", got)
 	}
 }

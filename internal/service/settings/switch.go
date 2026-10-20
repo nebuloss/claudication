@@ -1,6 +1,6 @@
 // Package settings holds the gateway's runtime switches: the on/off decisions
 // an operator makes from the admin UI while the gateway runs — which client
-// APIs are served, image fitting, the public docs page, chat titles.
+// APIs are served, image fitting, chat titles.
 //
 // They live in the database rather than the config file because turning
 // something off is a thing done at three in the morning, and should not need

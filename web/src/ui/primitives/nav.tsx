@@ -72,8 +72,8 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
 }
 
 /**
- * One entry of a rail: the admin app's, and the docs page's contents, which
- * borrow it so the two pages navigate alike. `on` for the page being read.
+ * One entry of a rail: a page of the admin app, as NavRail draws it. Its own
+ * export for a list that should navigate alike. `on` for the page being read.
  */
 export function railItem(on: boolean): string {
   return `state-layer flex h-10 shrink-0 items-center rounded-md3-full px-4 text-sm font-medium whitespace-nowrap ${
@@ -141,7 +141,7 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
 
 /**
  * The favicon's stenosis, at header size, on its tonal tile: the one mark
- * both headers carry, the admin app's and the docs page's, so they read as
+ * both headers carry, the admin app's and the welcome page's, so they read as
  * one product whatever each page's own colours are.
  */
 export function BrandMark() {

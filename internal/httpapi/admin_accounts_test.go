@@ -37,7 +37,6 @@ type fakeAnthropic struct {
 	revokeFails bool
 	usageFails  bool
 	modelsFail  bool
-	modelCalls  int
 	probeTokens []string
 }
 
@@ -56,12 +55,6 @@ func (f *fakeAnthropic) revokedTokens() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.revoked...)
-}
-
-func (f *fakeAnthropic) models() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.modelCalls
 }
 
 func (f *fakeAnthropic) set(fn func(*fakeAnthropic)) {
@@ -130,7 +123,6 @@ func (f *fakeAnthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"model":"claude-haiku-4-5","stop_reason":"end_turn",
 			"content":[{"type":"text","text":" pong "}],"usage":{"input_tokens":3,"output_tokens":1}}`)
 	case "/v1/models":
-		f.modelCalls++
 		if f.modelsFail {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -611,7 +603,6 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodPut, "/admin/chats/x/title"},
 		{http.MethodPost, "/admin/chat-titles"},
 		{http.MethodPost, "/admin/fit-images"},
-		{http.MethodPost, "/admin/docs"},
 		{http.MethodGet, "/admin/requests"},
 		{http.MethodGet, "/admin/requests/facets"},
 		{http.MethodGet, "/admin/requests/export"},

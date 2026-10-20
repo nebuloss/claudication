@@ -4,11 +4,9 @@ import ThemeToggle from './theme-toggle'
 import {
   AppTitle,
   Button,
-  ButtonLink,
   Card,
   ErrorBanner,
   Field,
-  InlineLink,
   Note,
   Stack,
   VersionTag,
@@ -23,15 +21,12 @@ import {
 export default function SignIn({
   mode,
   minLength = 8,
-  docsURL = '',
   version = '',
   onSignedIn,
 }: {
   mode: 'setup' | 'sign-in'
   /** Only meaningful while setting up; the server is the authority either way. */
   minLength?: number
-  /** The public docs page, linked when it is published. */
-  docsURL?: string
   /** The running build, shown after the name as the app's header shows it. */
   version?: string
   onSignedIn: () => void
@@ -73,17 +68,10 @@ export default function SignIn({
   return (
     <div className="flex min-h-dvh flex-col">
       {/* The admin header's shape, so signing in and being signed in are one
-          product: the mark and name, and on the right the docs and the theme. */}
+          product: the mark and name, and on the right the theme. */}
       <header className="mx-auto flex w-full max-w-[110rem] items-center justify-between gap-4 px-4 pt-4 sm:px-6">
         <AppTitle version={version !== '' ? <VersionTag>{version}</VersionTag> : undefined} />
-        <div className="flex items-center gap-2">
-          {docsURL !== '' && (
-            <ButtonLink href={docsURL} external>
-              Docs
-            </ButtonLink>
-          )}
-          <ThemeToggle />
-        </div>
+        <ThemeToggle />
       </header>
 
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-4 px-4 py-10">
@@ -135,17 +123,6 @@ export default function SignIn({
             </Note>
           )}
         </Card>
-
-        {/* Someone who reached the admin address wanting to set up a client
-            is looking for this page, not that one. */}
-        {docsURL !== '' && (
-          <p className="text-center text-sm text-on-surface">
-            Configuring a client?{' '}
-            <InlineLink href={docsURL} primary>
-              Read the documentation
-            </InlineLink>
-          </p>
-        )}
       </main>
     </div>
   )

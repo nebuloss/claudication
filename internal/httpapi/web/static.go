@@ -1,12 +1,14 @@
 // Package web serves the gateway's documents: the admin UI built into the
-// binary, the public docs page, and the welcome page that answers at the
-// root when that page is off.
+// binary, and the welcome page at the root of a listener that has no admin UI.
+//
+// It reads nothing but the embedded build. Whatever either page shows about
+// the gateway it asks for over HTTP, like any other caller, so nothing here
+// can say more than those endpoints already do.
 package web
 
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
@@ -17,62 +19,28 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"claudication/internal/config"
-	"claudication/internal/service/settings"
-	"claudication/internal/service/surfaces"
-	"claudication/internal/store"
 )
 
-// Site serves the documents: the embedded admin UI, the public docs page and
-// what that page reads, and the welcome page that stands in for it.
+// Site serves the documents: two entry pages over one embedded build.
 type Site struct {
-	cfg      *config.Config
-	log      *slog.Logger
-	store    Store
-	docs     *settings.Switch
-	surfaces *surfaces.Surfaces
-	models   Models
+	log *slog.Logger
 	// files holds the built UI under webdist/.
 	files fs.FS
 
 	bundleOnce sync.Once
 	assets     map[string]asset
-	// docsModels keeps the public page from spending an upstream call per hit.
-	docsModels modelCache
-}
-
-// Store is what the docs page reads of the database: whether any account is
-// connected. A public page is the last place to hold the whole store.
-type Store interface {
-	ListAccounts(ctx context.Context) ([]store.Account, error)
-}
-
-// Models is the model list as the public page shows it: as a key bound to
-// nothing sees it.
-type Models interface {
-	Public(ctx context.Context) ([]byte, error)
 }
 
 // Deps is what a Site is built from. Every field is required.
 type Deps struct {
-	Config   *config.Config
-	Log      *slog.Logger
-	Store    Store
-	Docs     *settings.Switch
-	Surfaces *surfaces.Surfaces
-	// Models is the model list the public page shows.
-	Models Models
+	Log *slog.Logger
 	// Files is the embedded build, with the UI under webdist/.
 	Files fs.FS
 }
 
 // New builds a Site. The UI is read and compressed on first use.
 func New(d Deps) *Site {
-	return &Site{
-		cfg: d.Config, log: d.Log, store: d.Store, docs: d.Docs,
-		surfaces: d.Surfaces, models: d.Models, files: d.Files,
-	}
+	return &Site{log: d.Log, files: d.Files}
 }
 
 const notBuiltPage = `<!doctype html>
@@ -190,8 +158,8 @@ func (a asset) serve(w http.ResponseWriter, r *http.Request) {
 // bundle is the embedded build, read once.
 //
 // Once per process rather than once per handler: there are two entry documents
-// now — index.html for the admin app and docs.html for the public docs page —
-// and they are two views of the same files. Compressing the lot twice would
+// — index.html for the admin app and welcome.html for a relay's root — and
+// they are two views of the same files. Compressing the lot twice would
 // buy nothing and hold two copies of it.
 func (s *Site) bundle() map[string]asset {
 	s.bundleOnce.Do(func() { s.assets = s.readBundle() })
@@ -257,14 +225,7 @@ func (s *Site) StaticHandler(entry string) http.Handler {
 		}
 
 		if a, ok := assets[clean]; ok {
-			// Vite fingerprints everything under assets/, so those are safe to
-			// cache forever; the entry document never is.
-			if strings.HasPrefix(clean, "assets/") {
-				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			} else {
-				w.Header().Set("Cache-Control", "no-cache")
-			}
-			a.serve(w, r)
+			serveFile(w, r, clean, a)
 			return
 		}
 
@@ -278,6 +239,19 @@ func (s *Site) StaticHandler(entry string) http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		index.serve(w, r)
 	})
+}
+
+// serveFile serves one file of the build with the lifetime its name earns.
+// Vite fingerprints everything under assets/, so those are safe to cache
+// forever; anything else, an entry document above all, never is, or a deploy
+// would be invisible until the cache expired.
+func serveFile(w http.ResponseWriter, r *http.Request, name string, a asset) {
+	if strings.HasPrefix(name, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	a.serve(w, r)
 }
 
 func notBuilt(w http.ResponseWriter, r *http.Request) {

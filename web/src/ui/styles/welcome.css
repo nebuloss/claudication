@@ -1,13 +1,13 @@
 @import './index.css';
 
 /*
-  The docs page wears the secondary hue where the admin UI wears the clay.
+  The welcome page wears the secondary hue where the admin UI wears the clay.
 
   Same reason its favicon differs, carried through to the page itself: these
   are two surfaces of one gateway and they are not interchangeable. One
-  administers it, one is published to anyone who has its address. Somebody with
-  both open should be able to tell at a glance which they are typing into, and
-  a mark in the tab strip does that only until the tab is focused.
+  administers it, one is what anyone with the relay's address sees. Somebody
+  with both open should be able to tell at a glance which they are looking at,
+  and a mark in the tab strip does that only until the tab is focused.
 
   Redefining the tokens rather than restyling anything. Tailwind 4 emits
   utilities as var() references, so every button, link, focus ring and state

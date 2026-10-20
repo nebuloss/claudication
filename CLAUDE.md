@@ -27,8 +27,8 @@ map, so place a new package there when you add it.
 
 The HTTP surface is `internal/httpapi`, which only puts things together, with
 one package per surface below it: `httpx` (shared plumbing), `gateway` (the
-client-facing APIs), `admin` (the admin API) and `web` (the embedded UI and
-the docs page). They do not import one another; the root hands across what
+client-facing APIs), `admin` (the admin API) and `web` (the embedded UI, and
+the welcome page at the root of a relay-only listener). They do not import one another; the root hands across what
 one needs from another.
 
 ## Read these before changing the relay

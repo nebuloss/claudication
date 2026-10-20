@@ -491,12 +491,12 @@ config_value() {
   sed -n "s/^$1:[[:space:]]*\"\{0,1\}\([^\"#[:space:]]*\).*/\1/p" "$CONFIG_FILE" | head -1
 }
 
-# Every port the gateway binds: the relay, and the admin and docs listeners
+# Every port the gateway binds: the relay, and the admin listener
 # when the config splits them out. Waiting on the relay alone is how the
 # 2026-09-24 upgrade went wrong — the relay port was free while the admin one
 # was still held by the draining process.
 gateway_ports() {
-  for key in listen admin-listen docs-listen; do
+  for key in listen admin-listen; do
     addr="$(config_value "$key")"
     [ "$key" = listen ] && [ -z "$addr" ] && addr="$LISTEN"
     [ -n "$addr" ] && printf '%s\n' "${addr##*:}"

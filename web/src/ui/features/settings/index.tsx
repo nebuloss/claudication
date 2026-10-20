@@ -2,7 +2,6 @@ import ChatTitles from './chat-titles'
 import ConfigTable from './config-table'
 import ImageFit from './image-fit'
 import ModelsTab from '../models/roles'
-import PublicDocs from './public-docs'
 import Security from './security'
 import Surfaces from './surfaces'
 import { type GatewayConfig, type Session } from '../../../api/client'
@@ -12,7 +11,7 @@ import type { SettingsSectionId } from '../../route'
 /**
  * Settings: a page per section (/settings/<section>) — the model aliases
  * every client config asks for, which APIs are served, the switches, the
- * public docs page, the admin account, and the configuration as loaded.
+ * admin account, and the configuration as loaded.
  *
  * The configuration is loaded here rather than inside the table, because the
  * same request carries the API switches and the settings rows. One fetch, one
@@ -88,14 +87,6 @@ export default function Settings({
         )
       case 'images':
         return <ImageFit enabled={data.fit_images} onChanged={() => void reload()} />
-      case 'documentation':
-        return (
-          <PublicDocs
-            enabled={data.docs_enabled}
-            url={data.docs_url}
-            onChanged={() => void reload()}
-          />
-        )
       case 'configuration':
         return <ConfigTable config={data} />
     }

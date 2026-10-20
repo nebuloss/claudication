@@ -319,10 +319,13 @@ listen: "0.0.0.0:8317"       # the relay, published
 admin-listen: "127.0.0.1:8318"   # the UI, reachable over an SSH tunnel only
 ```
 
-The relay listener then answers 404 to every `/admin/…` path, to the UI, and to
-a `?token=` sign-in link. That separation is the gateway's own, so it holds even
-if the proxy in front is misconfigured — which is the failure worth designing
-for, because it is silent.
+The relay listener then answers 404 to every `/admin/…` path and to the UI, and
+a `?token=` sign-in link spends nothing there. That separation is the gateway's
+own, so it holds even if the proxy in front is misconfigured — which is the
+failure worth designing for, because it is silent. Its root serves a small
+welcome page instead: what the address is, whether it is up and which build,
+read from `/health` — nothing a monitor does not already see, and no link to the
+admin address.
 
 Two more things before exposing it. Use a **long random admin password**: the
 sign-in limiter allows `anon-per-minute` attempts per IP (60 by default) with no

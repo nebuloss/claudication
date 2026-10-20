@@ -15,21 +15,19 @@
     <meta name="theme-color" content="#111517" media="(prefers-color-scheme: dark)" />
 
     <!--
-      Dark Reader honours this and leaves the page alone. That is the correct
-      answer here rather than a snub: the UI ships a real Material 3 dark
-      palette, and Dark Reader's filter would invert an already-dark page into
-      mud while flattening the token colours it was designed around. The theme
-      control in the header does the job the extension would be doing.
+      Dark Reader honours this and leaves the page alone: the UI ships a real
+      Material 3 dark palette, and the extension's filter would invert an
+      already-dark page into mud. The theme control does its job instead.
     -->
     <meta name="darkreader-lock" />
 
     <!--
       Its own mark, in the secondary hue. The two pages look identical in a tab
       strip otherwise, and they are not the same thing: one administers this
-      gateway, the other is published to anyone with its address.
+      gateway, the other is what anyone with the relay's address sees.
     -->
-    <link rel="icon" href="/favicon-docs.svg" type="image/svg+xml" />
-    <title>claudication — docs</title>
+    <link rel="icon" href="/favicon-welcome.svg" type="image/svg+xml" />
+    <title>claudication</title>
 
     <!--
       Applied before the first paint, or a light frame flashes on a dark
@@ -47,6 +45,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/docs.tsx"></script>
+    <script type="module" src="/src/welcome.tsx"></script>
   </body>
 </html>

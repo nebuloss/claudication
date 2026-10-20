@@ -35,7 +35,6 @@ type Admin struct {
 	poller         *accountsvc.Poller
 	titles         *titles.Titler
 	images         *settings.Switch
-	docs           *settings.Switch
 	surfaces       *surfaces.Surfaces
 	protocols      api.Registry
 	httpClient     *http.Client
@@ -60,7 +59,6 @@ type Deps struct {
 	Poller     *accountsvc.Poller
 	Titles     *titles.Titler
 	Images     *settings.Switch
-	Docs       *settings.Switch
 	Surfaces   *surfaces.Surfaces
 	Protocols  api.Registry
 	HTTPClient *http.Client
@@ -101,7 +99,7 @@ func New(d Deps) *Admin {
 	return &Admin{
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
 		pending: d.Pending, poller: d.Poller, titles: d.Titles, images: d.Images,
-		docs: d.Docs, surfaces: d.Surfaces, protocols: d.Protocols,
+		surfaces: d.Surfaces, protocols: d.Protocols,
 		httpClient: d.HTTPClient, providers: d.Providers, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
@@ -165,7 +163,6 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("PUT /admin/chats/{id}/title", admin(s.handleSetChatTitle))
 	mux.Handle("POST /admin/chat-titles", admin(s.handleSetChatTitles))
 	mux.Handle("POST /admin/fit-images", admin(s.switchHandler(s.images, "image fitting", "fit_images")))
-	mux.Handle("POST /admin/docs", admin(s.switchHandler(s.docs, "public docs page", "docs_enabled")))
 	mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 	mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
 	mux.Handle("GET /admin/requests/export", admin(s.handleExportRequests))

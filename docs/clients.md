@@ -93,8 +93,8 @@ curl https://claudication.example.com/v1/models -H "x-api-key: clc_…"
 
 Two clients need models named by hand, and both are the client's doing: crush
 never calls `/v1/models`, and Codex looks names up in a catalog. So the files a
-gateway hands out — the downloads beside a new key, and the public docs page —
-are the committed ones with their models written from that same live list: every
+gateway hands out — the downloads beside a new key, and its Clients page — are
+the committed ones with their models written from that same live list: every
 active model your accounts serve, each with its real context window, output cap
 and effort levels, and the newest Opus and Haiku as the defaults. A model
 Anthropic releases tomorrow is in them the next time the page loads, with no

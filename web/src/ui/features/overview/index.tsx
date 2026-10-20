@@ -132,21 +132,10 @@ function TrafficCard() {
  * been doing.
  *
  * It used to carry the client instructions too, which meant the one job a new
- * user arrives to do was a card at the bottom of a dashboard. Those live on
- * the public docs page now, with the per-client configuration that was
- * missing from them.
+ * user arrives to do was a card at the bottom of a dashboard. Those live with
+ * the key a client is given, so this links there rather than repeating them.
  */
-export default function Overview({
-  docsURL,
-}: {
-  /**
-   * The public docs page, or empty when there is none. Setup used to be a tab
-   * and this used to be a link to it; now it is a page of its own, on its own
-   * listener, and an operator with no docs listener configured has nowhere for
-   * this to point.
-   */
-  docsURL: string
-}) {
+export default function Overview() {
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<OverviewData>(
     (signal) => api.gateway.overview(signal),
     { refreshMs: REFRESH_MS },
@@ -184,13 +173,8 @@ export default function Overview({
       )}
       {data.ready && (day?.requests ?? 0) === 0 && (
         <Banner>
-          Ready, and nothing has called it yet.
-          {docsURL !== '' && (
-            <>
-              {' '}
-              <InlineLink href={docsURL}>Point a client at it</InlineLink>.
-            </>
-          )}
+          Ready, and nothing has called it yet.{' '}
+          <InlineLink href="/keys">Point a client at it</InlineLink>.
         </Banner>
       )}
       {(data.accounts.needs_reauth ?? 0) > 0 && (

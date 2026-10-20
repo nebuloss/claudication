@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"compress/gzip"
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,30 +20,19 @@ func adminOnly(t *testing.T, srv *Server) string {
 	return ts.URL
 }
 
-// docsOnly serves the public docs listener and returns its base URL.
-func docsOnly(t *testing.T, srv *Server) string {
-	t.Helper()
-	ts := httptest.NewServer(srv.routes(role{docs: true}))
-	t.Cleanup(ts.Close)
-	return ts.URL
-}
-
 // fakeUI stands in for a built UI. The checkout used for tests has none
 // embedded, so the site is rebuilt over an in-memory one before any listener's
 // routes are built from it.
 func fakeUI(srv *Server) (index, script string) {
 	index = "<!doctype html><title>admin</title>" + strings.Repeat("<p>admin</p>", 200)
 	script = strings.Repeat("console.log('compressible');\n", 200)
-	srv.web = web.New(web.Deps{
-		Config: srv.cfg, Log: srv.log, Store: srv.store, Docs: srv.docs,
-		Surfaces: srv.surfaces, Models: srv.models,
-		Files: fstest.MapFS{
-			"webdist/index.html":         {Data: []byte(index)},
-			"webdist/docs.html":          {Data: []byte("<!doctype html><title>docs</title>")},
-			"webdist/assets/app-1a2b.js": {Data: []byte(script)},
-			"webdist/favicon.png":        {Data: []byte("\x89PNG\r\n\x1a\nnot really")},
-		},
-	})
+	files := fstest.MapFS{
+		"webdist/index.html":         {Data: []byte(index)},
+		"webdist/welcome.html":       {Data: []byte("<!doctype html><title>welcome</title>")},
+		"webdist/assets/app-1a2b.js": {Data: []byte(script)},
+		"webdist/favicon.png":        {Data: []byte("\x89PNG\r\n\x1a\nnot really")},
+	}
+	srv.web = web.New(web.Deps{Log: srv.log, Files: files})
 	return index, script
 }
 
@@ -132,100 +120,46 @@ func TestStaticAssetsAreCompressedAndCachedCorrectly(t *testing.T) {
 	}
 }
 
-// The docs listener is public. Switched off it must say nothing about this
-// gateway; switched on it serves the page and the one endpoint behind it, and
-// never anything that can change state.
-func TestDocsListener(t *testing.T) {
-	srv, st, _ := newTestServer(t)
-	srv.cfg.PublicURL = "https://relay.example"
-	fakeUI(srv)
-	fake := &fakeAnthropic{}
-	fake.install(srv)
-	base := docsOnly(t, srv)
+// A relay-only listener's root is the welcome page: built from the UI when
+// there is one, a plain page when there is not, and never the admin app. Every
+// other path stays the API's, answering a JSON 404 a client can parse.
+func TestRelayOnlyRootIsTheWelcomePage(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	relay := func() string {
+		ts := httptest.NewServer(srv.routes(role{gateway: true}))
+		t.Cleanup(ts.Close)
+		return ts.URL
+	}
 
-	// Off: a readable 404 at the root, JSON everywhere else.
+	// No UI embedded, as in this checkout: the fallback, still a page.
+	base := relay()
+	status, body := call(t, base, http.MethodGet, "/", "", nil)
+	if status != http.StatusOK || !strings.Contains(string(body), "claudication gateway") {
+		t.Errorf("unbuilt welcome: %d %q", status, body)
+	}
+
+	fakeUI(srv)
+	base = relay()
 	resp, err := http.Get(base + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
 	page, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(page), "This is an API endpoint") ||
-		resp.Header.Get("Cache-Control") != "no-store" {
-		t.Errorf("welcome: %d %q", resp.StatusCode, resp.Header.Get("Cache-Control"))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(page), "<title>welcome</title>") ||
+		resp.Header.Get("Referrer-Policy") != "no-referrer" || resp.Header.Get("Cache-Control") != "no-cache" {
+		t.Errorf("welcome: %d %q %q", resp.StatusCode, resp.Header.Get("Cache-Control"), page)
 	}
-	for _, leak := range []string{"claudication", "version", "account"} {
-		if strings.Contains(strings.ToLower(string(page)), leak) {
-			t.Errorf("the welcome page mentions %q", leak)
+	// The files the page loads are served; the admin app's document is not.
+	if status, _ := call(t, base, http.MethodGet, "/assets/app-1a2b.js", "", nil); status != http.StatusOK {
+		t.Errorf("welcome asset: %d", status)
+	}
+	for _, p := range []string{"/index.html", "/welcome.html", "/accounts", "/docs", "/assets/app-old.js"} {
+		if status, body := call(t, base, http.MethodGet, p, "", nil); status != http.StatusNotFound || errType(t, body) != "not_found" {
+			t.Errorf("GET %s on the relay: %d %s", p, status, body)
 		}
 	}
-	if status, body := call(t, base, http.MethodHead, "/", "", nil); status != http.StatusNotFound || len(body) != 0 {
-		t.Errorf("HEAD welcome: %d, %d bytes", status, len(body))
-	}
-	if status, body := call(t, base, http.MethodGet, "/elsewhere", "", nil); status != http.StatusNotFound || errType(t, body) != "not_found" {
-		t.Errorf("off, elsewhere: %d %s", status, body)
-	}
-	if status, _ := call(t, base, http.MethodGet, "/api/docs", "", nil); status != http.StatusNotFound {
-		t.Errorf("/api/docs while off: %d", status)
-	}
-
-	if err := srv.docs.Set(context.Background(), true); err != nil {
-		t.Fatal(err)
-	}
-	if err := seedAccount(t, st, srv); err != nil {
-		t.Fatal(err)
-	}
-
-	resp, err = http.Get(base + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	page, _ = io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(page), "<title>docs</title>") ||
-		resp.Header.Get("Referrer-Policy") != "no-referrer" {
-		t.Errorf("docs page: %d %q", resp.StatusCode, page)
-	}
-
-	status, body := call(t, base, http.MethodGet, "/api/docs", "", nil)
-	if status != http.StatusOK {
-		t.Fatalf("/api/docs: %d %s", status, body)
-	}
-	info := decode[map[string]any](t, body)
-	if info["public_url"] != "https://relay.example" || info["ready"] != true || info["models"] == nil {
-		t.Errorf("docs info = %v", info)
-	}
-	for _, leak := range []string{"listen", "state_dir", "trusted_proxies", "accounts", "keys"} {
-		if _, ok := info[leak]; ok {
-			t.Errorf("the public endpoint leaks %q", leak)
-		}
-	}
-	// A second load does not spend another upstream call.
-	call(t, base, http.MethodGet, "/api/docs", "", nil)
-	if n := fake.models(); n != 1 {
-		t.Errorf("model list fetched %d times for two page loads", n)
-	}
-
-	// Nothing on this listener changes anything.
-	for _, ep := range []struct{ method, path string }{
-		{http.MethodPost, "/admin/setup"},
-		{http.MethodGet, "/admin/accounts"},
-		{http.MethodPost, "/v1/messages"},
-		{http.MethodPost, "/"},
-	} {
-		if status, _ := call(t, base, ep.method, ep.path, `{}`, nil); status != http.StatusNotFound {
-			t.Errorf("%s %s on the docs listener: %d, want 404", ep.method, ep.path, status)
-		}
-	}
-}
-
-// A relay-only listener answers 404 at the root: it has nothing to show a
-// browser and must not hint that an admin UI exists somewhere.
-func TestRelayOnlyRootIsNotFound(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-	ts := httptest.NewServer(srv.routes(role{gateway: true}))
-	defer ts.Close()
-	if status, body := call(t, ts.URL, http.MethodGet, "/", "", nil); status != http.StatusNotFound || errType(t, body) != "not_found" {
-		t.Errorf("relay root: %d %s", status, body)
+	if status, _ := call(t, base, http.MethodPost, "/", `{}`, nil); status != http.StatusNotFound {
+		t.Errorf("POST / on the relay: %d, want 404", status)
 	}
 }

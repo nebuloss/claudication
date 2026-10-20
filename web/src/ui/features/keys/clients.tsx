@@ -31,8 +31,8 @@ import { relayAddress } from '../../clients/address'
  * shown once in a dialog and lost: a client set up next month is set up from
  * here, with the same key.
  *
- * The files are the committed ones under configs/clients, as the public docs
- * page shows them, with this gateway's address, this key and the models this
+ * The files are the committed ones under configs/clients, as the README
+ * links them, with this gateway's address, this key and the models this
  * key is offered filled in. They ask for the model aliases, never a real
  * model: which model claude-large or claude-opus is, is decided in the gateway
  * (Settings › Aliases, or this key's Models page), so changing it reaches

@@ -7,7 +7,7 @@
 //	httpx    the plumbing all of them share: errors, context, middleware
 //	gateway  the client-facing APIs, behind an API key
 //	admin    the admin API, behind a session
-//	web      the embedded UI, the public docs page, the welcome page
+//	web      the embedded UI, and the welcome page at a relay's root
 //
 // None of them imports another. What one needs from another — the model list,
 // the sign-in link at the root — is handed across here, as a function.
@@ -95,7 +95,6 @@ type Server struct {
 	providers provider.Registry
 	surfaces  *surfaces.Surfaces
 	images    *settings.Switch
-	docs      *settings.Switch
 
 	// models is the model list and its aliases, which all three surfaces read.
 	models *modelsvc.Catalog
@@ -194,13 +193,6 @@ func (s *Server) loadSwitches(ctx context.Context) {
 	s.images = settings.NewSwitch(s.store, passes.FitImagesSetting, false)
 	if err := settings.Load(ctx, s.store, s.images); err != nil {
 		s.log.Warn("could not read the image-fit switch; leaving it off", "err", err)
-	}
-
-	// Opposite default again: configuring docs-listen is the decision to serve
-	// the page, so a switch we cannot read leaves it serving.
-	s.docs = settings.NewSwitch(s.store, web.DocsSetting, false)
-	if err := settings.Load(ctx, s.store, s.docs); err != nil {
-		s.log.Warn("could not read the docs switch; serving the page anyway", "err", err)
 	}
 }
 
@@ -351,16 +343,13 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	s.admin = admin.New(admin.Deps{
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
-		Titles: titler, Images: s.images, Docs: s.docs, Surfaces: s.surfaces,
+		Titles: titler, Images: s.images, Surfaces: s.surfaces,
 		Protocols: s.protocols, HTTPClient: s.httpClient, Providers: s.providers,
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
 		Models: s.models, Install: installs,
 	})
-	s.web = web.New(web.Deps{
-		Config: cfg, Log: log, Store: st, Docs: s.docs, Surfaces: s.surfaces,
-		Models: s.models, Files: webdist,
-	})
+	s.web = web.New(web.Deps{Log: log, Files: webdist})
 }
 
 // upstreams are the providers as the gateway reaches them: which client
@@ -429,32 +418,14 @@ func (s *Server) buildListeners() {
 	// With admin-listen set, the relay's listener drops the admin API and the
 	// UI; they move to a listener of their own. Unset, it keeps serving both.
 	split := cfg.AdminListen != ""
-	// The relay also carries the public page, at the root it otherwise
-	// answers 404 on. That is where someone pointing a client at this
-	// gateway is already looking: they have the address, they typed it,
-	// and until now it told them nothing. Behind the switch, so it is off
-	// until an operator asks for it.
-	//
-	// Unless the admin UI is here too, in which case the root is the admin
-	// UI and the page has nowhere to go: on a single-listener deployment
-	// the whole surface is already private, and a public page would be a
-	// contradiction rather than a feature.
 	s.listeners = []*listener{s.newListener(cfg.Listen,
-		s.routes(role{gateway: true, admin: !split, docs: split}),
+		s.routes(role{gateway: true, admin: !split}),
 		"listening", "serving", servingWhat(!split),
 		"version", version.Version, "state_dir", cfg.StateDir)}
 	if split {
 		s.adminListener = s.newListener(cfg.AdminListen, s.routes(role{admin: true}),
 			"admin listening", "serving", "admin API and UI")
 		s.listeners = append(s.listeners, s.adminListener)
-	}
-	// And optionally on an address of its own, for a deployment that wants the
-	// instructions somewhere the relay is not. Not needed to have the page —
-	// the relay serves it above — but it is the way to publish it without
-	// publishing /v1 alongside.
-	if cfg.DocsListen != "" {
-		s.listeners = append(s.listeners, s.newListener(cfg.DocsListen, s.routes(role{docs: true}),
-			"docs listening", "serving", "the public docs page"))
 	}
 }
 
@@ -464,48 +435,12 @@ func (s *Server) buildListeners() {
 // operator can reach. Split, the relay can be published while the admin API
 // and UI stay on an address that is not — a separation the gateway enforces
 // itself rather than trusting a proxy to.
+//
+// The root follows from it: the admin UI wherever the admin is served, and
+// the welcome page on a listener that relays only.
 type role struct {
 	gateway bool
 	admin   bool
-	// docs serves the public docs page, and only that: one document at /, the
-	// assets it needs, and one read-only endpoint behind it. No session, no
-	// relay, nothing that can change anything.
-	docs bool
-}
-
-// rootMode is what a listener's root serves.
-type rootMode int
-
-const (
-	// rootNothing is a relay-only listener, where every path is an API path.
-	rootNothing rootMode = iota
-	// rootAdmin is the admin single-page app, and the sign-in link it spends.
-	rootAdmin
-	// rootDocs is the public docs page.
-	rootDocs
-	// rootWelcome is that same address with the docs page switched off: a
-	// short page saying what the address is, and nothing about this gateway.
-	rootWelcome
-)
-
-// rootMode decides which, per request, because the docs page sits behind a
-// switch an operator can flip while the gateway runs.
-//
-// The order is the precedence. The admin UI owns the root wherever it is
-// served: a listener carrying both roles is a single-listener deployment,
-// where the whole surface is private already and a public page beside it would
-// be a contradiction rather than a feature.
-func (s *Server) rootMode(r0 role) rootMode {
-	switch {
-	case r0.admin:
-		return rootAdmin
-	case r0.docs && s.docs.On():
-		return rootDocs
-	case r0.docs:
-		return rootWelcome
-	default:
-		return rootNothing
-	}
 }
 
 // setDocumentHeaders guards the two pages this gateway serves.
@@ -540,10 +475,6 @@ func (s *Server) routes(r0 role) http.Handler {
 		s.admin.Routes(mux)
 	}
 
-	if r0.docs {
-		mux.HandleFunc("GET /api/docs", s.web.HandleDocsInfo)
-	}
-
 	// Anything under an API prefix that did not match above is a client error,
 	// and it has to say so in the client's own language. Without these, an
 	// unknown /v1/... path would fall through to the UI's catch-all and answer
@@ -565,54 +496,32 @@ func (s *Server) routes(r0 role) http.Handler {
 	// more specific than the other, which is precisely what ServeMux panics on.
 	// A method-less "/" is the most general pattern there is, so every API
 	// prefix above is a strict subset of it and nothing conflicts.
-	// One handler per document, built once and chosen per request: which of
-	// them the root serves depends on a switch an operator can flip while the
-	// gateway is running.
-	adminUI := s.web.StaticHandler("index.html")
-	docsUI := s.web.StaticHandler("docs.html")
+	//
+	// Where the admin UI is not served — the relay's listener once admin-listen
+	// splits it off — the root is the welcome page instead: the one path a
+	// person reaches by typing rather than by calling, so it answers in HTML
+	// and says what the address is. Every other path there is the API's.
+	page := s.web.WelcomeHandler()
+	if r0.admin {
+		page = s.web.StaticHandler("index.html")
+	}
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		notFound := func() {
-			httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such endpoint: "+r.URL.Path)
-		}
 		// Everything below serves documents, so nothing below answers a write.
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			notFound()
+			httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such endpoint: "+r.URL.Path)
 			return
 		}
-
-		switch s.rootMode(r0) {
-		case rootAdmin:
-			setDocumentHeaders(w)
-			// Only a page load spends the link. Every request under this
-			// handler carries the query string it was reached with, so a
-			// prefetched favicon, a stylesheet, or a service worker fetching
-			// `/?token=…` would each burn a single-use sign-in link and leave
-			// the operator looking at "already used" on the request they
-			// actually made.
-			if httpx.IsNavigation(r) && s.admin.TokenLogin(w, r, "/") {
-				return
-			}
-			adminUI.ServeHTTP(w, r)
-
-		case rootDocs:
-			setDocumentHeaders(w)
-			docsUI.ServeHTTP(w, r)
-
-		case rootWelcome:
-			// The root is the one path a person reaches by typing rather than
-			// by calling, so it answers in HTML. Everything else is a client
-			// that asked for an endpoint and gets the shape it can parse.
-			if r.URL.Path == "/" {
-				web.ServeWelcome(w, r)
-				return
-			}
-			notFound()
-
-		default:
-			// A listener serving only the relay: every path it did not claim
-			// above is an API path it does not have.
-			notFound()
+		setDocumentHeaders(w)
+		// Only a page load spends the link, and only where there is an admin
+		// to sign in to. Every request under this handler carries the query
+		// string it was reached with, so a prefetched favicon, a stylesheet,
+		// or a service worker fetching `/?token=…` would each burn a
+		// single-use sign-in link and leave the operator looking at "already
+		// used" on the request they actually made.
+		if r0.admin && httpx.IsNavigation(r) && s.admin.TokenLogin(w, r, "/") {
+			return
 		}
+		page.ServeHTTP(w, r)
 	}))
 
 	var h http.Handler = mux
@@ -639,7 +548,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 // buffers flush and severs in-flight streams mid-frame.
 func (s *Server) Run(ctx context.Context) error {
 	// Every listener binds before anything is served, so a port clash on the
-	// admin or docs address is a startup failure rather than a gateway that
+	// admin address is a startup failure rather than a gateway that
 	// comes up with no way in.
 	for i, l := range s.listeners {
 		ln, err := net.Listen("tcp", l.addr)
@@ -659,7 +568,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.mu.Unlock()
 
 	// The background work starts only once every listener is bound. Started
-	// before, a port clash on the admin or docs address returned with the
+	// before, a port clash on the admin address returned with the
 	// sweepers, the pruner and the poller still running against the database —
 	// harmless in a process about to exit, and a test's state directory being
 	// written to while it was removed (TestRunFailsOnAListenerClash, about one

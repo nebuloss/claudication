@@ -220,7 +220,7 @@ check('and so is the clients section', canonical('/keys/k1/settings/clients'), '
 
 check('activity opens on chats', canonical('/activity'), '/activity/chats')
 check('a gateway section is a page', canonical('/settings/apis'), '/settings/apis')
-check('a renamed section keeps its old links', canonical('/settings/docs'), '/settings/documentation')
+check('a renamed section keeps its old links', canonical('/settings/chats'), '/settings/titles')
 // Ids are encoded once, whatever they hold.
 check('an id is kept encoded', canonical('/keys/a%2Fb'), '/keys/a%2Fb')
 check('and decoded when read', segments('/keys/a%2Fb/usage'), ['keys', 'a/b', 'usage'])

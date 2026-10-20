@@ -199,4 +199,4 @@ repro: web
 	fi
 
 clean:
-	rm -rf $(DIST) web/dist $(WEBDIST)/assets $(WEBDIST)/index.html $(WEBDIST)/docs.html web/node_modules
+	rm -rf $(DIST) web/dist $(WEBDIST)/assets $(WEBDIST)/index.html $(WEBDIST)/welcome.html web/node_modules

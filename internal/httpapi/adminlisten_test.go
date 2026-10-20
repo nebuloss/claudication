@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -38,8 +39,9 @@ func TestSplitListenersDoNotServeEachOther(t *testing.T) {
 		}
 	}
 
-	// And the UI, which is how an operator would reach any of it.
-	for _, path := range []string{"/", "/index.html", "/assets/index.js"} {
+	// And the UI, which is how an operator would reach any of it. The root is
+	// the welcome page there, which is not the admin app.
+	for _, path := range []string{"/index.html", "/assets/index.js"} {
 		rec := httptest.NewRecorder()
 		gateway.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusNotFound {
@@ -49,11 +51,11 @@ func TestSplitListenersDoNotServeEachOther(t *testing.T) {
 
 	// A sign-in link must not be spendable there either: it is a credential,
 	// and burning it against the wrong listener would be a confusing failure
-	// on top of a security one.
+	// on top of a security one. The root answers its page and no session.
 	rec := httptest.NewRecorder()
 	gateway.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?token=whatever", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("a sign-in link on the relay listener = %d, want 404", rec.Code)
+	if rec.Header().Get("Set-Cookie") != "" || strings.Contains(rec.Body.String(), "Admin UI") {
+		t.Errorf("a sign-in link on the relay listener reached the admin: %d %q", rec.Code, rec.Body.String())
 	}
 
 	// The other direction: the admin listener does not relay.

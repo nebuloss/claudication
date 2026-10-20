@@ -190,7 +190,7 @@ func TestRelayFailuresAnswerInTheClientsEnvelope(t *testing.T) {
 	})
 }
 
-// A port clash on the admin or docs listener is a startup failure, so a
+// A port clash on the admin listener is a startup failure, so a
 // supervisor sees it, rather than a gateway that comes up with no way in. The
 // relay's own port is released again, so a retry can bind it.
 func TestRunFailsOnAListenerClash(t *testing.T) {
@@ -200,14 +200,12 @@ func TestRunFailsOnAListenerClash(t *testing.T) {
 	}
 	defer taken.Close()
 
-	for _, which := range []string{"admin", "docs", "relay"} {
+	for _, which := range []string{"admin", "relay"} {
 		t.Run(which, func(t *testing.T) {
 			_, st, cfg := newTestServer(t)
 			switch which {
 			case "admin":
 				cfg.AdminListen = taken.Addr().String()
-			case "docs":
-				cfg.DocsListen = taken.Addr().String()
 			case "relay":
 				cfg.Listen = taken.Addr().String()
 			}
@@ -225,10 +223,10 @@ func TestRunFailsOnAListenerClash(t *testing.T) {
 	}
 }
 
-// A docs listener comes up beside the relay and goes down with it.
-func TestDocsListenerRunsAndDrains(t *testing.T) {
+// A second listener comes up beside the relay and goes down with it.
+func TestAdminListenerRunsAndDrains(t *testing.T) {
 	_, st, cfg := newTestServer(t)
-	cfg.DocsListen = "127.0.0.1:0"
+	cfg.AdminListen = "127.0.0.1:0"
 	srv, err := New(cfg, slog.New(slog.DiscardHandler), st)
 	if err != nil {
 		t.Fatal(err)
