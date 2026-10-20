@@ -94,7 +94,10 @@ accepting to the moment the next one serves (`internal/service/uptime`).
 3. Ask `/health` whether the running gateway is `"reloadable":true` — only a
    worker under the supervisor says so.
    - **Yes**: rename the new binary into place, reload, and wait until
-     `/health` reports the new version on every port. Then claim the gateway
+     `/health` reports the new version on every port *from another
+     process*: each worker answers a random `instance`, and the handover is
+     done when it changes. The version alone cannot say so when the same
+     release is installed again. Then claim the gateway
      (`passwd --if-unset`), which runs the new binary against the database and
      so waits until the new worker has opened it.
    - **No** — a release from before the handover, a stopped service, or
@@ -156,15 +159,44 @@ Everything held in memory, as a restart lost it: admin sessions (the UI asks
 for the password again), OAuth sign-ins waiting for their callback, per-minute
 rate-limit windows, the image cache.
 
-A keep-alive connection idle on the old worker when it lets go is closed, as
-any HTTP server's graceful shutdown closes one; a client that sends on it at
-that instant sees the connection close and retries on a new one, which the new
-worker answers. Connections the old worker has accepted are answered before it
-exits (`handover.Pending`).
+## Connections on the old worker
+
+Nothing a client could be writing on is closed by a handover. Every
+connection the old worker accepted is answered. An idle keep-alive connection
+stays open: its next request is answered, with `Connection: close`, and the
+client opens its next connection to the new worker. The old worker exits once
+every connection is closed — by that, by the client, by the 120 s idle
+timeout — or at `shutdown.grace`, whichever is first. Closing idle
+connections at once, as `http.Server.Shutdown` does, failed a POST written on
+a pooled connection at that instant: in TestPooledPOSTsSurviveAHandover, 1–2 of
+~2,600 pooled POSTs in two runs out of three, none since (`handover.Conns`).
+
+A stop still closes idle connections at once: the gateway is going away.
+
+## While two workers overlap
+
+For as long as the old worker drains — at most `shutdown.grace` — some
+limits are counted per worker, and this is accepted rather than shared:
+
+- **Concurrent requests per key** are counted in memory. The new worker
+  starts at zero, so a key with streams open on the old worker can open as
+  many again on the new one. The excess is bounded by what was in flight at
+  the release, it lasts only while those streams finish, and it can only
+  ever be the streams of one deploy. Sharing the count would mean the new
+  worker taking a snapshot over the pipe that is stale the moment a stream
+  on the old one ends: a second source of truth to keep right, for an
+  overshoot that ends by itself within the grace.
+- **Token budgets** are read from the database, where both workers record
+  what they spend, and each re-reads within 30 s: the drift is the same 30 s
+  a single worker already has.
+- **Per-minute rate limits** start empty in the new worker, as after a
+  restart.
+- **Leases per account** are counted per worker too, so an account's in-flight
+  figure on the admin page is the new worker's.
 
 Listen addresses are the supervisor's, bound once. A reload whose config names
 different ones is refused — logged, the old worker carries on — and needs a
 restart.
 
-`MemoryMax` in the systemd unit covers both workers for the length of the
-drain; at tens of megabytes each, there is room.
+A cgroup memory limit covers both workers for the length of the drain; at
+tens of megabytes each, there is room.

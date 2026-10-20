@@ -98,5 +98,17 @@
 // (the UI asks for the password again), OAuth sign-ins waiting for their
 // callback, the image cache. A restart lost them too.
 // Listen addresses are the supervisor's, bound once; a reload whose config
-// names different ones is refused, and takes a restart.
+// names different ones is refused, and takes a restart. A worker that finds
+// its config naming other listeners than the sockets it was handed exits
+// with ExitListeners rather than leave one with nobody accepting on it.
+//
+// # What two workers count apart
+//
+// For the length of the drain, the counts held in memory are per worker:
+// concurrent requests per key, leases per account. A key with streams open
+// on the old worker can open as many again on the new one. That is accepted,
+// not shared: the excess is bounded by what was in flight at the release and
+// lasts only while it finishes, and a count passed over the pipe would be
+// stale the moment one of those streams ended. Token budgets are read from
+// the database both write to, so they hold.
 package handover
