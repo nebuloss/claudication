@@ -645,6 +645,28 @@ func TestGatewayNamesAChatUnderTheClientsKey(t *testing.T) {
 	}
 }
 
+// A rate period longer than the budget's day is counted over its whole
+// length, and the day's tokens over the day alone.
+func TestClientLimitsReadTheWholeRatePeriod(t *testing.T) {
+	srv, st, _, _, _, _ := twoUpstreams(t)
+	abase, ck := adminAPI(t, srv)
+	c, _ := newClient(t, st, "weekly", "custom", "", nil)
+	if err := st.UpdateKey(context.Background(), c.ID, "weekly",
+		store.KeyLimits{RPMLimit: 100, RatePeriod: 7 * 24 * time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	spend(t, st, c.ID, 500, time.Now().Add(-3*24*time.Hour))
+	spend(t, st, c.ID, 40, time.Now().Add(-time.Hour))
+	status, body := call(t, abase, http.MethodGet, "/admin/clients/"+c.ID+"/limits", "", ck)
+	if status != http.StatusOK {
+		t.Fatalf("limits: %d %s", status, body)
+	}
+	got := decode[map[string]any](t, body)
+	if got["in_period"] != float64(2) || got["tokens_day"] != float64(40) {
+		t.Errorf("in_period %v, tokens_day %v; want 2 over the week and 40 over the day", got["in_period"], got["tokens_day"])
+	}
+}
+
 // nthEvent is the newest recorded request once n have been recorded: a row is
 // written after the answer, which the client may have finished reading first.
 func nthEvent(t *testing.T, st *store.Store, n int) store.UsageEvent {

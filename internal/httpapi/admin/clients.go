@@ -463,7 +463,10 @@ func (s *Admin) handleClientLimits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	since := now.Add(-limits.BudgetWindow)
+	period := c.Period()
+	// Back as far as the longer of the two windows read: a rate period can be
+	// up to a week, and the budget's is a day.
+	since := now.Add(-max(limits.BudgetWindow, period))
 	reqs, err := s.store.KeyRequests(r.Context(), c.ID, since)
 	if err != nil {
 		httpx.Internal(w, s.log, "read the client's requests", err)
@@ -471,11 +474,12 @@ func (s *Admin) handleClientLimits(w http.ResponseWriter, r *http.Request) {
 	}
 	perMinute := make([]int, liveMinutes)
 	start := now.Truncate(time.Minute).Add(-(liveMinutes - 1) * time.Minute)
-	period := c.Period()
 	var inPeriod int
 	var day int64
 	for _, q := range reqs {
-		day += q.Tokens
+		if q.At.After(now.Add(-limits.BudgetWindow)) {
+			day += q.Tokens
+		}
 		if !q.At.Before(start) {
 			if i := int(q.At.Sub(start) / time.Minute); i >= 0 && i < liveMinutes {
 				perMinute[i]++
