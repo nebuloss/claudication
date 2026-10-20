@@ -6,23 +6,33 @@
 #
 # wire_api must be "responses": it is the only wire format Codex speaks.
 # env_key names an environment variable, not a key.
-# model should name an alias the gateway serves. claude-large is its alias for
-# real work, and runs Codex on a Claude account, translated; gpt-large runs it
-# on a ChatGPT account, sent as Codex wrote it — once one is connected. Which
-# model answers either is set in the gateway, under Settings › Aliases, and
-# the request goes to whichever accounts serve that model. A name no account
-# lists — Codex's own default, gpt-5-codex — is sent as claude-large.
+#
+# The model names are this client's own, one per model setting Codex has —
+# the session, /review, spawned agents, memories — and the names a new Codex
+# client starts with. What each serves, a Claude model or a GPT one, is chosen
+# on the client's page in the gateway, not here: Codex reaches both through
+# the gateway, a GPT model as Codex wrote the request and a Claude one
+# translated.
 
 model_provider = "claudication"
-model = "claude-large"
+model = "large"
+review_model = "review"
 
 # Fixes Codex guessing a conservative context window for a model it has never
-# heard of, which makes it compact the conversation far too early.
-# See codex-models.json next to this file.
-model_catalog_json = "~/.codex/claude-models.json"
+# heard of, which makes it compact the conversation far too early: one entry
+# per name above, with the window of the model it serves. See
+# codex-models.json next to this file.
+model_catalog_json = "~/.codex/claudication-models.json"
 
 [model_providers.claudication]
 name = "claudication"
 base_url = "https://claudication.example.com/v1"
 env_key = "CLAUDICATION_API_KEY"
 wire_api = "responses"
+
+[agents]
+default_subagent_model = "agents"
+
+[memories]
+extract_model = "small"
+consolidation_model = "small"

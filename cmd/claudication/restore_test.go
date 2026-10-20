@@ -45,7 +45,7 @@ func writeArchive(t *testing.T, entries map[string]string) string {
 func TestBackupRestoresIntoAWorkingGateway(t *testing.T) {
 	_, cfg := stateDir(t)
 	out, err := captureStdout(t, func() error {
-		return cmdKeys([]string{"add", "-config", cfg, "-name", "travels"})
+		return cmdClients([]string{"add", "-config", cfg, "-name", "travels"})
 	})
 	if err != nil {
 		t.Fatal(err)

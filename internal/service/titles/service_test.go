@@ -16,6 +16,7 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/provider"
 	"claudication/internal/provider/anthropic"
+	chatgpt "claudication/internal/provider/openai"
 	"claudication/internal/relay"
 	"claudication/internal/store"
 )
@@ -154,7 +155,9 @@ func (s *fakeStore) RetitleChat(_ context.Context, id, title, model string, basi
 	return nil
 }
 
-func (s *fakeStore) SetChatTitle(_ context.Context, id, title, model string) error {
+// SetClientTitle is the store's: it replaces a title the gateway wrote, and
+// nothing else.
+func (s *fakeStore) SetClientTitle(_ context.Context, id, title, model string) error {
 	s.mu.Lock()
 	defer func() {
 		s.mu.Unlock()
@@ -163,9 +166,10 @@ func (s *fakeStore) SetChatTitle(_ context.Context, id, title, model string) err
 	if s.setTitleErr != nil {
 		return s.setTitleErr
 	}
-	if _, exists := s.titles[id]; !exists {
+	if _, exists := s.titles[id]; !exists || s.bases[id].Requests > 0 {
 		s.titles[id] = title
 		s.models[id] = model
+		s.bases[id] = store.TitleRecord{}
 	}
 	return nil
 }
@@ -242,7 +246,11 @@ func (u *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if status == 0 {
 		status = http.StatusOK
 	}
-	w.Header().Set("Content-Type", "application/json")
+	if strings.HasPrefix(answer, "event:") {
+		w.Header().Set("Content-Type", "text/event-stream")
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, answer)
 }
@@ -287,7 +295,12 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(srv.Close)
 	h.titler = New(Deps{
 		Store: h.st,
-		Relay: &relay.Relay{Wire: anthropic.Provider{}, Pool: h.pool, Client: srv.Client(), BaseURL: srv.URL},
+		Upstreams: map[string]Upstream{
+			"anthropic": {Relay: &relay.Relay{Wire: anthropic.Provider{}, Pool: h.pool, Client: srv.Client(),
+				BaseURL: srv.URL}, Path: "/v1/messages?beta=true"},
+			"openai": {Relay: &relay.Relay{Wire: chatgpt.Provider{}, Pool: h.pool, Client: srv.Client(),
+				BaseURL: srv.URL}, Path: "/responses", Responses: true},
+		},
 		Record: func(e store.UsageEvent, budget int64) {
 			h.recorded <- recorded{e, budget}
 		},
@@ -297,7 +310,7 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) ev() Request {
 	return Request{Conversation: "chat-1", Model: "claude-sonnet-5", AccountID: "a2", Provider: "anthropic",
-		Body: []byte(chatBody)}
+		KeyID: "k1", KeyName: "laptop", Budget: 5000, Body: []byte(chatBody)}
 }
 
 func (h *harness) waitRecorded(t *testing.T) recorded {
@@ -316,9 +329,6 @@ func (h *harness) waitRecorded(t *testing.T) recorded {
 // and what it cost is filed under the gateway's own key against that chat.
 func TestConsiderNamesAChatOnItsOwnAccount(t *testing.T) {
 	h := newHarness(t)
-	if err := h.titler.Set(context.Background(), SettingGenerate, true); err != nil {
-		t.Fatal(err)
-	}
 
 	h.titler.Consider(h.ev())
 	r := h.waitRecorded(t)
@@ -359,11 +369,11 @@ func TestConsiderNamesAChatOnItsOwnAccount(t *testing.T) {
 		t.Errorf("sent body is not the caller's plus a title request: %s", body)
 	}
 
-	// Attributed to the internal key, so its spend is visible and cappable,
-	// and to the chat it names; never stamped with a client name.
+	// Attributed to the client's key, so it is that client's spend, against
+	// its budget, and to the chat it names; never stamped with a tool name.
 	e := r.ev
-	if !h.titler.IsOwnKey(e.KeyID) || e.KeyName != internalKeyName {
-		t.Errorf("recorded under key %q (%q), want the gateway's own", e.KeyID, e.KeyName)
+	if e.KeyID != "k1" || e.KeyName != "laptop" {
+		t.Errorf("recorded under key %q (%q), want the client's", e.KeyID, e.KeyName)
 	}
 	if e.AccountID != "a2" || e.AccountEmail != "two@example.com" || e.Path != store.InternalPath ||
 		e.ConversationID != "chat-1" || e.Model != "claude-sonnet-5" || e.Client != "" || e.Status != 200 {
@@ -372,11 +382,61 @@ func TestConsiderNamesAChatOnItsOwnAccount(t *testing.T) {
 	if e.InputTokens != 5 || e.OutputTokens != 4 || e.CacheReadTokens != 11406 || e.CacheWriteTokens != 2 {
 		t.Errorf("usage not carried: %+v", e)
 	}
-	if r.budget != 0 {
-		t.Errorf("budget = %d", r.budget)
+	if r.budget != 5000 {
+		t.Errorf("budget = %d, want the client's", r.budget)
 	}
-	if h.st.settings[titleKeySetting] != e.KeyID {
-		t.Errorf("the key id was not remembered: %q", h.st.settings[titleKeySetting])
+}
+
+// A chat a ChatGPT account served is named there, on that account, in that
+// backend's dialect: the conversation's own input with the prompt appended,
+// streamed, and the title read off the stream.
+func TestConsiderNamesAChatGPTChat(t *testing.T) {
+	h := newHarness(t)
+	h.up.answer = "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{}}\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Fix the build\"}\n\n" +
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":3}}}\n\n"
+	ev := h.ev()
+	ev.Provider, ev.Model = "openai", "gpt-6-luna"
+	ev.Body = []byte(`{"model":"gpt-6-luna","stream":true,"store":false,"instructions":"be terse",` +
+		`"tools":[{"type":"function","name":"bash"}],` +
+		`"input":[{"role":"user","content":[{"type":"input_text","text":"fix the build"}]}]}`)
+	h.titler.Consider(ev)
+	r := h.waitRecorded(t)
+	select {
+	case <-h.st.titled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the title was never stored")
+	}
+	if title, model, _ := h.st.title("chat-1"); title != "Fix the build" || model != "gpt-6-luna" {
+		t.Errorf("stored %q (%q)", title, model)
+	}
+	h.up.mu.Lock()
+	path, body := h.up.paths[0], h.up.bodies[0]
+	h.up.mu.Unlock()
+	var sent struct {
+		Stream bool              `json:"stream"`
+		Input  []json.RawMessage `json:"input"`
+		Tools  []json.RawMessage `json:"tools"`
+	}
+	if err := json.Unmarshal(body, &sent); err != nil || path != "/responses" || !sent.Stream ||
+		len(sent.Input) != 2 || len(sent.Tools) != 1 || !strings.Contains(string(sent.Input[1]), "short title") {
+		t.Errorf("sent to %s: %s", path, body)
+	}
+	if r.ev.KeyID != "k1" || r.ev.Provider != "openai" || r.ev.AccountID != "a2" {
+		t.Errorf("recorded %+v", r.ev)
+	}
+}
+
+// The client's limits decide: Allow is asked once, and a client with room
+// is named, its turn taken.
+func TestRunTakesItsTurnFromTheClient(t *testing.T) {
+	h := newHarness(t)
+	asked := 0
+	ev := h.ev()
+	ev.Allow = func() bool { asked++; return true }
+	h.titler.run(context.Background(), ev)
+	if r := h.waitRecorded(t); r.ev.KeyID != "k1" || asked != 1 {
+		t.Errorf("recorded under %q after asking %d times", r.ev.KeyID, asked)
 	}
 }
 
@@ -386,7 +446,6 @@ func TestConsiderAsksOncePerChatInFlight(t *testing.T) {
 	h := newHarness(t)
 	h.up.arrived = make(chan struct{}, 2)
 	h.up.release = make(chan struct{})
-	_ = h.titler.Set(context.Background(), SettingGenerate, true)
 
 	h.titler.Consider(h.ev())
 	<-h.up.arrived
@@ -408,23 +467,24 @@ func TestConsiderDeclinesWithoutStartingAnything(t *testing.T) {
 		on bool
 		ev Request
 	}{
-		"switched off":      {false, Request{Conversation: "c", Model: "m", AccountID: "a2", Body: []byte(chatBody)}},
+		"no key":            {true, Request{Conversation: "c", Model: "m", AccountID: "a2", Body: []byte(chatBody)}},
 		"no conversation":   {true, Request{Model: "m", AccountID: "a2", Body: []byte(chatBody)}},
 		"no account":        {true, Request{Conversation: "c", Model: "m", Body: []byte(chatBody)}},
 		"no model":          {true, Request{Conversation: "c", AccountID: "a2", Body: []byte(chatBody)}},
 		"no body":           {true, Request{Conversation: "c", Model: "m", AccountID: "a2"}},
 		"a title request":   {true, Request{Conversation: "c", Model: "m", AccountID: "a2", Body: []byte(titleRequest)}},
 		"already in flight": {true, Request{Conversation: "busy", Model: "m", AccountID: "a2", Body: []byte(chatBody)}},
-		// A chat a ChatGPT account served: a title request is an Anthropic
-		// body on that account's cache, neither of which it has.
-		"a ChatGPT chat": {true, Request{Conversation: "c", Model: "gpt-6-luna", AccountID: "a2", Provider: "openai",
+		// A provider the titler has no way to.
+		"an unknown provider": {true, Request{Conversation: "c", Model: "m", AccountID: "a2", Provider: "elsewhere",
 			Body: []byte(chatBody)}},
 	} {
 		if c.ev.Provider == "" {
 			c.ev.Provider = "anthropic"
 		}
+		if name != "no key" {
+			c.ev.KeyID = "k1"
+		}
 		h := newHarness(t)
-		_ = h.titler.Set(context.Background(), SettingGenerate, c.on)
 		h.titler.claim("busy")
 		h.titler.Consider(c.ev)
 		// Nothing claimed means no goroutine was started for it.
@@ -446,28 +506,17 @@ func TestRunSkipsWhatItShouldNotSpendOn(t *testing.T) {
 		"title lookup failed": func(h *harness, _ *Request) {
 			h.st.titleErr = boom
 		},
-		"key could not be issued": func(h *harness, _ *Request) { h.st.createErr = boom },
-		"key id could not be saved": func(h *harness, _ *Request) {
-			h.st.setSettingErr = boom
-		},
 		"accounts unreadable": func(h *harness, _ *Request) { h.st.accountsErr = boom },
 		"body without messages": func(_ *harness, ev *Request) {
 			ev.Body = []byte(`{"model":"m"}`)
 		},
-		// The operator's cap on what titling may cost, using the control
-		// every other key has.
-		"daily budget spent": func(h *harness, _ *Request) {
-			h.st.keys = []store.APIKey{{ID: "own", Name: internalKeyName, KeyLimits: store.KeyLimits{TokenBudget: 1000}}}
-			h.st.settings[titleKeySetting] = "own"
-			h.st.spent = 1000
-		},
+		// The client at one of its limits: a title must never take what
+		// its own next request needs.
+		"client at a limit": func(_ *harness, ev *Request) { ev.Allow = func() bool { return false } },
 	} {
 		h := newHarness(t)
 		ev := h.ev()
 		setup(h, &ev)
-		if err := h.titler.Load(context.Background()); err != nil {
-			t.Fatal(err)
-		}
 		h.titler.run(context.Background(), ev)
 		if n := h.up.count(); n != 0 {
 			t.Errorf("%s: upstream asked %d times", name, n)
@@ -483,30 +532,10 @@ func TestRunSkipsWhatItShouldNotSpendOn(t *testing.T) {
 	}
 }
 
-// Under budget the title goes ahead, and the spend is measured over a
-// rolling day — the same window every other key's budget uses.
-func TestRunProceedsUnderBudget(t *testing.T) {
-	h := newHarness(t)
-	h.st.keys = []store.APIKey{{ID: "own", Name: internalKeyName, KeyLimits: store.KeyLimits{TokenBudget: 1000}}}
-	h.st.settings[titleKeySetting] = "own"
-	h.st.spent = 999
-	_ = h.titler.Load(context.Background())
-
-	before := time.Now()
-	h.titler.run(context.Background(), h.ev())
-	r := h.waitRecorded(t)
-	if r.ev.KeyID != "own" || h.st.created != 0 {
-		t.Errorf("recorded under %q after creating %d keys, want the existing one", r.ev.KeyID, h.st.created)
-	}
-	if d := before.Sub(h.st.spentAt); d < 24*time.Hour-time.Minute || d > 24*time.Hour+time.Minute {
-		t.Errorf("spend measured over %s, want a day", d)
-	}
-}
-
 // A refusal or an answer that is not a title must leave the chat unnamed, and
 // no retry is made. Each still files the request it cost, when it cost one: a
-// wasted call spends the internal key's budget like any other, and leaving it
-// out is how the cap on titling came to let through exactly those calls.
+// wasted call spends the client's budget like any other, and leaving it out
+// would let through exactly the calls that bought nothing.
 func TestRunStoresNothingWithoutATitle(t *testing.T) {
 	for name, tc := range map[string]struct {
 		setup func(h *harness)
@@ -576,94 +605,6 @@ func TestRunRecordsAnUnstoredTitle(t *testing.T) {
 	}
 }
 
-// The internal key is issued once and reused. A new key per title — or per
-// restart — would scatter the gateway's spend across rows and orphan it.
-func TestTheInternalKeyIsIssuedOnceAndFoundAgain(t *testing.T) {
-	ctx := context.Background()
-	st := newFakeStore()
-	tt := New(Deps{Store: st})
-
-	id, name, err := tt.key(ctx)
-	if err != nil || name != internalKeyName {
-		t.Fatalf("first key: %q %q %v", id, name, err)
-	}
-	if again, _, _ := tt.key(ctx); again != id || st.created != 1 {
-		t.Errorf("second call gave %q after %d creations, want %q reused", again, st.created, id)
-	}
-
-	// After a restart only the id is known; the name is read back rather
-	// than a second key being issued.
-	restarted := New(Deps{Store: st})
-	if err := restarted.Load(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if !restarted.IsOwnKey(id) || restarted.IsOwnKey("someone-else") || restarted.IsOwnKey("") {
-		t.Error("IsOwnKey does not recognise exactly the stored key")
-	}
-	got, gotName, err := restarted.key(ctx)
-	if err != nil || got != id || gotName != internalKeyName || st.created != 1 {
-		t.Errorf("after restart: %q %q %v, %d keys created", got, gotName, err, st.created)
-	}
-
-	// The stored key was deleted, or lost with a restored database. Usage
-	// must not be recorded against a key that does not exist.
-	st.keys = nil
-	gone := New(Deps{Store: st})
-	_ = gone.Load(ctx)
-	fresh, _, err := gone.key(ctx)
-	if err != nil || fresh == id || st.created != 2 || st.settings[titleKeySetting] != fresh {
-		t.Errorf("replacement key %q (err %v, %d created, stored %q)", fresh, err, st.created, st.settings[titleKeySetting])
-	}
-
-	// An unreadable key is treated as the key not being found.
-	st.keyErr = errors.New("locked")
-	unreadable := New(Deps{Store: st})
-	_ = unreadable.Load(ctx)
-	if _, _, err := unreadable.key(ctx); err != nil || st.created != 3 {
-		t.Errorf("with an unreadable list: err %v, %d created", err, st.created)
-	}
-}
-
-// Both switches start off — titling spends the operator's subscription — and
-// each persists before it takes effect, so a restart cannot silently undo it.
-func TestSwitches(t *testing.T) {
-	ctx := context.Background()
-	st := newFakeStore()
-	tt := New(Deps{Store: st})
-	if tt.On() || tt.Capturing() {
-		t.Fatal("a new titler starts switched on")
-	}
-
-	if err := tt.Set(ctx, SettingGenerate, true); err != nil || !tt.On() || st.settings[SettingGenerate] != "true" {
-		t.Errorf("generate: on=%v stored=%q err=%v", tt.On(), st.settings[SettingGenerate], err)
-	}
-	if err := tt.Set(ctx, SettingCapture, true); err != nil || !tt.Capturing() || st.settings[SettingCapture] != "true" {
-		t.Errorf("capture: on=%v stored=%q err=%v", tt.Capturing(), st.settings[SettingCapture], err)
-	}
-	if err := tt.Set(ctx, "chat.titles.other", true); !errors.Is(err, errUnknownSwitch) {
-		t.Errorf("unknown switch: %v", err)
-	}
-
-	st.setSettingErr = errors.New("read-only")
-	if err := tt.Set(ctx, SettingGenerate, false); err == nil || !tt.On() {
-		t.Error("a switch changed without being stored")
-	}
-
-	// What was stored is what a restart reads.
-	st.setSettingErr = nil
-	restarted := New(Deps{Store: st})
-	if err := restarted.Load(ctx); err != nil || !restarted.On() || !restarted.Capturing() {
-		t.Errorf("after restart: on=%v capturing=%v err=%v", restarted.On(), restarted.Capturing(), err)
-	}
-
-	// A failed read is reported and leaves the safe state.
-	st.settingsErr = errors.New("no database")
-	broken := New(Deps{Store: st})
-	if err := broken.Load(ctx); err == nil || broken.On() || broken.Capturing() {
-		t.Errorf("failed load: err=%v on=%v", err, broken.On())
-	}
-}
-
 // Recognising a client's own title request is what lets the gateway read the
 // name instead of paying for one. It must not match an agent turn, or an
 // agent's answer would be stored as a chat name.
@@ -674,6 +615,19 @@ func TestIsClientTitleRequest(t *testing.T) {
 	}{
 		{"opencode", `{"system":"You are a title generator. You output ONLY a thread title.","messages":[]}`, true},
 		{"crush, as blocks", `{"system":[{"type":"text","text":"You will generate a short title based on the first message"}]}`, true},
+		// crush's GenerateTitle at 76cc5c5 (internal/agent/agent.go:1867): its
+		// title.md system prompt with " /no_think" after it, one user message,
+		// no tools, streamed — on Messages, and on Responses, where fantasy
+		// puts the system prompt among the input.
+		{"crush on Messages", `{"model":"small","max_tokens":40,"stream":true,` +
+			`"system":[{"type":"text","text":"You will generate a short title based on the first message a user begins a conversation with.\n\n<rules>\n</rules>\n /no_think"}],` +
+			`"messages":[{"role":"user","content":[{"type":"text","text":"Generate a concise title for the following content:\n\nfix the build\n <think>\n\n</think>"}]}]}`, true},
+		{"crush on Responses", `{"model":"gpt-5-small","max_output_tokens":40,"stream":true,"store":false,"input":[` +
+			`{"role":"system","content":"You will generate a short title based on the first message a user begins a conversation with.\n /no_think"},` +
+			`{"role":"user","content":[{"type":"input_text","text":"Generate a concise title for the following content:\n\nfix the build"}]}]}`, true},
+		{"Responses, as instructions", `{"instructions":"You are a title generator. You output ONLY a thread title.","input":[]}`, true},
+		{"crush's coder turn", `{"system":[{"type":"text","text":"You are Crush"}],"tools":[{"name":"bash"}],` +
+			`"messages":[{"role":"user","content":"Generate a concise title"}]}`, false},
 		{"agent turn with the same words", `{"system":"You are a title generator.","tools":[{"name":"Read"}]}`, false},
 		{"ordinary tool-less turn", `{"system":"You are a helpful assistant."}`, false},
 		{"no system", `{"messages":[{"role":"user","content":"Generate a short title"}]}`, false},
@@ -705,6 +659,14 @@ func TestTitleFromRelayedAnswer(t *testing.T) {
 	}
 	if got := titleFromRelayedAnswer([]byte("event: ping\ndata: {}\n")); got != "" {
 		t.Errorf("no text: %q", got)
+	}
+	// A Responses stream, as ChatGPT answers a client on that API.
+	responses := "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{}}\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Fix the \"}\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"build\"}\n\n" +
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{}}\n\n"
+	if got := titleFromRelayedAnswer([]byte(responses)); got != "Fix the build" {
+		t.Errorf("Responses: %q", got)
 	}
 }
 
@@ -794,17 +756,27 @@ func TestCaptureWriterIsBounded(t *testing.T) {
 	}
 }
 
-// The production case: crush named the chat after its init prompt. Once the
-// user types a second message the agent's whole reply is in the body, and the
-// chat is renamed from that opening exchange — a small request of its own,
-// with no tools and nothing of the cached conversation — and then not again.
+// A chat the gateway named from its first message — "Generate AGENTS.md",
+// after crush's init prompt, was the production case — is renamed once the
+// user types a second message: the agent's whole reply is in the body, and
+// the chat is renamed from that opening exchange — a small request of its
+// own, with no tools and nothing of the cached conversation — and then not
+// again. A title the client gave the chat itself is not: it is the one the
+// client shows.
 func TestRenamedOnceFromTheOpeningExchange(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
-	if err := h.titler.Set(ctx, SettingGenerate, true); err != nil {
-		t.Fatal(err)
+	h.st.titles["chat-2"] = "Generate AGENTS.md for codebase"
+	own := h.ev()
+	own.Conversation = "chat-2"
+	own.Body = convo(crushInit, assistantUse, toolResult, followUp)
+	h.titler.run(ctx, own)
+	if n := h.up.count(); n != 0 {
+		t.Fatalf("renamed the client's own title; asked %d times", n)
 	}
+
 	h.st.titles["chat-1"] = "Generate AGENTS.md for codebase"
+	h.st.bases["chat-1"] = store.TitleRecord{Requests: 1, Turns: 1}
 	summary := `{"role":"assistant","content":[{"type":"text","text":"Wrote AGENTS.md for the ZeeOS installer."}]}`
 
 	ev := h.ev()
@@ -861,9 +833,6 @@ func TestRenamedOnceFromTheOpeningExchange(t *testing.T) {
 func TestATypedTitleIsLeftAlone(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
-	if err := h.titler.Set(ctx, SettingGenerate, true); err != nil {
-		t.Fatal(err)
-	}
 	h.st.titles["chat-1"] = "ZeeOS installer"
 	h.st.bases["chat-1"] = store.TitleRecord{Manual: true}
 

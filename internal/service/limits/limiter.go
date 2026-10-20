@@ -31,6 +31,35 @@ func (l *Limiter) Allow(key string, count int, period time.Duration) bool {
 	return l.take(key, count, period, true)
 }
 
+// AllowSpare consumes one token for key only while another would be left
+// after it: for a request the gateway makes on a caller's behalf, which must
+// never take the last token the caller's own next request needs.
+func (l *Limiter) AllowSpare(key string, count int, period time.Duration) bool {
+	if count <= 0 {
+		return true
+	}
+	if count < 2 {
+		return false
+	}
+	// Two takes under one lock would be simpler to read and wrong to write:
+	// the first would be spent even when the second failed. So: peek at the
+	// refilled level, then spend one.
+	l.mu.Lock()
+	b, ok := l.buckets[key]
+	if ok {
+		if period <= 0 {
+			period = time.Minute
+		}
+		level := b.tokens + l.now().Sub(b.last).Seconds()*float64(count)/period.Seconds()
+		if level < 2 {
+			l.mu.Unlock()
+			return false
+		}
+	}
+	l.mu.Unlock()
+	return l.Allow(key, count, period)
+}
+
 // AllowPerMinute is the common case, and what the anonymous budget uses.
 func (l *Limiter) AllowPerMinute(key string, perMinute int) bool {
 	return l.Allow(key, perMinute, time.Minute)

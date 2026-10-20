@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -437,36 +438,37 @@ func TestUpgradeKeepsTheData(t *testing.T) {
 		t.Errorf("second workspace at the same address = %+v, %v", other, err)
 	}
 
-	// Roles: the gateway's as NULL, the key's kept, the orphan gone, none of
-	// them a client's.
-	roles, err := st.ModelRoles(ctx)
+	// 032: every key is a custom client in direct mode under its own name,
+	// its switched-off models its direct-mode switches, with no slots; the
+	// aliases and every binding of them are gone.
+	all, err := st.Clients(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]string{}
-	for _, r := range roles {
-		got[r.KeyID+"/"+r.Client+"/"+r.Role] = r.Model
+	names := map[string]string{}
+	for _, c := range all {
+		names[c.ID] = c.Name
+		if c.Type != "custom" || c.Mode != "direct" || c.Dialect != "anthropic" || len(c.Slots) != 0 ||
+			c.DisabledAt != nil {
+			t.Errorf("client %s = %+v, want a custom one in direct mode with no slots", c.ID, c)
+		}
 	}
-	want := map[string]string{"//claude-large": "", "//claude-fast": "claude-haiku-4-5",
-		f.keyKept + "//claude-small": "claude-haiku-4-5"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("roles %v, want %v", got, want)
+	if !reflect.DeepEqual(names, map[string]string{f.keyKept: "laptop", f.keyRenamed: "after"}) {
+		t.Errorf("clients %v, want one per key", names)
 	}
-	// And the upgraded table takes a client's binding beside them, below the
-	// key's.
-	if err := st.SetClientRole(ctx, "Codex", "claude-small", "claude-sonnet-5"); err != nil {
-		t.Fatal(err)
+	if k, _ := st.Key(ctx, f.keyKept); k.ClientType != "custom" || k.NamesSlots() || k.Allows("claude-opus-4-1") {
+		t.Errorf("the kept key reads %+v: not a direct-mode client with its switch", k)
 	}
-	if m, by, _ := st.RoleBinding(ctx, "", "Codex", "claude-small"); m != "claude-sonnet-5" || by != BoundByClient {
-		t.Errorf("Codex's claude-small after the upgrade: %q by %q", m, by)
-	}
-	if m, by, _ := st.RoleBinding(ctx, f.keyKept, "Codex", "claude-small"); m != "claude-haiku-4-5" || by != BoundByKey {
-		t.Errorf("the kept key's claude-small after the upgrade: %q by %q", m, by)
+	if n := count(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'model_roles'`); n != 0 {
+		t.Error("model_roles survived the upgrade")
 	}
 
 	// The rest.
 	if v, ok, _ := st.Setting(ctx, "api.openai"); !ok || v != "off" {
 		t.Errorf("setting = %q, %v", v, ok)
+	}
+	if _, ok, _ := st.Setting(ctx, "gateway.enabled"); ok {
+		t.Error("the gateway was switched off though no API was")
 	}
 	if u, err := st.AdminUpdatedAt(ctx); err != nil || !u.Equal(f.created) {
 		t.Errorf("admin updated %v, %v", u, err)
@@ -479,7 +481,7 @@ func TestUpgradeKeepsTheData(t *testing.T) {
 	}
 
 	// And the foreign keys the upgrade added do their job: a key's and an
-	// account's rows go with them.
+	// account's rows go with them, the key's client with it.
 	if err := st.DeleteKey(ctx, f.keyKept); err != nil {
 		t.Fatal(err)
 	}
@@ -487,16 +489,71 @@ func TestUpgradeKeepsTheData(t *testing.T) {
 		t.Fatal(err)
 	}
 	for q, want := range map[string]int{
-		`SELECT COUNT(*) FROM api_key_models_off`:                                  0,
-		`SELECT COUNT(*) FROM model_roles WHERE key_id IS NOT NULL`:                0,
-		`SELECT COUNT(*) FROM model_roles WHERE key_id IS NULL AND client IS NULL`: 2,
-		`SELECT COUNT(*) FROM account_models_off`:                                  0,
-		`SELECT COUNT(*) FROM account_quota`:                                       0,
-		`SELECT COUNT(*) FROM usage_events`:                                        f.events,
+		`SELECT COUNT(*) FROM api_key_models_off`: 0,
+		`SELECT COUNT(*) FROM clients`:            1,
+		`SELECT COUNT(*) FROM account_models_off`: 0,
+		`SELECT COUNT(*) FROM account_quota`:      0,
+		`SELECT COUNT(*) FROM usage_events`:       f.events,
 	} {
 		if n := count(q); n != want {
 			t.Errorf("%s = %d after deleting, want %d", q, n, want)
 		}
+	}
+}
+
+// 032 makes one gateway switch of the two API switches, off only where both
+// were, and deletes the gateway's own titling key, keeping its history.
+func TestUpgradeMergesTheSwitchesAndDropsTheTitler(t *testing.T) {
+	for _, c := range []struct {
+		anthropic, openai string
+		off               bool
+	}{{"false", "false", true}, {"false", "true", false}, {"true", "false", false}} {
+		p := filepath.Join(t.TempDir(), "v28.db")
+		db := buildOld(t, dsn(p), 28)
+		f := fillV28(t, db)
+		for k, v := range map[string]string{"api.anthropic.enabled": c.anthropic, "api.openai.enabled": c.openai,
+			"chat.titles.key": f.keyRenamed} {
+			if _, err := db.Exec(`INSERT INTO settings VALUES (?, ?, 1760000000)`, k, v); err != nil {
+				t.Fatal(err)
+			}
+		}
+		db.Close()
+		st, err := Open(context.Background(), p, testSealer(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		v, ok, _ := st.Setting(ctx, "gateway.enabled")
+		if c.off != (ok && v == "false") {
+			t.Errorf("%s/%s: gateway.enabled = %q, %v", c.anthropic, c.openai, v, ok)
+		}
+		if _, ok, _ := st.Setting(ctx, "api.openai.enabled"); ok {
+			t.Error("the per-API switch survived")
+		}
+		if _, err := st.Client(ctx, f.keyRenamed); !errors.Is(err, ErrClientNotFound) {
+			t.Errorf("the titling key became a client: %v", err)
+		}
+		// Deleted, with its titling settings; its history stays, under the name
+		// it last had.
+		if _, err := st.Key(ctx, f.keyRenamed); !errors.Is(err, ErrKeyNotFound) {
+			t.Errorf("the titling key survived: %v", err)
+		}
+		if _, ok, _ := st.Setting(ctx, "chat.titles.key"); ok {
+			t.Error("the titling key's setting survived")
+		}
+		rep, err := st.Usage(ctx, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+		if err != nil {
+			t.Fatal(err)
+		}
+		named := false
+		for _, b := range rep.ByKey {
+			named = named || (b.ID == f.keyRenamed && b.Label == "after")
+		}
+		if !named {
+			t.Errorf("the titling key's history lost its name: %+v", rep.ByKey)
+		}
+
+		st.Close()
 	}
 }
 

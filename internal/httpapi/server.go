@@ -42,11 +42,11 @@ import (
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	accountsvc "claudication/internal/service/accounts"
+	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/settings"
-	"claudication/internal/service/surfaces"
 	"claudication/internal/service/titles"
 	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
@@ -64,12 +64,15 @@ import (
 var webdist embed.FS
 
 type Server struct {
-	cfg            *config.Config
-	log            *slog.Logger
-	store          *store.Store
-	keyLimiter     *limits.Limiter
-	anonLimiter    *limits.Limiter
-	budgets        *limits.Budgets
+	cfg         *config.Config
+	log         *slog.Logger
+	store       *store.Store
+	keyLimiter  *limits.Limiter
+	anonLimiter *limits.Limiter
+	budgets     *limits.Budgets
+	// inflight counts each key's open requests: the gateway counts, the
+	// admin API reads.
+	inflight       *limits.InFlight
 	recorder       *usagesvc.Recorder
 	trustedProxies []*net.IPNet
 	adminAddr      string
@@ -93,10 +96,11 @@ type Server struct {
 	// providers are the upstreams accounts connect to, in the order the admin
 	// UI lists them. See internal/provider.
 	providers provider.Registry
-	surfaces  *surfaces.Surfaces
-	images    *settings.Switch
+	// serving is the gateway switch: off, no client-facing route answers.
+	serving *settings.Switch
+	images  *settings.Switch
 
-	// models is the model list and its aliases, which all three surfaces read.
+	// models is the model list, which all three surfaces read.
 	models *modelsvc.Catalog
 
 	// The handler sets, one per surface. See the package comment.
@@ -149,6 +153,7 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store) (*Server, error) 
 		log:            log,
 		store:          st,
 		keyLimiter:     limits.NewLimiter(),
+		inflight:       limits.NewInFlight(),
 		anonLimiter:    limits.NewLimiter(),
 		budgets:        limits.NewBudgets(st),
 		trustedProxies: trusted,
@@ -179,13 +184,14 @@ func (s *Server) loadSwitches(ctx context.Context) {
 	// Order is what the admin UI lists.
 	s.protocols = api.Registry{
 		anthropicapi.New(),
-		openai.New(store.RoleLarge),
+		openai.New(""),
 	}
-	s.surfaces = surfaces.New(s.protocols, s.store)
-	// The fallback is every surface serving, which is the state the gateway
-	// was in before the switches existed.
-	if err := s.surfaces.Load(ctx); err != nil {
-		s.log.Warn("could not read the API surface switches; serving every surface", "err", err)
+	// On unless an operator switched it off: a switch that cannot be read
+	// leaves the gateway serving, which is the state it was in before there
+	// was one.
+	s.serving = settings.NewSwitch(s.store, gateway.Setting, true)
+	if err := settings.Load(ctx, s.store, s.serving); err != nil {
+		s.log.Warn("could not read the gateway switch; serving", "err", err)
 	}
 
 	// And again: off is the pass-through rule, so a switch we cannot read
@@ -282,15 +288,19 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 	}
 	s.relays = map[string]*relay.Relay{anthropic.ID: s.relay, chatgpt.ID: openaiRelay}
 
-	// Chat titles, once the relay and the recorder they use exist. A failure
-	// to read the switches leaves titling off, because it is the one thing
-	// that spends the operator's subscription on the gateway's own behalf and
-	// doing that by accident is not a state worth reaching.
-	titler := titles.New(titles.Deps{Store: st, Relay: s.relay, Record: s.recorder.Record, Log: log})
-	if err := titler.Load(ctx); err != nil {
-		log.Warn("could not read the chat-title switch; leaving it off", "err", err)
-	}
-	return titler
+	// Chat titles, once the relays and the recorder they use exist: a title
+	// is asked of the provider that served the chat, at the path the
+	// gateway's own routes send that provider a client's turn.
+	ups := s.upstreams()
+	return titles.New(titles.Deps{
+		Store: st,
+		Upstreams: map[string]titles.Upstream{
+			anthropic.ID: {Relay: s.relay, Path: ups[anthropic.ID].Paths["/v1/messages"]},
+			chatgpt.ID:   {Relay: openaiRelay, Path: ups[chatgpt.ID].Paths["/v1/responses"], Responses: true},
+		},
+		Record: s.recorder.Record,
+		Log:    log,
+	})
 }
 
 // newRelayClient is the client relayed inference goes out on.
@@ -337,17 +347,17 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Config: cfg, Log: log, Store: st,
 		KeyLimiter: s.keyLimiter, AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		Recorder: s.recorder, Pool: s.pool, Upstreams: s.upstreams(), Titles: titler,
-		Trimmer: s.trimmer, Surfaces: s.surfaces, Protocols: s.protocols,
+		Trimmer: s.trimmer, Enabled: s.serving, Protocols: s.protocols, InFlight: s.inflight,
 		Install: installs, Models: s.models,
 	})
 	s.admin = admin.New(admin.Deps{
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
-		Titles: titler, Images: s.images, Surfaces: s.surfaces,
+		Images: s.images, Serving: s.serving, InFlight: s.inflight,
 		Protocols: s.protocols, HTTPClient: s.httpClient, Providers: s.providers,
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
-		Models: s.models, Install: installs,
+		Models: s.models, Install: installs, Reaches: s.reaches,
 	})
 	s.web = web.New(web.Deps{Log: log, Files: webdist})
 }
@@ -365,7 +375,16 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 // reaches Anthropic translated, as it always has. Messages does not reach
 // ChatGPT at all: that translation is a mapping of its own and not one this
 // gateway has, so a Claude client asking for a model only ChatGPT serves is
-// refused, saying which alias to change.
+// refused, saying which of its names to rebind.
+// reaches says whether a client pointed at a dialect can be served by a
+// provider: whether the dialect's route has a path on that provider's
+// upstream. The admin API warns from it on a slot; the gateway refuses by the
+// same table.
+func (s *Server) reaches(d clients.Dialect, provider string) bool {
+	_, ok := s.upstreams()[provider].Paths[d.Route()]
+	return ok
+}
+
 func (s *Server) upstreams() map[string]gateway.Upstream {
 	return map[string]gateway.Upstream{
 		anthropic.ID: {
@@ -532,11 +551,16 @@ func (s *Server) routes(r0 role) http.Handler {
 	return h
 }
 
+// handleHealth says the process is up, its build, and whether it is
+// accepting client requests: the Gateway switch, which the welcome page shows
+// and a monitor can alert on. Up and not accepting is still status ok — the
+// process is healthy, its operator switched it off.
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"status":  "ok",
-		"version": version.Version,
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":    "ok",
+		"version":   version.Version,
+		"accepting": s.serving.On(),
 	})
 }
 

@@ -9,15 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	anthropicapi "claudication/internal/api/anthropic"
-	"claudication/internal/api/openai"
-	"claudication/internal/service/surfaces"
 	"claudication/internal/store"
 )
 
 // codexRequest is the smallest thing Codex sends: a Responses request that
 // streams and names a model the upstream has never heard of.
-const codexRequest = `{"model":"gpt-5-codex","stream":true,"instructions":"be terse",
+const codexRequest = `{"model":"claude-sonnet-5","stream":true,"instructions":"be terse",
 "input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"say hi"}]}]}`
 
 // anthropicStream is one complete Anthropic answer, as the upstream sends it.
@@ -50,12 +47,6 @@ func relayTo(t *testing.T, srv *Server, st *store.Store, upstream http.Handler) 
 
 	_, key, err := st.CreateKey(context.Background(), "client", store.KeyLimits{})
 	if err != nil {
-		t.Fatal(err)
-	}
-	// A Codex request naming no Claude model runs on claude-large, which
-	// follows the newest opus model an account lists — and this upstream lists
-	// none. Bound, as an operator would bind it, it serves without a list.
-	if err := st.SetModelRole(context.Background(), "", store.RoleLarge, "claude-sonnet-5"); err != nil {
 		t.Fatal(err)
 	}
 	return base, key
@@ -223,15 +214,15 @@ func TestCodexOwnHeadersDoNotTravelUpstream(t *testing.T) {
 	}
 }
 
-func TestASwitchedOffSurfaceAnswersInItsOwnDialect(t *testing.T) {
+func TestASwitchedOffGatewayAnswersInEachDialect(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	base, key := relayTo(t, srv, st, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Error("the upstream was reached for a surface that is off")
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	for _, id := range []string{anthropicapi.ID, openai.ID} {
-		if err := srv.surfaces.Set(context.Background(), id, false); err != nil {
+	{
+		if err := srv.serving.Set(context.Background(), false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -255,7 +246,7 @@ func TestASwitchedOffSurfaceAnswersInItsOwnDialect(t *testing.T) {
 		if err := json.Unmarshal(body, &out); err != nil || out.Type != "error" {
 			t.Fatalf("not an Anthropic error envelope: %s", body)
 		}
-		if !strings.Contains(out.Error.Message, "turned off") {
+		if !strings.Contains(out.Error.Message, "switched off") {
 			t.Errorf("the message does not say why: %q", out.Error.Message)
 		}
 	})
@@ -352,81 +343,5 @@ func TestAKeyRefusalAnswersInTheCallersDialect(t *testing.T) {
 	}
 	if got := anthropicType(t, call(t, "/v1/messages", slow, messages, http.StatusTooManyRequests)); got != "rate_limit_error" {
 		t.Errorf("anthropic, rate limited: type = %q, want rate_limit_error", got)
-	}
-}
-
-// One surface off must not take the other with it.
-func TestSurfacesSwitchIndependently(t *testing.T) {
-	srv, st, _ := newTestServer(t)
-	base, key := relayTo(t, srv, st, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, anthropicStream)
-	}))
-
-	if err := srv.surfaces.Set(context.Background(), openai.ID, false); err != nil {
-		t.Fatal(err)
-	}
-
-	resp := post(t, base+"/v1/responses", key, codexRequest)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("openai status = %d, want 404 with the surface off", resp.StatusCode)
-	}
-
-	resp = post(t, base+"/v1/messages", key,
-		`{"model":"claude-sonnet-5","max_tokens":16,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Errorf("anthropic status = %d, want it still serving: %s", resp.StatusCode, body)
-	}
-}
-
-// The switch has to survive a restart, or it is a switch that silently comes
-// back on the next time the service is bounced.
-func TestASwitchSurvivesAReload(t *testing.T) {
-	srv, st, _ := newTestServer(t)
-	if err := srv.surfaces.Set(context.Background(), openai.ID, false); err != nil {
-		t.Fatal(err)
-	}
-
-	reloaded := surfaces.New(srv.protocols, st)
-	if err := reloaded.Load(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if reloaded.Enabled(openai.ID) {
-		t.Error("the OpenAI surface came back on after a reload")
-	}
-	if !reloaded.Enabled(anthropicapi.ID) {
-		t.Error("a surface nobody touched should still be on")
-	}
-}
-
-// A surface nobody has ever set reports "default", and one that has been set
-// reports "database" — the same vocabulary the configuration table uses, so
-// the two halves of the screen tell one story.
-func TestSurfaceStateReportsWhereTheValueCameFrom(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-
-	for _, s := range srv.surfaces.State() {
-		if s.Origin != "default" {
-			t.Errorf("%s: origin = %q before anyone set it", s.ID, s.Origin)
-		}
-		if !s.Enabled {
-			t.Errorf("%s: should serve until someone says otherwise", s.ID)
-		}
-		if len(s.Routes) == 0 || s.Title == "" {
-			t.Errorf("%s: nothing for the UI to show: %+v", s.ID, s)
-		}
-	}
-
-	if err := srv.surfaces.Set(context.Background(), openai.ID, false); err != nil {
-		t.Fatal(err)
-	}
-	for _, s := range srv.surfaces.State() {
-		if s.ID == openai.ID && s.Origin != "database" {
-			t.Errorf("origin = %q after being set here, want database", s.Origin)
-		}
 	}
 }

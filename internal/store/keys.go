@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"claudication/internal/service/clients"
 )
 
 // KeyPrefix marks claudication-issued credentials so they are recognisable in logs
@@ -38,6 +40,26 @@ type APIKey struct {
 	// SecretKept says the secret is stored sealed and can be shown again
 	// (sealed_secret in schema.sql).
 	SecretKept bool
+	// Disabled is a key whose client the operator switched off (clients in
+	// schema.sql): the gateway refuses it before routing anything. Read with
+	// the key, so the request path learns it from the lookup it already makes.
+	Disabled bool
+	// ClientType is the type of the client holding the key, "" for a key
+	// that is no client (the gateway's own); ClientMode is how it names
+	// models. A binding-mode client asks for its own slot names and nothing
+	// else (internal/service/models, Route).
+	ClientType string
+	ClientMode clients.Mode
+	// NameChats is the client's switch for naming its chats (clients in
+	// schema.sql), read with the key for the request path.
+	NameChats bool
+}
+
+// NamesSlots reports whether the key's client asks for its own slot names
+// rather than real models: every typed client, and a custom one in binding
+// mode. ModelsOff is a direct-mode client's, and does not apply here.
+func (k APIKey) NamesSlots() bool {
+	return k.ClientType != "" && k.ClientMode != clients.Direct
 }
 
 // keyModelsOff is the column expression that reads a key's switches with it.
@@ -50,25 +72,38 @@ const keyModelsOff = `COALESCE((SELECT group_concat(model, char(31)) FROM api_ke
 // its own copy of that walk, and Authenticate scanned its own shorter list and
 // so never said whether the secret was kept.
 const keyColumns = `id, name, prefix, created_at, last_used_at, rate_limit, rate_period_s, token_budget,
-		` + keyModelsOff + `, sealed_secret IS NOT NULL`
+		` + keyModelsOff + `, sealed_secret IS NOT NULL,
+		COALESCE((SELECT c.disabled_at IS NOT NULL FROM clients c WHERE c.key_id = api_keys.id), 0),
+		COALESCE((SELECT c.type FROM clients c WHERE c.key_id = api_keys.id), ''),
+		COALESCE((SELECT c.mode FROM clients c WHERE c.key_id = api_keys.id), ''),
+		COALESCE((SELECT c.name_chats FROM clients c WHERE c.key_id = api_keys.id), 0)`
 
 // scanKey reads one row selected with keyColumns. lead are destinations for
 // columns selected before them, as Authenticate's hash is.
 func scanKey(sc scanner, lead ...any) (APIKey, error) {
+	return scanKeyAround(sc, lead, nil)
+}
+
+// scanKeyAround is scanKey with destinations for columns selected after
+// keyColumns too, as a client's are.
+func scanKeyAround(sc scanner, lead, trail []any) (APIKey, error) {
 	var (
 		key           APIKey
 		createdAt     int64
 		lastUsed      sql.NullInt64
 		periodSeconds int64
 		modelsOff     string
+		mode          string
 	)
-	dest := append(lead, &key.ID, &key.Name, &key.Prefix, &createdAt,
+	dest := append(append([]any{}, lead...), &key.ID, &key.Name, &key.Prefix, &createdAt,
 		&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff,
-		&key.SecretKept)
+		&key.SecretKept, &key.Disabled, &key.ClientType, &mode, &key.NameChats)
+	dest = append(dest, trail...)
 	if err := sc.Scan(dest...); err != nil {
 		return APIKey{}, err
 	}
 	key.ModelsOff = splitModels(modelsOff)
+	key.ClientMode = clients.Mode(mode)
 	key.RatePeriod = time.Duration(periodSeconds) * time.Second
 	key.CreatedAt = fromMS(createdAt)
 	key.LastUsedAt = optionalMS(lastUsed)
@@ -127,7 +162,9 @@ func hashKey(plaintext string) string {
 }
 
 // ErrSecretNotKept is KeySecret's answer for a key whose secret was never
-// stored: the gateway's own, or one ReissueUnkeptKeys has not reached yet.
+// stored. Every key made since 026 keeps it, and the one that did not — the
+// gateway's own titling key — went at 032, so this is a database damaged by
+// hand.
 var ErrSecretNotKept = errors.New("this key's secret was not kept; issue it a new one")
 
 // KeySecret opens a key's sealed secret.
@@ -148,62 +185,6 @@ func (s *Store) KeySecret(ctx context.Context, id string) (string, error) {
 		return "", fmt.Errorf("open api key secret: %w", err)
 	}
 	return plaintext, nil
-}
-
-// ReissueUnkeptKeys gives every key whose secret was never kept a new one,
-// sealed, and returns the names of those it reissued. The keys in skip are left
-// alone.
-//
-// A key from before secrets were kept had only its hash stored, so its Clients
-// page could not show it or write a configuration with it; the operator had
-// to regenerate it by hand, and the page carried a second shape for it. Run
-// once at startup, this retires that case: every key the gateway holds can be
-// shown. It breaks the clients holding those old secrets, deliberately — they
-// fetch their configurations again from the key's Clients page — and only
-// those: a key whose secret is kept is not touched.
-//
-// skip is for the gateway's own key, which nothing authenticates with and
-// whose secret is thrown away by design (see the titles service).
-func (s *Store) ReissueUnkeptKeys(ctx context.Context, skip map[string]bool) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name FROM api_keys WHERE sealed_secret IS NULL`)
-	if err != nil {
-		return nil, fmt.Errorf("list unkept api keys: %w", err)
-	}
-	type unkept struct{ id, name string }
-	var todo []unkept
-	for rows.Next() {
-		var u unkept
-		if err := rows.Scan(&u.id, &u.name); err != nil {
-			rows.Close()
-			return nil, fmt.Errorf("scan unkept api key: %w", err)
-		}
-		if !skip[u.id] {
-			todo = append(todo, u)
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list unkept api keys: %w", err)
-	}
-
-	var names []string
-	for _, u := range todo {
-		body, plaintext, err := newSecret()
-		if err != nil {
-			return names, err
-		}
-		sealed, err := s.sealKey(plaintext)
-		if err != nil {
-			return names, err
-		}
-		if _, err := s.db.ExecContext(ctx,
-			`UPDATE api_keys SET prefix = ?, hash = ?, sealed_secret = ? WHERE id = ? AND sealed_secret IS NULL`,
-			body[:prefixLen], hashKey(plaintext), sealed, u.id); err != nil {
-			return names, fmt.Errorf("reissue api key %s: %w", u.name, err)
-		}
-		names = append(names, u.name)
-	}
-	return names, nil
 }
 
 // sealKey seals a key's secret for sealed_secret.
@@ -253,6 +234,12 @@ func (s *Store) RotateKey(ctx context.Context, id string) (APIKey, string, error
 	if n, _ := res.RowsAffected(); n == 0 {
 		return APIKey{}, "", ErrKeyNotFound
 	}
+	// A new secret is a client to set up again: its page offers the key and
+	// the install command until the new one is used.
+	if _, err := s.db.ExecContext(ctx, `UPDATE clients SET configured_at = NULL WHERE key_id = ?`, id); err != nil {
+		return APIKey{}, "", fmt.Errorf("rotate api key: %w", err)
+	}
+	s.keysUsed.forget(id)
 	key, err := s.Key(ctx, id)
 	if err != nil {
 		return APIKey{}, "", err
@@ -261,27 +248,28 @@ func (s *Store) RotateKey(ctx context.Context, id string) (APIKey, string, error
 }
 
 // CreateKey mints a credential and returns its plaintext. The secret is kept
-// sealed beside its hash, in the same INSERT, so the key's Clients page can
-// show it and its client configs again (see sealed_secret in schema.sql for
-// why that is safe to keep).
-//
-// In the same statement because a key whose secret was not kept is one the
-// startup reissue (ReissueUnkeptKeys) gives a new secret — which would break
-// the client that was handed this one. Kept as a second call, a failure
-// between the two left exactly that key behind.
+// sealed beside its hash, in the same INSERT, so the client's page can show it
+// and its configs again until it is first used (see sealed_secret in
+// schema.sql for why that is safe to keep). A key with no client is made only
+// by tests; every key the gateway issues is a client's (CreateClient).
 func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (APIKey, string, error) {
-	return s.createKey(ctx, name, limits, true)
+	var (
+		key       APIKey
+		plaintext string
+	)
+	if err := s.inTx(ctx, "insert api key", func(tx *sql.Tx) error {
+		var err error
+		key, plaintext, err = s.insertKey(ctx, tx, name, limits)
+		return err
+	}); err != nil {
+		return APIKey{}, "", err
+	}
+	return key, plaintext, nil
 }
 
-// CreateUnkeptKey mints a credential whose secret is not kept: only its hash
-// is stored, and the plaintext returned here is the only copy there will ever
-// be. It is for the gateway's own key, which nothing authenticates with and
-// whose secret is thrown away by design (see the titles service).
-func (s *Store) CreateUnkeptKey(ctx context.Context, name string, limits KeyLimits) (APIKey, string, error) {
-	return s.createKey(ctx, name, limits, false)
-}
-
-func (s *Store) createKey(ctx context.Context, name string, limits KeyLimits, keep bool) (APIKey, string, error) {
+// insertKey writes a new key inside tx, with its name, so history never holds
+// an id with no name: the half of CreateKey that creating a client shares.
+func (s *Store) insertKey(ctx context.Context, tx *sql.Tx, name string, limits KeyLimits) (APIKey, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return APIKey{}, "", errors.New("key name must not be empty")
@@ -294,11 +282,9 @@ func (s *Store) createKey(ctx context.Context, name string, limits KeyLimits, ke
 	if err != nil {
 		return APIKey{}, "", err
 	}
-	var sealed []byte // NULL: not kept
-	if keep {
-		if sealed, err = s.sealKey(plaintext); err != nil {
-			return APIKey{}, "", err
-		}
+	sealed, err := s.sealKey(plaintext)
+	if err != nil {
+		return APIKey{}, "", err
 	}
 
 	idBytes := make([]byte, 8)
@@ -312,23 +298,20 @@ func (s *Store) createKey(ctx context.Context, name string, limits KeyLimits, ke
 		Prefix:     body[:prefixLen],
 		CreatedAt:  time.Now().UTC(),
 		KeyLimits:  limits,
-		SecretKept: keep,
+		SecretKept: true,
 	}
 
-	// The name with the key, so history never holds an id with no name.
-	if err := s.inTx(ctx, "insert api key", func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO api_keys (id, name, prefix, hash, created_at, rate_limit, rate_period_s, token_budget,
-			                       sealed_secret)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			key.ID, key.Name, key.Prefix, hashKey(plaintext),
-			ms(key.CreatedAt), key.RPMLimit,
-			int64(key.Period().Seconds()), key.TokenBudget, sealed,
-		); err != nil {
-			return fmt.Errorf("insert api key: %w", err)
-		}
-		return rememberName(ctx, tx, nameKey, key.ID, key.Name)
-	}); err != nil {
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO api_keys (id, name, prefix, hash, created_at, rate_limit, rate_period_s, token_budget,
+		                       sealed_secret)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		key.ID, key.Name, key.Prefix, hashKey(plaintext),
+		ms(key.CreatedAt), key.RPMLimit,
+		int64(key.Period().Seconds()), key.TokenBudget, sealed,
+	); err != nil {
+		return APIKey{}, "", fmt.Errorf("insert api key: %w", err)
+	}
+	if err := rememberName(ctx, tx, nameKey, key.ID, key.Name); err != nil {
 		return APIKey{}, "", err
 	}
 	key.CreatedAt = fromMS(ms(key.CreatedAt))
@@ -390,7 +373,12 @@ func (s *Store) TouchKey(ctx context.Context, id string) {
 	if _, err := s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, ms(now), id); err != nil {
 		// Not written, so not a write to wait a minute after.
 		s.keysUsed.forget(id)
+		return
 	}
+	// A key used is a client set up with it: the first use is when its page
+	// stops offering the key and the install command. In the same minute's
+	// write budget, so the request path pays nothing more for it.
+	_ = s.MarkConfigured(ctx, id)
 }
 
 func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {

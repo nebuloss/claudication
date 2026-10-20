@@ -44,7 +44,7 @@ func TestTitleBodyLeavesTheCachedPrefixAlone(t *testing.T) {
 	  "messages": [{"role": "user", "content": "fix the parser"}]
 	}`
 
-	out, ok := titleBody([]byte(original))
+	out, ok := titleBody(false, []byte(original))
 	if !ok {
 		t.Fatal("titleBody refused a well-formed request")
 	}
@@ -121,7 +121,7 @@ func TestTitleBodyRefusesWhatItCannotUse(t *testing.T) {
 		`{"model":"m","messages":[]}`,      // nothing to title
 		`{"model":"m","messages":"wrong"}`, // messages is not a list
 	} {
-		if _, ok := titleBody([]byte(body)); ok {
+		if _, ok := titleBody(false, []byte(body)); ok {
 			t.Errorf("titleBody(%.30q) accepted a request it cannot use", body)
 		}
 	}
@@ -248,10 +248,10 @@ func TestRenameDue(t *testing.T) {
 		turns   int
 		want    bool
 	}{
-		{"captured, still on the first message", store.TitleRecord{}, 1, false},
-		{"captured, the user typed again", store.TitleRecord{}, 2, true},
-		{"generated on turn one, the user typed again", store.TitleRecord{Turns: 1}, 2, true},
-		{"already named from the opening exchange", store.TitleRecord{Turns: 2}, 9, false},
+		{"the client's own, still on the first message", store.TitleRecord{}, 1, false},
+		{"the client's own, the user typed again", store.TitleRecord{}, 2, false},
+		{"generated on turn one, the user typed again", store.TitleRecord{Requests: 1, Turns: 1}, 2, true},
+		{"already named from the opening exchange", store.TitleRecord{Requests: 3, Turns: 2}, 9, false},
 		{"typed by the operator", store.TitleRecord{Manual: true}, 9, false},
 	} {
 		if got := renameDue(c.current, c.turns); got != c.want {

@@ -21,7 +21,7 @@ import (
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
-	"claudication/internal/service/surfaces"
+	"claudication/internal/service/settings"
 	"claudication/internal/service/titles"
 	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
@@ -37,12 +37,13 @@ type Gateway struct {
 	keyLimiter  *limits.Limiter
 	anonLimiter *limits.Limiter
 	budgets     *limits.Budgets
+	inflight    *limits.InFlight
 	recorder    *usagesvc.Recorder
 	pool        *pool.Pool
 	upstreams   map[string]Upstream
 	titles      *titles.Titler
 	trimmer     *memlimit.Trimmer
-	surfaces    *surfaces.Surfaces
+	enabled     *settings.Switch
 	protocols   api.Registry
 	install     *install.Links
 	models      *modelsvc.Catalog
@@ -56,6 +57,7 @@ type Store interface {
 	Authenticate(ctx context.Context, plaintext string) (store.APIKey, error)
 	TouchKey(ctx context.Context, id string)
 	OldestSpendAt(ctx context.Context, keyID string, since time.Time) (time.Time, bool)
+	MarkConfigured(ctx context.Context, keyID string) error
 }
 
 // Deps is what a Gateway is built from. Every field is required.
@@ -66,19 +68,22 @@ type Deps struct {
 	KeyLimiter  *limits.Limiter
 	AnonLimiter *limits.Limiter
 	Budgets     *limits.Budgets
-	Recorder    *usagesvc.Recorder
-	Pool        *pool.Pool
+	// InFlight counts each key's open requests, for the client's Limits page.
+	InFlight *limits.InFlight
+	Recorder *usagesvc.Recorder
+	Pool     *pool.Pool
 	// Upstreams are the providers, by id, each with the relay that reaches
 	// it and the client routes that may.
 	Upstreams map[string]Upstream
 	Titles    *titles.Titler
 	Trimmer   *memlimit.Trimmer
-	Surfaces  *surfaces.Surfaces
+	// Enabled is the gateway switch: off, every client-facing route refuses.
+	Enabled   *settings.Switch
 	Protocols api.Registry
 	// Install keeps the one-time install bundles /install serves.
 	Install *install.Links
-	// Models is the model list /v1/models answers, and the aliases a request
-	// may name.
+	// Models is the model list /v1/models answers, and what a client's model
+	// names resolve to.
 	Models *modelsvc.Catalog
 }
 
@@ -93,7 +98,7 @@ type Upstream struct {
 	Native string
 	// Paths is where each client route goes on it. A route missing here
 	// cannot reach it: a request routed to it from there is refused, saying
-	// which alias to change, rather than sent somewhere that cannot answer.
+	// which name to rebind, rather than sent somewhere that cannot answer.
 	Paths map[string]string
 }
 
@@ -101,17 +106,16 @@ type Upstream struct {
 func New(d Deps) *Gateway {
 	return &Gateway{
 		cfg: d.Config, log: d.Log, store: d.Store,
-		keyLimiter: d.KeyLimiter, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
+		keyLimiter: d.KeyLimiter, anonLimiter: d.AnonLimiter, budgets: d.Budgets, inflight: d.InFlight,
 		recorder: d.Recorder, pool: d.Pool, upstreams: d.Upstreams, titles: d.Titles,
-		trimmer: d.Trimmer, surfaces: d.Surfaces, protocols: d.Protocols,
+		trimmer: d.Trimmer, enabled: d.Enabled, protocols: d.Protocols,
 		install: d.Install, models: d.Models,
 	}
 }
 
 // Routes registers the client-facing APIs on mux.
 //
-// Each is an api.Protocol and each is gated on its own switch, so one can be
-// turned off without touching the other and both can be turned off at once.
+// Each is an api.Protocol, and every one is gated on the gateway switch.
 //
 // Which upstream a request reaches is decided per request, from the model it
 // names (see inference); where on that upstream is the Upstream's Paths.
@@ -129,9 +133,9 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /install", s.handleInstall)
 
 	mux.Handle("GET /v1/models",
-		s.surface(messages, s.requireAPIKey(messages, s.handleModels(messages))))
+		s.serving(messages, s.requireAPIKey(messages, s.handleModels(messages))))
 	mux.Handle("POST /v1/messages",
-		s.surface(messages, s.requireAPIKey(messages, s.inference(messages, "/v1/messages"))))
+		s.serving(messages, s.requireAPIKey(messages, s.inference(messages, "/v1/messages"))))
 
 	// Serving count_tokens matters, and the client says so in its own
 	// code: when a gateway answers 501 here, it falls back to measuring
@@ -140,10 +144,10 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 	// arithmetic, once per measurement. Removing this route because
 	// "nothing seems to call it" would turn that on silently.
 	mux.Handle("POST /v1/messages/count_tokens",
-		s.surface(messages, s.requireAPIKey(messages, s.inference(messages, "/v1/messages/count_tokens"))))
+		s.serving(messages, s.requireAPIKey(messages, s.inference(messages, "/v1/messages/count_tokens"))))
 
 	mux.Handle("POST /v1/responses",
-		s.surface(responses, s.requireAPIKey(responses, s.inference(responses, "/v1/responses"))))
+		s.serving(responses, s.requireAPIKey(responses, s.inference(responses, "/v1/responses"))))
 }
 
 // handleModels answers the discovery request by relaying Anthropic's own model
@@ -169,7 +173,7 @@ func (s *Gateway) handleModels(p api.Protocol) http.HandlerFunc {
 		// The list as this client is served, so a client that sizes its
 		// requests from it sizes them for the model its own binding chose.
 		key, _ := httpx.APIKey(r.Context())
-		body, err := s.models.For(ctx, key, api.ClientName(r.UserAgent()))
+		body, err := s.models.For(ctx, key)
 		if err != nil {
 			s.log.Warn("model discovery failed; answering 502 so the client keeps its cached list",
 				"err", err, "request_id", httpx.RequestID(r.Context()))
@@ -182,7 +186,7 @@ func (s *Gateway) handleModels(p api.Protocol) http.HandlerFunc {
 }
 
 // reachableFrom is a model list less the models a client on route could not
-// use: a model, or an alias serving one, whose provider that route cannot
+// use: a model, or a client's name serving one, whose provider that route cannot
 // reach. A Claude client offered a GPT model would only meet it as a
 // refusal. An entry is a provider's when it says so ("provider", which every
 // provider but the default one's list sets); one that does not is the
@@ -235,24 +239,34 @@ func (s *Gateway) reachableFrom(route string, body []byte) []byte {
 	return out
 }
 
-// surface gates a route on its API being switched on.
+// Setting is the settings row holding the gateway switch (see serving). It
+// replaced one row per API at schema 032, which set it off only where both
+// had been.
+const Setting = "gateway.enabled"
+
+// serving gates a route on the gateway being switched on.
+//
+// One switch for every client-facing route. There were two, one per API; with
+// each client pointed at the API its type speaks, switching one API off was
+// only ever a way to break some clients and not others, and the switch an
+// operator reaches for at three in the morning is "stop serving".
 //
 // It answers 404 rather than 503 on purpose. 503 says "try again shortly" and
-// a client obediently will, for as long as the surface stays off; 404 says the
-// gateway does not serve this, which is the truth and which stops the client
-// rather than making it spin. The message names the surface and where to turn
-// it back on, because the operator reading it in a client's log is usually not
-// the one who flipped the switch.
+// a client obediently will, for as long as the gateway stays off; 404 says
+// the gateway does not serve this, which is the truth and which stops the
+// client rather than making it spin. The message says where to turn it back
+// on, because the operator reading it in a client's log is usually not the
+// one who flipped the switch. It is in the caller's dialect, as every refusal
+// on /v1 is.
 //
-// The check is per request and reads a cached value, so a switch takes effect
-// on the next request with no restart and no lock on the hot path: each
-// switch is an atomic.
-func (s *Gateway) surface(p api.Protocol, next http.Handler) http.Handler {
+// The check is per request and reads an atomic, so the switch takes effect on
+// the next request with no restart and no lock on the hot path. The admin UI
+// is not behind it, which is how it gets switched back on.
+func (s *Gateway) serving(p api.Protocol, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.surfaces.Enabled(p.ID()) {
+		if !s.enabled.On() {
 			p.WriteError(w, http.StatusNotFound, api.KindNotFound,
-				"the "+p.Title()+" is turned off on this gateway; "+
-					"an administrator can switch it back on under Settings")
+				"this gateway is switched off; an administrator can switch it back on under Settings")
 			return
 		}
 		next.ServeHTTP(w, r)

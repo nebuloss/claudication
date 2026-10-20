@@ -24,6 +24,7 @@ var layers = map[string]int{
 	"internal/service/limits":   0,
 	"internal/service/settings": 0,
 	"internal/service/install":  0,
+	"internal/service/clients":  0,
 	"internal/testenv":          0,
 	"internal/arch":             0,
 	"internal/anthropicwire":    0,
@@ -40,7 +41,6 @@ var layers = map[string]int{
 	"internal/provider/openai":    2,
 	"internal/service/accounts":   2,
 	"internal/service/usage":      2,
-	"internal/service/surfaces":   2,
 
 	"internal/relay": 3,
 

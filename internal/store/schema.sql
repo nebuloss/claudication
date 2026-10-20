@@ -1,5 +1,5 @@
 -- claudication's schema, whole: what a fresh database is created with, and
--- what migrations/ brings an older one to. Version 31 (schemaVersion in
+-- what migrations/ brings an older one to. Version 32 (schemaVersion in
 -- store.go).
 --
 -- Written as if from scratch. Migrations 001-028 grew it a column at a time;
@@ -57,11 +57,49 @@ CREATE TABLE api_keys (
     token_budget  INTEGER NOT NULL DEFAULT 0  CHECK (token_budget >= 0)
 );
 
--- The models a key may not ask for. Kept as what is off, so a model released
--- tomorrow is usable by every key until someone decides otherwise, and a key
--- handed to a script can be kept off the expensive model without listing every
--- cheap one. model is as the operator switched it; requests are matched by
--- store.ModelKey, so a dated id and its alias are one model.
+------------------------------------------------------------------ clients
+-- What a key is for: a client the operator set up -- "laptop", "work crush" --
+-- of a type the gateway writes configurations for (internal/service/clients:
+-- claude-code, codex, opencode, crush, or custom), pointed at one of its two
+-- APIs. One client holds exactly one key, so the client's id IS its key's id
+-- and this is a table beside api_keys rather than columns in it: everything
+-- that already names a key -- usage_events, api_key_models_off, the names
+-- table -- names the client with no second id to keep in step, and the
+-- gateway's own titling key, which is no client, is simply the key with no
+-- row here. api_keys stays the credential and its limits, read on every
+-- request; this is what the admin UI and the config writer read.
+--
+-- Every key there was became a custom client at 032, under its own name.
+CREATE TABLE clients (
+    key_id      TEXT    PRIMARY KEY REFERENCES api_keys (id) ON DELETE CASCADE,
+    type        TEXT    NOT NULL,
+    -- The API its configuration points at: anthropic (Messages) or openai
+    -- (Responses), as the gateway's protocols are named.
+    dialect     TEXT    NOT NULL,
+    -- How it names models: binding, its own slot names (every typed client);
+    -- direct, real model ids less api_key_models_off (a custom one may).
+    -- Switching keeps both: the slots and the switches stay stored.
+    mode        TEXT    NOT NULL DEFAULT 'binding' CHECK (mode IN ('binding', 'direct')),
+    -- Set while the operator has the client switched off: its key is refused
+    -- before anything is routed.
+    disabled_at   INTEGER,
+    -- When the client was first set up with its key: its install command
+    -- fetched, or its first request made. The page stops offering the key
+    -- and the install command from then on, until the key is regenerated,
+    -- which clears it. Stored rather than read off the request log, which
+    -- prunes and can be switched off.
+    configured_at INTEGER,
+    -- Whether its chats are named: read off the client's own naming request
+    -- for a type that names its sessions, asked for under its own key on the
+    -- chat's own model for any other. On unless switched off.
+    name_chats    INTEGER NOT NULL DEFAULT 1
+) WITHOUT ROWID;
+
+-- A direct-mode client's models switched off. Kept as what is off, so a model
+-- released tomorrow is usable until someone decides otherwise. model is as the
+-- operator switched it; requests are matched by store.ModelKey, so a dated id
+-- and its short form are one model. A binding-mode client keeps its rows, for
+-- when it is switched back, and is not held to them: it names its slots.
 CREATE TABLE api_key_models_off (
     key_id TEXT    NOT NULL REFERENCES api_keys (id) ON DELETE CASCADE,
     model  TEXT    NOT NULL,
@@ -69,40 +107,33 @@ CREATE TABLE api_key_models_off (
     PRIMARY KEY (key_id, model)
 ) WITHOUT ROWID;
 
--- Model aliases: names the gateway's client configs ask for instead of real
--- models, each bound to one real model, so changing which model a client uses
--- is an edit here rather than a round of every client's configuration. Every
--- client has a slot for the model doing the work and one for titles and
--- summaries (measured 2026-10-15: crush large/small, opencode model and
--- small_model, Codex model, Claude Code's opus and haiku tiers), hence the two
--- roles claude-large and claude-small; family aliases and custom ones sit
--- beside them. See roles.go.
+-- A client's model slots: the model fields its configuration has (crush's
+-- large and small, Codex's model and review_model...), each under a model name
+-- its configuration asks for. A name means something only for its own
+-- client's key -- two clients may each have a "large" -- so it is unique
+-- within the client and nowhere else, and resolving one is a read of the
+-- requesting key's own rows. This replaced the gateway-wide aliases
+-- (claude-large and the rest, model_roles until 032): one name bound in one
+-- place for every client meant moving one client moved them all.
 --
--- A row binds an alias at one of three levels: gateway-wide (key_id and
--- client NULL), for one key (key_id), or for one client (client, as
--- api.ClientName names it from the User-Agent: Claude Code, Codex, crush,
--- opencode, ...). A request takes its key's binding, else its client's, else
--- the gateway's, so Codex's claude-large can be moved without Claude Code's,
--- and a key set apart stays apart whatever its client. Never a key and a
--- client at once: nobody asked for it, and four levels is one more order to
--- explain than it buys. No row means the level follows the one below it.
---
--- key_id NULL rather than '' so a key's rows go with their key by foreign key
--- -- DeleteKey used to remove them with a second statement. An empty model on
--- a built-in alias's gateway row follows its family's newest model.
-CREATE TABLE model_roles (
-    key_id     TEXT    REFERENCES api_keys (id) ON DELETE CASCADE,
-    client     TEXT,
-    role       TEXT    NOT NULL,
+-- A slot is bound to exactly one of: model, a real model of any provider; or
+-- follows, a moving target -- claude:<family>, the newest of a Claude family;
+-- openai:first and openai:light, the ChatGPT backend's ranking -- which is
+-- what the built-in aliases used to follow (internal/service/clients,
+-- Follow). Deleting the client deletes its slots, by the cascade.
+CREATE TABLE client_slots (
+    key_id     TEXT    NOT NULL REFERENCES clients (key_id) ON DELETE CASCADE,
+    slot       TEXT    NOT NULL,
+    name       TEXT    NOT NULL,
     model      TEXT    NOT NULL DEFAULT '',
+    follows    TEXT    NOT NULL DEFAULT '',
+    -- The order a custom client's own slots were added in.
+    created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    CHECK (key_id IS NULL OR client IS NULL)
-);
--- One binding per role at each level. Partial indexes, because NULLs are
--- distinct in a plain UNIQUE (key_id, client, role).
-CREATE UNIQUE INDEX model_roles_global ON model_roles (role) WHERE key_id IS NULL AND client IS NULL;
-CREATE UNIQUE INDEX model_roles_key    ON model_roles (key_id, role) WHERE key_id IS NOT NULL;
-CREATE UNIQUE INDEX model_roles_client ON model_roles (client, role) WHERE client IS NOT NULL;
+    PRIMARY KEY (key_id, slot),
+    UNIQUE (key_id, name),
+    CHECK ((model = '') <> (follows = ''))
+) WITHOUT ROWID;
 
 ------------------------------------------------------------------ accounts
 -- Upstream accounts, one row per logged-in provider account. Tokens are sealed
@@ -186,6 +217,22 @@ CREATE TABLE account_models_off (
     account_id TEXT    NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
     model      TEXT    NOT NULL,
     off_at     INTEGER NOT NULL,
+    PRIMARY KEY (account_id, model)
+) WITHOUT ROWID;
+
+-- The last test of each model on each account: the account page's Models
+-- section runs one tiny turn per model on that account's own credential (no
+-- client's key, and no row in the request log: it is no client's traffic),
+-- and shows the answer after a reload. One row per pair, replaced each time.
+-- error is the upstream's own, empty when the turn was answered.
+CREATE TABLE account_model_tests (
+    account_id TEXT    NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    model      TEXT    NOT NULL,
+    at         INTEGER NOT NULL,
+    ok         INTEGER NOT NULL,
+    status     INTEGER NOT NULL DEFAULT 0,
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    error      TEXT    NOT NULL DEFAULT '',
     PRIMARY KEY (account_id, model)
 ) WITHOUT ROWID;
 

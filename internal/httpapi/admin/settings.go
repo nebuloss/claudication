@@ -25,14 +25,8 @@ func (s *Admin) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		// a screen of their own: they are configuration an operator reasons
 		// about together with the rest, and separating them is how a switch
 		// gets flipped and then lost.
-		"surfaces": s.surfaces.State(),
-		// Beside the surfaces for the same reason, and because it is the one
-		// switch that decides whether the gateway spends the operator's
-		// subscription on its own behalf. That belongs where they are already
-		// looking at what this gateway is allowed to do.
-		"chat_titles":         s.titles.On(),
-		"chat_titles_capture": s.titles.Capturing(),
-		"fit_images":          s.images.On(),
+		"gateway_enabled": s.serving.On(),
+		"fit_images":      s.images.On(),
 	})
 }
 
@@ -55,40 +49,6 @@ func (s *Admin) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
-}
-
-// handleSetSurface turns one client-facing API on or off.
-//
-// It takes effect on the next request — there is no restart and nothing to
-// drain — and it is allowed to leave every surface off. That state stops the
-// gateway serving anything to anyone, which is the point of having the switch
-// at all, so it is not second-guessed here.
-func (s *Admin) handleSetSurface(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	p, ok := s.protocols.Find(id)
-	if !ok {
-		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such API surface")
-		return
-	}
-
-	var body struct {
-		Enabled *bool `json:"enabled"`
-	}
-	if !httpx.DecodeJSONLimit(w, r, &body, 1<<10, switchUsage) {
-		return
-	}
-	if body.Enabled == nil {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "enabled is required")
-		return
-	}
-
-	if err := s.surfaces.Set(r.Context(), id, *body.Enabled); err != nil {
-		s.log.Error("could not store the API surface switch", "surface", id, "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not store the setting")
-		return
-	}
-	s.log.Warn("API surface switched", "surface", id, "title", p.Title(), "enabled", *body.Enabled)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"surfaces": s.surfaces.State()})
 }
 
 // switchUsage is what an on/off endpoint says to a body of the wrong shape.

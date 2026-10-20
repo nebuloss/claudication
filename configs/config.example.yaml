@@ -92,7 +92,7 @@ shutdown:
 # their names, release dates and context windows. The model list is this
 # matched against what the connected accounts list, less what their switches
 # turn off. Until an account can be asked it is listed as it stands, so the
-# aliases and client configs work before the first login. "off" never asks,
+# clients' model names and configs work before the first login. "off" never asks,
 # and the list is then the accounts' own.
 # models-catalog: "https://models.dev/api.json"
 

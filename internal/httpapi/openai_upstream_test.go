@@ -13,16 +13,17 @@ import (
 	"time"
 
 	"claudication/internal/relay/passes"
+	"claudication/internal/service/clients"
 	"claudication/internal/store"
 )
 
 // The second upstream, end to end: two stubs standing in for Anthropic and for
 // ChatGPT's Codex backend, and requests from Codex and from Claude Code routed
-// between them by the model their alias resolves to. Nothing leaves the
+// between them by the model their slot resolves to. Nothing leaves the
 // process.
 
 // codexTurn is a Codex request as Codex sends it through a custom provider,
-// naming an alias.
+// naming one of its slots.
 func codexTurn(model string) string {
 	return `{"model":"` + model + `","stream":true,"store":false,"instructions":"be terse",` +
 		`"include":["reasoning.encrypted_content"],"reasoning":{"summary":"auto"},` +
@@ -185,17 +186,55 @@ func send(t *testing.T, url, key, userAgent, body string, extra map[string]strin
 
 const codexUA = "codex_cli_rs/0.155.0 (Linux 6.12; x86_64) xterm"
 
-// A Codex request for an alias bound to a GPT model goes to the ChatGPT
-// backend as Codex wrote it — only the model resolved, the credential and the
-// workspace added, Codex's own headers kept — and comes back naming the alias.
-func TestCodexAliasBoundToGPTReachesChatGPTUnchanged(t *testing.T) {
-	_, st, base, key, claude, chatgpt := twoUpstreams(t)
+// newClient makes a client of a type on a dialect with its type's slots under
+// their names, each bound as binds says by slot id and following its default
+// otherwise, and returns it with its key's plaintext.
+func newClient(t *testing.T, st *store.Store, name, typ string, d clients.Dialect,
+	binds map[string]store.Binding) (store.Client, string) {
+	t.Helper()
 	ctx := context.Background()
-	if err := st.SetClientRole(ctx, "Codex", store.RoleLarge, "gpt-6-luna"); err != nil {
+	ty, _ := clients.Find(typ)
+	if d == "" {
+		d = ty.DefaultDialect()
+	}
+	var slots []store.NewSlot
+	for _, a := range clients.Plan(nil, ty, d).Add {
+		b := store.Binding{Follows: a.Follows}
+		if got, ok := binds[a.Slot]; ok {
+			b = got
+		}
+		slots = append(slots, store.NewSlot{Slot: a.Slot, Name: a.Name, Binding: b})
+	}
+	c, plain, err := st.CreateClient(ctx, name, ty.ID, d, store.KeyLimits{}, slots)
+	if err != nil {
 		t.Fatal(err)
 	}
+	// Naming chats off: a title request is a second request, sent after the
+	// answer, which a test counting turns or reading the newest row would
+	// race. The tests of naming switch it on.
+	if err := st.SetClientNameChats(ctx, c.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	return c, plain
+}
 
-	sent := codexTurn("claude-large")
+// namingChats switches a test client's "Name chats" back on.
+func namingChats(t *testing.T, st *store.Store, c store.Client) {
+	t.Helper()
+	if err := st.SetClientNameChats(context.Background(), c.ID, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A Codex slot bound to a GPT model goes to the ChatGPT backend as Codex
+// wrote it — only the model resolved, the credential and the workspace
+// added, Codex's own headers kept — and comes back naming the slot.
+func TestCodexSlotBoundToGPTReachesChatGPTUnchanged(t *testing.T) {
+	_, st, base, _, claude, chatgpt := twoUpstreams(t)
+	ctx := context.Background()
+	_, key := newClient(t, st, "ci", "codex", "", map[string]store.Binding{"main": {Model: "gpt-6-luna"}})
+
+	sent := codexTurn("large")
 	resp, body := send(t, base+"/v1/responses", key, codexUA, sent, map[string]string{
 		"Originator": "codex_cli_rs", "Session-Id": "sess-1", "X-Codex-Turn-State": "opaque",
 	})
@@ -227,22 +266,22 @@ func TestCodexAliasBoundToGPTReachesChatGPTUnchanged(t *testing.T) {
 		}
 	}
 
-	// The answer says the alias, in the events and in the header.
-	if strings.Contains(string(body), "gpt-6-luna") || !strings.Contains(string(body), `"model":"claude-large"`) {
-		t.Errorf("the answer named the model, not the alias:\n%s", body)
+	// The answer says the slot, in the events and in the header.
+	if strings.Contains(string(body), "gpt-6-luna") || !strings.Contains(string(body), `"model":"large"`) {
+		t.Errorf("the answer named the model, not the slot:\n%s", body)
 	}
-	if got := resp.Header.Get("OpenAI-Model"); got != "claude-large" {
-		t.Errorf("OpenAI-Model = %q, want the alias", got)
+	if got := resp.Header.Get("OpenAI-Model"); got != "large" {
+		t.Errorf("OpenAI-Model = %q, want the slot", got)
 	}
 	// Named for what it is, which the backend did not.
 	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
 		t.Errorf("Content-Type = %q, want text/event-stream", got)
 	}
 
-	// Recorded as ChatGPT's, its usage normalised and its quota read off the
-	// answer's headers.
+	// Recorded as ChatGPT's, under the client and the slot, its usage
+	// normalised and its quota read off the answer's headers.
 	e := nthEvent(t, st, 1)
-	if e.Provider != "openai" || e.Model != "gpt-6-luna" || e.VirtualModel != "claude-large" ||
+	if e.Provider != "openai" || e.Model != "gpt-6-luna" || e.VirtualModel != "large" || e.KeyName != "ci" ||
 		e.InputTokens != 20 || e.CacheReadTokens != 100 || e.OutputTokens != 9 || e.ReasoningTokens != 4 ||
 		e.ConversationID != "sess-1" {
 		t.Errorf("recorded %+v", e)
@@ -265,108 +304,344 @@ func TestCodexAliasBoundToGPTReachesChatGPTUnchanged(t *testing.T) {
 	}
 }
 
-// gpt-large, unbound, follows the backend's first-ranked model, and a Codex
-// that names a listed model by its id reaches it the same way.
-func TestGPTRolesFollowTheBackendsRanking(t *testing.T) {
-	_, _, base, key, _, chatgpt := twoUpstreams(t)
-	for asked, want := range map[string]string{
-		"gpt-large": "gpt-6.1-sol", "gpt-small": "gpt-6-luna", "gpt-6-astra": "gpt-6-astra",
+// A slot following ChatGPT's ranking serves the backend's first-ranked model,
+// or its light one; a newest-Claude target the newest of its family; and a
+// direct-mode client naming a listed model by its id reaches it the same way.
+func TestFollowTargets(t *testing.T) {
+	_, st, base, _, claude, chatgpt := twoUpstreams(t)
+	ctx := context.Background()
+	c, key := newClient(t, st, "tool", "custom", clients.Responses, nil)
+	for name, f := range map[string]clients.Follow{"first": clients.FollowFirst, "light": clients.FollowLight,
+		"sonnet": clients.FollowSonnet} {
+		if err := st.AddSlot(ctx, c.ID, name, store.Binding{Follows: f}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, direct := newClient(t, st, "direct", "custom", clients.Responses, nil)
+	if err := st.SetClientMode(ctx, keyID(t, st, "direct"), clients.Direct); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ key, asked, want string }{
+		{key, "first", "gpt-6.1-sol"}, {key, "light", "gpt-6-luna"}, {direct, "gpt-6-astra", "gpt-6-astra"},
 	} {
-		resp, body := send(t, base+"/v1/responses", key, codexUA, codexTurn(asked), nil)
+		resp, body := send(t, base+"/v1/responses", tc.key, codexUA, codexTurn(tc.asked), nil)
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("%s: status = %d: %s", asked, resp.StatusCode, body)
+			t.Fatalf("%s: status = %d: %s", tc.asked, resp.StatusCode, body)
 		}
 		turns := chatgpt.turns()
 		var got struct {
 			Model string `json:"model"`
 		}
 		_ = json.Unmarshal(turns[len(turns)-1].body, &got)
-		if got.Model != want {
-			t.Errorf("%s reached ChatGPT as %q, want %q", asked, got.Model, want)
+		if got.Model != tc.want {
+			t.Errorf("%s reached ChatGPT as %q, want %q", tc.asked, got.Model, tc.want)
 		}
+	}
+	// The newest Claude Sonnet the account lists, translated.
+	resp, body := send(t, base+"/v1/responses", key, codexUA, codexTurn("sonnet"), nil)
+	turns := claude.turns()
+	if resp.StatusCode != http.StatusOK || len(turns) != 1 || !strings.Contains(string(turns[0].body), `"model":"claude-sonnet-5"`) {
+		t.Errorf("sonnet: %d %s; Anthropic got %d turns", resp.StatusCode, body, len(turns))
 	}
 }
 
-// A Claude alias from Codex still goes to Anthropic, translated, as it always
-// has; so does a Codex default id no list names.
-func TestCodexClaudeAliasStillTranslatesToAnthropic(t *testing.T) {
-	_, st, base, key, claude, chatgpt := twoUpstreams(t)
-	if err := st.SetModelRole(context.Background(), "", store.RoleLarge, "claude-sonnet-5"); err != nil {
+// keyID is the id of the client named name.
+func keyID(t *testing.T, st *store.Store, name string) string {
+	t.Helper()
+	all, err := st.Clients(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
-	for i, asked := range []string{"claude-large", "gpt-5-codex"} {
-		resp, body := send(t, base+"/v1/responses", key, codexUA, codexTurn(asked), nil)
-		if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "response.completed") {
-			t.Fatalf("%s: status = %d: %s", asked, resp.StatusCode, body)
+	for _, c := range all {
+		if c.Name == name {
+			return c.ID
 		}
-		turns := claude.turns()
-		if len(turns) == 0 || turns[len(turns)-1].path != "/v1/messages" {
-			t.Fatalf("%s did not reach Anthropic's Messages endpoint", asked)
-		}
-		var up struct {
-			Model    string            `json:"model"`
-			Messages []json.RawMessage `json:"messages"`
-		}
-		if err := json.Unmarshal(turns[len(turns)-1].body, &up); err != nil || up.Model != "claude-sonnet-5" || len(up.Messages) == 0 {
-			t.Errorf("%s reached Anthropic as %s", asked, turns[len(turns)-1].body)
-		}
-		if e := nthEvent(t, st, i+1); e.Provider != "anthropic" {
-			t.Errorf("%s recorded as %q's", asked, e.Provider)
-		}
+	}
+	t.Fatalf("no client %s", name)
+	return ""
+}
+
+// A Codex slot bound to a Claude model goes to Anthropic, translated.
+func TestCodexClaudeSlotTranslatesToAnthropic(t *testing.T) {
+	_, st, base, _, claude, chatgpt := twoUpstreams(t)
+	_, key := newClient(t, st, "ci", "codex", "", map[string]store.Binding{"main": {Model: "claude-sonnet-5"}})
+	resp, body := send(t, base+"/v1/responses", key, codexUA, codexTurn("large"), nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "response.completed") {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	turns := claude.turns()
+	if len(turns) != 1 || turns[0].path != "/v1/messages" {
+		t.Fatalf("did not reach Anthropic's Messages endpoint: %d turns", len(turns))
+	}
+	var up struct {
+		Model    string            `json:"model"`
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(turns[0].body, &up); err != nil || up.Model != "claude-sonnet-5" || len(up.Messages) == 0 {
+		t.Errorf("reached Anthropic as %s", turns[0].body)
+	}
+	if e := nthEvent(t, st, 1); e.Provider != "anthropic" || e.VirtualModel != "large" {
+		t.Errorf("recorded %+v", e)
 	}
 	if n := len(chatgpt.turns()); n != 0 {
 		t.Errorf("ChatGPT was sent %d turns", n)
 	}
 }
 
-// Claude Code asking for an alias bound to a GPT model is refused, before
-// anything is spent, in its own envelope, naming the alias and what to do —
-// and its model list does not offer what it cannot use.
-func TestClaudeCodeIsRefusedAGPTAlias(t *testing.T) {
-	srv, st, base, key, claude, chatgpt := twoUpstreams(t)
-	if err := st.SetModelRole(context.Background(), "", store.RoleLarge, "gpt-6.1-sol"); err != nil {
-		t.Fatal(err)
-	}
+// A Claude Code slot bound to a GPT model is refused, before anything is
+// spent, in its own envelope, naming the slot and what to do — and its model
+// list offers its own names that it can use and nothing else.
+func TestClaudeCodeIsRefusedAGPTSlot(t *testing.T) {
+	_, st, base, _, claude, chatgpt := twoUpstreams(t)
+	_, key := newClient(t, st, "laptop", "claude-code", "", map[string]store.Binding{"main": {Model: "gpt-6.1-sol"}})
 	const claudeUA = "claude-cli/2.1.274 (external, sdk-cli)"
-	for _, asked := range []string{"claude-large", "gpt-large", "gpt-6-luna"} {
-		resp, body := send(t, base+"/v1/messages", key, claudeUA,
-			`{"model":"`+asked+`","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
-		if resp.StatusCode != http.StatusBadRequest || errType(t, body) != "invalid_request_error" {
-			t.Errorf("%s: status = %d: %s", asked, resp.StatusCode, body)
-			continue
-		}
-		msg := string(body)
-		if !strings.Contains(msg, asked) || !strings.Contains(msg, "ChatGPT") || !strings.Contains(msg, "/v1/responses") {
-			t.Errorf("%s: the refusal does not say what or how: %s", asked, msg)
-		}
+	resp, body := send(t, base+"/v1/messages", key, claudeUA,
+		`{"model":"claude-large","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
+	if resp.StatusCode != http.StatusBadRequest || errType(t, body) != "invalid_request_error" {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	msg := string(body)
+	if !strings.Contains(msg, "claude-large") || !strings.Contains(msg, "ChatGPT") || !strings.Contains(msg, "client's page") {
+		t.Errorf("the refusal does not say what or how: %s", msg)
 	}
 	if n := len(claude.turns()) + len(chatgpt.turns()); n != 0 {
 		t.Errorf("%d turns reached an upstream", n)
 	}
-	if e := nthEvent(t, st, 3); !e.Rejected || e.Status != http.StatusBadRequest {
+	if e := nthEvent(t, st, 1); !e.Rejected || e.Status != http.StatusBadRequest || e.VirtualModel != "claude-large" {
 		t.Errorf("the refusal was recorded as %+v", e)
 	}
 
-	// The list Claude Code reads offers no GPT model and no alias serving
-	// one; a Codex config written from the gateway's list still names them.
 	req, _ := http.NewRequest(http.MethodGet, base+"/v1/models", nil)
 	req.Header.Set("X-Api-Key", key)
 	req.Header.Set("User-Agent", claudeUA)
-	resp, err := http.DefaultClient.Do(req)
+	r, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	listed, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if strings.Contains(string(listed), "gpt-") || strings.Contains(string(listed), `"id":"claude-large"`) {
+	listed, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if strings.Contains(string(listed), "gpt-") || strings.Contains(string(listed), `"id":"claude-large"`) ||
+		strings.Contains(string(listed), `"id":"claude-sonnet-5"`) {
 		t.Errorf("Claude Code was offered what it cannot use: %s", listed)
 	}
-	if !strings.Contains(string(listed), "claude-sonnet-5") {
-		t.Errorf("Claude Code lost its own models: %s", listed)
+	if !strings.Contains(string(listed), `"id":"claude-small"`) || !strings.Contains(string(listed), `"serving":"claude-haiku-5"`) {
+		t.Errorf("Claude Code lost its own names: %s", listed)
 	}
-	all, err := srv.models.For(context.Background(), store.APIKey{}, "Codex")
-	if err != nil || !strings.Contains(string(all), `"id":"gpt-large"`) || !strings.Contains(string(all), `"id":"gpt-6.1-sol"`) {
-		t.Errorf("the gateway's own list = %s, %v", all, err)
+}
+
+// A client naming its slots names them and nothing else: a real model, or
+// another client's name, is refused listing its own.
+func TestATypedClientNamesOnlyItsSlots(t *testing.T) {
+	_, st, base, _, claude, _ := twoUpstreams(t)
+	_, key := newClient(t, st, "box", "crush", "", nil)
+	for _, asked := range []string{"claude-sonnet-5", "claude-large", "main"} {
+		resp, body := send(t, base+"/v1/messages", key, "Charm Crush/0.9",
+			`{"model":"`+asked+`","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
+		if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "large, small") {
+			t.Errorf("%s: %d %s", asked, resp.StatusCode, body)
+		}
+	}
+	if n := len(claude.turns()); n != 0 {
+		t.Errorf("%d turns reached Anthropic", n)
+	}
+}
+
+// Two clients may each have a "large", and each is served its own.
+func TestNamesAreTheClientsOwn(t *testing.T) {
+	_, st, base, _, claude, _ := twoUpstreams(t)
+	_, a := newClient(t, st, "a", "crush", "", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
+	_, b := newClient(t, st, "b", "crush", "", map[string]store.Binding{"large": {Model: "claude-haiku-5"}})
+	for _, tc := range []struct{ key, want string }{{a, "claude-sonnet-5"}, {b, "claude-haiku-5"}} {
+		resp, body := send(t, base+"/v1/messages", tc.key, "Charm Crush/0.9",
+			`{"model":"large","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d: %s", resp.StatusCode, body)
+		}
+		turns := claude.turns()
+		if !strings.Contains(string(turns[len(turns)-1].body), `"model":"`+tc.want+`"`) {
+			t.Errorf("large reached Anthropic as %s, want %s", turns[len(turns)-1].body, tc.want)
+		}
+	}
+}
+
+// A direct-mode client names real models, less the ones switched off for it,
+// which are refused before anything is spent; in binding mode its switches
+// stay stored and do not apply.
+func TestDirectModeHoldsItsSwitches(t *testing.T) {
+	_, st, base, _, claude, _ := twoUpstreams(t)
+	ctx := context.Background()
+	c, key := newClient(t, st, "tool", "custom", "", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
+	if err := st.SetClientMode(ctx, c.ID, clients.Direct); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetKeyModel(ctx, c.ID, "claude-haiku-5", false); err != nil {
+		t.Fatal(err)
+	}
+	ask := func(model string) int {
+		resp, _ := send(t, base+"/v1/messages", key, "curl/8",
+			`{"model":"`+model+`","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
+		return resp.StatusCode
+	}
+	if s := ask("claude-sonnet-5"); s != http.StatusOK {
+		t.Errorf("an allowed model: %d", s)
+	}
+	if s := ask("claude-haiku-5"); s != http.StatusForbidden {
+		t.Errorf("a switched-off model: %d", s)
+	}
+	if err := st.SetClientMode(ctx, c.ID, clients.Binding); err != nil {
+		t.Fatal(err)
+	}
+	if s := ask("large"); s != http.StatusOK {
+		t.Errorf("its slot in binding mode: %d", s)
+	}
+	if s := ask("claude-sonnet-5"); s != http.StatusNotFound {
+		t.Errorf("a real model in binding mode: %d", s)
+	}
+	if n := len(claude.turns()); n != 2 {
+		t.Errorf("%d turns reached Anthropic, want the two served", n)
+	}
+}
+
+// A switched-off client is refused before anything is routed, in its own
+// dialect, and recorded under its name; switched back on, it is served.
+func TestADisabledClientIsRefused(t *testing.T) {
+	_, st, base, _, claude, _ := twoUpstreams(t)
+	ctx := context.Background()
+	c, key := newClient(t, st, "box", "crush", "", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
+	if err := st.SetClientDisabled(ctx, c.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	turn := `{"model":"large","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`
+	resp, body := send(t, base+"/v1/messages", key, "Charm Crush/0.9", turn, nil)
+	if resp.StatusCode != http.StatusForbidden || errType(t, body) != "permission_error" ||
+		!strings.Contains(string(body), "disabled") {
+		t.Errorf("disabled: %d %s", resp.StatusCode, body)
+	}
+	if e := nthEvent(t, st, 1); !e.Rejected || e.KeyName != "box" {
+		t.Errorf("recorded %+v", e)
+	}
+	if err := st.SetClientDisabled(ctx, c.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if resp, body := send(t, base+"/v1/messages", key, "Charm Crush/0.9", turn, nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("enabled again: %d %s", resp.StatusCode, body)
+	}
+	if n := len(claude.turns()); n != 1 {
+		t.Errorf("%d turns reached Anthropic", n)
+	}
+}
+
+// A slot bound to a model no list names is sent to the default provider, as
+// such a name always was, and is not refused as unserved: where it goes and
+// whether an account there can take it are one answer.
+func TestASlotBoundToAnUnlistedModelIsServedByTheDefault(t *testing.T) {
+	_, st, base, _, claude, chatgpt := twoUpstreams(t)
+	_, key := newClient(t, st, "box", "crush", "", map[string]store.Binding{"large": {Model: "mystery-7"}})
+	resp, body := send(t, base+"/v1/messages", key, "Charm Crush/0.9",
+		`{"model":"large","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	turns := claude.turns()
+	if len(turns) != 1 || !strings.Contains(string(turns[0].body), `"model":"mystery-7"`) {
+		t.Errorf("Anthropic was sent %d turns: %v", len(turns), turns)
+	}
+	if n := len(chatgpt.turns()); n != 0 {
+		t.Errorf("ChatGPT was sent %d turns", n)
+	}
+}
+
+// A crush chat is named by crush: its naming request (the shape of
+// GenerateTitle in crush's source) is recognised, its answer becomes the
+// chat's title, the request is the chat's cost but not one of its turns, and
+// the gateway's titler asks nothing of its own. The chat is grouped by
+// crush's x-session-id, its type's header.
+func TestCrushNamesItsOwnChat(t *testing.T) {
+	_, st, base, _, claude, _ := twoUpstreams(t)
+	c, key := newClient(t, st, "box", "crush", "", map[string]store.Binding{
+		"large": {Model: "claude-sonnet-5"}, "small": {Model: "claude-haiku-5"}})
+	namingChats(t, st, c)
+	session := map[string]string{"X-Session-Id": "9f2c", "X-Session-Affinity": "9f2c"}
+	naming := `{"model":"small","max_tokens":40,"stream":true,` +
+		`"system":[{"type":"text","text":"You will generate a short title based on the first message a user begins a conversation with.\n /no_think"}],` +
+		`"messages":[{"role":"user","content":[{"type":"text","text":"Generate a concise title for the following content:\n\nsay hi\n <think>\n\n</think>"}]}]}`
+	turn := `{"model":"large","max_tokens":100,"stream":true,"tools":[{"name":"bash","input_schema":{"type":"object"}}],` +
+		`"messages":[{"role":"user","content":"say hi"}]}`
+	for _, body := range []string{naming, turn} {
+		if resp, out := send(t, base+"/v1/messages", key, "Charm-Crush/0.9", body, session); resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d: %s", resp.StatusCode, out)
+		}
+	}
+	nthEvent(t, st, 2)
+	deadline := time.Now().Add(5 * time.Second)
+	var rec store.TitleRecord
+	for time.Now().Before(deadline) {
+		var found bool
+		if rec, found, _ = st.TitleRecord(context.Background(), "9f2c"); found {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rec.Title != "hi" || rec.Requests != 0 {
+		t.Errorf("title %+v, want crush's own", rec)
+	}
+	chats, err := st.Chats(context.Background(), time.Now().Add(-time.Hour), 10)
+	if err != nil || len(chats.Chats) != 1 || chats.Chats[0].ID != "9f2c" || chats.Chats[0].Requests != 2 ||
+		chats.Chats[0].Turns != 1 {
+		t.Errorf("chats %+v, %v: want one chat of two requests and one turn", chats.Chats, err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := len(claude.turns()); n != 2 {
+		t.Errorf("Anthropic was sent %d turns, want crush's two and nothing of the gateway's", n)
+	}
+}
+
+// A Claude Code chat — a type that names nothing itself — is named by the
+// gateway under the client's own key, on the chat's model and account, while
+// its "Name chats" switch is on; switched off, nothing is sent.
+func TestGatewayNamesAChatUnderTheClientsKey(t *testing.T) {
+	srv, st, base, _, claude, _ := twoUpstreams(t)
+	abase, ck := adminAPI(t, srv)
+	c, key := newClient(t, st, "laptop", "claude-code", "", map[string]store.Binding{"main": {Model: "claude-sonnet-5"}})
+	namingChats(t, st, c)
+	turn := `{"model":"claude-large","max_tokens":100,"stream":true,` +
+		`"tools":[{"name":"Read","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"say hi"}]}`
+	ask := func(session string) {
+		t.Helper()
+		resp, out := send(t, base+"/v1/messages", key, "claude-cli/2.1.274 (external, sdk-cli)", turn,
+			map[string]string{"X-Claude-Code-Session-Id": session})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d: %s", resp.StatusCode, out)
+		}
+	}
+	waitTurns := func(n int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for len(claude.turns()) < n && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	ask("s1")
+	waitTurns(2)
+	turns := claude.turns()
+	if len(turns) != 2 || !strings.Contains(string(turns[1].body), "short title") ||
+		!strings.Contains(string(turns[1].body), `"model":"claude-sonnet-5"`) {
+		t.Fatalf("Anthropic got %d turns; the second: %s", len(turns), turns[len(turns)-1].body)
+	}
+	e := nthEvent(t, st, 2)
+	if e.Path != store.InternalPath || e.KeyID != c.ID || e.KeyName != "laptop" || e.ConversationID != "s1" {
+		t.Errorf("the title request was recorded as %+v, want the client's", e)
+	}
+
+	if status, body := call(t, abase, http.MethodPost, "/admin/clients/"+c.ID+"/name-chats",
+		`{"enabled":false}`, ck); status != http.StatusOK {
+		t.Fatalf("name-chats: %d %s", status, body)
+	}
+	ask("s2")
+	time.Sleep(200 * time.Millisecond)
+	if n := len(claude.turns()); n != 3 {
+		t.Errorf("Anthropic got %d turns with naming off, want the client's one more", n)
 	}
 }
 
@@ -387,51 +662,4 @@ func nthEvent(t *testing.T, st *store.Store, n int) store.UsageEvent {
 	}
 	t.Fatalf("fewer than %d requests were recorded", n)
 	return store.UsageEvent{}
-}
-
-// A key kept off an alias does not reach it by naming a model no list knows,
-// which the Responses API serves as claude-large: the alias a request is sent
-// to is held to the key as the name it sent is.
-func TestAKeyKeptOffAnAliasCannotReachItByFallback(t *testing.T) {
-	_, st, base, _, claude, _ := twoUpstreams(t)
-	ctx := context.Background()
-	if err := st.SetModelRole(ctx, "", store.RoleLarge, "claude-sonnet-5"); err != nil {
-		t.Fatal(err)
-	}
-	k, plain, err := st.CreateKey(ctx, "kept-off", store.KeyLimits{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetKeyModel(ctx, k.ID, store.RoleLarge, false); err != nil {
-		t.Fatal(err)
-	}
-	resp, body := send(t, base+"/v1/responses", plain, codexUA, codexTurn("gpt-5-codex"), nil)
-	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(body), "claude-large") {
-		t.Errorf("status = %d: %s, want 403 naming claude-large", resp.StatusCode, body)
-	}
-	if n := len(claude.turns()); n != 0 {
-		t.Errorf("%d turns reached Anthropic", n)
-	}
-}
-
-// An alias bound to a model no list names is sent to the default provider, as
-// it was before there was a second one, and is not refused as unserved: where
-// it goes and whether an account there can take it are one answer.
-func TestAnAliasBoundToAnUnlistedModelIsServedByTheDefault(t *testing.T) {
-	_, st, base, key, claude, chatgpt := twoUpstreams(t)
-	if err := st.SetModelRole(context.Background(), "", "team-mystery", "mystery-7"); err != nil {
-		t.Fatal(err)
-	}
-	resp, body := send(t, base+"/v1/messages", key, "claude-cli/2.1.274 (external, sdk-cli)",
-		`{"model":"team-mystery","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d: %s", resp.StatusCode, body)
-	}
-	turns := claude.turns()
-	if len(turns) != 1 || !strings.Contains(string(turns[0].body), `"model":"mystery-7"`) {
-		t.Errorf("Anthropic was sent %d turns: %v", len(turns), turns)
-	}
-	if n := len(chatgpt.turns()); n != 0 {
-		t.Errorf("ChatGPT was sent %d turns", n)
-	}
 }

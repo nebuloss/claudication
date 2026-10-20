@@ -8,22 +8,25 @@ import (
 	"claudication/internal/store"
 )
 
-// Routing: which upstream serves a request, decided from the model it names.
+// Routing: which upstream serves a request, decided from the model it names
+// and the client whose key it carries.
 //
-// The owner's rule (2026-10-19): clients ask for aliases, and the operator
-// moves what an alias serves; nothing is routed by guessing from a name. So:
+// The owner's rule (2026-10-20): a model name means something only for the
+// client that has it, and nothing is routed by guessing from a name. So:
 //
-//  1. A name that is an alias resolves as it always has — the key's binding,
-//     else the client's, else the gateway's, else what the built-in follows
-//     (RoleTarget) — to a real model.
-//  2. The real model, asked for directly or reached through an alias, is
-//     served by the provider whose accounts list it. Ids are disjoint across
-//     providers today, but the lists, not the shape of an id, are the
-//     authority.
-//  3. A name no list knows goes where the dialect sends unknown names: the
-//     OpenAI dialect to its fallback alias (claude-large, as every Codex
-//     request went before there was a second provider), anything else to the
-//     default provider unchanged, which is what happened to it before too.
+//  1. A client that names its own slots — every typed client, and a custom
+//     one in binding mode — asks for one of them, and it resolves through
+//     that client's own table: the model the slot is bound to, or what the
+//     target it follows points at now. Any other name is refused, listing
+//     the client's names: each type's slots are every model field its
+//     configuration has (internal/service/clients), so moving such a client
+//     is always one slot's change and a real id typed into its picker
+//     cannot route around it.
+//  2. A custom client in direct mode names real models, each served by the
+//     provider whose accounts list it.
+//     Ids are disjoint across providers today, but the lists, not the shape
+//     of an id, are the authority; a name no list knows goes to the default
+//     provider unchanged, which says whether it knows it.
 //
 // Whether the caller's API can reach the provider chosen is the gateway's to
 // decide (internal/httpapi/gateway), since it is the dialect that cannot.
@@ -34,42 +37,61 @@ type Route struct {
 	Provider string
 	// Model is the real model to send.
 	Model string
-	// Alias is the alias the request named, when it named one; the answer
-	// says it back (passes.ModelRenamer).
-	Alias string
-	// Why is set when the request cannot be served as asked — its alias
-	// points nowhere, or at a model the key may not use or no account has
-	// on — and says so, naming what to change.
+	// Slot is the client's model name the request named, when it named one;
+	// the answer says it back (passes.ModelRenamer), and the request log
+	// records it.
+	Slot string
+	// Why is set when the request cannot be served as asked — its name is
+	// none of the client's, or its slot points at a model no account has on
+	// — and says so, naming what to change.
 	Why string
 }
 
-// Route decides where a request naming requested goes, for a key and a
-// client. fallback is the alias the caller's dialect sends a name no list
-// knows to, or empty to send it to the default provider as it is.
-func (s *Catalog) Route(ctx context.Context, key store.APIKey, client, requested, fallback string) Route {
-	if requested != "" && s.IsAlias(ctx, requested) {
-		return s.aliasRoute(ctx, key, client, store.ModelKey(requested))
+// Route decides where a request naming requested goes, for a key.
+func (s *Catalog) Route(ctx context.Context, key store.APIKey, requested string) Route {
+	if key.NamesSlots() {
+		sl, ok, err := s.store.ClientSlotNamed(ctx, key.ID, requested)
+		switch {
+		case err != nil:
+			return Route{Provider: s.defaultProvider(), Model: requested, Why: "could not read the client's model names"}
+		case !ok:
+			return Route{Provider: s.defaultProvider(), Model: requested, Why: s.ownNamesOnly(ctx, key, requested)}
+		}
+		target, why := s.SlotTarget(ctx, sl)
+		return Route{Provider: s.ServingProvider(ctx, target), Model: target, Slot: sl.Name, Why: why}
 	}
 	if p := s.ProviderOf(ctx, requested); p != "" {
 		return Route{Provider: p, Model: requested}
 	}
-	if fallback != "" {
-		return s.aliasRoute(ctx, key, client, store.ModelKey(fallback))
-	}
 	return Route{Provider: s.defaultProvider(), Model: requested}
 }
 
-func (s *Catalog) aliasRoute(ctx context.Context, key store.APIKey, client, alias string) Route {
-	target, why := s.RoleTarget(ctx, key, client, alias)
-	return Route{Provider: s.servingProvider(ctx, target), Model: target, Alias: alias, Why: why}
+// ownNamesOnly is the refusal of a request for a name that is not one of its
+// client's.
+func (s *Catalog) ownNamesOnly(ctx context.Context, key store.APIKey, requested string) string {
+	what := "a request naming no model"
+	if requested != "" {
+		what = requested
+	}
+	slots, err := s.store.ClientSlots(ctx, key.ID)
+	if err != nil || len(slots) == 0 {
+		return "this client has no model names yet, and " + what + " is not one; an administrator adds " +
+			"them on the client's page"
+	}
+	names := make([]string, 0, len(slots))
+	for _, sl := range slots {
+		names = append(names, sl.Name)
+	}
+	return "this client asks for its own model names (" + strings.Join(names, ", ") + "), and " +
+		what + " is not one; an administrator changes what each serves on the client's page"
 }
 
-// servingProvider is the provider an alias's target is sent to: the one whose
+// ServingProvider is the provider a resolved model is sent to: the one whose
 // accounts list it, else the default provider, which is where a bound model
 // no list names was sent before there was a second provider. One answer for
 // where the request goes and for whether an account there can take it
-// (RoleTarget), so the two cannot disagree.
-func (s *Catalog) servingProvider(ctx context.Context, model string) string {
+// (SlotTarget), so the two cannot disagree.
+func (s *Catalog) ServingProvider(ctx context.Context, model string) string {
 	if p := s.ProviderOf(ctx, model); p != "" {
 		return p
 	}

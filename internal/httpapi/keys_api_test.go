@@ -9,7 +9,9 @@ import (
 	"claudication/internal/httpapi/admin"
 )
 
-func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
+// A client made over the admin API holds a key that works, is listed without
+// its secret, and stops working the moment it is deleted.
+func TestClientLifecycleOverTheAdminAPI(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
@@ -21,14 +23,14 @@ func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
 	in.Body.Close()
 
 	// Create.
-	made := postJSON(t, base, http.MethodPost, "/admin/keys",
-		map[string]any{"name": "laptop", "rpm_limit": 120}, cookie)
+	made := postJSON(t, base, http.MethodPost, "/admin/clients",
+		map[string]any{"name": "laptop", "type": "crush", "rpm_limit": 120}, cookie)
 	if made.StatusCode != http.StatusOK {
 		t.Fatalf("create: status = %d, want 200", made.StatusCode)
 	}
 	var created struct {
-		Key       admin.KeyJSON `json:"key"`
-		Plaintext string        `json:"plaintext"`
+		Client    admin.ClientJSON `json:"client"`
+		Plaintext string           `json:"plaintext"`
 	}
 	if err := json.NewDecoder(made.Body).Decode(&created); err != nil {
 		t.Fatal(err)
@@ -39,11 +41,14 @@ func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
 		t.Errorf("plaintext = %q, want a clc_ prefix", created.Plaintext)
 	}
 	// The whole point of hashing it: the listing must not be able to show it.
-	if strings.Contains(created.Key.Display, created.Plaintext) {
+	if strings.Contains(created.Client.Display, created.Plaintext) {
 		t.Error("the display form must be a prefix, not the key")
 	}
-	if created.Key.RPMLimit != 120 {
-		t.Errorf("rpm_limit = %d, want 120", created.Key.RPMLimit)
+	c := created.Client
+	if c.RPMLimit != 120 || c.Type != "crush" || c.Dialect != "anthropic" || c.Mode != "binding" ||
+		len(c.Slots) != 2 || c.Slots[0].Name != "large" || c.Slots[1].Name != "small" ||
+		c.Slots[0].Bound != "claude:opus" {
+		t.Errorf("created %+v", c)
 	}
 
 	// The key works against the proxy surface. What is under test here is the
@@ -62,30 +67,28 @@ func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
 	}
 
 	// List.
-	list := getWithCookie(t, base, "/admin/keys", cookie)
 	var listed struct {
-		Keys []admin.KeyJSON `json:"keys"`
+		Clients []admin.ClientJSON `json:"clients"`
 	}
+	list := getWithCookie(t, base, "/admin/clients", cookie)
 	if err := json.NewDecoder(list.Body).Decode(&listed); err != nil {
 		t.Fatal(err)
 	}
 	list.Body.Close()
-	if len(listed.Keys) != 1 || listed.Keys[0].Name != "laptop" {
-		t.Fatalf("listing = %+v, want one key named laptop", listed.Keys)
+	if len(listed.Clients) != 1 || listed.Clients[0].Name != "laptop" {
+		t.Fatalf("listing = %+v, want one client named laptop", listed.Clients)
 	}
 	// A listing that leaked the plaintext would undo the hashing entirely.
-	if strings.Contains(listed.Keys[0].Display, strings.TrimPrefix(created.Plaintext, "clc_")) {
+	if strings.Contains(listed.Clients[0].Display, strings.TrimPrefix(created.Plaintext, "clc_")) {
 		t.Error("the listing leaks the full key")
 	}
 
-	// Delete, and the credential stops working immediately. There is no
-	// separate revoke: it could not be undone either, so it was this twice.
-	del := postJSON(t, base, http.MethodDelete, "/admin/keys/"+created.Key.ID, nil, cookie)
+	// Delete, and the credential stops working immediately.
+	del := postJSON(t, base, http.MethodDelete, "/admin/keys/"+c.ID, nil, cookie)
 	del.Body.Close()
 	if del.StatusCode != http.StatusOK {
 		t.Fatalf("delete: status = %d, want 200", del.StatusCode)
 	}
-
 	req, _ = http.NewRequest(http.MethodGet, base+"/v1/models", nil)
 	req.Header.Set("X-Api-Key", created.Plaintext)
 	resp, err = http.DefaultClient.Do(req)
@@ -96,26 +99,23 @@ func TestKeyLifecycleOverTheAdminAPI(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("deleted key: status = %d, want 401", resp.StatusCode)
 	}
-
-	// Deleting twice is not the operator's mistake; there is simply nothing
-	// left to delete.
-	again := postJSON(t, base, http.MethodDelete, "/admin/keys/"+created.Key.ID, nil, cookie)
+	again := postJSON(t, base, http.MethodDelete, "/admin/keys/"+c.ID, nil, cookie)
 	again.Body.Close()
 	if again.StatusCode != http.StatusNotFound {
 		t.Errorf("second delete: status = %d, want 404", again.StatusCode)
 	}
-	list = getWithCookie(t, base, "/admin/keys", cookie)
-	listed.Keys = nil
+	list = getWithCookie(t, base, "/admin/clients", cookie)
+	listed.Clients = nil
 	if err := json.NewDecoder(list.Body).Decode(&listed); err != nil {
 		t.Fatal(err)
 	}
 	list.Body.Close()
-	if len(listed.Keys) != 0 {
-		t.Errorf("after delete the listing still has %d keys", len(listed.Keys))
+	if len(listed.Clients) != 0 {
+		t.Errorf("after delete the listing still has %d clients", len(listed.Clients))
 	}
 }
 
-func TestCreateKeyRejectsAnEmptyName(t *testing.T) {
+func TestCreateClientRefusesWhatCannotBe(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	base, cancel, done := startServer(t, srv)
 	defer func() { cancel(); <-done }()
@@ -126,12 +126,17 @@ func TestCreateKeyRejectsAnEmptyName(t *testing.T) {
 	cookie := sessionCookieOf(t, in)
 	in.Body.Close()
 
-	for _, name := range []string{"", "   "} {
-		resp := postJSON(t, base, http.MethodPost, "/admin/keys",
-			map[string]any{"name": name}, cookie)
+	for _, body := range []map[string]any{
+		{"name": "", "type": "crush"},
+		{"name": "   ", "type": "crush"},
+		{"name": "x", "type": "emacs"},
+		{"name": "x", "type": "claude-code", "dialect": "openai"},
+		{"name": "x", "type": "codex", "dialect": "anthropic"},
+	} {
+		resp := postJSON(t, base, http.MethodPost, "/admin/clients", body, cookie)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusBadRequest {
-			t.Errorf("name %q: status = %d, want 400", name, resp.StatusCode)
+			t.Errorf("%v: status = %d, want 400", body, resp.StatusCode)
 		}
 	}
 }
@@ -144,7 +149,7 @@ func TestNewAdminEndpointsRequireASession(t *testing.T) {
 	defer func() { cancel(); <-done }()
 	setupAdmin(t, st)
 
-	for _, path := range []string{"/admin/overview", "/admin/keys", "/admin/usage", "/admin/requests"} {
+	for _, path := range []string{"/admin/overview", "/admin/clients", "/admin/usage", "/admin/requests"} {
 		resp, err := http.Get(base + path)
 		if err != nil {
 			t.Fatal(err)
@@ -155,9 +160,9 @@ func TestNewAdminEndpointsRequireASession(t *testing.T) {
 		}
 	}
 
-	resp := postJSON(t, base, http.MethodPost, "/admin/keys", map[string]any{"name": "x"})
+	resp := postJSON(t, base, http.MethodPost, "/admin/clients", map[string]any{"name": "x", "type": "crush"})
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("POST /admin/keys: status = %d, want 401", resp.StatusCode)
+		t.Errorf("POST /admin/clients: status = %d, want 401", resp.StatusCode)
 	}
 }

@@ -285,6 +285,15 @@ func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.store.MarkAccountError(r.Context(), id, result.Error)
 	}
+	// A test of one model is kept, for the account's Models section to show
+	// after a reload. It is the account's own credential and no client's
+	// traffic, so it is not in the request log, and counts against nobody.
+	if body.Model != "" {
+		if err := s.store.SaveModelTest(r.Context(), id, store.ModelTest{Model: body.Model, At: time.Now(),
+			OK: result.OK, Status: result.Status, LatencyMS: result.LatencyMS, Error: result.Error}); err != nil {
+			s.log.Warn("could not keep a model test", "account", id, "model", body.Model, "err", err)
+		}
+	}
 	httpx.WriteJSON(w, http.StatusOK, result)
 }
 

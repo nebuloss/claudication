@@ -10,8 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"claudication/internal/store"
 )
 
 // A cut of models.dev's api.json as measured: other providers beside
@@ -45,10 +43,7 @@ func TestModelCatalogue(t *testing.T) {
 	defer cat.Close()
 	srv.cfg.ModelsCatalog = cat.URL
 
-	_, key, err := st.CreateKey(context.Background(), "laptop", store.KeyLimits{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, key := newClient(t, st, "laptop", "crush", "", nil)
 	base, _ := adminAPI(t, srv)
 	type entry struct {
 		ID        string `json:"id"`
@@ -82,8 +77,9 @@ func TestModelCatalogue(t *testing.T) {
 	for _, e := range got {
 		ids = append(ids, e.ID)
 	}
-	want := []string{"claude-large", "claude-small", "claude-opus", "claude-haiku",
-		"claude-opus-5-5", "claude-opus-5", "claude-haiku-4-5"}
+	// A crush client is offered its two names, each following the newest of
+	// its family as the catalogue has it.
+	want := []string{"large", "small"}
 	if len(ids) != len(want) {
 		t.Fatalf("no account: listed %v, want %v", ids, want)
 	}
@@ -93,10 +89,10 @@ func TestModelCatalogue(t *testing.T) {
 		}
 	}
 	if got[0].Serving != "claude-opus-5-5" || got[0].MaxInput != 1000000 || got[0].MaxOutput != 128000 {
-		t.Errorf("claude-large from the catalogue: %+v", got[0])
+		t.Errorf("large from the catalogue: %+v", got[0])
 	}
-	if got[4].CreatedAt != "2026-09-01T00:00:00Z" {
-		t.Errorf("release date: %q", got[4].CreatedAt)
+	if got[1].Serving != "claude-haiku-4-5" || got[1].MaxInput != 200000 {
+		t.Errorf("small from the catalogue: %+v", got[1])
 	}
 	_ = list()
 	if n := reads.Load(); n != 1 {

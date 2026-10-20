@@ -28,12 +28,26 @@ type SubscriptionShare struct {
 	SevenDay float64 `json:"seven_day"`
 	// Accounts is where it came from, for the key's own page.
 	Accounts []AccountShare `json:"accounts"`
+	// Providers is the same per provider: the share of the pool of Claude
+	// accounts and of the pool of ChatGPT ones, each over its own accounts,
+	// since the two subscriptions are separate budgets.
+	Providers []ProviderShare `json:"providers"`
+}
+
+// ProviderShare is one key's estimated use of one provider's pooled
+// subscription, in percent of that pool, as SubscriptionShare's figures are.
+type ProviderShare struct {
+	Provider string  `json:"provider"`
+	FiveHour float64 `json:"five_hour"`
+	SevenDay float64 `json:"seven_day"`
+	Accounts int     `json:"accounts"`
 }
 
 // AccountShare is one key on one account.
 type AccountShare struct {
 	AccountID string `json:"account_id"`
 	Email     string `json:"email"`
+	Provider  string `json:"provider"`
 	// FiveHour and SevenDay are percentage points of this account's window.
 	FiveHour float64 `json:"five_hour"`
 	SevenDay float64 `json:"seven_day"`
@@ -46,6 +60,7 @@ type AccountShare struct {
 // accountWindows is what the estimate needs from one account.
 type accountWindows struct {
 	id, email        string
+	provider         string
 	util5, util7     float64
 	weight5, weight7 map[string]float64
 }
@@ -53,9 +68,19 @@ type accountWindows struct {
 // shareOf is the arithmetic, apart from the store so it can be checked
 // against numbers worked by hand.
 func shareOf(keyID string, accounts []accountWindows) SubscriptionShare {
-	out := SubscriptionShare{Accounts: []AccountShare{}}
+	out := SubscriptionShare{Accounts: []AccountShare{}, Providers: []ProviderShare{}}
 	if len(accounts) == 0 {
 		return out
+	}
+	pools := map[string]*ProviderShare{}
+	for _, a := range accounts {
+		p := pools[a.provider]
+		if p == nil {
+			p = &ProviderShare{Provider: a.provider}
+			pools[a.provider] = p
+			out.Providers = append(out.Providers, ProviderShare{Provider: a.provider})
+		}
+		p.Accounts++
 	}
 	for _, a := range accounts {
 		f5 := fraction(a.weight5, keyID)
@@ -64,16 +89,23 @@ func shareOf(keyID string, accounts []accountWindows) SubscriptionShare {
 			continue
 		}
 		s := AccountShare{
-			AccountID: a.id, Email: a.email,
+			AccountID: a.id, Email: a.email, Provider: a.provider,
 			FiveHourShare: f5, SevenDayShare: f7,
 			FiveHour: f5 * a.util5, SevenDay: f7 * a.util7,
 		}
 		out.FiveHour += s.FiveHour
 		out.SevenDay += s.SevenDay
+		pools[a.provider].FiveHour += s.FiveHour
+		pools[a.provider].SevenDay += s.SevenDay
 		out.Accounts = append(out.Accounts, s)
 	}
 	out.FiveHour /= float64(len(accounts))
 	out.SevenDay /= float64(len(accounts))
+	for i := range out.Providers {
+		p := pools[out.Providers[i].Provider]
+		out.Providers[i] = ProviderShare{Provider: p.Provider, Accounts: p.Accounts,
+			FiveHour: p.FiveHour / float64(p.Accounts), SevenDay: p.SevenDay / float64(p.Accounts)}
+	}
 	return out
 }
 
@@ -112,7 +144,7 @@ func (s *Admin) subscriptionWindows(ctx context.Context) ([]accountWindows, erro
 		if !q.Known() {
 			continue
 		}
-		w := accountWindows{id: a.ID, email: a.Email, util5: max(q.FiveHourUtil, 0), util7: max(q.SevenDayUtil, 0)}
+		w := accountWindows{id: a.ID, email: a.Email, provider: a.Provider, util5: max(q.FiveHourUtil, 0), util7: max(q.SevenDayUtil, 0)}
 		if w.weight5, err = s.store.KeyWeights(ctx, a.ID, windowStart(q.FiveHourReset, 5*time.Hour, now)); err != nil {
 			return nil, err
 		}

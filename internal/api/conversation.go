@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"sort"
 	"strings"
 )
 
@@ -124,7 +123,9 @@ func SessionFromMetadata(body []byte) string {
 }
 
 // clientNames maps the product token a client puts at the front of its
-// User-Agent to the name an operator would recognise.
+// User-Agent to the name an operator would recognise: what the request log
+// shows as the tool a client's key was used from. A client's type, not this,
+// decides how its requests are grouped and named (internal/service/clients).
 //
 // Measured from the same capture:
 //
@@ -143,18 +144,6 @@ var clientNames = map[string]string{
 	"opencode":     "opencode",
 	"codex_cli_rs": "Codex",
 	"Charm-Crush":  "crush",
-}
-
-// KnownClients are the names ClientName gives the clients it recognises, in
-// a fixed order: what an alias can be bound for before any of them has made
-// a request.
-func KnownClients() []string {
-	out := make([]string, 0, len(clientNames))
-	for _, name := range clientNames {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // ClientName is the product a User-Agent claims to be.

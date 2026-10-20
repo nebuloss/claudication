@@ -21,26 +21,12 @@ import (
 // longer being spoken, and here they are the protocol. The provider adds the
 // account's credential and nothing else (internal/provider/openai).
 //
-// An alias in the model field is still the gateway's to resolve, and its
-// answer still names the alias: the response.* events carry the model in the
+// A client's model name in the model field is still the gateway's to resolve,
+// and its answer still names it: the response.* events carry the model in the
 // same top-level response object the translation writes, so ModelEvents is
 // the same list.
 func (API) DecodeNative(body []byte) (api.Exchange, error) {
 	return native{body: body, prologue: request.Peek(body)}, nil
-}
-
-// FallbackFor is the alias a request naming model is sent to when no
-// provider's list names it: the large role, as every Codex request was
-// before the gateway had a second provider — Codex's own default ids
-// (gpt-5-codex and the like) are not Claude's, and a gateway with no ChatGPT
-// account should still serve them. A name that already looks like Claude's is
-// sent on as it is, as the translation always did: the upstream says whether
-// it knows it.
-func (a API) FallbackFor(model string) string {
-	if strings.HasPrefix(model, claudeModelPrefix) {
-		return ""
-	}
-	return a.model
 }
 
 type native struct {
@@ -63,7 +49,7 @@ func (native) Headers(http.Header) {}
 // not: a streamed answer comes back from it with no Content-Type at all
 // (measured 2026-10-20, internal/provider/openai/testdata/live-stream.txt),
 // which Go's server would then label text/plain. An OpenAI SDK reading that
-// does not read it as a stream, and nothing below — the alias renamer above
+// does not read it as a stream, and nothing below — the model renamer above
 // all — can tell it is one. So a successful answer to a streaming request
 // that names no type is named text/event-stream, which is what it is. A
 // refusal is left as it came: it is JSON, and says so.

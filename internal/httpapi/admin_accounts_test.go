@@ -432,6 +432,15 @@ func TestTestAccountRefreshesAndRecordsTheVerdict(t *testing.T) {
 	if a, _ := st.Account(ctx, expired.ID); a.LastUsedAt == nil || a.LastError != "" {
 		t.Errorf("a passing test was not recorded: %+v", a)
 	}
+	// A model's test is kept for the account's Models section, and is no
+	// client's traffic: nothing is in the request log.
+	if tests, err := st.ModelTests(ctx, expired.ID); err != nil || !tests["claude-haiku-4-5"].OK ||
+		tests["claude-haiku-4-5"].Status != http.StatusOK {
+		t.Errorf("model tests = %+v, %v", tests, err)
+	}
+	if events, _, _ := st.RecentUsage(ctx, 10, store.UsageCursor{}, store.RequestFilter{}); len(events) != 0 {
+		t.Errorf("a test was recorded as traffic: %+v", events)
+	}
 
 	broken := addAccount(t, srv, st, "broken@example.com", "revoked-access", "r", time.Now().Add(time.Hour))
 	status, body = call(t, base, http.MethodPost, "/admin/accounts/"+broken.ID+"/test", "", c)
@@ -595,13 +604,13 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodDelete, "/admin/accounts/x"},
 		{http.MethodGet, "/admin/config"},
 		{http.MethodGet, "/admin/models"},
-		{http.MethodPost, "/admin/surfaces/openai"},
+		{http.MethodPost, "/admin/gateway"},
 		{http.MethodGet, "/admin/overview"},
 		{http.MethodGet, "/admin/usage"},
 		{http.MethodGet, "/admin/chats"},
 		{http.MethodGet, "/admin/chats/x"},
 		{http.MethodPut, "/admin/chats/x/title"},
-		{http.MethodPost, "/admin/chat-titles"},
+		{http.MethodPost, "/admin/clients/x/name-chats"},
 		{http.MethodPost, "/admin/fit-images"},
 		{http.MethodGet, "/admin/requests"},
 		{http.MethodGet, "/admin/requests/facets"},
@@ -610,9 +619,20 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodGet, "/admin/keys/x/models"},
 		{http.MethodPost, "/admin/keys/x/rotate"},
 		{http.MethodGet, "/admin/keys/x/offered-models"},
-		{http.MethodGet, "/admin/model-roles"},
-		{http.MethodPut, "/admin/model-roles"},
-		{http.MethodDelete, "/admin/model-roles"},
+		{http.MethodGet, "/admin/client-types"},
+		{http.MethodGet, "/admin/clients"},
+		{http.MethodPost, "/admin/clients"},
+		{http.MethodGet, "/admin/clients/x"},
+		{http.MethodPost, "/admin/clients/x/plan"},
+		{http.MethodPost, "/admin/clients/x/type"},
+		{http.MethodPost, "/admin/clients/x/mode"},
+		{http.MethodPost, "/admin/clients/x/disabled"},
+		{http.MethodPost, "/admin/clients/x/slots"},
+		{http.MethodPut, "/admin/clients/x/slots/large"},
+		{http.MethodDelete, "/admin/clients/x/slots/large"},
+		{http.MethodGet, "/admin/clients/x/limits"},
+		{http.MethodGet, "/admin/clients/x/limits/suggest"},
+		{http.MethodPost, "/admin/clients/x/limits/preview"},
 		{http.MethodGet, "/admin/keys/x/secret"},
 		{http.MethodPost, "/admin/keys/x/models"},
 	} {

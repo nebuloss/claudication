@@ -1,25 +1,28 @@
 package gateway
 
 import (
+	"errors"
 	"net/http"
 
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/service/install"
 )
 
-// handleInstall serves the script a key's install command runs:
+// handleInstall serves the script a client's install command runs:
 //
-//	/install?token=<t>&shell=sh|ps1&client=<id>[,<id>…]
+//	/install?token=<t>&shell=sh|ps1
 //
-// The token is the only credential, and it is long, random and minutes old.
-// Each request still spends the unauthenticated budget, so guessing at tokens
-// costs what guessing at keys does.
+// The token is the only credential, and it is long, random, minutes old and
+// good for one fetch. Each request still spends the unauthenticated budget,
+// so guessing at tokens costs what guessing at keys does. The fetch that
+// takes a link marks its client set up, which is when the client's page
+// stops offering the key and the command.
 //
 // What goes wrong is said twice: in the status, which is what `curl -f`
 // refuses on and `irm` throws on, and in the body, as a script that fails
 // with the reason — never a page, since what comes back is being piped into a
-// shell. 401 for a token that is missing, unknown or expired; 400 for a shell
-// or a client the address cannot mean.
+// shell. 401 for a token that is missing, unknown or expired, 410 for one
+// already used; 400 for a shell the address cannot mean.
 func (s *Gateway) handleInstall(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	shell := q.Get("shell")
@@ -41,16 +44,20 @@ func (s *Gateway) handleInstall(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, "shell must be sh or ps1.")
 		return
 	}
-	bundle, ok := s.install.Get(q.Get("token"))
-	if !ok {
-		fail(http.StatusUnauthorized,
-			"this install command has expired or its token is wrong. Make a new one on the key's Clients page.")
+	if shell == "" {
+		shell = "sh"
+	}
+	bundle, err := s.install.Take(q.Get("token"), ip, shell)
+	switch {
+	case errors.Is(err, install.ErrUsed):
+		fail(http.StatusGone, err.Error()+".")
+		return
+	case err != nil:
+		fail(http.StatusUnauthorized, err.Error()+".")
 		return
 	}
-	bundle = bundle.For(q.Get("client"))
-	if len(bundle.Files) == 0 {
-		fail(http.StatusBadRequest, "no client by that name: use claude-code, codex, opencode or crush.")
-		return
+	if err := s.store.MarkConfigured(r.Context(), bundle.ClientID); err != nil {
+		s.log.Warn("could not mark a client configured", "client", bundle.ClientID, "err", err)
 	}
 	script := install.Shell(bundle)
 	if ps {

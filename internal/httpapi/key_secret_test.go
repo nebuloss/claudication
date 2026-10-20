@@ -4,13 +4,11 @@ import (
 	"context"
 	"net/http"
 	"testing"
-
-	"claudication/internal/store"
 )
 
 // A key made through the admin API can be shown again — the same secret, which
 // authenticates — and after a new secret is issued, it is the new one that is
-// shown. A key whose secret was never kept answers secret_not_kept.
+// shown.
 func TestKeySecretCanBeShownAgain(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	base, c := adminAPI(t, srv)
@@ -19,10 +17,10 @@ func TestKeySecretCanBeShownAgain(t *testing.T) {
 		Key struct {
 			ID         string `json:"id"`
 			SecretKept bool   `json:"secret_kept"`
-		} `json:"key"`
+		} `json:"client"`
 		Plaintext string `json:"plaintext"`
 	}
-	status, body := call(t, base, http.MethodPost, "/admin/keys", `{"name":"laptop"}`, c)
+	status, body := call(t, base, http.MethodPost, "/admin/clients", `{"name":"laptop","type":"crush"}`, c)
 	if status != http.StatusOK {
 		t.Fatalf("create: %d %s", status, body)
 	}
@@ -57,14 +55,6 @@ func TestKeySecretCanBeShownAgain(t *testing.T) {
 		t.Errorf("the shown secret does not authenticate: %v", err)
 	}
 
-	// Made before secrets were kept: only its hash exists.
-	old, _, err := st.CreateUnkeptKey(context.Background(), "old", store.KeyLimits{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status, kind := shown(old.ID); status != http.StatusConflict || kind != "secret_not_kept" {
-		t.Errorf("a key without a kept secret: %d %s", status, kind)
-	}
 	if status, _ := shown("nope"); status != http.StatusNotFound {
 		t.Errorf("an unknown key: %d", status)
 	}

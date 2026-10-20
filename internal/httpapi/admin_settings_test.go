@@ -8,9 +8,8 @@ import (
 	"time"
 
 	"claudication/internal/httpapi/admin"
+	"claudication/internal/httpapi/gateway"
 	"claudication/internal/relay/passes"
-	"claudication/internal/service/surfaces"
-	"claudication/internal/service/titles"
 	"claudication/internal/store"
 )
 
@@ -25,13 +24,13 @@ func TestConfigReportsSettingsAndSwitches(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	got := decode[map[string]any](t, body)
-	for _, k := range []string{"path", "settings", "surfaces", "chat_titles", "chat_titles_capture", "fit_images"} {
+	for _, k := range []string{"path", "settings", "gateway_enabled", "fit_images"} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("config is missing %q", k)
 		}
 	}
-	if got["fit_images"] != false || got["chat_titles"] != false {
-		t.Errorf("a fresh gateway has a switch on: %v", got)
+	if got["fit_images"] != false || got["gateway_enabled"] != true {
+		t.Errorf("a fresh gateway has a switch the wrong way: %v", got)
 	}
 }
 
@@ -56,56 +55,66 @@ func TestAdminModels(t *testing.T) {
 	}
 }
 
-// A surface switched off over the API is off for the next request and stays
-// off across a restart; the answer is the whole state, so the UI redraws from
-// what the server holds rather than from what it asked for.
-func TestSetSurfaceOverTheAPI(t *testing.T) {
+// The gateway switched off over the API is off for the next request on every
+// client-facing route, each refusing in its own dialect's envelope; the admin
+// API goes on answering, and the switch is stored, so it survives a restart.
+func TestGatewaySwitch(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	base, c := adminAPI(t, srv)
 
-	status, body := call(t, base, http.MethodPost, "/admin/surfaces/openai", `{"enabled":false}`, c)
-	if status != http.StatusOK {
+	status, body := call(t, base, http.MethodPost, "/admin/gateway", `{"enabled":false}`, c)
+	if status != http.StatusOK || decode[map[string]any](t, body)["gateway_enabled"] != false {
 		t.Fatalf("status = %d: %s", status, body)
 	}
-	got := decode[struct {
-		Surfaces []surfaces.Surface `json:"surfaces"`
-	}](t, body)
-	seen := false
-	for _, s := range got.Surfaces {
-		if s.ID == "openai" {
-			seen = true
-			if s.Enabled {
-				t.Error("openai still enabled in the answer")
-			}
-		}
-	}
-	if !seen {
-		t.Errorf("surfaces = %+v", got.Surfaces)
-	}
-	if v, ok, _ := st.Setting(context.Background(), surfaces.Key("openai")); !ok || v != "false" {
+	if v, ok, _ := st.Setting(context.Background(), gateway.Setting); !ok || v != "false" {
 		t.Errorf("stored = %q, %v", v, ok)
 	}
-	// And the relay honours it at once.
-	if status, _ := call(t, base, http.MethodPost, "/v1/responses", `{}`, nil); status != http.StatusNotFound {
-		t.Errorf("a switched-off surface answered %d", status)
-	}
-
-	for _, tc := range []struct{ path, body string }{
-		{"/admin/surfaces/openai", `{}`},
-		{"/admin/surfaces/openai", `nope`},
+	for _, rt := range []struct{ method, path, envelope string }{
+		{http.MethodGet, "/v1/models", `"type":"error"`},
+		{http.MethodPost, "/v1/messages", `"type":"error"`},
+		{http.MethodPost, "/v1/messages/count_tokens", `"type":"error"`},
+		{http.MethodPost, "/v1/responses", `"code":`},
 	} {
-		if status, _ := call(t, base, http.MethodPost, tc.path, tc.body, c); status != http.StatusBadRequest {
-			t.Errorf("%s %s: %d", tc.path, tc.body, status)
+		status, body := call(t, base, rt.method, rt.path, `{}`, nil)
+		if status != http.StatusNotFound || !strings.Contains(string(body), "switched off") ||
+			!strings.Contains(string(body), rt.envelope) {
+			t.Errorf("%s %s with the gateway off: %d %s", rt.method, rt.path, status, body)
 		}
 	}
-	if status, _ := call(t, base, http.MethodPost, "/admin/surfaces/grpc", `{"enabled":true}`, c); status != http.StatusNotFound {
-		t.Errorf("unknown surface: %d", status)
+	if status, _ := call(t, base, http.MethodGet, "/admin/config", "", c); status != http.StatusOK {
+		t.Errorf("the admin API stopped with the gateway: %d", status)
+	}
+	// Up and switched off: healthy, and saying it does not accept requests,
+	// which the welcome page shows and a monitor can tell from being down.
+	health := func() map[string]any {
+		status, body := call(t, base, http.MethodGet, "/health", "", nil)
+		if status != http.StatusOK {
+			t.Fatalf("health: %d %s", status, body)
+		}
+		return decode[map[string]any](t, body)
+	}
+	if h := health(); h["status"] != "ok" || h["accepting"] != false {
+		t.Errorf("health with the gateway off = %v", h)
+	}
+	if status, body := call(t, base, http.MethodPost, "/admin/gateway", `{"enabled":true}`, c); status != http.StatusOK {
+		t.Fatalf("on again: %d %s", status, body)
+	}
+	if h := health(); h["accepting"] != true {
+		t.Errorf("health with the gateway on = %v", h)
+	}
+	if status, _ := call(t, base, http.MethodPost, "/v1/messages", `{}`, nil); status == http.StatusNotFound {
+		t.Error("the gateway switched back on still refuses")
+	}
+	for _, b := range []string{`{}`, `nope`} {
+		if status, _ := call(t, base, http.MethodPost, "/admin/gateway", b, c); status != http.StatusBadRequest {
+			t.Errorf("%s: %d", b, status)
+		}
 	}
 }
 
-// Each of these switches decides what the gateway may do on its own — spend
-// the subscription naming chats, re-encode a caller's image — so each must persist, report its new state, and refuse a body that does not
-// say which way to flip it.
+// A runtime switch decides what the gateway may do on its own — serve at all,
+// re-encode a caller's image — so each must persist, report its new state,
+// and refuse a body that does not say which way to flip it.
 func TestRuntimeSwitches(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	base, c := adminAPI(t, srv)
@@ -127,23 +136,6 @@ func TestRuntimeSwitches(t *testing.T) {
 		t.Error("fit-images did not take effect or did not persist")
 	}
 
-	// Capture alone, then generation alone: either may be sent without the
-	// other, and sending one leaves the other where it was.
-	status, body = call(t, base, http.MethodPost, "/admin/chat-titles", `{"capture":true}`, c)
-	if status != http.StatusOK {
-		t.Fatalf("chat-titles: %d %s", status, body)
-	}
-	if got := decode[map[string]bool](t, body); !got["chat_titles_capture"] || got["chat_titles"] {
-		t.Errorf("after capture: %v", got)
-	}
-	status, body = call(t, base, http.MethodPost, "/admin/chat-titles", `{"enabled":true}`, c)
-	if got := decode[map[string]bool](t, body); status != http.StatusOK || !got["chat_titles_capture"] || !got["chat_titles"] {
-		t.Errorf("after enable: %d %v", status, got)
-	}
-	if stored(titles.SettingGenerate) != "true" || stored(titles.SettingCapture) != "true" {
-		t.Error("chat-title switches did not persist")
-	}
-
 	status, body = call(t, base, http.MethodPut, "/admin/chats/c1/title", `{"title":"  ZeeOS installer "}`, c)
 	if got := decode[map[string]any](t, body); status != http.StatusOK || got["title"] != "ZeeOS installer" {
 		t.Errorf("manual title: %d %s", status, body)
@@ -153,7 +145,7 @@ func TestRuntimeSwitches(t *testing.T) {
 		t.Errorf("empty manual title: %d %s", status, body)
 	}
 
-	for _, path := range []string{"/admin/fit-images", "/admin/chat-titles"} {
+	for _, path := range []string{"/admin/fit-images", "/admin/gateway"} {
 		for _, bad := range []string{`{}`, `{"enabled":`, `{"enabled":"yes"}`} {
 			if status, _ := call(t, base, http.MethodPost, path, bad, c); status != http.StatusBadRequest {
 				t.Errorf("%s %s: %d, want 400", path, bad, status)

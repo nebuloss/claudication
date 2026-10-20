@@ -48,6 +48,12 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Each model's last test, beside its switch. A nicety: without it the
+	// models still list.
+	tests, err := s.store.ModelTests(ctx, id)
+	if err != nil {
+		s.log.Warn("could not read the account's model tests", "account", id, "err", err)
+	}
 	listed := map[string]bool{}
 	models := make([]map[string]any, 0, len(list.Data)+len(acct.ModelsOff))
 	for _, m := range list.Data {
@@ -58,6 +64,9 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 		listed[store.ModelKey(mid)] = true
 		m["enabled"] = acct.Serves(mid)
 		m["listed"] = true
+		if t, ok := tests[mid]; ok {
+			m["test"] = t
+		}
 		models = append(models, m)
 	}
 	for _, off := range acct.ModelsOff {

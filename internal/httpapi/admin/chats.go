@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"claudication/internal/httpapi/httpx"
-	"claudication/internal/service/titles"
 	"claudication/internal/store"
 )
 
@@ -49,56 +48,6 @@ func (s *Admin) handleChats(w http.ResponseWriter, r *http.Request) {
 		"days":           int(window.Hours() / 24),
 		"retention_days": s.cfg.Usage.RetentionDays,
 		"report":         report,
-	})
-}
-
-// handleSetChatTitles turns chat naming on or off.
-//
-// Its own endpoint rather than a config value, for the reason the API switches
-// have one: this decides whether the gateway may spend the operator's
-// subscription on its own behalf, and the answer to "stop doing that" cannot be
-// "edit a file and restart".
-//
-// Two switches, because they are two different bargains. Capture only notices
-// a name already going past and costs nothing; generation spends the
-// operator's subscription. Either may be sent alone.
-func (s *Admin) handleSetChatTitles(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Enabled *bool `json:"enabled"`
-		Capture *bool `json:"capture"`
-	}
-	if !httpx.DecodeJSONLimit(w, r, &body, 1<<10,
-		`expected {"enabled": true|false} or {"capture": true|false}`) {
-		return
-	}
-	if body.Enabled == nil && body.Capture == nil {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
-			"one of enabled or capture is required")
-		return
-	}
-
-	for _, change := range []struct {
-		key   string
-		value *bool
-		what  string
-	}{
-		{titles.SettingGenerate, body.Enabled, "generate"},
-		{titles.SettingCapture, body.Capture, "capture"},
-	} {
-		if change.value == nil {
-			continue
-		}
-		if err := s.titles.Set(r.Context(), change.key, *change.value); err != nil {
-			s.log.Error("could not store the chat-title switch", "which", change.what, "err", err)
-			httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not store the setting")
-			return
-		}
-		s.log.Warn("chat titles switched", "which", change.what, "enabled", *change.value)
-	}
-
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"chat_titles":         s.titles.On(),
-		"chat_titles_capture": s.titles.Capturing(),
 	})
 }
 

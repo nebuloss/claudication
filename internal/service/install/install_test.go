@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,50 +10,62 @@ import (
 	"time"
 )
 
-// A token works for as long as it lasts, for any number of runs, and not at
-// all after.
-func TestLinksExpire(t *testing.T) {
+// A link serves one fetch while it lasts: the first takes the bundle and
+// records where it went, the second is told it was used, and an unused one
+// past its time is expired. A new link replaces the client's last.
+func TestLinksAreSingleUse(t *testing.T) {
 	l := New(time.Minute)
 	now := time.Now()
 	l.now = func() time.Time { return now }
-	b := Bundle{Key: "laptop", Files: []File{{ClientID: "codex", Client: "Codex", Path: ".codex/config.toml", Body: "x"}}}
+	b := Bundle{ClientID: "c1", Key: "laptop",
+		Files: []File{{ClientID: "codex", Client: "Codex", Path: ".codex/config.toml", Body: "x"}}}
 
+	if st := l.StateOf("c1"); st.State != None {
+		t.Errorf("before any link: %+v", st)
+	}
 	token, _, err := l.Create(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
-		if _, ok := l.Get(token); !ok {
-			t.Fatalf("run %d: a live token did not work", i+1)
-		}
+	if st := l.StateOf("c1"); st.State != Waiting || st.Token != token {
+		t.Errorf("made: %+v", st)
 	}
-	now = now.Add(2 * time.Minute)
-	if _, ok := l.Get(token); ok {
-		t.Error("an expired token worked")
+	got, err := l.Take(token, "10.0.0.7", "sh")
+	if err != nil || len(got.Files) != 1 || got.Files[0].Body != "x" {
+		t.Fatalf("first fetch: %+v, %v", got, err)
 	}
-	if _, ok := l.Get("nonesuch"); ok {
-		t.Error("an unknown token worked")
+	if _, err := l.Take(token, "10.0.0.8", "sh"); !errors.Is(err, ErrUsed) {
+		t.Errorf("second fetch: %v, want ErrUsed", err)
 	}
-}
+	st := l.StateOf("c1")
+	if st.State != Used || st.Used == nil || st.Used.IP != "10.0.0.7" || st.Used.Shell != "sh" || st.Token != "" {
+		t.Errorf("used: %+v", st)
+	}
 
-// client= picks clients; a name the bundle lacks picks nothing.
-func TestBundleFor(t *testing.T) {
-	b := Bundle{Files: []File{
-		{ClientID: "codex", Path: ".codex/config.toml"},
-		{ClientID: "codex", Path: ".codex/claude-models.json"},
-		{ClientID: "crush", Path: ".config/crush/crush.json"},
-	}}
-	if n := len(b.For("").Files); n != 3 {
-		t.Errorf("no client named: %d files", n)
+	// A fresh link, never fetched, expires.
+	token, _, _ = l.Create(b)
+	now = now.Add(2 * time.Minute)
+	if st := l.StateOf("c1"); st.State != Expired {
+		t.Errorf("past its time: %+v", st)
 	}
-	if n := len(b.For("codex").Files); n != 2 {
-		t.Errorf("codex: %d files", n)
+	if _, err := l.Take(token, "10.0.0.7", "ps1"); !errors.Is(err, ErrUnknown) {
+		t.Errorf("expired fetch: %v", err)
 	}
-	if n := len(b.For("crush, codex").Files); n != 3 {
-		t.Errorf("crush, codex: %d files", n)
+	// A third replaces it: the second's token is no client's link.
+	old := token
+	token, _, _ = l.Create(b)
+	if _, err := l.Take(old, "", "sh"); !errors.Is(err, ErrUnknown) {
+		t.Errorf("a replaced token worked: %v", err)
 	}
-	if n := len(b.For("nope").Files); n != 0 {
-		t.Errorf("an unknown client installed %d files", n)
+	if _, err := l.Take("nonesuch", "", "sh"); !errors.Is(err, ErrUnknown) {
+		t.Errorf("an unknown token: %v", err)
+	}
+	l.Forget("c1")
+	if _, err := l.Take(token, "", "sh"); !errors.Is(err, ErrUnknown) {
+		t.Errorf("a forgotten client's token worked: %v", err)
+	}
+	if _, _, err := l.Create(Bundle{Files: b.Files}); err == nil {
+		t.Error("a link with no client was made")
 	}
 }
 

@@ -101,6 +101,25 @@ func (s *Gateway) requireAPIKey(p api.Protocol, next http.Handler) http.Handler 
 			p.WriteError(w, http.StatusInternalServerError, api.KindAPI, "internal server error")
 			return
 		}
+		// Used, whatever happens to the request next: a key that
+		// authenticated is a client set up with it, by its install command or
+		// by hand, and its page stops offering the key from now on. At most
+		// one write a minute per key (TouchKey), the first of which also marks
+		// the client configured.
+		s.store.TouchKey(r.Context(), key.ID)
+
+		// A client the operator switched off: refused before anything is
+		// routed or counted against its limits, and recorded under its name,
+		// because it is a client to switch back on rather than a stranger.
+		// 403 permission_error, as for a model the key may not use: the
+		// credential is real and is not allowed this, and a client stops
+		// there rather than retrying.
+		if key.Disabled {
+			s.recorder.Record(rejection(r, key, http.StatusForbidden, "this client is disabled"), 0)
+			p.WriteError(w, http.StatusForbidden, api.KindPermission,
+				"this client is disabled; an administrator can switch it back on on its page in the admin UI")
+			return
+		}
 		// A key's own allowance and the period it is measured over, falling back
 		// to the gateway's per-minute default when the key sets none.
 		count, period := key.RPMLimit, key.Period()
@@ -119,7 +138,6 @@ func (s *Gateway) requireAPIKey(p api.Protocol, next http.Handler) http.Handler 
 			return
 		}
 
-		s.store.TouchKey(r.Context(), key.ID)
 		ctx := httpx.WithAPIKey(r.Context(), key)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

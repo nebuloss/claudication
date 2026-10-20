@@ -98,12 +98,12 @@ func TestHealthIsUnauthenticated(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	var body map[string]string
+	var body map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body["status"] != "ok" {
-		t.Errorf("status field = %q", body["status"])
+	if body["status"] != "ok" || body["accepting"] != true {
+		t.Errorf("health = %v, want ok and accepting", body)
 	}
 	// Health must not leak operational detail.
 	for _, leak := range []string{"accounts", "account_count", "state_dir", "keys"} {

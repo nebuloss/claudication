@@ -16,11 +16,10 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/provider"
 	accountsvc "claudication/internal/service/accounts"
+	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	"claudication/internal/service/settings"
-	"claudication/internal/service/surfaces"
-	"claudication/internal/service/titles"
 	"claudication/internal/store"
 )
 
@@ -33,9 +32,10 @@ type Admin struct {
 	pool           *pool.Pool
 	pending        *oauth.Pending
 	poller         *accountsvc.Poller
-	titles         *titles.Titler
 	images         *settings.Switch
-	surfaces       *surfaces.Surfaces
+	serving        *settings.Switch
+	inflight       *limits.InFlight
+	reaches        func(d clients.Dialect, provider string) bool
 	protocols      api.Registry
 	httpClient     *http.Client
 	providers      provider.Registry
@@ -51,15 +51,20 @@ type Admin struct {
 
 // Deps is what an Admin is built from. Every field is required.
 type Deps struct {
-	Config     *config.Config
-	Log        *slog.Logger
-	Store      *store.Store
-	Pool       *pool.Pool
-	Pending    *oauth.Pending
-	Poller     *accountsvc.Poller
-	Titles     *titles.Titler
-	Images     *settings.Switch
-	Surfaces   *surfaces.Surfaces
+	Config  *config.Config
+	Log     *slog.Logger
+	Store   *store.Store
+	Pool    *pool.Pool
+	Pending *oauth.Pending
+	Poller  *accountsvc.Poller
+	Images  *settings.Switch
+	// Serving is the gateway switch.
+	Serving *settings.Switch
+	// InFlight counts each key's open requests.
+	InFlight *limits.InFlight
+	// Reaches says whether a dialect reaches a provider: the gateway's
+	// routes, handed across by the root, for a slot's warning.
+	Reaches    func(d clients.Dialect, provider string) bool
 	Protocols  api.Registry
 	HTTPClient *http.Client
 	// Providers are the upstreams accounts are connected to, which the
@@ -70,7 +75,7 @@ type Deps struct {
 	Budgets        *limits.Budgets
 	TrustedProxies []*net.IPNet
 	StartedAt      time.Time
-	// Models is the gateway's model list and its aliases.
+	// Models is the gateway's model list, which client names are bound into.
 	Models Models
 	// Install keeps the one-time install bundles the relay serves.
 	Install *install.Links
@@ -83,23 +88,26 @@ type Models interface {
 	List(ctx context.Context) ([]byte, error)
 	// ListFor is the upstream list as one account sees it, unfiltered.
 	ListFor(ctx context.Context, accountID, rawQuery string) ([]byte, error)
-	// For is the list one key is offered from one client, model roles
-	// included: what /v1/models answers it, and what its configs are
-	// written from.
-	For(ctx context.Context, key store.APIKey, client string) ([]byte, error)
-	// RoleTarget is the real model a role serves for a key and a client, and
-	// why not when it cannot.
-	RoleTarget(ctx context.Context, key store.APIKey, client, role string) (target, why string)
-	// Aliases is every model alias the gateway answers to now.
-	Aliases(ctx context.Context) ([]store.Alias, error)
+	// For is the list one key is offered, its client's slots in it: what
+	// /v1/models answers it, and what its client's configs are written from.
+	For(ctx context.Context, key store.APIKey) ([]byte, error)
+	// SlotTarget is the real model a client's slot serves now, and why not
+	// when it cannot.
+	SlotTarget(ctx context.Context, sl store.ClientSlot) (target, why string)
+	// ServingProvider is the provider a real model is sent to.
+	ServingProvider(ctx context.Context, model string) string
+	// FollowTarget is what a moving target points at now.
+	FollowTarget(ctx context.Context, f clients.Follow) (target, why string)
+	// Families are the Claude families the accounts list, newest first.
+	Families(ctx context.Context) []string
 }
 
 // New builds an Admin with no session open.
 func New(d Deps) *Admin {
 	return &Admin{
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
-		pending: d.Pending, poller: d.Poller, titles: d.Titles, images: d.Images,
-		surfaces: d.Surfaces, protocols: d.Protocols,
+		pending: d.Pending, poller: d.Poller, images: d.Images,
+		serving: d.Serving, inflight: d.InFlight, reaches: d.Reaches, protocols: d.Protocols,
 		httpClient: d.HTTPClient, providers: d.Providers, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
@@ -136,32 +144,47 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/accounts/{id}/disabled", admin(s.handleSetAccountDisabled))
 	mux.Handle("GET /admin/accounts/{id}/models", admin(s.handleAccountModels))
 	mux.Handle("POST /admin/accounts/{id}/models", admin(s.handleSetAccountModel))
+	mux.Handle("GET /admin/accounts/{id}/clients", admin(s.handleAccountClients))
 	mux.Handle("DELETE /admin/accounts/{id}", admin(s.handleDeleteAccount))
 
-	// Client API keys — the credential a Claude Code points at the gateway.
-	mux.Handle("GET /admin/keys", admin(s.handleListKeys))
-	mux.Handle("POST /admin/keys", admin(s.handleCreateKey))
+	// Clients, each holding one key. The key's own endpoints, under the
+	// client's id, are the credential's: its secret, its limits, its models,
+	// its install bundle, deleting it.
+	mux.Handle("GET /admin/client-types", admin(s.handleClientTypes))
+	mux.Handle("GET /admin/clients", admin(s.handleListClients))
+	mux.Handle("POST /admin/clients", admin(s.handleCreateClient))
+	mux.Handle("GET /admin/clients/{id}", admin(s.handleGetClient))
+	mux.Handle("POST /admin/clients/{id}/plan", admin(s.handlePlanClient))
+	mux.Handle("POST /admin/clients/{id}/type", admin(s.handleChangeClient))
+	mux.Handle("POST /admin/clients/{id}/mode", admin(s.handleSetClientMode))
+	mux.Handle("POST /admin/clients/{id}/disabled", admin(s.handleSetClientDisabled))
+	mux.Handle("POST /admin/clients/{id}/name-chats", admin(s.handleSetClientNameChats))
+	mux.Handle("POST /admin/clients/{id}/slots", admin(s.handleAddSlot))
+	mux.Handle("PUT /admin/clients/{id}/slots/{slot}", admin(s.handleSetSlot))
+	mux.Handle("DELETE /admin/clients/{id}/slots/{slot}", admin(s.handleRemoveSlot))
+	mux.Handle("GET /admin/clients/{id}/usage", admin(s.handleClientUsage))
+	mux.Handle("GET /admin/clients/{id}/limits", admin(s.handleClientLimits))
+	mux.Handle("GET /admin/clients/{id}/limits/suggest", admin(s.handleClientSuggest))
+	mux.Handle("POST /admin/clients/{id}/limits/preview", admin(s.handleClientPreview))
+
 	mux.Handle("PATCH /admin/keys/{id}", admin(s.handleUpdateKey))
 	mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
 	mux.Handle("POST /admin/keys/{id}/rotate", admin(s.handleRotateKey))
 	mux.Handle("POST /admin/keys/{id}/install", admin(s.handleKeyInstall))
 	mux.Handle("GET /admin/keys/{id}/secret", admin(s.handleKeySecret))
 	mux.Handle("GET /admin/keys/{id}/models", admin(s.handleKeyModels))
-	mux.Handle("GET /admin/keys/{id}/offered-models", admin(s.handleKeyOfferedModels))
-	mux.Handle("GET /admin/model-roles", admin(s.handleModelRoles))
-	mux.Handle("PUT /admin/model-roles", admin(s.handleSetModelRole))
-	mux.Handle("DELETE /admin/model-roles", admin(s.handleDeleteAlias))
 	mux.Handle("POST /admin/keys/{id}/models", admin(s.handleSetKeyModel))
+	mux.Handle("GET /admin/keys/{id}/offered-models", admin(s.handleKeyOfferedModels))
 
 	mux.Handle("GET /admin/config", admin(s.handleConfig))
 	mux.Handle("GET /admin/models", admin(s.handleAdminModels))
-	mux.Handle("POST /admin/surfaces/{id}", admin(s.handleSetSurface))
+	mux.Handle("POST /admin/gateway", admin(s.switchHandler(s.serving, "gateway", "gateway_enabled")))
+
 	mux.Handle("GET /admin/overview", admin(s.handleOverview))
 	mux.Handle("GET /admin/usage", admin(s.handleUsage))
 	mux.Handle("GET /admin/chats", admin(s.handleChats))
 	mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
 	mux.Handle("PUT /admin/chats/{id}/title", admin(s.handleSetChatTitle))
-	mux.Handle("POST /admin/chat-titles", admin(s.handleSetChatTitles))
 	mux.Handle("POST /admin/fit-images", admin(s.switchHandler(s.images, "image fitting", "fit_images")))
 	mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 	mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))

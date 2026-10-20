@@ -32,7 +32,8 @@ import (
 //     lists the catalogue's Anthropic models as they stand. Anthropic's
 //     /v1/models answers 401 "x-api-key header is required" to a caller with
 //     no account token, so without this a gateway with no account yet had no
-//     model list, no aliases and no configs to hand out.
+//     model list, nothing for a client's names to serve and no configs to
+//     hand out.
 //
 // Measured 2026-10-15: models.dev's api.json is 5.4 MB, every provider, with
 // 17 Anthropic entries — some twice, under an alias and a dated id

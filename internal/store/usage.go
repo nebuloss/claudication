@@ -25,8 +25,9 @@ type UsageEvent struct {
 	// on the row, like the names, so it outlives the account.
 	Provider string
 	Model    string
-	// VirtualModel is the alias the client asked for, when it asked for one;
-	// Model is then the real model that served it. The column is alias.
+	// VirtualModel is the client's slot name it asked for, when it asked by
+	// one; Model is then the real model that served it. The column is alias,
+	// from when these names were gateway-wide.
 	VirtualModel string
 	Path         string
 	// ConversationID is the chat this request belonged to, as the client named
@@ -76,6 +77,12 @@ type UsageEvent struct {
 	// in trusted-proxies, X-Forwarded-For is ignored and every client is
 	// recorded as the proxy.
 	IP string
+	// Naming is a client's own request to name its chat (crush's and
+	// opencode's, internal/service/titles): part of the chat's cost, as the
+	// gateway's own titling is, and not one of its turns. On write it files
+	// the row as the gateway's titling is filed, kind 2, which every
+	// aggregate counts and the chat rollups' turn counts do not.
+	Naming bool
 }
 
 // Tokens is the billable total: cache reads are counted because they are
@@ -124,7 +131,7 @@ func (e UsageEvent) kind() int {
 	switch {
 	case e.Rejected:
 		return kindRejected
-	case e.Path == InternalPath:
+	case e.Path == InternalPath, e.Naming:
 		return kindInternal
 	}
 	return kindRelayed

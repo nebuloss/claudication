@@ -5,9 +5,9 @@
 //
 // It owns the four things that answer is made of: the upstream lists, asked
 // of each account of each provider (list.go); the public catalogue those
-// lists are matched against (catalog.go); the aliases — the roles, the
-// newest model of each Claude family, and the operator's own; and the route
-// a requested name takes (route.go).
+// lists are matched against (catalog.go); the moving targets a client's
+// slots can follow — the newest model of each Claude family, the ChatGPT
+// backend's ranking; and the route a requested name takes (route.go).
 //
 // A service of its own because two surfaces read it and neither owns it. It
 // lived in the gateway, which handed it to the admin API as five separate
@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -31,16 +30,17 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/provider"
 	"claudication/internal/relay"
+	"claudication/internal/service/clients"
 	"claudication/internal/store"
 )
 
-// Store is what the catalogue reads: the accounts it asks, and the aliases
-// and bindings the operator stored.
+// Store is what the catalogue reads: the accounts it asks, and the clients'
+// model names.
 type Store interface {
 	ListAccounts(ctx context.Context) ([]store.Account, error)
 	Account(ctx context.Context, id string) (store.Account, error)
-	CustomAliases(ctx context.Context) ([]string, error)
-	RoleBinding(ctx context.Context, keyID, client, role string) (model, by string, err error)
+	ClientSlotNamed(ctx context.Context, keyID, name string) (store.ClientSlot, bool, error)
+	ClientSlots(ctx context.Context, keyID string) ([]store.ClientSlot, error)
 }
 
 // Pool is what the catalogue asks of the account pool: a token to read an
@@ -50,7 +50,7 @@ type Pool interface {
 	Offers(ctx context.Context, provider, model string) bool
 }
 
-// Catalog is the model list and the aliases over it.
+// Catalog is the model list and the moving targets over it.
 type Catalog struct {
 	cfg        *config.Config
 	log        *slog.Logger
@@ -59,11 +59,11 @@ type Catalog struct {
 	relays     []*relay.Relay
 	httpClient *http.Client
 
-	// What the accounts' lists last said, for the aliases and the routes;
+	// What the accounts' lists last said, for the follow targets and the routes;
 	// see remember.
 	rolesMu sync.Mutex
 	// newest is the newest model of each Claude family, and families the
-	// families newest release first, for the claude-* aliases.
+	// families newest release first, for the claude:<family> targets.
 	newest   map[string]string
 	families []string
 	// ranked is the ChatGPT backend's models in its own ranking, for
@@ -124,86 +124,71 @@ func (s *Catalog) defaultProvider() string {
 	return s.relays[0].Wire.ID()
 }
 
-// For is the model list one key is offered from one client: the aliases
-// first, each carrying the facts of the model it serves for that key and
-// client, then the real models, less what the key may not use. The
-// /v1/models answer, and what the admin UI writes that key's configs from, so
-// the two cannot disagree. client is as api.ClientName names it; empty is a
-// caller that is no client in particular.
+// For is the model list one key is offered — /v1/models as that key sees it,
+// and what the admin UI writes its client's configs from, so the two cannot
+// disagree.
+//
+// A client that names its own slots is offered those and nothing else, each
+// carrying the facts of the model it serves now: a model on its menu that is
+// refused when picked is worse than one not offered. A custom client in
+// direct mode is offered the real models, less
+// what it may not use.
 //
 // Every provider's models are in it; a ChatGPT one carries "provider":
-// "openai", and so does an alias serving one, so a surface that cannot reach
-// a provider can leave its entries out (the gateway's /v1/models does).
-//
-// An alias is listed only while it can serve.
-func (s *Catalog) For(ctx context.Context, key store.APIKey, client string) ([]byte, error) {
+// "openai", and so does a slot serving one, so a surface that cannot reach a
+// provider can leave its entries out (the gateway's /v1/models does).
+func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
 	body, fromCatalog, err := s.list(ctx)
 	if err != nil {
 		return nil, err
 	}
-	aliases, err := s.Aliases(ctx)
+	if !key.NamesSlots() {
+		// Less what the key may not use, for the reason the switched-off
+		// models are left out.
+		if len(key.ModelsOff) > 0 {
+			body = modelsAllowedFor(body, key)
+		}
+		return body, nil
+	}
+	slots, err := s.store.ClientSlots(ctx, key.ID)
 	if err != nil {
 		return nil, err
 	}
 	var entries []virtualEntry
-	for _, a := range aliases {
+	own := map[string]bool{}
+	for _, sl := range slots {
+		target, why := s.SlotTarget(ctx, sl)
 		// Listed from the catalogue, no Claude account can serve anything
-		// yet, and a Claude alias is shown as it will serve once one is
-		// connected — the configs written now are the ones that will be
-		// used then.
-		target, why := s.RoleTarget(ctx, key, client, a.Name)
-		if fromCatalog && target != "" && key.Allows(target) && s.servingProvider(ctx, target) == s.defaultProvider() {
-			why = ""
-		}
-		if why != "" {
+		// yet, and a slot is shown as it will serve once one is connected —
+		// the configs written now are the ones that will be used then.
+		if why != "" && !(fromCatalog && target != "" && s.ServingProvider(ctx, target) == s.defaultProvider()) {
 			continue
 		}
 		entries = append(entries, virtualEntry{
-			ID: a.Name, DisplayName: roleLabel(a),
+			ID: sl.Name, DisplayName: sl.Name,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			Serving:   target, Role: strings.TrimPrefix(a.Name, "claude-"),
+			Serving:   target, Slot: sl.Slot,
 		})
+		own[sl.Name] = true
 	}
 	if len(entries) > 0 {
 		body = withVirtual(body, entries)
 	}
-	// Less what the key may not use, for the reason the switched-off models
-	// are left out: a client builds its menu from this, and a model on the
-	// menu that is refused when picked is worse than one not offered.
-	if len(key.ModelsOff) > 0 {
-		body = modelsAllowedFor(body, key)
-	}
-	return body, nil
+	return onlyModels(body, own), nil
 }
 
-// virtualEntry is a virtual model as a model list shows it. The entry is the
-// serving model's own, with the id and name changed — so its context window,
-// output limit and capabilities are the real ones, and a client sizing its
-// requests from the list sizes them right — plus two fields of the gateway's,
-// which clients ignore and the admin UI and config writer read.
+// virtualEntry is a client's model name as a model list shows it. The entry
+// is the serving model's own, with the id and name changed — so its context
+// window, output limit and capabilities are the real ones, and a client
+// sizing its requests from the list sizes them right — plus fields of the
+// gateway's, which clients ignore and the admin UI and config writer read.
 type virtualEntry struct {
 	ID          string
 	DisplayName string
 	CreatedAt   string
 	Serving     string
-	// Role is the alias without its claude- prefix — large, small, opus,
-	// sonnet, haiku, fable, and gpt-large and gpt-small as they are — for the
-	// config writer.
-	Role string
-}
-
-// roleLabel is how an alias reads in a client's model picker.
-func roleLabel(a store.Alias) string {
-	name := strings.TrimPrefix(a.Name, "claude-")
-	switch {
-	case a.Name == store.RoleGPTLarge || a.Name == store.RoleGPTSmall:
-		return "GPT (" + strings.TrimPrefix(a.Name, "gpt-") + ")"
-	case store.IsRoleName(a.Name):
-		return "Claude (" + name + ")"
-	case a.Builtin:
-		return "Claude " + strings.ToUpper(name[:1]) + name[1:]
-	}
-	return a.Name
+	// Slot is the slot it fills, for the config writer.
+	Slot string
 }
 
 // newestTTL is how long the families, the ranking and who serves what are
@@ -226,7 +211,7 @@ type remembered struct {
 }
 
 // rememberProvider notes what one provider's list says: which models it
-// serves, and, for the providers whose aliases follow it, the newest of each
+// serves, and, for the providers whose targets follow it, the newest of each
 // Claude family or the ChatGPT ranking.
 func (m *remembered) rememberProvider(providerID string, list []byte) {
 	var l struct {
@@ -251,7 +236,7 @@ func (m *remembered) rememberProvider(providerID string, list []byte) {
 	}
 	m.served[providerID] = ids
 
-	if store.AliasProvider(store.RoleGPTLarge) == providerID {
+	if providerID == clients.FollowFirst.Provider() {
 		// By the priority each entry carries, not the list's order, which
 		// the catalogue may have changed; unranked ones after, as listed.
 		type rank struct {
@@ -281,7 +266,7 @@ func (m *remembered) rememberProvider(providerID string, list []byte) {
 		}
 		return
 	}
-	if store.AliasProvider(store.RoleLarge) != providerID {
+	if providerID != clients.FollowOpus.Provider() {
 		return
 	}
 	// The newest model of each family, by release date — not by the list's
@@ -337,7 +322,7 @@ func (s *Catalog) remember(m remembered, read bool) {
 		return
 	}
 	// A provider that could not be read this time keeps what it last said,
-	// so one upstream's bad minute does not empty its aliases.
+	// so one upstream's bad minute does not empty its targets.
 	for p, unread := range m.unread {
 		if !unread {
 			continue
@@ -348,10 +333,10 @@ func (s *Catalog) remember(m remembered, read bool) {
 			}
 			m.served[p] = old
 		}
-		if p == store.AliasProvider(store.RoleGPTLarge) && len(m.ranked) == 0 {
+		if p == clients.FollowFirst.Provider() && len(m.ranked) == 0 {
 			m.ranked = s.ranked
 		}
-		if p == store.AliasProvider(store.RoleLarge) && m.newest == nil {
+		if p == clients.FollowOpus.Provider() && m.newest == nil {
 			m.newest, m.families = s.newest, s.families
 		}
 	}
@@ -381,14 +366,23 @@ func (s *Catalog) newestOf(ctx context.Context, family string) string {
 // generation is a GPT model's major version, from its id: gpt-6.1-sol is 6.
 var generation = regexp.MustCompile(`^gpt-(\d+)`)
 
-// gptDefault is what an unbound GPT role follows, from the backend's own
+// Families are the Claude families the accounts list, newest release first:
+// the claude:<family> targets a slot can follow.
+func (s *Catalog) Families(ctx context.Context) []string {
+	s.refreshFamilies(ctx)
+	s.rolesMu.Lock()
+	defer s.rolesMu.Unlock()
+	return append([]string(nil), s.families...)
+}
+
+// gptRanked is what the openai: targets follow, from the backend's own
 // ranking of the models a ChatGPT account lists (the priority each entry
 // carries, which is the order Codex's model picker shows them in):
 //
-//   - gpt-large is the first-ranked: the backend's own first choice.
+//   - openai:first is the first-ranked: the backend's own first choice.
 //     2026-10-19: gpt-6.1-sol, "Latest workhorse model for coding and
 //     everyday work", priority 1.
-//   - gpt-small is the last-ranked model of the first-ranked one's
+//   - openai:light is the last-ranked model of the first-ranked one's
 //     generation — the run of models at the top of the ranking sharing its
 //     major version, and the last of them. The backend ranks its smaller
 //     models of a generation below its larger ones and the previous
@@ -398,9 +392,9 @@ var generation = regexp.MustCompile(`^gpt-(\d+)`)
 //     backend itself named, in x-codex-safety-buffering-faster-model, as its
 //     faster one.
 //
-// When the first-ranked id carries no version to compare, small is the
+// When the first-ranked id carries no version to compare, light is the
 // last-ranked model of all.
-func (s *Catalog) gptDefault(ctx context.Context, role string) string {
+func (s *Catalog) gptRanked(ctx context.Context, first bool) string {
 	s.refreshFamilies(ctx)
 	s.rolesMu.Lock()
 	ranked := append([]string(nil), s.ranked...)
@@ -408,120 +402,55 @@ func (s *Catalog) gptDefault(ctx context.Context, role string) string {
 	if len(ranked) == 0 {
 		return ""
 	}
-	if role == store.RoleGPTLarge {
+	if first {
 		return ranked[0]
 	}
 	top := generation.FindStringSubmatch(ranked[0])
 	if top == nil {
 		return ranked[len(ranked)-1]
 	}
-	small := ranked[0]
+	light := ranked[0]
 	for _, id := range ranked[1:] {
 		g := generation.FindStringSubmatch(id)
 		if g == nil || g[1] != top[1] {
 			break
 		}
-		small = id
+		light = id
 	}
-	return small
+	return light
 }
 
-// Aliases is every alias the gateway answers to now: the roles, one per
-// Claude family the accounts list (newest release first), and the
-// operator's own.
-func (s *Catalog) Aliases(ctx context.Context) ([]store.Alias, error) {
-	s.refreshFamilies(ctx)
-	out := []store.Alias{
-		{Name: store.RoleLarge, Family: store.AliasFamily(store.RoleLarge), Builtin: true},
-		{Name: store.RoleSmall, Family: store.AliasFamily(store.RoleSmall), Builtin: true},
-		{Name: store.RoleGPTLarge, Builtin: true},
-		{Name: store.RoleGPTSmall, Builtin: true},
-	}
-	s.rolesMu.Lock()
-	for _, f := range s.families {
-		out = append(out, store.Alias{Name: "claude-" + f, Family: f, Builtin: true})
-	}
-	s.rolesMu.Unlock()
-	custom, err := s.store.CustomAliases(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, name := range custom {
-		out = append(out, store.Alias{Name: name})
-	}
-	return out, nil
-}
-
-// IsAlias reports whether a request's model is one of the aliases. A real id
-// always carries a version, so only a version-less claude-<family> has to be
-// checked against the families, and the model list is not read for a
-// request naming a real model.
-func (s *Catalog) IsAlias(ctx context.Context, model string) bool {
-	if store.IsRoleName(model) {
-		return true
-	}
-	if family := store.AliasFamily(model); family != "" {
-		return s.newestOf(ctx, family) != ""
-	}
-	custom, err := s.store.CustomAliases(ctx)
-	if err != nil {
-		return false
-	}
-	key := store.ModelKey(model)
-	for _, name := range custom {
-		if name == key {
-			return true
+// FollowTarget is the real model a moving target points at now, from its
+// provider's list; why says so when the list names none.
+func (s *Catalog) FollowTarget(ctx context.Context, f clients.Follow) (target, why string) {
+	switch {
+	case f.Family() != "":
+		if target = s.newestOf(ctx, f.Family()); target == "" {
+			return "", "no account lists a Claude " + f.Family() + " model"
 		}
+	case f == clients.FollowFirst || f == clients.FollowLight:
+		if target = s.gptRanked(ctx, f == clients.FollowFirst); target == "" {
+			return "", "no ChatGPT account lists a model"
+		}
+	default:
+		return "", "there is no target " + string(f) + " to follow"
 	}
-	return false
+	return target, ""
 }
 
-// RoleTarget is the real model an alias serves for a key and a client: the
-// key's binding, else the client's, else the gateway's, else — for a
-// built-in — what its provider's list says it follows. why is non-empty when
-// it cannot serve — the key may not use it, or no account has it on — and
-// says so, naming the model and the binding that chose it, which is the one
-// to change.
-func (s *Catalog) RoleTarget(ctx context.Context, key store.APIKey, client, role string) (target, why string) {
-	role = store.ModelKey(role)
-	bound, by, err := s.store.RoleBinding(ctx, key.ID, client, role)
-	if err != nil {
-		return "", "could not read the model aliases"
-	}
-	target = bound
-	// What chose the target, for the refusal: an operator who moved Codex's
-	// claude-large and sees "no connected account has it on" in Codex has to
-	// know it was Codex's binding and not the gateway's.
-	var chose string
-	switch by {
-	case store.BoundByKey:
-		chose = " for this API key"
-	case store.BoundByClient:
-		chose = " for " + client
-	case store.BoundByGateway:
-		chose = " on the gateway"
-	}
+// SlotTarget is the real model one of a client's slots serves now: the model
+// it is bound to, or what the target it follows points at. why is non-empty
+// when it cannot serve, naming the slot, the model and what chose it.
+func (s *Catalog) SlotTarget(ctx context.Context, sl store.ClientSlot) (target, why string) {
+	target, chose := sl.Model, ""
 	if target == "" {
-		switch family := store.AliasFamily(role); {
-		case family != "":
-			target = s.newestOf(ctx, family)
-			if target == "" {
-				return "", role + " follows the newest " + family + " model, and no account lists one"
-			}
-		case store.AliasProvider(role) != "":
-			target = s.gptDefault(ctx, role)
-			if target == "" {
-				return "", role + " follows the ChatGPT backend's ranking, and no ChatGPT account lists a model"
-			}
-		default:
-			return "", role + " points to no model"
+		if target, why = s.FollowTarget(ctx, sl.Follows); why != "" {
+			return "", sl.Name + " follows " + sl.Follows.Title() + ", and " + why
 		}
+		chose = " (" + sl.Follows.Title() + ")"
 	}
-	if !key.Allows(target) {
-		return target, role + " is " + target + chose + ", which this API key may not use"
-	}
-	if !s.pool.Offers(ctx, s.servingProvider(ctx, target), target) {
-		return target, role + " is " + target + chose + ", which no connected account has on"
+	if !s.pool.Offers(ctx, s.ServingProvider(ctx, target), target) {
+		return target, sl.Name + " is " + target + chose + ", which no connected account has on"
 	}
 	return target, ""
 }
@@ -559,7 +488,7 @@ func withVirtual(body []byte, entries []virtualEntry) []byte {
 		fields["created_at"] = e.CreatedAt
 		fields["virtual"] = true
 		fields["serving"] = e.Serving
-		fields["role"] = e.Role
+		fields["slot"] = e.Slot
 		raw, err := json.Marshal(fields)
 		if err != nil {
 			return body
@@ -587,6 +516,48 @@ func withVirtual(body []byte, entries []virtualEntry) []byte {
 		if first, err := json.Marshal(entries[0].ID); err == nil {
 			list["first_id"] = first
 		}
+	}
+	out, err := json.Marshal(list)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+// onlyModels is a model list with only the entries whose ids are in keep. A
+// list it cannot read is returned with nothing in it: what it would have
+// offered is refused anyway.
+func onlyModels(body []byte, keep map[string]bool) []byte {
+	var list map[string]json.RawMessage
+	if err := json.Unmarshal(body, &list); err != nil {
+		return []byte(`{"data":[],"has_more":false}`)
+	}
+	var data []json.RawMessage
+	_ = json.Unmarshal(list["data"], &data)
+	kept := make([]json.RawMessage, 0, len(keep))
+	var ids []string
+	for _, m := range data {
+		var model struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(m, &model) == nil && keep[model.ID] {
+			kept = append(kept, m)
+			ids = append(ids, model.ID)
+		}
+	}
+	set := func(field string, v any) {
+		if raw, err := json.Marshal(v); err == nil {
+			list[field] = raw
+		}
+	}
+	set("data", kept)
+	set("has_more", false)
+	if len(ids) > 0 {
+		set("first_id", ids[0])
+		set("last_id", ids[len(ids)-1])
+	} else {
+		delete(list, "first_id")
+		delete(list, "last_id")
 	}
 	out, err := json.Marshal(list)
 	if err != nil {
@@ -693,8 +664,8 @@ func (s *Catalog) list(ctx context.Context) (body []byte, fromCatalog bool, err 
 			// on its own, and the union runs first account first.
 			part = s.matchCatalog(ctx, providerID, mergeModels(lists, serving))
 		case providerID == s.defaultProvider():
-			// No account to ask: the public catalogue, so the aliases and
-			// the configs have models to name before one is connected. Nothing can be served until then either way. Only
+			// No account to ask: the public catalogue, so the slots and the
+			// configs have models to name before one is connected. Nothing can be served until then either way. Only
 			// for the default provider: Anthropic's /v1/models refuses a
 			// caller with no account token, and models.dev's other vendors
 			// are their metered APIs, not what a subscription serves.

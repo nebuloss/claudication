@@ -7,21 +7,25 @@
 export ANTHROPIC_BASE_URL=https://claudication.example.com
 export ANTHROPIC_AUTH_TOKEN=clc_...
 
-# The gateway's model aliases. Which real model answers each is set in the
-# gateway, under Settings › Aliases, not here. The main model and its sub-agents run
-# on claude-large, titles, summaries and quick calls on claude-small, and
-# picking a tier by name (/model opus, a sub-agent's "haiku") goes to that
-# family's alias.
+# This client's model names, one per model setting Claude Code has. Each is
+# the client's own: what it serves is chosen on the client's page in the
+# gateway, not here, and these are the names a new Claude Code client starts
+# with. They carry "claude" because Claude Code keeps only such ids from the
+# model list, and are not its own tier words (opus, haiku), which it reads as
+# aliases of its own.
 export ANTHROPIC_MODEL=claude-large
 export ANTHROPIC_SMALL_FAST_MODEL=claude-small
 export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus
 export ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet
 export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku
 export ANTHROPIC_DEFAULT_FABLE_MODEL=claude-fable
+export CLAUDE_CODE_AUTO_MODE_MODEL=claude-auto
 
 # Claude Code does not know these names, so it is told which real models they
 # behave like — their context window, output limit and prompt handling.
-# Without this it treats them as unknown and caps them at a 200k window.
+# Without this it treats them as unknown and caps them at a 200k window. The
+# gateway writes what each serves when it hands out this file; switching one
+# to a model with other limits means running the install command again.
 # A function rather than a command, so sourcing this file — from a shell
 # profile, as the one-line installer does — sets things up rather than
 # starting Claude Code.

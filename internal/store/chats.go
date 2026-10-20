@@ -53,8 +53,12 @@ type Chat struct {
 	// Models used, in first-seen order. A chat that switched model mid-way is
 	// ordinary — a plan step on Opus, the edits on Sonnet — so this is a list
 	// rather than a single value.
-	Models       []string  `json:"models"`
-	Requests     int64     `json:"requests"`
+	Models   []string `json:"models"`
+	Requests int64    `json:"requests"`
+	// Turns are the requests that were the conversation itself: Requests
+	// less the ones that named it, the client's own and the gateway's, which
+	// are its cost but not its turns.
+	Turns        int64     `json:"turns"`
 	Errors       int64     `json:"errors"`
 	InputTokens  int64     `json:"input_tokens"`
 	OutputTokens int64     `json:"output_tokens"`
@@ -142,7 +146,7 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 		                   WHERE e1.conversation_id = e.conversation_id AND e1.kind = 0 AND e1.at >= ?
 		                     AND e1.client <> ''
 		                   ORDER BY e1.at DESC LIMIT 1), ''),
-		        COUNT(*),
+		        COUNT(*), COALESCE(SUM(kind = 0), 0),
 		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
@@ -216,7 +220,7 @@ func scanChat(r scanner) (Chat, error) {
 		key, account, title *string
 		manual              *int64
 	)
-	if err := r.Scan(&c.ID, &c.Client, &c.Requests, &c.Errors,
+	if err := r.Scan(&c.ID, &c.Client, &c.Requests, &c.Turns, &c.Errors,
 		&c.InputTokens, &c.OutputTokens, &c.CacheTokens,
 		&first, &last, &models, &key, &account, &title, &manual); err != nil {
 		return Chat{}, err
@@ -258,7 +262,7 @@ func (s *Store) unattributed(ctx context.Context, from int64, scope UsageScope) 
 		// nothing in common but the absence of a conversation id, so naming any
 		// one of their clients would read as a fact about all of them.
 		`SELECT '', '',
-		        COUNT(*),
+		        COUNT(*), COALESCE(SUM(kind = 0), 0),
 		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
@@ -452,6 +456,31 @@ func (s *Store) SetChatTitle(ctx context.Context, id, title, model string) error
 		id, title, model, ms(time.Now()))
 	if err != nil {
 		return fmt.Errorf("set chat title: %w", err)
+	}
+	return nil
+}
+
+// SetClientTitle records the title a client gave its own chat, read off the
+// answer to its own naming request. It is the name the client shows, so it
+// wins over one the gateway wrote (requests > 0: see chat_titles), which a
+// race can have put there first — crush names a session alongside its first
+// turn, and the gateway's titler may answer sooner. An operator's title, and
+// a client title already read, stay.
+func (s *Store) SetClientTitle(ctx context.Context, id, title, model string) error {
+	title = clipTitle(title)
+	if id == "" || title == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO chat_titles (conversation_id, title, model, created_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT (conversation_id) DO UPDATE SET
+		   title = excluded.title, model = excluded.model, created_at = excluded.created_at,
+		   requests = 0, turns = 0
+		 WHERE chat_titles.manual = 0 AND chat_titles.requests > 0`,
+		id, title, model, ms(time.Now()))
+	if err != nil {
+		return fmt.Errorf("set client chat title: %w", err)
 	}
 	return nil
 }

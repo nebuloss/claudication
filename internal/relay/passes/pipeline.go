@@ -176,8 +176,8 @@ func Default(o Options) Pipeline {
 // Not stripped, though crush strips it as refused: max_output_tokens.
 // Measured the same day, a request carrying max_output_tokens: 256 was
 // answered 200 (testdata/max-output.json), so there is nothing to repair.
-// The model is set by SetModel as on every wire, when a request names an
-// alias; that is not a pass.
+// The model is set by SetModel as on every wire, when a request names one of
+// its client's model names; that is not a pass.
 func OpenAI(o Options) Pipeline {
 	log := o.Log
 	if log == nil {

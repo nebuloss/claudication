@@ -27,15 +27,16 @@ const ID = "openai"
 // See doc.go for what Codex actually sends, what it does with the answer, and
 // the measurements behind both.
 type API struct {
-	// model stands in when the caller names something the upstream has never
-	// heard of, which is every default Codex install: the gateway's large
-	// alias, which it resolves as it would for any client, so what Codex runs
-	// on is chosen where every other client's is.
+	// model stands in, when set, for a name that is not Claude's. The
+	// gateway sets none: a client's request names one of its own slots,
+	// which the gateway resolves before the translation sees it, and a
+	// direct-mode client names the real model it means. Empty passes every
+	// name through.
 	model string
 }
 
-// New returns the surface, sending model when a request names no Claude
-// model of its own.
+// New returns the surface, sending model, if any, when a request names no
+// Claude model of its own.
 func New(model string) API {
 	return API{model: model}
 }
@@ -110,8 +111,16 @@ func (API) ModelEvents() []string {
 // before the relay clones the request. Reading them afterwards finds nothing.
 // The id is also what keeps a conversation on the ChatGPT account that served
 // it last (internal/pool), which is why the newer spelling matters.
+//
+// crush and opencode pointed at this API send what they send on Messages:
+// x-session-id, beside x-session-affinity with the same value. For crush,
+// read from its source at 76cc5c5 rather than measured: sessionHeaders
+// (internal/agent/agent.go:1583) puts both, a hash of its session's UUID, on
+// every call of the session — its title request (agent.go:1868) included —
+// whatever the provider type, so a crush on Responses is grouped as one on
+// Messages is. Read last: Codex sends none of it.
 func (API) ConversationID(h http.Header, _ []byte) string {
-	return api.HeaderID(h, "Session_id", "Conversation_id", "Session-Id", "Thread-Id")
+	return api.HeaderID(h, "Session_id", "Conversation_id", "Session-Id", "Thread-Id", "X-Session-Id")
 }
 
 // exchange is one Responses request in flight. It is also the api.Reshaper for

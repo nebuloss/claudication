@@ -20,12 +20,12 @@
 //  6. [ShrinkImages] — an image over 2000 px on a side in a request carrying
 //     more than twenty of them, which the upstream refuses by name.
 //
-// The seventh is [SetModel]: a request naming a model alias (claude-large,
-// gpt-small, ...) has the real model it resolves to put in its model field,
-// and [ModelRenamer] says the alias back in the answer. It is not in Default,
-// because it needs a decision only the gateway can make — which real model
-// the alias is bound to for this key and client — and it runs only when one
-// is named. See model.go.
+// The seventh is [SetModel]: a request naming one of its client's model names
+// (large, claude-small, ...) has the real model that name is bound to put in
+// its model field, and [ModelRenamer] says the name back in the answer. It is
+// not in Default, because it needs a decision only the gateway can make —
+// which real model the name is bound to on this client — and it runs only
+// when one is named. See model.go.
 //
 // # The OpenAI wire
 //

@@ -13,6 +13,7 @@ import (
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	"claudication/internal/request"
+	"claudication/internal/service/clients"
 	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/titles"
 	"claudication/internal/store"
@@ -69,51 +70,47 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		}
 		requested, streaming := first.Model(), first.Streaming()
 
-		// Where it goes. A model alias — claude-large, gpt-small, one of the
-		// operator's — becomes the real model it is bound to for this key,
-		// else for this client, else for the gateway, else what it follows;
-		// the answer is renamed back on its way out. One model, no fallback:
-		// when it cannot serve, the request is refused saying which one to
-		// change. The provider is the one whose accounts serve that model.
-		// See modelsvc.Route.
+		// Where it goes. A client that names its own slots asks for one, and
+		// it becomes the real model the slot is bound to or follows now; the
+		// answer is renamed back on its way out. Any other name it sends is
+		// refused, listing its names. A direct-mode client names real models.
+		// One model, no fallback: when it cannot serve, the request is refused
+		// saying which slot to change. The provider is the one whose accounts
+		// serve that model. See modelsvc.Route.
 		//
-		// The client is the one the User-Agent names, as the request log
-		// records it, so a binding made for "Codex" is the one the log's
-		// Codex rows were served by.
+		// The product the User-Agent names is recorded beside the key, as it
+		// always was: which tool a client's key was used from.
 		key, _ := httpx.APIKey(r.Context())
+		// Open until the answer is done, refusals included: what the
+		// client's Limits page shows it doing now.
+		defer s.inflight.Begin(key.ID)()
 		client := api.ClientName(r.UserAgent())
-		dest := s.models.Route(r.Context(), key, client, requested, fallbackFor(p, requested))
-		model, virtual := dest.Model, dest.Alias
+		dest := s.models.Route(r.Context(), key, requested)
+		model, slot := dest.Model, dest.Slot
 
-		// A model this key has been kept off, refused before anything is spent
-		// and recorded under the key, because it is a client to reconfigure
-		// rather than a stranger. 403 permission_error, as Anthropic answers a
-		// credential not allowed something: a client stops there rather than
-		// retrying, and the message says who can change it.
-		//
-		// Both the name asked for and the alias it was sent to: a Responses
-		// request naming a model no list knows is served as claude-large, and
-		// a key kept off claude-large must not reach it by asking for
-		// gpt-5-codex. The model the alias serves is the alias's own check
-		// (RoleTarget), and its refusal says which binding chose it.
-		for _, name := range []string{requested, virtual} {
-			if name == "" || key.Allows(name) {
-				continue
-			}
-			ev := rejection(r, key, http.StatusForbidden, "model not allowed for this API key")
-			ev.Model, ev.Path = name, route
+		// A model a direct-mode client has switched off, refused before
+		// anything is spent and recorded under the key, because it is a client
+		// to reconfigure rather than a stranger. 403 permission_error, as
+		// Anthropic answers a credential not allowed something: a client stops
+		// there rather than retrying, and the message says who can change it.
+		// A client naming its slots is held to its slots instead (Route).
+		if !key.NamesSlots() && requested != "" && !key.Allows(requested) {
+			ev := rejection(r, key, http.StatusForbidden, "model not allowed for this client")
+			ev.Model, ev.Path = requested, route
 			s.recorder.Record(ev, 0)
 			p.WriteError(w, http.StatusForbidden, api.KindPermission,
-				"this API key may not use model "+name+
-					"; an administrator can allow it on the key's Models page")
+				"this client may not use model "+requested+
+					"; an administrator can switch it on on the client's Models page")
 			return
 		}
 		if dest.Why != "" {
 			ev := rejection(r, key, http.StatusNotFound, dest.Why)
-			ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Alias, route
+			ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Slot, route
+			if dest.Slot == "" {
+				ev.VirtualModel = requested
+			}
 			s.recorder.Record(ev, 0)
-			p.WriteError(w, http.StatusNotFound, api.KindNotFound,
-				dest.Why+"; an administrator can change "+dest.Alias+" in Settings › Aliases")
+			p.WriteError(w, http.StatusNotFound, api.KindNotFound, dest.Why)
 			return
 		}
 		up, known := s.upstreams[dest.Provider]
@@ -126,7 +123,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			// sending a Claude Code turn somewhere that cannot read it.
 			why := unreachable(p, up, dest, requested)
 			ev := rejection(r, key, http.StatusBadRequest, why)
-			ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Alias, route
+			ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Slot, route
 			s.recorder.Record(ev, 0)
 			p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, why)
 			return
@@ -143,18 +140,18 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		}
 		outbound := ex.Request()
 		rewrote := false
-		if virtual != "" {
+		if slot != "" {
 			replaced, ok := passes.SetModel(outbound, model)
 			if !ok {
 				p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, "the request names no model to map")
 				return
 			}
 			outbound, rewrote = replaced, true
-			s.log.Debug("model alias", "alias", virtual, "serving", model, "provider", dest.Provider,
-				"client", client, "request_id", httpx.RequestID(r.Context()))
+			s.log.Debug("client model name", "slot", slot, "serving", model, "provider", dest.Provider,
+				"client", key.Name, "request_id", httpx.RequestID(r.Context()))
 		} else if up.Native != p.ID() {
-			// Translated without an alias: the dialect chose the model it
-			// sends, and that is the one served and recorded.
+			// Translated with no slot: the dialect chose the model it sends,
+			// and that is the one served and recorded.
 			model = ex.Model()
 		}
 
@@ -165,7 +162,18 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// is in dialectHeaders — so after the two lines below they are gone.
 		// This is the only point at which the caller's own request is still
 		// intact.
-		conversation := p.ConversationID(r.Header, body)
+		//
+		// Where the client's type says it names its chat first (its spec's
+		// Sessions, internal/service/clients), then where the API reads any
+		// client's, which is all a custom client has.
+		spec, typed := clients.Find(key.ClientType)
+		conversation := ""
+		if typed {
+			conversation = api.HeaderID(r.Header, spec.Sessions...)
+		}
+		if conversation == "" {
+			conversation = p.ConversationID(r.Header, body)
+		}
 		// Which machine made this. A key says who is paying and a client says
 		// what they are running; neither says where it ran, and when one host
 		// out of several is burning a subscription that is the only question
@@ -197,8 +205,8 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 
 		// The answer names the model the client asked for. Wrapped beneath
 		// the dialect's sink, so the Responses translation is renamed too.
-		if virtual != "" {
-			renamer := passes.NewModelRenamer(w, virtual, p.ModelEvents())
+		if slot != "" {
+			renamer := passes.NewModelRenamer(w, slot, p.ModelEvents())
 			defer renamer.Finish()
 			w = renamer
 		}
@@ -206,23 +214,32 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// A client naming its own conversation is answered with the name it
 		// will display. Tee that one answer so the gateway can read it; every
 		// other request is untouched, and the tee never gates the write.
+		//
+		// A type that names its own chats (crush, opencode) has its naming
+		// request recognised by shape and filed as part of the chat's cost but
+		// not one of its turns; a custom client's is noticed by the same
+		// shape. Either way the answer is read only while the client's "Name
+		// chats" switch is on. Only a small body is looked at: a naming
+		// request is one message, and an agent turn is routinely megabytes.
+		naming := conversation != "" && len(outbound) < maxNamingBody && titles.IsClientTitleRequest(outbound)
 		sink := ex.Sink(w)
 		var captured *titles.CaptureSink
-		if conversation != "" && s.titles.Capturing() && s.titles.Serves(dest.Provider) &&
-			titles.IsClientTitleRequest(outbound) {
+		if naming && key.NameChats {
 			captured = &titles.CaptureSink{Sink: sink}
 			sink = captured
 		}
+		naming = naming && spec.NamesItsChats
 
-		// The body outlives the relay only if a title may be asked for it.
+		// The body outlives the relay only if a title may be asked for it:
+		// a client whose chats are named, of a type that does not name them
+		// itself, on a request that is not a naming request.
 		//
 		// Anything still referring to it after Do keeps it in memory for the
 		// whole stream — minutes, for a body that is routinely megabytes, once
-		// per open stream. Titles are off by default and only want a chat that
-		// has no name yet, so for nearly every request this is nil and the
-		// body can go as soon as the upstream has it.
+		// per open stream — and the titler wants only a chat with no name yet,
+		// or one due its one rename.
 		var titleBody []byte
-		if conversation != "" && s.titles.On() && s.titles.Serves(dest.Provider) {
+		if conversation != "" && key.NameChats && !spec.NamesItsChats && !naming {
 			titleBody = outbound
 		}
 
@@ -241,9 +258,9 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			s.recorder.Record(store.UsageEvent{
 				At: started, KeyID: key.ID, KeyName: key.Name,
 				AccountID: res.AccountID, AccountEmail: res.AccountEmail, Provider: res.Provider,
-				Model: model, VirtualModel: virtual, Path: route, Status: 0, Streaming: streaming,
+				Model: model, VirtualModel: slot, Path: route, Status: 0, Streaming: streaming,
 				ConversationID: conversation, Client: client, IP: ip,
-				Duration: elapsed, Error: res.Err.Error(),
+				Duration: elapsed, Error: res.Err.Error(), Naming: naming,
 			}, key.TokenBudget)
 			s.relayFailure(w, r, p, up, model, res.Err)
 			return
@@ -252,8 +269,9 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		s.recorder.Record(store.UsageEvent{
 			At: started, KeyID: key.ID, KeyName: key.Name,
 			AccountID: res.AccountID, AccountEmail: res.AccountEmail, Provider: res.Provider,
-			Model: model, VirtualModel: virtual, Path: route, Status: res.Status, Streaming: streaming,
+			Model: model, VirtualModel: slot, Path: route, Status: res.Status, Streaming: streaming,
 			ConversationID:   conversation,
+			Naming:           naming,
 			Client:           client,
 			IP:               ip,
 			InputTokens:      res.Usage.InputTokens,
@@ -276,13 +294,17 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		}
 		// Returns at once unless titling is on and this conversation has no
 		// name yet.
-		s.titles.Consider(titles.Request{
-			Conversation: conversation,
-			Model:        model,
-			AccountID:    res.AccountID,
-			Provider:     res.Provider,
-			Body:         titleBody,
-		})
+		if titleBody != nil {
+			s.titles.Consider(titles.Request{
+				Conversation: conversation,
+				KeyID:        key.ID, KeyName: key.Name, Budget: key.TokenBudget,
+				Allow:     func() bool { return s.spareFor(key) },
+				Model:     model,
+				AccountID: res.AccountID,
+				Provider:  res.Provider,
+				Body:      titleBody,
+			})
+		}
 
 		attrs := []any{
 			"api", p.ID(),
@@ -376,6 +398,11 @@ func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Pro
 	}
 }
 
+// maxNamingBody is the largest request looked at for a client's own naming
+// request: one system prompt and one message. crush's sends the user's first
+// message in it whole, so this is generous rather than tight.
+const maxNamingBody = 256 << 10
+
 // peekedExchange is an exchange that has already read its request's prologue:
 // one that sends the caller's bytes upstream as they arrived, and so read it
 // while decoding. The Anthropic dialect is one.
@@ -405,41 +432,27 @@ func decodeNative(p api.Protocol, body []byte) (api.Exchange, error) {
 	return p.Decode(body)
 }
 
-// fallbacker is a dialect that sends a model no provider lists to an alias of
-// its own — the OpenAI surface, whose clients name ids that are not Claude's
-// (Codex's own defaults). One that is not sends such a name on as it came.
-type fallbacker interface {
-	FallbackFor(model string) string
-}
-
-func fallbackFor(p api.Protocol, model string) string {
-	if f, ok := p.(fallbacker); ok {
-		return f.FallbackFor(model)
-	}
-	return ""
-}
-
 // unreachable says why a request was routed to an upstream its API cannot
-// reach, and what to change: the alias it named and where it is bound, or
-// the API to use instead.
+// reach, and what to change: the slot it named, or the API to use instead.
 func unreachable(p api.Protocol, up Upstream, dest modelsvc.Route, requested string) string {
 	title := up.Title
 	if title == "" {
 		title = dest.Provider
 	}
 	what := "model " + dest.Model
-	if dest.Alias != "" {
-		what = dest.Alias + " (" + dest.Model + ")"
+	if dest.Slot != "" {
+		what = dest.Slot + " (" + dest.Model + ")"
 	}
 	msg := what + " is served by a " + title + " account, which the " + p.Title() +
 		" cannot reach on this gateway"
-	if up.Native != "" {
+	switch {
+	case dest.Slot != "":
+		msg += "; an administrator can bind " + dest.Slot + " to a model this API can reach, or point the " +
+			"client at the " + up.Title + " account's API, on the client's page"
+	case up.Native != "":
 		msg += "; ask for it over the API that account speaks, as Codex does over /v1/responses"
-	}
-	if dest.Alias != "" {
-		msg += ", or have an administrator bind " + dest.Alias + " to a model this API can reach in Settings › Aliases"
-	} else if requested != "" {
-		msg += ", or ask for a model this API can reach"
+	case requested != "":
+		msg += "; ask for a model this API can reach"
 	}
 	return msg
 }

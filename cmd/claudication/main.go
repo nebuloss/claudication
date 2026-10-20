@@ -12,7 +12,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -28,7 +27,7 @@ import (
 	"claudication/internal/logging"
 	"claudication/internal/memlimit"
 	"claudication/internal/secret"
-	"claudication/internal/service/titles"
+	"claudication/internal/service/clients"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
@@ -49,8 +48,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "serve":
 		return cmdServe(args[1:])
-	case "keys":
-		return cmdKeys(args[1:])
+	case "clients":
+		return cmdClients(args[1:])
 	case "login-url":
 		return cmdLoginURL(args[1:])
 	case "passwd":
@@ -80,9 +79,10 @@ Usage:
   claudication serve [-config FILE]        Run the gateway
   claudication passwd                      Set the admin password
   claudication login-url                   Mint a single-use UI sign-in link
-  claudication keys add -name NAME         Mint a client API key
-  claudication keys list                   List API keys
-  claudication keys delete -id ID          Withdraw an API key
+  claudication clients add -name NAME      Make a client and print its key
+               [-type custom|claude-code|codex|opencode|crush]
+  claudication clients list                List clients
+  claudication clients delete -id ID       Delete a client and its key
   claudication backup [FILE]               Snapshot the state to one file
   claudication restore FILE                Put a backup back
   claudication vacuum                      Compact the database, reclaiming disk
@@ -193,36 +193,11 @@ func cmdServe(args []string) error {
 	limit, _ := memlimit.ParseSize(cfg.MemoryLimit)
 	memlimit.Apply(limit, log)
 
-	reissueUnkeptKeys(ctx, st, log)
-
 	srv, err := httpapi.New(cfg, log, st)
 	if err != nil {
 		return err
 	}
 	return srv.Run(ctx)
-}
-
-// reissueUnkeptKeys gives a key from before secrets were kept a new, kept
-// one, so every key's Clients page can show it. It breaks the clients holding
-// those old secrets, by design; each key is named in the log so its owner
-// knows to fetch new configs. The gateway's own key is left alone: nothing
-// holds its secret.
-//
-// A step of serve rather than of building the server, because it is a data
-// migration: it writes to the database, and constructing the HTTP surface
-// should not.
-func reissueUnkeptKeys(ctx context.Context, st *store.Store, log *slog.Logger) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	own, _, _ := st.Setting(ctx, titles.KeySetting)
-	reissued, err := st.ReissueUnkeptKeys(ctx, map[string]bool{own: true})
-	if err != nil {
-		log.Error("reissue unkept api keys", "err", err)
-	}
-	for _, name := range reissued {
-		log.Warn("api key reissued: its old secret no longer works; fetch its clients' configs from its Clients page",
-			"key", name)
-	}
 }
 
 // cmdLoginURL mints a fresh single-use sign-in link.
@@ -436,9 +411,9 @@ func readPassword(prompt string) (string, error) {
 	return string(raw), nil
 }
 
-func cmdKeys(args []string) error {
+func cmdClients(args []string) error {
 	if len(args) == 0 {
-		return errors.New("keys: expected add, list or delete")
+		return errors.New("clients: expected add, list or delete")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -446,19 +421,24 @@ func cmdKeys(args []string) error {
 
 	switch args[0] {
 	case "add":
-		fs := flag.NewFlagSet("keys add", flag.ContinueOnError)
+		fs := flag.NewFlagSet("clients add", flag.ContinueOnError)
 		configPath := fs.String("config", "", "path to config.yaml (optional)")
-		name := fs.String("name", "", "human-readable name for the key (required)")
-		rpm := fs.Int("rpm", 0, "per-key request allowance (0 = use the global default)")
+		name := fs.String("name", "", "the client's name (required)")
+		typ := fs.String("type", "custom", "custom, claude-code, codex, opencode or crush")
+		rpm := fs.Int("rpm", 0, "the client's request allowance (0 = use the global default)")
 		ratePeriod := fs.Duration("rate-period", time.Minute,
 			"what -rpm is measured over (1m, 1h, 24h)")
 		budget := fs.Int64("token-budget", 0,
-			"tokens this key may spend per rolling 24 hours (0 = unlimited)")
+			"tokens the client may spend per rolling 24 hours (0 = unlimited)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if *name == "" {
-			return errors.New("keys add: -name is required")
+			return errors.New("clients add: -name is required")
+		}
+		t, ok := clients.Find(*typ)
+		if !ok {
+			return fmt.Errorf("clients add: no client type %q", *typ)
 		}
 
 		_, st, err := openState(ctx, *configPath)
@@ -467,20 +447,36 @@ func cmdKeys(args []string) error {
 		}
 		defer st.Close()
 
-		key, plaintext, err := st.CreateKey(ctx, *name, store.KeyLimits{
+		// A typed client starts with its type's names, as the admin UI makes
+		// one. A custom one from here is for a provisioning script, which
+		// names real models: direct mode, as every key from before clients
+		// became one.
+		ch := clients.Plan(nil, t, t.DefaultDialect())
+		var slots []store.NewSlot
+		if !t.Custom {
+			for _, a := range ch.Add {
+				slots = append(slots, store.NewSlot{Slot: a.Slot, Name: a.Name, Binding: store.Binding{Follows: a.Follows}})
+			}
+		}
+		c, plaintext, err := st.CreateClient(ctx, *name, t.ID, ch.Dialect, store.KeyLimits{
 			RPMLimit:    *rpm,
 			RatePeriod:  *ratePeriod,
 			TokenBudget: *budget,
-		})
+		}, slots)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Created API key %q (id %s)\n\n  %s\n\n", key.Name, key.ID, plaintext)
-		fmt.Println("Its settings page in the admin UI can show it and its client configs again.")
+		if t.Custom {
+			if err := st.SetClientMode(ctx, c.ID, clients.Direct); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("Created %s client %q (id %s)\n\n  %s\n\n", t.Label, c.Name, c.ID, plaintext)
+		fmt.Println("Its page in the admin UI shows the key and its setup again until it is first used.")
 		return nil
 
 	case "list":
-		fs := flag.NewFlagSet("keys list", flag.ContinueOnError)
+		fs := flag.NewFlagSet("clients list", flag.ContinueOnError)
 		configPath := fs.String("config", "", "path to config.yaml (optional)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
@@ -496,11 +492,11 @@ func cmdKeys(args []string) error {
 			return err
 		}
 		if len(keys) == 0 {
-			fmt.Println("No API keys. Create one with: claudication keys add -name NAME")
+			fmt.Println("No clients. Make one with: claudication clients add -name NAME")
 			return nil
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tKEY\tCREATED\tLAST USED\tRPM\tTOKENS/DAY")
+		fmt.Fprintln(w, "ID\tNAME\tTYPE\tKEY\tCREATED\tLAST USED\tRPM\tTOKENS/DAY")
 		for _, k := range keys {
 			last := "never"
 			if k.LastUsedAt != nil {
@@ -516,20 +512,20 @@ func cmdKeys(args []string) error {
 			if k.TokenBudget > 0 {
 				budget = fmt.Sprint(k.TokenBudget)
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				k.ID, k.Name, k.Display(), k.CreatedAt.Format(time.RFC3339), last, rpm, budget)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				k.ID, k.Name, k.ClientType, k.Display(), k.CreatedAt.Format(time.RFC3339), last, rpm, budget)
 		}
 		return w.Flush()
 
 	case "delete":
-		fs := flag.NewFlagSet("keys delete", flag.ContinueOnError)
+		fs := flag.NewFlagSet("clients delete", flag.ContinueOnError)
 		configPath := fs.String("config", "", "path to config.yaml (optional)")
-		id := fs.String("id", "", "key id to delete (required)")
+		id := fs.String("id", "", "client id to delete (required)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if *id == "" {
-			return errors.New("keys delete: -id is required")
+			return errors.New("clients delete: -id is required")
 		}
 		_, st, err := openState(ctx, *configPath)
 		if err != nil {
@@ -540,10 +536,10 @@ func cmdKeys(args []string) error {
 		if err := st.DeleteKey(ctx, *id); err != nil {
 			return err
 		}
-		fmt.Printf("Deleted key %s\n", *id)
+		fmt.Printf("Deleted client %s and its key\n", *id)
 		return nil
 
 	default:
-		return fmt.Errorf("keys: unknown subcommand %q", args[0])
+		return fmt.Errorf("clients: unknown subcommand %q", args[0])
 	}
 }

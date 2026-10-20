@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -41,14 +42,6 @@ type KeyJSON struct {
 	ModelsOff []string `json:"models_off"`
 	// SecretKept says the key can be shown again, configs and all.
 	SecretKept bool `json:"secret_kept"`
-	// Managed marks the key the gateway issued to itself, so the UI can leave
-	// the Delete off that row — deleting it never did what the button implied,
-	// since the next chat needing a name just gets another issued.
-	//
-	// Derived from the settings row the titler wrote rather than stored on the
-	// key: one boolean that is always computable from something already
-	// recorded does not need a column of its own.
-	Managed bool `json:"managed"`
 }
 
 func (s *Admin) toKeyJSON(k store.APIKey, use store.UsageBucket) KeyJSON {
@@ -60,7 +53,6 @@ func (s *Admin) toKeyJSON(k store.APIKey, use store.UsageBucket) KeyJSON {
 		RPMLimit:    k.RPMLimit,
 		RatePeriodS: int(k.Period().Seconds()),
 		TokenBudget: k.TokenBudget,
-		Managed:     s.titles.IsOwnKey(k.ID),
 		Requests:    use.Requests,
 		Tokens:      use.InputTokens + use.OutputTokens + use.CacheTokens,
 		ModelsOff:   k.ModelsOff,
@@ -75,63 +67,63 @@ func (s *Admin) toKeyJSON(k store.APIKey, use store.UsageBucket) KeyJSON {
 	return out
 }
 
-func (s *Admin) handleListKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := s.store.ListKeys(r.Context())
-	if err != nil {
-		s.log.Error("list api keys", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not list keys")
-		return
-	}
-
-	// Usage is a nicety; a failure here should not hide the keys themselves.
-	usage, err := s.store.KeyUsage(r.Context(), time.Now().Add(-s.cfg.Usage.Window()))
-	if err != nil {
-		s.log.Warn("key usage unavailable", "err", err)
-		usage = map[string]store.UsageBucket{}
-	}
-
-	// Spend against the budget is a different window from the report above, so
-	// it takes its own pass — one grouped query for every key, rather than a
-	// lookup each. Also a nicety: a key still lists without it.
-	var spend map[string]store.UsageBucket
-	if s.cfg.Usage.Enabled() {
-		if spend, err = s.store.KeyUsage(r.Context(), time.Now().Add(-limits.BudgetWindow)); err != nil {
-			s.log.Warn("key budget usage unavailable", "err", err)
-			spend = map[string]store.UsageBucket{}
-		}
-	}
-
-	// Each key's estimated part of the subscription. A nicety too: without it
-	// the keys still list, they just do not say.
-	var windows []accountWindows
-	if s.cfg.Usage.Enabled() {
-		if windows, err = s.subscriptionWindows(r.Context()); err != nil {
-			s.log.Warn("subscription shares unavailable", "err", err)
-			windows = nil
-		}
-	}
-
-	out := make([]KeyJSON, 0, len(keys))
-	for _, k := range keys {
-		j := s.toKeyJSON(k, usage[k.ID])
-		if b, ok := spend[k.ID]; ok {
-			j.SpentToday = b.InputTokens + b.OutputTokens + b.CacheTokens
-		}
-		if windows != nil {
-			share := shareOf(k.ID, windows)
-			j.Subscription = &share
-		}
-		out = append(out, j)
-	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"keys":        out,
+// keyListEnvelope is a list of keys or clients with what the UI needs to read
+// their figures: the window, and the two defaults a bare 0 stands for.
+func (s *Admin) keyListEnvelope(field string, list any) map[string]any {
+	return map[string]any{
+		field:         list,
 		"window_days": int(s.cfg.Usage.Window().Hours() / 24),
 		// So the UI can name the two defaults rather than showing a bare 0,
 		// which means different things in the two columns: no ceiling for a
 		// budget, the server's own limit for a rate.
 		"budget_hours": int(limits.BudgetWindow.Hours()),
 		"default_rpm":  s.cfg.Limits.RequestsPerMinute,
-	})
+	}
+}
+
+// keyStats is what every key's row is shown with beyond the key itself, read
+// once for the whole list: its traffic over the reporting window, its spend
+// against its budget, and its share of the subscription. Each is a nicety —
+// a failure leaves the figure out and the keys still list.
+type keyStats struct {
+	usage, spend map[string]store.UsageBucket
+	windows      []accountWindows
+}
+
+func (s *Admin) keyStats(ctx context.Context) keyStats {
+	var st keyStats
+	var err error
+	if st.usage, err = s.store.KeyUsage(ctx, time.Now().Add(-s.cfg.Usage.Window())); err != nil {
+		s.log.Warn("key usage unavailable", "err", err)
+		st.usage = map[string]store.UsageBucket{}
+	}
+	// Spend against the budget is a different window from the report above,
+	// so it takes its own pass — one grouped query for every key, rather than
+	// a lookup each.
+	if s.cfg.Usage.Enabled() {
+		if st.spend, err = s.store.KeyUsage(ctx, time.Now().Add(-limits.BudgetWindow)); err != nil {
+			s.log.Warn("key budget usage unavailable", "err", err)
+			st.spend = nil
+		}
+		if st.windows, err = s.subscriptionWindows(ctx); err != nil {
+			s.log.Warn("subscription shares unavailable", "err", err)
+			st.windows = nil
+		}
+	}
+	return st
+}
+
+// of is one key's row.
+func (st keyStats) of(s *Admin, k store.APIKey) KeyJSON {
+	j := s.toKeyJSON(k, st.usage[k.ID])
+	if b, ok := st.spend[k.ID]; ok {
+		j.SpentToday = b.InputTokens + b.OutputTokens + b.CacheTokens
+	}
+	if st.windows != nil {
+		share := shareOf(k.ID, st.windows)
+		j.Subscription = &share
+	}
+	return j
 }
 
 // keyLimitsBody is what create and update both accept.
@@ -177,28 +169,20 @@ func decodeKeyLimits(w http.ResponseWriter, r *http.Request) (string, store.KeyL
 	}, true
 }
 
-// handleCreateKey mints a key and returns the plaintext. The store keeps its
-// hash to authenticate with and the secret sealed beside it, so the key's
-// Clients page can show it again.
-func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
-	name, limits, ok := decodeKeyLimits(w, r)
-	if !ok {
-		return
+// refuseConfigured answers 409 for a client already set up with its key, and
+// reports whether it did. Its key and its install command are offered until
+// the key is first used, and not after: a key that is in use somewhere has no
+// reason to be shown again, and regenerating it is how a client is set up
+// afresh.
+func (s *Admin) refuseConfigured(w http.ResponseWriter, r *http.Request, id string) bool {
+	c, err := s.store.Client(r.Context(), id)
+	if err != nil || c.ConfiguredAt == nil {
+		return false
 	}
-
-	key, plaintext, err := s.store.CreateKey(r.Context(), name, limits)
-	if err != nil {
-		s.log.Error("create api key", "err", err)
-		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not create the key")
-		return
-	}
-
-	s.log.Info("api key created", "id", key.ID, "name", key.Name,
-		"ip", httpx.ClientIP(r.Context()))
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"key":       s.toKeyJSON(key, store.UsageBucket{}),
-		"plaintext": plaintext,
-	})
+	httpx.WriteError(w, http.StatusConflict, "configured",
+		"this client was set up on "+c.ConfiguredAt.UTC().Format("2006-01-02")+
+			"; its key is no longer shown. Regenerate the key to set it up again")
+	return true
 }
 
 // handleKeySecret shows a key's secret again, for its client configs.
@@ -209,6 +193,9 @@ func (s *Admin) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 // answers 409 secret_not_kept, and the UI offers a new secret instead.
 func (s *Admin) handleKeySecret(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if s.refuseConfigured(w, r, id) {
+		return
+	}
 	plaintext, err := s.store.KeySecret(r.Context(), id)
 	switch {
 	case errors.Is(err, store.ErrKeyNotFound):
@@ -229,16 +216,8 @@ func (s *Admin) handleKeySecret(w http.ResponseWriter, r *http.Request) {
 // handleRotateKey issues a key a new secret and answers it once, in the shape
 // creating a key does, so the admin UI shows it — and the client configs
 // written with it — the same way. The old secret stops working at once.
-//
-// Not for the gateway's own key: nothing holds its secret, and a new one
-// would buy nothing.
 func (s *Admin) handleRotateKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if s.titles.IsOwnKey(id) {
-		httpx.WriteError(w, http.StatusConflict, "managed_key",
-			"this is the gateway's own key; nothing holds its secret")
-		return
-	}
 	key, plaintext, err := s.store.RotateKey(r.Context(), id)
 	switch {
 	case errors.Is(err, store.ErrKeyNotFound):
@@ -249,6 +228,9 @@ func (s *Admin) handleRotateKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not issue a new secret")
 		return
 	}
+	// The old secret is in any link not yet fetched; a new one is made
+	// with the new secret.
+	s.install.Forget(id)
 	s.log.Warn("api key rotated", "id", key.ID, "name", key.Name, "ip", httpx.ClientIP(r.Context()))
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"key":       s.toKeyJSON(key, store.UsageBucket{}),
@@ -305,6 +287,7 @@ func (s *Admin) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.budgets.Forget(id)
+	s.install.Forget(id)
 	s.log.Info("api key deleted", "id", id, "ip", httpx.ClientIP(r.Context()))
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -326,13 +309,16 @@ func (s *Admin) handleKeyInstall(w http.ResponseWriter, r *http.Request) {
 		httpx.Internal(w, s.log, "read the key", err)
 		return
 	}
+	if s.refuseConfigured(w, r, id) {
+		return
+	}
 	var body struct {
 		Files []install.File `json:"files"`
 	}
 	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
-	token, expires, err := s.install.Create(install.Bundle{Key: key.Name, Files: body.Files})
+	token, expires, err := s.install.Create(install.Bundle{ClientID: key.ID, Key: key.Name, Files: body.Files})
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return

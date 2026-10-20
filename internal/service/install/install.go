@@ -1,21 +1,22 @@
 // Package install serves one-time setup scripts: a client's configuration,
 // written to the right places by one pasted command.
 //
-// The admin UI already has every client's files, with a key and the gateway's
-// address inside and the models tailored to what that key is offered — it is
-// what the Clients page shows. Rather than build them a second time here, the
-// page hands over every client's files, and this keeps them under a random
-// token for a few minutes. One address then serves them, the query saying
-// which shell and which clients:
+// The admin UI already has the client's files, with its key and the
+// gateway's address inside and each slot's model facts tailored to what it
+// serves — it is what the client's page shows. Rather than build them a
+// second time here, the page hands them over, and this keeps them under a
+// random token for a few minutes. One address then serves them, the query
+// saying which shell:
 //
-//	curl -fsSL 'https://gateway/install?token=<t>&shell=sh&client=crush' | sh
+//	curl -fsSL 'https://gateway/install?token=<t>&shell=sh' | sh
 //	irm 'https://gateway/install?token=<t>&shell=ps1' | iex
 //
-// A token works for as many runs as its few minutes allow — a client per
-// command, or the same command on two machines — and then is gone, because
-// the script carries the key and a command copied and never run should not be
-// a key waiting in memory. Held in memory rather than the database for the
-// same reason: a restart forgets them, which costs nothing but a new command.
+// A token serves one fetch and then is spent: the script carries the key, and
+// the fetch is what tells the client's page that the client is set up, and
+// from where. One left unused is gone after its few minutes, because a
+// command copied and never run should not be a key waiting in memory. Held in
+// memory rather than the database for the same reason: a restart forgets
+// them, which costs nothing but a new command.
 //
 // The scripts back up every file they change, beside it, so running a newer
 // command over an older setup is an update and never a loss. A client's own
@@ -54,8 +55,8 @@ var (
 
 // File is one file a client is configured with, and where it goes.
 type File struct {
-	// ClientID is the client it belongs to, as the install address names it:
-	// claude-code, codex, opencode, crush.
+	// ClientID is the type of client it configures: claude-code, codex,
+	// opencode, crush.
 	ClientID string `json:"client_id"`
 	// Client is the client's name, for the script's messages.
 	Client string `json:"client"`
@@ -118,9 +119,12 @@ func (m *Merge) validate() error {
 	return nil
 }
 
-// Bundle is what one command installs.
+// Bundle is what one command installs: one client's files.
 type Bundle struct {
-	// Key is the API key's name, for the script's first line.
+	// ClientID is the client's id, which the link is kept under: a client
+	// has one live link at a time.
+	ClientID string
+	// Key is the client's name, for the script's first line.
 	Key   string
 	Files []File
 }
@@ -167,30 +171,63 @@ func (b Bundle) Validate() error {
 	return nil
 }
 
-// Links holds the bundles waiting to be fetched, each under its token.
+// Links holds each client's install link: the bundle waiting to be fetched
+// under a token, or, once fetched, the record of it.
 type Links struct {
 	ttl time.Duration
 	now func() time.Time
 
 	mu sync.Mutex
-	m  map[string]link
+	// byClient is each client's latest link; a new one replaces it, and the
+	// old token stops working.
+	byClient map[string]*link
 }
 
 type link struct {
+	token   string
 	bundle  Bundle
 	expires time.Time
+	used    *Use
+}
+
+// Use is the one fetch a link served.
+type Use struct {
+	At    time.Time `json:"at"`
+	IP    string    `json:"ip"`
+	Shell string    `json:"shell"`
+}
+
+// The states a link is in, as the client's page shows them.
+const (
+	Waiting = "waiting"
+	Used    = "used"
+	Expired = "expired"
+	// None is a client with no link made since the gateway started.
+	None = "none"
+)
+
+// State is a client's link as its page shows it, polled while it is open.
+type State struct {
+	State   string    `json:"state"`
+	Token   string    `json:"token,omitempty"`
+	Expires time.Time `json:"expires_at"`
+	Used    *Use      `json:"used,omitempty"`
 }
 
 // New returns an empty set of links that each live for ttl.
 func New(ttl time.Duration) *Links {
-	return &Links{ttl: ttl, now: time.Now, m: map[string]link{}}
+	return &Links{ttl: ttl, now: time.Now, byClient: map[string]*link{}}
 }
 
-// Create keeps a bundle and returns the token that fetches it, and when that
-// token stops working.
+// Create keeps a client's bundle and returns the token that fetches it once,
+// and when that token stops working. The client's previous link, if any, is
+// gone.
 func (l *Links) Create(b Bundle) (string, time.Time, error) {
 	if err := b.Validate(); err != nil {
 		return "", time.Time{}, err
+	}
+	if b.ClientID == "" {
+		return "", time.Time{}, errors.New("a link is a client's")
 	}
 	raw := make([]byte, 24)
 	if _, err := rand.Read(raw); err != nil {
@@ -201,50 +238,66 @@ func (l *Links) Create(b Bundle) (string, time.Time, error) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.sweep()
-	l.m[token] = link{bundle: b, expires: expires}
+	l.byClient[b.ClientID] = &link{token: token, bundle: b, expires: expires}
 	return token, expires, nil
 }
 
-// Get returns the bundle under a token while it lasts. An unknown or expired
-// token is false.
-func (l *Links) Get(token string) (Bundle, bool) {
+// ErrUsed is Take's answer for a link already fetched once.
+var ErrUsed = errors.New("this install command was already used; make a new one on the client's page")
+
+// ErrUnknown is Take's answer for a token that is no client's current link,
+// or one past its time.
+var ErrUnknown = errors.New("this install command has expired or its token is wrong; make a new one on the client's page")
+
+// Take is the one fetch a link allows: the bundle, the first time and while
+// it lasts; ErrUsed after that, and ErrUnknown for a token that is no live
+// link. Single use because the script carries the client's key, and because
+// "used" is what tells the operator the client is now set up — a link that
+// served twice would not say which machine took it.
+func (l *Links) Take(token, ip, shell string) (Bundle, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.sweep()
-	got, ok := l.m[token]
-	return got.bundle, ok
+	for _, k := range l.byClient {
+		if token == "" || k.token != token {
+			continue
+		}
+		switch {
+		case k.used != nil:
+			return Bundle{}, ErrUsed
+		case !l.now().Before(k.expires):
+			return Bundle{}, ErrUnknown
+		}
+		k.used = &Use{At: l.now(), IP: ip, Shell: shell}
+		b := k.bundle
+		// The files carry the key; once served there is no reason to hold
+		// them.
+		k.bundle = Bundle{ClientID: b.ClientID, Key: b.Key}
+		return b, nil
+	}
+	return Bundle{}, ErrUnknown
 }
 
-// For is the part of a bundle for the clients named, comma-separated; every
-// client when none is named. A name the bundle does not have selects nothing,
-// so a mistyped client fails rather than installing everything.
-func (b Bundle) For(clients string) Bundle {
-	if strings.TrimSpace(clients) == "" {
-		return b
+// StateOf is a client's latest link as its page shows it.
+func (l *Links) StateOf(clientID string) State {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	k, ok := l.byClient[clientID]
+	switch {
+	case !ok:
+		return State{State: None}
+	case k.used != nil:
+		return State{State: Used, Expires: k.expires, Used: k.used}
+	case !l.now().Before(k.expires):
+		return State{State: Expired, Expires: k.expires}
 	}
-	want := map[string]bool{}
-	for _, c := range strings.Split(clients, ",") {
-		want[strings.TrimSpace(c)] = true
-	}
-	out := Bundle{Key: b.Key}
-	for _, f := range b.Files {
-		if want[f.ClientID] {
-			out.Files = append(out.Files, f)
-		}
-	}
-	return out
+	return State{State: Waiting, Token: k.token, Expires: k.expires}
 }
 
-// sweep drops expired links. Called with the lock held, on every use, so
-// nothing needs a timer of its own.
-func (l *Links) sweep() {
-	now := l.now()
-	for t, v := range l.m {
-		if !now.Before(v.expires) {
-			delete(l.m, t)
-		}
-	}
+// Forget drops a client's link: its key changed, or the client is gone.
+func (l *Links) Forget(clientID string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.byClient, clientID)
 }
 
 // heredocEnd is a terminator no file can contain by accident: random, and

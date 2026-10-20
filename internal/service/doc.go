@@ -9,7 +9,7 @@
 //	accounts  keeps each account's subscription usage current
 //	limits    request rates per key and per address, token budgets per key
 //	settings  the runtime switches an operator flips from the admin UI
-//	surfaces  which client-facing APIs are served, one such switch each
+//	clients   the kinds of client the gateway configures, their slots and names
 //	titles    names chats, read off the wire or asked for
 //	usage     records what each request cost, and prunes the history
 //

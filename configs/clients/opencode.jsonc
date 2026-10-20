@@ -2,39 +2,24 @@
   // opencode, pointed at a claudication gateway.
   // Copy to ~/.config/opencode/opencode.jsonc and change baseURL.
   //
-  // WITH /v1. This overrides the built-in Anthropic provider rather than
-  // declaring a new one, so every model the gateway serves is available.
+  // WITH /v1. This overrides opencode's built-in OpenAI provider, which sends
+  // every model over the Responses API — so each of the names below can serve
+  // a Claude model or a GPT one, chosen on the client's page in the gateway.
+  // On the Anthropic Messages API instead, the provider is "anthropic" and the
+  // names carry "claude" (opencode streams tool calls only for such ids).
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "anthropic": {
+    "openai": {
       "options": {
         "baseURL": "https://claudication.example.com/v1",
         "apiKey": "clc_..."
       },
-      // The gateway's model aliases. Which real model answers each is set in
-      // the gateway, under Settings › Aliases. opencode knows none of these names,
-      // so each is declared with the limits of the model it serves; the
-      // thinking modes are the adaptive ones current models take.
+      // This client's model names. opencode knows neither, so each is
+      // declared with the limits of the model it serves: an undeclared limit
+      // is 0, which turns auto-compaction off.
       "models": {
-        "claude-large": {
-          "name": "Claude (large)",
-          "family": "claude-opus",
-          "limit": { "context": 1000000, "output": 128000 },
-          "reasoning": true,
-          "attachment": true,
-          "tool_call": true,
-          "temperature": false,
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
-          "variants": {
-            "low": { "thinking": { "type": "adaptive" }, "effort": "low" },
-            "medium": { "thinking": { "type": "adaptive" }, "effort": "medium" },
-            "high": { "thinking": { "type": "adaptive" }, "effort": "high" },
-            "max": { "thinking": { "type": "adaptive" }, "effort": "max" }
-          }
-        },
-        "claude-small": {
-          "name": "Claude (small)",
-          "family": "claude-haiku",
+        "large": {
+          "name": "large",
           "limit": { "context": 1000000, "output": 128000 },
           "reasoning": true,
           "attachment": true,
@@ -42,67 +27,18 @@
           "temperature": false,
           "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
         },
-        "claude-opus": {
-          "name": "Claude Opus",
-          "family": "claude-opus",
-          "limit": { "context": 1000000, "output": 128000 },
-          "reasoning": true,
-          "attachment": true,
-          "tool_call": true,
-          "temperature": false,
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
-          "variants": {
-            "low": { "thinking": { "type": "adaptive" }, "effort": "low" },
-            "medium": { "thinking": { "type": "adaptive" }, "effort": "medium" },
-            "high": { "thinking": { "type": "adaptive" }, "effort": "high" },
-            "max": { "thinking": { "type": "adaptive" }, "effort": "max" }
-          }
-        },
-        "claude-sonnet": {
-          "name": "Claude Sonnet",
-          "family": "claude-sonnet",
-          "limit": { "context": 1000000, "output": 128000 },
-          "reasoning": true,
-          "attachment": true,
-          "tool_call": true,
-          "temperature": false,
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
-          "variants": {
-            "low": { "thinking": { "type": "adaptive" }, "effort": "low" },
-            "medium": { "thinking": { "type": "adaptive" }, "effort": "medium" },
-            "high": { "thinking": { "type": "adaptive" }, "effort": "high" },
-            "max": { "thinking": { "type": "adaptive" }, "effort": "max" }
-          }
-        },
-        "claude-haiku": {
-          "name": "Claude Haiku",
-          "family": "claude-haiku",
+        "small": {
+          "name": "small",
           "limit": { "context": 1000000, "output": 128000 },
           "reasoning": true,
           "attachment": true,
           "tool_call": true,
           "temperature": false,
           "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
-        },
-        "claude-fable": {
-          "name": "Claude Fable",
-          "family": "claude-fable",
-          "limit": { "context": 1000000, "output": 128000 },
-          "reasoning": true,
-          "attachment": true,
-          "tool_call": true,
-          "temperature": false,
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
-          "variants": {
-            "low": { "thinking": { "type": "adaptive" }, "effort": "low" },
-            "medium": { "thinking": { "type": "adaptive" }, "effort": "medium" },
-            "high": { "thinking": { "type": "adaptive" }, "effort": "high" },
-            "max": { "thinking": { "type": "adaptive" }, "effort": "max" }
-          }
         }
       }
     }
   },
-  "model": "anthropic/claude-large",
-  "small_model": "anthropic/claude-small"
+  "model": "openai/large",
+  "small_model": "openai/small"
 }

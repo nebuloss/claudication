@@ -51,8 +51,13 @@ type RequestJSON struct {
 	// ID is the row's own id, which only grows. It is how the live log tells
 	// a new row from one it holds: At is to the second, and a busy gateway
 	// records several requests in one.
-	ID           int64  `json:"id"`
-	At           string `json:"at"`
+	ID int64  `json:"id"`
+	At string `json:"at"`
+	// KeyID and KeyName are the client that sent it — a client owns one key,
+	// so its id is the key's — kept as an id so the row narrows to the client
+	// whatever it is called now. Empty on a request refused before it named
+	// a key.
+	KeyID        string `json:"key_id,omitempty"`
 	KeyName      string `json:"key_name,omitempty"`
 	AccountEmail string `json:"account_email,omitempty"`
 	// Provider is whose account served it — anthropic, openai — so a row
@@ -62,8 +67,8 @@ type RequestJSON struct {
 	// ReasoningTokens is the part of OutputTokens spent reasoning, where the
 	// provider said.
 	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
-	// VirtualModel is what the client asked for, when that was a virtual
-	// model; Model is then the real one that served it.
+	// VirtualModel is the client's slot name it asked for, when it asked by
+	// one; Model is then the real model that served it.
 	VirtualModel string `json:"virtual_model,omitempty"`
 	Path         string `json:"path"`
 	Status       int    `json:"status"`
@@ -88,10 +93,9 @@ type RequestJSON struct {
 	// made it, recorded for both kinds.
 	Rejected bool   `json:"rejected"`
 	IP       string `json:"ip,omitempty"`
-	// Client is what was running, read from the User-Agent. A key says who is
-	// paying and is named by whoever minted it — one key called "test" served
-	// every request on this gateway for a week, from crush. The client is the
-	// answer to what sent it, and a refused request has one too.
+	// Client is the program that was running, read from the User-Agent: what
+	// actually sent it, which a refused request has too, and which tells a
+	// custom client's several programs apart.
 	Client string `json:"client,omitempty"`
 	// Conversation is the id the client sent for this chat, which is what the
 	// chat filter matches. Shown so a row can be narrowed to its own
@@ -107,6 +111,7 @@ func (s *Admin) toRequestJSON(e store.UsageEvent) RequestJSON {
 	return RequestJSON{
 		ID:              e.ID,
 		At:              e.At.UTC().Format(time.RFC3339),
+		KeyID:           e.KeyID,
 		KeyName:         e.KeyName,
 		AccountEmail:    e.AccountEmail,
 		Provider:        e.Provider,

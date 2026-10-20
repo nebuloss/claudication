@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -61,4 +62,23 @@ func (s *Gateway) withinBudget(w http.ResponseWriter, r *http.Request, p api.Pro
 		fmt.Sprintf("this API key has spent %d of its %d token budget for the last %s",
 			spent, key.TokenBudget, limits.BudgetWindow))
 	return false
+}
+
+// spareFor takes a request the gateway makes for a client — naming its chat
+// — against the client's limits, and says whether it may go: only when the
+// client has room to spare, so the gateway's request is never why the
+// client's own next one is refused. Under budget, and with a request of rate
+// left beyond this one; that one is spent.
+func (s *Gateway) spareFor(key store.APIKey) bool {
+	if key.TokenBudget > 0 && s.cfg.Usage.Enabled() {
+		spent, err := s.budgets.SpentBy(context.Background(), key.ID)
+		if err != nil || spent >= key.TokenBudget {
+			return false
+		}
+	}
+	count, period := key.RPMLimit, key.Period()
+	if count == 0 {
+		count, period = s.cfg.Limits.RequestsPerMinute, time.Minute
+	}
+	return s.keyLimiter.AllowSpare(key.ID, count, period)
 }

@@ -162,37 +162,37 @@ func TestConfigResolution(t *testing.T) {
 	}
 }
 
-// The key lifecycle from the shell, checked against what the database holds:
-// this is how a headless deployment mints its first client credential.
-func TestKeysCommand(t *testing.T) {
+// The client lifecycle from the shell, checked against what the database
+// holds: this is how a headless deployment mints its first client credential.
+func TestClientsCommand(t *testing.T) {
 	dir, cfg := stateDir(t)
 
-	if err := cmdKeys(nil); err == nil {
-		t.Error("keys with no subcommand: want an error")
+	if err := cmdClients(nil); err == nil {
+		t.Error("clients with no subcommand: want an error")
 	}
-	if err := cmdKeys([]string{"rotate"}); err == nil {
+	if err := cmdClients([]string{"rotate"}); err == nil {
 		t.Error("unknown subcommand: want an error")
 	}
-	if err := cmdKeys([]string{"add", "-config", cfg}); err == nil {
+	if err := cmdClients([]string{"add", "-config", cfg}); err == nil {
 		t.Error("add without -name: want an error")
 	}
-	if err := cmdKeys([]string{"delete", "-config", cfg}); err == nil {
+	if err := cmdClients([]string{"delete", "-config", cfg}); err == nil {
 		t.Error("delete without -id: want an error")
 	}
-	if err := cmdKeys([]string{"add", "-bogus"}); err == nil {
+	if err := cmdClients([]string{"add", "-bogus"}); err == nil {
 		t.Error("unknown flag: want an error")
 	}
 
-	out, err := captureStdout(t, func() error { return cmdKeys([]string{"list", "-config", cfg}) })
+	out, err := captureStdout(t, func() error { return cmdClients([]string{"list", "-config", cfg}) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "No API keys") {
+	if !strings.Contains(out, "No clients") {
 		t.Errorf("empty list said %q", out)
 	}
 
 	out, err = captureStdout(t, func() error {
-		return cmdKeys([]string{"add", "-config", cfg, "-name", "ci",
+		return cmdClients([]string{"add", "-config", cfg, "-name", "ci",
 			"-rpm", "5", "-rate-period", "1h", "-token-budget", "1000"})
 	})
 	if err != nil {
@@ -216,30 +216,42 @@ func TestKeysCommand(t *testing.T) {
 	if key.Name != "ci" || key.RPMLimit != 5 || key.Period() != time.Hour || key.TokenBudget != 1000 {
 		t.Errorf("stored key = %+v", key)
 	}
+	// A custom client from a script names real models: direct mode.
+	if key.ClientType != "custom" || key.NamesSlots() {
+		t.Errorf("a scripted custom client = %q, names slots %v; want custom in direct mode", key.ClientType, key.NamesSlots())
+	}
+	if err := cmdClients([]string{"add", "-config", cfg, "-name", "x", "-type", "nonesuch"}); err == nil {
+		t.Error("an unknown type: want an error")
+	}
+	if _, err := captureStdout(t, func() error {
+		return cmdClients([]string{"add", "-config", cfg, "-name", "laptop", "-type", "crush"})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	out, err = captureStdout(t, func() error { return cmdKeys([]string{"list", "-config", cfg}) })
+	out, err = captureStdout(t, func() error { return cmdClients([]string{"list", "-config", cfg}) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{key.ID, "ci", "5/hour", "1000", "never"} {
+	for _, want := range []string{key.ID, "ci", "custom", "laptop", "crush", "5/hour", "1000", "never"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list is missing %q:\n%s", want, out)
 		}
 	}
 	// The secret itself is never listed again.
 	if strings.Contains(out, plaintext) {
-		t.Error("keys list printed the plaintext key")
+		t.Error("clients list printed the plaintext key")
 	}
 
 	if _, err := captureStdout(t, func() error {
-		return cmdKeys([]string{"delete", "-config", cfg, "-id", key.ID})
+		return cmdClients([]string{"delete", "-config", cfg, "-id", key.ID})
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.Authenticate(context.Background(), plaintext); err == nil {
 		t.Error("a deleted key still authenticates")
 	}
-	if err := cmdKeys([]string{"delete", "-config", cfg, "-id", key.ID}); err == nil {
+	if err := cmdClients([]string{"delete", "-config", cfg, "-id", key.ID}); err == nil {
 		t.Error("deleting a key twice succeeded")
 	}
 }
@@ -324,7 +336,7 @@ func TestLoginURLCommand(t *testing.T) {
 func TestVacuumKeepsTheData(t *testing.T) {
 	dir, cfg := stateDir(t)
 	if _, err := captureStdout(t, func() error {
-		return cmdKeys([]string{"add", "-config", cfg, "-name", "kept"})
+		return cmdClients([]string{"add", "-config", cfg, "-name", "kept"})
 	}); err != nil {
 		t.Fatal(err)
 	}
