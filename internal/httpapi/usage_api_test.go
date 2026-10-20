@@ -153,6 +153,49 @@ func TestUsageReportWindow(t *testing.T) {
 	}
 }
 
+// Activity's tables are folded from one gateway-wide read, and its live strip
+// counts what arrived: the refusal is out of the first and in the second.
+func TestGatewaySlotsAndLive(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	seedHistory3(t, st)
+	base, c := adminAPI(t, srv)
+
+	status, body := call(t, base, http.MethodGet, "/admin/usage/slots?days=1", "", c)
+	if status != http.StatusOK {
+		t.Fatalf("slots: %d %s", status, body)
+	}
+	slots := decode[struct {
+		Days   int             `json:"days"`
+		Rows   []store.SlotUse `json:"rows"`
+		Shares map[string]any  `json:"shares"`
+	}](t, body)
+	var requests, errs int64
+	for _, r := range slots.Rows {
+		requests += r.Requests
+		errs += r.Errors
+	}
+	if slots.Days != 1 || len(slots.Rows) != 2 || requests != 2 || errs != 1 || slots.Shares == nil {
+		t.Errorf("slots = %+v", slots)
+	}
+
+	status, body = call(t, base, http.MethodGet, "/admin/usage/live", "", c)
+	if status != http.StatusOK {
+		t.Fatalf("live: %d %s", status, body)
+	}
+	live := decode[struct {
+		PerMinute []int `json:"per_minute"`
+		InFlight  int   `json:"in_flight"`
+		Recorded  bool  `json:"history_recorded"`
+	}](t, body)
+	sum := 0
+	for _, n := range live.PerMinute {
+		sum += n
+	}
+	if len(live.PerMinute) != 60 || sum != 3 || live.InFlight != 0 || !live.Recorded {
+		t.Errorf("live = %+v (sum %d)", live, sum)
+	}
+}
+
 // The first screen after sign-in answers "is this working" in one request,
 // and readiness is the pool's answer, not a count of rows.
 func TestOverview(t *testing.T) {

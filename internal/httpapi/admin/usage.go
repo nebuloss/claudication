@@ -38,6 +38,57 @@ func (s *Admin) handleUsage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGatewaySlots is every client's traffic over a window, by account,
+// model name and model, with each client's estimated share of each
+// provider's windows now: the rows Activity's Models, Clients and Accounts
+// pages are all folded from. One read for the three rather than an endpoint
+// per table, so a model's clients and an account's clients are the same rows
+// added up two ways, and they agree with the client's and the account's own
+// Usage pages, which read the same query narrowed.
+func (s *Admin) handleGatewaySlots(w http.ResponseWriter, r *http.Request) {
+	days := windowDays(r)
+	rows, err := s.store.SlotUsage(r.Context(), store.SlotScope{Gateway: true}, time.Now().AddDate(0, 0, -days))
+	if err != nil {
+		httpx.Internal(w, s.log, "read the gateway's usage", err)
+		return
+	}
+	shares := map[string]SubscriptionShare{}
+	if s.cfg.Usage.Enabled() {
+		if windows, err := s.subscriptionWindows(r.Context()); err == nil {
+			for _, row := range rows {
+				if _, done := shares[row.KeyID]; !done {
+					shares[row.KeyID] = shareOf(row.KeyID, windows)
+				}
+			}
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"days": days, "rows": rows, "shares": shares})
+}
+
+// handleGatewayLive is the gateway's load now, polled: its requests per
+// minute over the last hour and what it has open this second, the
+// gateway-wide twin of a client's live figures (handleClientLimits).
+func (s *Admin) handleGatewayLive(w http.ResponseWriter, r *http.Request) {
+	start := time.Now().Truncate(time.Minute).Add(-(liveMinutes - 1) * time.Minute)
+	minutes, err := s.store.RequestsPerMinute(r.Context(), start)
+	if err != nil {
+		httpx.Internal(w, s.log, "read the gateway's requests", err)
+		return
+	}
+	perMinute := make([]int, liveMinutes)
+	for _, m := range minutes {
+		if i := int(m.Minute.Sub(start) / time.Minute); i >= 0 && i < liveMinutes {
+			perMinute[i] = m.Requests
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"per_minute":       perMinute,
+		"since":            start.UTC().Format(time.RFC3339),
+		"in_flight":        s.inflight.Total(),
+		"history_recorded": s.cfg.Usage.Enabled(),
+	})
+}
+
 // scopeFrom reads ?account= and ?key=, which narrow a report to the page of
 // one account or one key. Absent is the whole gateway.
 func scopeFrom(q url.Values) store.UsageScope {

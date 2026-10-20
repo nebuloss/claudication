@@ -162,7 +162,7 @@ func TestNewAdminEndpointsRequireASession(t *testing.T) {
 	defer func() { cancel(); <-done }()
 	setupAdmin(t, st)
 
-	for _, path := range []string{"/admin/overview", "/admin/clients", "/admin/usage", "/admin/requests"} {
+	for _, path := range []string{"/admin/overview", "/admin/clients", "/admin/usage", "/admin/usage/slots", "/admin/usage/live", "/admin/requests"} {
 		resp, err := http.Get(base + path)
 		if err != nil {
 			t.Fatal(err)

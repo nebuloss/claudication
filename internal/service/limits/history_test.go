@@ -89,12 +89,17 @@ func TestRoundUp2(t *testing.T) {
 func TestInFlight(t *testing.T) {
 	f := NewInFlight()
 	a, b := f.Begin("k"), f.Begin("k")
+	c := f.Begin("other")
+	if f.Total() != 3 {
+		t.Errorf("total %d with three open", f.Total())
+	}
+	c()
 	if f.Open("k") != 2 || f.Open("other") != 0 {
 		t.Errorf("open %d", f.Open("k"))
 	}
 	a()
 	b()
-	if f.Open("k") != 0 {
-		t.Errorf("open %d after both closed", f.Open("k"))
+	if f.Open("k") != 0 || f.Total() != 0 {
+		t.Errorf("open %d, total %d after all closed", f.Open("k"), f.Total())
 	}
 }

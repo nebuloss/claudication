@@ -175,6 +175,8 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 
 	mux.Handle("GET /admin/overview", admin(s.handleOverview))
 	mux.Handle("GET /admin/usage", admin(s.handleUsage))
+	mux.Handle("GET /admin/usage/slots", admin(s.handleGatewaySlots))
+	mux.Handle("GET /admin/usage/live", admin(s.handleGatewayLive))
 	mux.Handle("GET /admin/chats", admin(s.handleChats))
 	mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
 	mux.Handle("PUT /admin/chats/{id}/title", admin(s.handleSetChatTitle))

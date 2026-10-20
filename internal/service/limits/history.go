@@ -174,3 +174,16 @@ func (f *InFlight) Open(key string) int {
 	defer f.mu.Unlock()
 	return f.open[key]
 }
+
+// Total is how many requests every key together has open: the gateway's own
+// load this second, which Activity shows beside its last hour. Summed here
+// rather than kept as a second counter, so the two cannot disagree.
+func (f *InFlight) Total() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.open {
+		n += c
+	}
+	return n
+}

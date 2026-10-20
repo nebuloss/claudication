@@ -300,6 +300,39 @@ func TestSlotUsageAndKeyRequests(t *testing.T) {
 	if _, err := st.SlotUsage(ctx, SlotScope{}, week); err == nil {
 		t.Error("a scope naming nothing was read")
 	}
+	// The whole gateway, split by account as well: client a's "large" on acc1
+	// is one row, its "small" on acc2 another, and the scoped reads never
+	// carried an account.
+	rows, err = st.SlotUsage(ctx, SlotScope{Gateway: true}, week)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 4 || rows[0].KeyID != a.ID || rows[0].AccountID != "acc1" || rows[0].Requests != 2 ||
+		rows[1].AccountID != "acc2" || rows[1].Slot != "small" {
+		t.Errorf("gateway by client and account: %+v", rows)
+	}
+	var sum int64
+	for _, r := range rows {
+		sum += r.Requests
+	}
+	if sum != 5 {
+		t.Errorf("gateway rows add up to %d requests, want the 5 relayed this week", sum)
+	}
+	if rows, _ := st.SlotUsage(ctx, SlotScope{KeyID: a.ID}, week); rows[0].AccountID != "" {
+		t.Errorf("a client's own read split by account: %+v", rows)
+	}
+
+	// By the minute, refusals included, oldest first: two an hour ago, two a
+	// minute ago (the refusal and the titling).
+	minutes, err := st.RequestsPerMinute(ctx, now.Add(-90*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(minutes) != 2 || minutes[0].Requests != 2 || minutes[1].Requests != 2 ||
+		!minutes[0].Minute.Before(minutes[1].Minute) ||
+		!minutes[1].Minute.Equal(now.Add(-time.Minute).Truncate(time.Minute)) {
+		t.Errorf("requests per minute: %+v", minutes)
+	}
 
 	reqs, err := st.KeyRequests(ctx, a.ID, week)
 	if err != nil {
