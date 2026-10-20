@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -108,8 +109,30 @@ func TestAHandoverRecordsNoOutage(t *testing.T) {
 func TestAnInheritedServerBindsNothingOfItsOwn(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	err := srv.Serve(context.Background(), Handoff{Listeners: map[string]net.Listener{}})
-	if err == nil {
-		t.Fatal("served without the socket it was meant to inherit")
+	if !errors.Is(err, ErrListenersChanged) {
+		t.Fatalf("served without the socket it was meant to inherit: %v", err)
+	}
+}
+
+// Nor does it serve beside a socket its config no longer names: nobody would
+// accept on it, and its connections would wait in the queue for ever. The
+// supervisor and the worker read the config each on their own, so an edit
+// between the two is enough.
+func TestAnInheritedSocketTheConfigDoesNotNameIsRefused(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	relay, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer relay.Close()
+	admin, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	err = srv.Serve(context.Background(), Handoff{Listeners: map[string]net.Listener{ListenRelay: relay, ListenAdmin: admin}})
+	if !errors.Is(err, ErrListenersChanged) {
+		t.Fatalf("served with an inherited socket nobody accepts on: %v", err)
 	}
 }
 

@@ -46,6 +46,11 @@ const (
 // to stopping the old one first. EX_TEMPFAIL: the same binary succeeds alone.
 const ExitBeside = 75
 
+// ExitListeners is the status a worker exits with when its config names other
+// listeners than the sockets it was handed — the config was edited since the
+// supervisor bound them. EX_CONFIG: a restart rebinds.
+const ExitListeners = 78
+
 // releaseLine is what the supervisor writes on the control pipe.
 const releaseLine = "release\n"
 
@@ -374,6 +379,10 @@ func (s *Supervisor) reload(ctx context.Context) error {
 		return nil // Run is stopping everything
 	case exitStatus(w) == ExitBeside:
 		return s.restart(ctx, &r, report)
+	case exitStatus(w) == ExitListeners:
+		r.Err = fmt.Errorf("the new worker's config names other listeners than the supervisor holds: a restart rebinds them")
+		report()
+		return nil
 	default:
 		s.kill(w)
 		r.Err = err

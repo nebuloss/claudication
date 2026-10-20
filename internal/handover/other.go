@@ -16,9 +16,10 @@ import (
 const Supported = false
 
 const (
-	EnvMode      = "CLAUDICATION_HANDOVER"
-	EnvListeners = "CLAUDICATION_HANDOVER_LISTENERS"
-	ExitBeside   = 75
+	EnvMode       = "CLAUDICATION_HANDOVER"
+	EnvListeners  = "CLAUDICATION_HANDOVER_LISTENERS"
+	ExitBeside    = 75
+	ExitListeners = 78
 )
 
 type Listen struct{ Name, Addr string }

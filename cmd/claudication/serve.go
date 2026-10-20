@@ -208,7 +208,12 @@ func serveOnce(ctx context.Context, configPath string, h httpapi.Handoff, beside
 	if err != nil {
 		return err
 	}
-	return srv.Serve(ctx, h)
+	err = srv.Serve(ctx, h)
+	if errors.Is(err, httpapi.ErrListenersChanged) {
+		log.Error("not serving", "err", err)
+		return exitWith{code: handover.ExitListeners, err: err}
+	}
+	return err
 }
 
 // exitWith is an error that ends the process with a status of its own.

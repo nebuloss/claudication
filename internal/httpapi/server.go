@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -663,8 +664,44 @@ type Handoff struct {
 	Release <-chan struct{}
 }
 
+// ErrListenersChanged is a worker whose config names other listeners than the
+// sockets it inherited. The supervisor and the worker read the config each on
+// their own, so an edit between the two can do this; serving anyway would
+// leave an inherited socket that nobody accepts on, its connections waiting
+// in the queue for ever, or a listener with no socket at all.
+var ErrListenersChanged = errors.New("the config names other listeners than the inherited sockets")
+
+func (s *Server) matchInherited(inherited map[string]net.Listener) error {
+	want := map[string]bool{}
+	for _, l := range s.listeners {
+		want[l.key] = true
+	}
+	same := len(want) == len(inherited)
+	for k := range inherited {
+		same = same && want[k]
+	}
+	if same {
+		return nil
+	}
+	have := make([]string, 0, len(inherited))
+	for k := range inherited {
+		have = append(have, k)
+	}
+	slices.Sort(have)
+	names := make([]string, 0, len(s.listeners))
+	for _, l := range s.listeners {
+		names = append(names, l.key)
+	}
+	return fmt.Errorf("%w: inherited %v, config names %v; restart to rebind", ErrListenersChanged, have, names)
+}
+
 // Serve is Run, with the sockets and the signals of a handover.
 func (s *Server) Serve(ctx context.Context, h Handoff) error {
+	if h.Listeners != nil {
+		if err := s.matchInherited(h.Listeners); err != nil {
+			return err
+		}
+	}
 	// Every listener binds before anything is served, so a port clash on the
 	// admin address is a startup failure rather than a gateway that
 	// comes up with no way in.
@@ -672,9 +709,7 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 		var ln net.Listener
 		var err error
 		if h.Listeners != nil {
-			if ln = h.Listeners[l.key]; ln == nil {
-				err = fmt.Errorf("no inherited socket for %s %s: the supervisor binds what its config said at start; restart to rebind", l.key, l.addr)
-			}
+			ln = h.Listeners[l.key] // there: matchInherited
 		} else {
 			ln, err = net.Listen("tcp", l.addr)
 		}

@@ -52,6 +52,8 @@ func testWorker() int {
 		switch os.Getenv(envBeside) {
 		case "refuse":
 			return ExitBeside
+		case "listeners":
+			return ExitListeners
 		case "hang":
 			select {}
 		}
@@ -354,7 +356,7 @@ func TestHandoverNeverRefusesAConnection(t *testing.T) {
 // A new binary that cannot start costs nothing: the old worker was never told
 // to let go.
 func TestAFailedHandoverLeavesTheOldServing(t *testing.T) {
-	for _, mode := range []string{"fail", "hang"} {
+	for _, mode := range []string{"fail", "hang", "listeners"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv(envBeside, mode)
 			h := startSupervisor(t, time.Second)
