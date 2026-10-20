@@ -6,9 +6,11 @@ import { toneFill, type Tone } from '../styles/tone'
  * budget.
  *
  * `sm` is the short bar that sits inline beside a figure in a list row; `md`
- * spans its container, under a heading. `percent` null draws the track alone,
- * for a figure that has never been read — distinct from 0, which still shows
- * a sliver so a reading of nothing looks read.
+ * spans its container, under a heading. A reading of 0, or none at all (null,
+ * never read), draws the empty track: a sliver at 0 read as a little use,
+ * which is the one thing 0 is not. The figure beside the bar already tells
+ * the two apart. Anything above 0 gets at least a sliver, so a small use is
+ * still visible.
  */
 export function UsageBar({
   percent,
@@ -22,7 +24,7 @@ export function UsageBar({
   const track = size === 'sm' ? 'h-1.5 w-12' : 'h-2 w-full'
   return (
     <span className={`block shrink-0 overflow-hidden rounded-full bg-surface-high ${track}`}>
-      {percent !== null && (
+      {percent !== null && percent > 0 && (
         <span
           className={`block h-full rounded-full ${toneFill[tone]}`}
           style={{ width: `${Math.max(1, Math.min(100, percent))}%` }}
