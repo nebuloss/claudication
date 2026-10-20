@@ -116,8 +116,7 @@ function curve(data: ChatDetail | null): { points: Point[]; marks: number[] } {
  * the chat list's rollup follows, so the two cannot name it differently.
  */
 function surface(rows: RequestRow[]): string {
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const r = rows[i]
+  for (const r of [...rows].reverse()) {
     if (r.path !== INTERNAL_PATH && !r.rejected && r.surface) return r.surface
   }
   return ''
