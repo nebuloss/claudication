@@ -253,7 +253,7 @@ setting its tool has, each with a name the tool asks for:
 |---|---|
 | Claude Code | `claude-large` (`ANTHROPIC_MODEL`), `claude-small` (`ANTHROPIC_SMALL_FAST_MODEL`), `claude-opus`, `claude-sonnet`, `claude-haiku`, `claude-fable` (the `/model` tiers), `claude-auto` (auto mode's classifier) |
 | Codex | `large` (`model`), `review` (`review_model`), `agents` (sub-agents), `small` (memories) |
-| opencode | `large` (`model`), `small` (`small_model`) |
+| opencode | `claude-large` (`model`), `claude-small` (`small_model`) |
 | crush | `large` (`models.large`), `small` (`models.small`) |
 | Custom | `large`, and any the operator adds — or real model ids, in direct mode |
 

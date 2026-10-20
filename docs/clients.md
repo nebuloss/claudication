@@ -5,19 +5,21 @@ API key, its own model names, its limits and its switches. Make one on the
 **Clients** screen of the admin UI; its page then has everything that tool
 needs — the key, the address, its files and a one-line install command.
 
-| Type | What the gateway writes | API it is pointed at | `/v1` on the base URL? |
+| Type | What the gateway writes | API it speaks | `/v1` on the base URL? |
 |---|---|---|---|
 | Claude Code | [`claude-code.sh`](../configs/clients/claude-code.sh) | Anthropic Messages | no |
 | Codex CLI | [`codex.toml`](../configs/clients/codex.toml) + [`codex-models.json`](../configs/clients/codex-models.json) | OpenAI Responses | yes |
-| opencode | [`opencode.jsonc`](../configs/clients/opencode.jsonc) | Responses (default) or Messages | yes |
-| crush | [`crush.json`](../configs/clients/crush.json) | Messages (default) or Responses | no on Messages, yes on Responses |
+| opencode | [`opencode.jsonc`](../configs/clients/opencode.jsonc) | Anthropic Messages | yes |
+| crush | [`crush.json`](../configs/clients/crush.json) | Anthropic Messages | no |
 | Custom | nothing: the key, both addresses, its names and a snippet per SDK | either | — |
 
+Each type speaks its own API, fixed by the type: there is no choice to make,
+because both APIs reach every model (see [client-apis.md](client-apis.md)).
 The files in `configs/clients/` are each type's starting point, complete and
 commented, with the names a new client of that type is given. A client's page
-writes them with its own names, its own API and its own key. Each type's table
-— its model fields, its default names, which APIs it can use and why — is
-`go doc ./internal/service/clients`, with the source each was read from.
+writes them with its own names and its own key. Each type's table — its model
+fields, its default names, its API — is `go doc ./internal/service/clients`,
+with the source each was read from.
 
 The last column is what trips everyone up: each tool has its own opinion about
 whether the base URL carries `/v1`, and none says so when you get it wrong. You
@@ -84,15 +86,15 @@ gateway resolves it to.
 |---|---|
 | Claude Code | `claude-large` (`ANTHROPIC_MODEL`), `claude-small` (`ANTHROPIC_SMALL_FAST_MODEL`), `claude-opus`, `claude-sonnet`, `claude-haiku`, `claude-fable` (`ANTHROPIC_DEFAULT_*_MODEL`), `claude-auto` (`CLAUDE_CODE_AUTO_MODE_MODEL`) |
 | Codex CLI | `large` (`model`), `review` (`review_model`), `agents` (`agents.default_subagent_model`), `small` (`memories.extract_model`, `memories.consolidation_model`) |
-| opencode | `large` (`model`), `small` (`small_model`) |
+| opencode | `claude-large` (`model`), `claude-small` (`small_model`) |
 | crush | `large` (`models.large`), `small` (`models.small`) |
 | Custom | `large`, and any more the operator adds |
 
 A name is the client's own: two clients can both have a `large`, bound to
-different models. It can be renamed on the client's page, within a rule some
-tools impose — Claude Code keeps only model ids containing `claude`, opencode
-streams tool calls over Messages only for such ids, and crush speaks Responses
-only for an id that looks like a GPT one, so its Responses names carry `gpt-5`.
+different models. It can be renamed on the client's page, within a rule two
+tools impose on the name, whatever it serves — Claude Code keeps only model ids
+containing `claude`, and opencode streams tool calls on its Anthropic provider
+only for such ids — so their names carry `claude`, a GPT model's included.
 
 A slot is bound either to a **model** — any model an account serves, Claude or
 GPT — or to a **target it follows**: the newest Opus, Sonnet, Haiku or Fable,
@@ -109,27 +111,29 @@ it names its slots like a typed one; in **direct** mode it names real model ids,
 and a Models page on the client says which it may use. Keys from before clients
 existed became custom clients in direct mode.
 
-### Which API, and what reaches what
+### What reaches what
 
-Messages reaches Claude only; Responses reaches both, ChatGPT as the request
-came and Claude through the gateway's translation (which does not carry
-extended thinking). A slot bound to a GPT model on a Messages client is
-refused rather than translated, saying which slot to rebind. See
-[client-apis.md](client-apis.md).
+Both APIs reach both providers: a model of the provider that speaks the
+client's API as the request came, one of the other through the gateway's
+translation. See [client-apis.md](client-apis.md).
 
 A client is only ever offered what it can be served now: its page's menus,
 a direct-mode client's Models page and its `/v1/models` list a model only when
-a connected, switched-on account lists it, has it on, and the client's API
-reaches its provider, and a target only while it resolves to such a model.
-A slot whose binding has since become unavailable keeps it, shown with the
-reason — no account lists it, it is switched off on every account, or the
-client's API cannot reach it — and leaves the client's model list until it
+a connected, switched-on account lists it and has it on, and a target only
+while it resolves to such a model. A slot whose binding has since become
+unavailable keeps it, shown with the reason — no account lists it, or it is
+switched off on every account — and leaves the client's model list until it
 is rebound to something available.
 
-A client keeps the type and the API it was made with. Its key was issued for
-that one client, and its names carry what its API needs (`claude`, `gpt-5`),
-so a crush on Responses is a different client from a crush on Messages: make
-another, with its own key, rather than change one.
+A client keeps the type it was made with. Its key was issued for that one
+client, and its names carry what its type needs (`claude`), so another type
+is another client: make one, with its own key, rather than change one.
+
+A client made before the API became its type's — an opencode or a crush once
+pointed at Responses — speaks its type's API from then on, and needs its
+install command run again for its files to say so. Its names stay as they
+were; an opencode's `large` is marked on its page for lacking `claude`, and
+works, without streamed tool calls, until it is renamed.
 
 ### The files carry the models' facts
 
@@ -296,7 +300,6 @@ already the higher privilege, so none of these asks for the admin password.
 | 404 saying the gateway is switched off | The **Gateway** switch in Settings is off. |
 | 403 "this client is disabled" | The client's own switch is off, on its row or its page. |
 | 400 naming the client's model names | A typed client asked for a name that is none of its slots — usually a model typed into its picker by hand. |
-| 400 saying a slot's model is not on this client's API | A Messages client's slot is bound to a GPT model. Rebind it to a Claude model, or make a client on Responses for GPT. |
 | 401 | The key is wrong, regenerated, or in a header this client does not send. Either header works, on either API. |
 | 429 whose message is the single word `Error` | Not a rate limit. The attribution gate — see [refused-requests.md](refused-requests.md). Leave `passthrough.claude-code-attribution` on. |
 | "Third-party apps now draw from your extra usage" | Not a billing message. A content check refused the request; bisect it with `scripts/bisect-refusal.py`. |
@@ -311,5 +314,4 @@ are in use on this network; the Codex one was checked by installing Codex CLI
 real shell tool calls against a live subscription on both Sonnet 5 and Opus 5 —
 with the shipped `codex-models.json` and with a cloned one. Fable was checked
 directly against both APIs. The per-client names were checked against each
-type's tests and the sources cited in `internal/service/clients`; crush on
-Responses with `gpt-5` names follows from its source and has not been run.
+type's tests and the sources cited in `internal/service/clients`.

@@ -5,11 +5,12 @@ Anthropic Messages, and ChatGPT subscription accounts, which answer the Codex
 backend's OpenAI Responses API. Everything a *client* may speak is an adapter
 onto one of them.
 
-Two surfaces exist today.
+Two surfaces exist today, and each client type speaks one of them, fixed by
+the type; a custom client's key works on both.
 
 | Surface | Routes | Who speaks it |
 |---|---|---|
-| Anthropic Messages | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` | Claude Code, and anything written against the Anthropic SDK |
+| Anthropic Messages | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` | Claude Code, opencode and crush, and anything written against the Anthropic SDK |
 | OpenAI Responses | `/v1/responses` | Codex CLI |
 
 Both are served while the **Gateway** switch in Settings is on, and neither
