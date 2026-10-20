@@ -10,7 +10,10 @@ import { Card, Chip, Muted, type Tone } from '../../primitives'
  * instructions with a hole where the key goes, for a reader who cannot fill it.
  */
 const COPY = {
-  title: 'An API for coding tools',
+  // The product's name as the card's title rather than in the header, where
+  // AppTitle hides it on a phone to make room for the controls: here there is
+  // one control, and the name is most of what a passer-by came to learn.
+  title: 'claudication gateway',
   what: (
     <>
       This address relays Claude and GPT models to tools such as Claude Code, Codex, opencode and
