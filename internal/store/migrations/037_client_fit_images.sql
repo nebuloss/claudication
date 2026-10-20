@@ -1,4 +1,4 @@
--- Version 35 to 36: fitting oversized images is a client's choice.
+-- Version 36 to 37: fitting oversized images is a client's choice.
 --
 -- It was one gateway-wide switch, the passthrough.fit-oversized-images
 -- setting. Whether a client sends enough screenshots to cross the upstream's
@@ -13,7 +13,7 @@
 -- without the comment schema.sql gives it, and TestUpgradeMatchesFreshSchema
 -- compares that text, so the table is rebuilt as 035 did it: set aside,
 -- created, copied, dropped. The CREATE statements below are schema.sql's at
--- version 36, copied in; do not edit them, they are what this step made.
+-- version 37, copied in; do not edit them, they are what this step made.
 -- client_slots is clients' child, and renaming a parent re-points its children
 -- at the new name, so it is set aside first, filled after clients and dropped
 -- before it.
