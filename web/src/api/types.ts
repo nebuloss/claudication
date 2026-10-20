@@ -123,6 +123,18 @@ export interface AccountModel extends Model {
   enabled: boolean
   /** False for a model switched off that the upstream no longer lists. */
   listed: boolean
+  /** The last test of this model on this account, when there was one. */
+  test?: ModelTest
+}
+
+/** One model's last test on one account: a tiny turn on its own credential. */
+export interface ModelTest {
+  model: string
+  at: string
+  ok: boolean
+  status: number
+  latency_ms: number
+  error?: string
 }
 
 /** What a finished consent flow stored. */
@@ -157,13 +169,6 @@ export interface ApiKey {
   requests: number
   tokens: number
   /**
-   * The key the gateway issued to itself — today, the one chat titling bills
-   * to. The row shows no Delete, because deleting it never stopped anything:
-   * the next chat needing a name just gets another issued. Its limits stay
-   * editable, and a token budget is how you actually cap it.
-   */
-  managed: boolean
-  /**
    * The key's estimated part of the Claude subscription's two windows, as a
    * percent of every account's capacity together. Absent when usage history
    * is off or no account has reported its utilisation.
@@ -179,9 +184,12 @@ export interface ApiKey {
 export interface SubscriptionShare {
   five_hour: number
   seven_day: number
+  /** The same, per provider's pool of accounts: Claude's and ChatGPT's are separate budgets. */
+  providers: { provider: string; five_hour: number; seven_day: number; accounts: number }[]
   accounts: {
     account_id: string
     email: string
+    provider: string
     /** Percentage points of this account's window. */
     five_hour: number
     seven_day: number
@@ -278,6 +286,8 @@ export interface Chat {
   /** In first-seen order. A chat that switched model mid-way shows both. */
   models: string[]
   requests: number
+  /** The requests that were the conversation itself, less the ones naming it. */
+  turns: number
   errors: number
   input_tokens: number
   output_tokens: number
@@ -335,6 +345,8 @@ export interface RequestRow {
   /** The row's id, which only grows: what tells a polled row from a held one. */
   id: number
   at: string
+  /** The client that sent it: its id (its key's) and what it is called now. */
+  key_id?: string
   key_name?: string
   account_email?: string
   /** Whose account served it: anthropic, openai. */
@@ -342,7 +354,7 @@ export interface RequestRow {
   model?: string
   /** The part of output_tokens spent reasoning, where the provider said. */
   reasoning_tokens?: number
-  /** What the client asked for, when that was a virtual model. */
+  /** The client's slot name it asked for, when it asked by one. */
   virtual_model?: string
   path: string
   status: number
@@ -440,22 +452,6 @@ export interface Setting {
   doc: string
 }
 
-/**
- * One client-facing API, and whether it is being served.
- *
- * Runtime state rather than configuration: the switch takes effect on the next
- * request, with no restart and nothing to drain.
- */
-export interface Surface {
-  id: string
-  title: string
-  /** The paths it answers on. */
-  routes: string[]
-  enabled: boolean
-  /** 'database' once someone has set it, 'default' while nobody has. */
-  origin: Origin
-}
-
 /** Whether a model has a feature, as the upstream's model list says it. */
 export type Capability = { supported?: boolean }
 
@@ -487,64 +483,23 @@ export interface Model {
     image_input?: Capability
     thinking?: Capability
   }
-  /** A gateway model role; its other fields are the serving model's. */
+  /** A client's model name; its other fields are the serving model's. */
   virtual?: boolean
   serving?: string
-  role?: string
+  /** The slot that name fills. */
+  slot?: string
   /** Whose accounts serve it, when not Anthropic's: openai. */
   provider?: string
   /** The provider's own ranking of its models, best first (ChatGPT's). */
   priority?: number
 }
 
-/** A model role — claude-large, claude-small — for the gateway or one key. */
-export interface ModelRole {
-  role: string
-  /**
-   * What this scope binds it to. For the gateway, empty is automatic (the
-   * newest of family); for a key, empty is "follow the gateway".
-   */
-  model: string
-  /** What a built-in Claude alias follows while unbound; empty otherwise. */
-  family: string
-  builtin: boolean
-  /** Whose models a built-in alias follows while unbound: anthropic, openai. */
-  provider?: string
-  /** What a request for the role gets now, and why not when it cannot. */
-  serving: string
-  problem?: string
-  /** Its per-client bindings; on the gateway's view only. */
-  clients?: ClientRole[]
-}
-
-/**
- * One alias bound for one client, the client named as the request log names
- * it, and what that client is served for it by a key that binds nothing.
- */
-export interface ClientRole {
-  client: string
-  model: string
-  serving: string
-  problem?: string
-}
-
 export interface GatewayConfig {
   /** The file it was read from, empty when there was none. */
   path: string
   settings: Setting[]
-  surfaces: Surface[]
-  /**
-   * Whether the gateway may name conversations by asking a model. The only
-   * thing it does that spends the operator's subscription on its own behalf,
-   * which is why it is a switch and why it is off until turned on.
-   */
-  chat_titles: boolean
-  /**
-   * Whether the gateway reads names that clients generate for themselves.
-   * Costs nothing — opencode and crush ask a model to name their own
-   * conversations, and that answer already passes through here.
-   */
-  chat_titles_capture: boolean
+  /** The gateway switch: off, every client-facing route refuses. */
+  gateway_enabled: boolean
   /**
    * Whether the relay caps oversized images in a many-image request. The one
    * pass that changes what the model is shown rather than the shape of the
@@ -557,6 +512,11 @@ export interface GatewayConfig {
 export interface Health {
   status: string
   version: string
+  /**
+   * Whether client requests are accepted: the Gateway switch. Absent from a
+   * gateway from before the switch, which always accepted them.
+   */
+  accepting?: boolean
 }
 
 export interface Overview {
@@ -623,3 +583,158 @@ export interface SetupStatus {
   version?: string
 }
 
+
+/** An API a client is pointed at: Anthropic Messages, or OpenAI Responses. */
+export type DialectId = 'anthropic' | 'openai'
+
+/** How a custom client names models: its own slots, or real model ids. */
+export type ClientMode = 'binding' | 'direct'
+
+/** One model field of a client type's configuration (internal/service/clients). */
+export interface SlotSpec {
+  id: string
+  label: string
+  role: string
+  /** Where the client's configuration takes it, as the client spells it. */
+  field: string
+  /** The name a new slot is given, before any mark its dialect needs. */
+  name: string
+  /** The moving target a new slot follows. */
+  follows: string
+  hint: string
+}
+
+/** One kind of client, as the gateway configures it. */
+export interface TypeSpec {
+  id: string
+  label: string
+  /** Its default first. */
+  dialects: DialectId[]
+  slots: SlotSpec[]
+  custom: boolean
+  /** Per dialect, what every slot name must contain. */
+  marks?: Partial<Record<DialectId, string>>
+  why?: string
+  names_its_chats: boolean
+}
+
+/** A moving target a slot can follow, and what it points at now. */
+export interface FollowTarget {
+  id: string
+  title: string
+  provider: string
+  serving?: string
+  problem?: string
+}
+
+/** The table of client types, the APIs and the follow targets. */
+export interface ClientTypesWire {
+  types: TypeSpec[]
+  dialects: { id: DialectId; title: string; route: string }[]
+  follows: FollowTarget[]
+}
+
+/** One of a client's slots, resolved. */
+export interface SlotWire extends SlotSpec {
+  /** The model name the client asks for. */
+  name: string
+  /** The real model it is bound to, or `bound` the target it follows. */
+  model: string
+  bound?: string
+  serving: string
+  provider?: string
+  problem?: string
+  /** The client's API cannot reach the serving provider. */
+  unreachable?: boolean
+}
+
+/** An install link's state, polled while the client's page is open. */
+export interface InstallState {
+  state: 'none' | 'waiting' | 'used' | 'expired'
+  token?: string
+  expires_at: string
+  used?: { at: string; ip: string; shell: string }
+}
+
+/** A client, and the key it holds. */
+export interface ClientWire extends ApiKey {
+  type: string
+  dialect: DialectId
+  mode: ClientMode
+  disabled: boolean
+  disabled_at?: string
+  name_chats: boolean
+  configured_at?: string
+  install: InstallState
+  slots: SlotWire[]
+}
+
+/** What a change of type or dialect does to a client's slots. */
+export interface ClientChange {
+  type: string
+  dialect: DialectId
+  keep: { from: string; to: string; name: string; renamed?: string }[]
+  add: { slot: string; name: string; follows: string }[]
+  remove: { id: string; role: string; name: string }[]
+}
+
+/** What a client is doing now, for its Usage page. */
+export interface ClientLive {
+  per_minute: number[]
+  since: string
+  period_s: number
+  in_period: number
+  tokens_day: number
+  in_flight: number
+  rpm_limit: number
+  default_rpm: number
+  token_budget: number
+  budget_hours: number
+  history_recorded: boolean
+}
+
+/** Limits read off a client's own history. */
+export interface LimitSuggestion {
+  days: number
+  rate_per_minute: number
+  peak_per_minute: number
+  daily_tokens: number
+  peak_daily: number
+  active_days: number
+}
+
+/** What a pair of limits would have refused of the last days. */
+export interface LimitReplay {
+  requests: number
+  rate_refused: number
+  budget_refused: number
+  budget_days: number
+}
+
+/** A client's traffic under one model name, served by one model. */
+export interface SlotUse {
+  client_id: string
+  client: string
+  type: string
+  slot: string
+  model: string
+  provider: string
+  requests: number
+  errors: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
+  reasoning_tokens: number
+  last: string
+}
+
+/** One client's share of one account's windows. */
+export interface AccountShare {
+  account_id: string
+  email: string
+  provider: string
+  five_hour: number
+  seven_day: number
+  five_hour_share: number
+  seven_day_share: number
+}

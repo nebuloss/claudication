@@ -70,7 +70,7 @@ function emptyFields(): FilterFields {
 /** Where a scope's request log is: the item's own Requests page, or Activity. */
 function logPath(scope: RequestScope): string {
   if (scope.account !== undefined) return pathOf('accounts', scope.account, 'requests')
-  if (scope.key !== undefined) return pathOf('keys', scope.key, 'requests')
+  if (scope.key !== undefined) return pathOf('clients', scope.key, 'requests')
   return '/activity/requests'
 }
 

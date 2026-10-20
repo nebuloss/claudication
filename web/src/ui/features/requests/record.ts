@@ -112,7 +112,7 @@ export class RequestRecord {
       : r.account_email
   }
 
-  /** The model, and the virtual one the client asked for when it was one. */
+  /** The model, and the slot name the client asked for when it asked by one. */
   get modelLabel(): string {
     const r = this.row
     return r.virtual_model ? `${r.virtual_model} → ${dash(r.model)}` : dash(r.model)
@@ -150,8 +150,8 @@ export class RequestRecord {
       `forwarded: ${this.refused ? 'no, refused by the gateway' : 'yes'}`,
       `model:     ${dash(r.model)}`,
       `chat:      ${dash(r.conversation_id)}`,
-      `client:    ${dash(r.client)}`,
-      `key:       ${dash(r.key_name)}`,
+      `client:    ${dash(r.key_name)}`,
+      `agent:     ${dash(r.client)}`,
       `account:   ${this.accountLabel}`,
       `ip:        ${dash(r.ip)}`,
       `path:      ${r.path}`,

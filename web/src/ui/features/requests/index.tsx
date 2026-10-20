@@ -48,6 +48,8 @@ function fieldWord(field: SetField): string {
 }
 
 const FIELD_WORDS: Partial<Record<SetField, string>> = {
+  key: 'client',
+  client: 'agent',
   code: 'status',
   kind: 'forwarded',
 }
@@ -252,7 +254,8 @@ function RecentRequests({
             column('Timestamp', 'at'),
             faceted('Model', 'model'),
             faceted('Chat', 'chat'),
-            faceted('Client', 'client'),
+            faceted('Client', 'key'),
+            faceted('Agent', 'client'),
             faceted('IP', 'ip'),
             faceted('Status', 'code', outcomeRows),
             faceted('Forwarded', 'kind'),

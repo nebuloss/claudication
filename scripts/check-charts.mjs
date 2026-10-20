@@ -10,6 +10,10 @@
 // parses to the wrong tab still renders a screen, just not the one the link
 // asked for.
 //
+// And each client type's files, written from the committed ones: a config
+// that parses but names the wrong model still installs, it just asks the
+// gateway for a name the client does not have.
+//
 // `make test-web` compiles the pure modules and runs this. Only the pure ones:
 // the React components need a DOM, and a headless browser to check that a rect
 // landed where the scale said it would is a great deal of machinery to re-test
@@ -188,50 +192,39 @@ check('and so is an empty path', canonical(''), '/')
 check('the overview lives at the root, not at its own name', canonical('/overview'), '/')
 // A URL is something people type, edit and truncate.
 check('a trailing slash is the same page', canonical('/accounts/'), '/accounts')
-check('a doubled slash is forgiven', canonical('//keys'), '/keys')
-// A bookmark to a screen that has since moved lands where it went.
-check('the models screen is a section of Settings now', canonical('/models'), '/settings/aliases')
+check('a doubled slash is forgiven', canonical('//clients'), '/clients')
 check('settings is its own page', canonical('/settings'), '/settings')
-check('which was its advanced section', canonical('/settings/advanced'), '/settings')
-check('and before that, security', canonical('/settings/security'), '/settings')
 check('an unknown setting lands on it', canonical('/settings/nonesuch'), '/settings')
-check('chats moved under Activity', canonical('/chats'), '/activity/chats')
-check('requests too', canonical('/requests'), '/activity/requests')
-check('usage is read on the overview', canonical('/usage'), '/')
 check('an unknown screen falls back', canonical('/nonesuch'), '/')
+// Screens that went away are not redirected: their bookmarks land on the
+// overview, rather than on a page that only looks like the one they named.
+check('the old key list is not a screen', canonical('/keys'), '/')
+check('nor is a key', canonical('/keys/k1/usage'), '/')
+check('the APIs section went with the per-API switches', canonical('/settings/apis'), '/settings')
+check('and the aliases with the global names', canonical('/settings/aliases'), '/settings')
 
 // An item is its own overview, with its traffic and its settings as pages
 // under it: two levels, never a third.
 check('an account is its own overview', canonical('/accounts/8189e5dc'), '/accounts/8189e5dc')
-check('an old overview link lands on it', canonical('/accounts/8189e5dc/overview'), '/accounts/8189e5dc')
-check('its chats are a page', canonical('/accounts/8189e5dc/chats'), '/accounts/8189e5dc/chats')
-check('so is a setting', canonical('/accounts/a1/connection'), '/accounts/a1/connection')
-check('a key has a clients page', canonical('/keys/k1/clients'), '/keys/k1/clients')
-check('an account does not', canonical('/accounts/a1/clients'), '/accounts/a1')
-check('an unknown page is its overview', canonical('/keys/k1/nonesuch'), '/keys/k1')
-// Links from when settings were a level of their own.
-check('a settings section is its page now', canonical('/accounts/a1/settings/connection'), '/accounts/a1/connection')
-check('settings alone open the first setting', canonical('/accounts/a1/settings'), '/accounts/a1/models')
-check('pausing is under advanced', canonical('/accounts/a1/settings/availability'), '/accounts/a1/advanced')
-check('aliases are part of models', canonical('/keys/k1/settings/aliases'), '/keys/k1/models')
-check('limits are general', canonical('/keys/k1/settings/limits'), '/keys/k1/general')
-check('configs are clients', canonical('/keys/k1/settings/configs'), '/keys/k1/clients')
-check('and so is the clients section', canonical('/keys/k1/settings/clients'), '/keys/k1/clients')
-
-check('activity opens on chats', canonical('/activity'), '/activity/chats')
-check('a gateway section is a page', canonical('/settings/apis'), '/settings/apis')
-check('a renamed section keeps its old links', canonical('/settings/chats'), '/settings/titles')
+check('an overview link lands on it', canonical('/accounts/8189e5dc/overview'), '/accounts/8189e5dc')
+check('a setting is a page', canonical('/accounts/a1/connection'), '/accounts/a1/connection')
+check('an account has no chats: a chat is a client\'s', canonical('/accounts/a1/chats'), '/accounts/a1')
+check('a client has', canonical('/clients/c1/chats'), '/clients/c1/chats')
+check('and its usage, limits beside it', canonical('/clients/c1/usage'), '/clients/c1/usage')
+check('an unknown page is its overview', canonical('/clients/c1/nonesuch'), '/clients/c1')
+check('activity opens on requests, its only page', canonical('/activity'), '/activity/requests')
+check('chats are not on activity', canonical('/activity/chats'), '/activity/requests')
 // Ids are encoded once, whatever they hold.
-check('an id is kept encoded', canonical('/keys/a%2Fb'), '/keys/a%2Fb')
-check('and decoded when read', segments('/keys/a%2Fb/usage'), ['keys', 'a/b', 'usage'])
-check('a broken escape does not throw', segments('/keys/%E0%A4%A'), ['keys', '%E0%A4%A'])
-check('a path is built encoded', pathOf('accounts', 'a b', 'chats'), '/accounts/a%20b/chats')
+check('an id is kept encoded', canonical('/clients/a%2Fb'), '/clients/a%2Fb')
+check('and decoded when read', segments('/clients/a%2Fb/usage'), ['clients', 'a/b', 'usage'])
+check('a broken escape does not throw', segments('/clients/%E0%A4%A'), ['clients', '%E0%A4%A'])
+check('a path is built encoded', pathOf('accounts', 'a b', 'usage'), '/accounts/a%20b/usage')
 
 check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts')
-check('a moved screen names where it went', tab('/models'), 'settings')
+check('a client page too', tab('/clients/c1/requests'), 'clients')
 // Round trip: every canonical path is its own canonical form.
 {
-  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/keys/x/advanced', '/activity/requests', '/settings']
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/requests', '/settings', '/settings/configuration']
   check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
 }
 
@@ -239,53 +232,49 @@ check('a moved screen names where it went', tab('/models'), 'settings')
 // lists every level. Names come from the pages, by id.
 {
   const name = (kind, id) => `${kind}:${id}`
-  const lvl = (p) => navLevel(canonical(p))
+  const lvl = (p, omit) => navLevel(canonical(p), omit)
   const hrefs = (l) => l.items.map((i) => i.href)
 
   check('the top level has no way up', lvl('/').back, undefined)
   // The overview is the root itself, reached by the trail's first step.
-  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'API keys', 'Activity', 'Settings'])
-  check('a list is on the top level', lvl('/accounts').current, '/accounts')
-  check('each screen opens on its first page', hrefs(lvl('/'))[2], '/activity/chats')
-  check('an account lists its traffic and its settings', hrefs(lvl('/accounts/a1/chats')), [
-    '/accounts/a1/usage', '/accounts/a1/chats', '/accounts/a1/requests',
+  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'Clients', 'Activity', 'Settings'])
+  check('a list is on the top level', lvl('/clients').current, '/clients')
+  check('each screen opens on its first page', hrefs(lvl('/'))[2], '/activity/requests')
+  check('an account lists its traffic and its settings', hrefs(lvl('/accounts/a1/usage')), [
+    '/accounts/a1/usage', '/accounts/a1/requests',
     '/accounts/a1/models', '/accounts/a1/connection', '/accounts/a1/advanced',
   ])
-  check('a key too, with its clients', hrefs(lvl('/keys/k1/usage')), [
-    '/keys/k1/usage', '/keys/k1/chats', '/keys/k1/requests',
-    '/keys/k1/clients', '/keys/k1/models', '/keys/k1/general', '/keys/k1/advanced',
+  check('a client too', hrefs(lvl('/clients/c1/usage')), [
+    '/clients/c1/usage', '/clients/c1/chats', '/clients/c1/requests', '/clients/c1/models',
+  ])
+  // A typed client's names are on its overview; it has no Models page.
+  check('a page it has no use for is left out', hrefs(lvl('/clients/c1/usage', ['models'])), [
+    '/clients/c1/usage', '/clients/c1/chats', '/clients/c1/requests',
   ])
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
-  check('a setting is current like any page', lvl('/keys/k1/general').current, '/keys/k1/general')
-  check('and goes back to the list', lvl('/keys/k1/general').back, { href: '/keys', label: 'API keys' })
-  check('settings go back to the top', lvl('/settings/apis').back.href, '/')
+  check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')
+  check('and goes back to the list', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients' })
+  check('settings go back to the top', lvl('/settings/images').back.href, '/')
 
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
   // Every trail starts at the root, and no level is named twice.
   check('the overview is the root alone', trail('/'), ['Overview'])
-  check('a list', trail('/accounts'), ['Overview', 'Accounts'])
+  check('a list', trail('/clients'), ['Overview', 'Clients'])
   check('the settings page', trail('/settings'), ['Overview', 'Settings'])
-  check('an account is its name, not its name then Overview', trail('/accounts/a1'), ['Overview', 'Accounts', 'accounts:a1'])
-  check('a setting of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
-  check('a gateway section', trail('/settings/apis'), ['Overview', 'Settings', 'APIs'])
+  check('a client is its name, not its name then Overview', trail('/clients/c1'), ['Overview', 'Clients', 'clients:c1'])
+  check('a page of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
+  check('a gateway section', trail('/settings/configuration'), ['Overview', 'Settings', 'Configuration'])
   check('an activity page', trail('/activity/requests'), ['Overview', 'Activity', 'Requests'])
-  check('the item step is its overview', trailOf('/accounts/a1/usage', name)[2].href, '/accounts/a1')
+  check('the item step is its overview', trailOf('/clients/c1/usage', name)[2].href, '/clients/c1')
 }
 
-// The client configs handed out are the committed files with their models
-// rewritten from the gateway's live list. Checked against the real committed
-// files, because the rewrite is only as good as its reading of them.
-console.log('\n— model catalog: the configs are written from the live list —')
+// A client's files are the committed ones with its own names put in. Checked
+// against the real committed files, because the rewrite is only as good as
+// its reading of them.
+console.log('\n— client configs: the committed files, with the client\'s names —')
 {
-  const {
-    Catalog,
-    CRUSH_WINDOW,
-    tailorCrush,
-    tailorCodexCatalog,
-    tailorCodexConfig,
-    tailorClaudeCode,
-    tailorOpencode,
-  } = await import(`${OUT}/clients/catalog.js`)
+  const { CRUSH_WINDOW, claudeCodeSh, codexToml, codexCatalog, crushJson, opencodeJsonc, stripComments } =
+    await import(`${OUT}/clients/configs.js`)
   const { readFileSync } = await import('node:fs')
   const committed = (name) =>
     readFileSync(new URL(`../configs/clients/${name}`, import.meta.url), 'utf8')
@@ -294,91 +283,152 @@ console.log('\n— model catalog: the configs are written from the live list —
     supported: true,
     ...Object.fromEntries(['low', 'medium', 'high', 'xhigh', 'max'].map((l) => [l, { supported: levels.includes(l) }])),
   })
-  // Shaped as GET /v1/models answered on 2026-10-09, newest first.
-  const live = [
-    { id: 'claude-haiku-5-5', display_name: 'Claude Haiku 5.5', line: 'haiku', lifecycle: 'active',
-      max_input_tokens: 1000000, max_tokens: 128000,
-      capabilities: { effort: effort('low', 'medium', 'high', 'xhigh', 'max'), image_input: { supported: true } } },
-    { id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', line: 'opus', lifecycle: 'active',
-      max_input_tokens: 1000000, max_tokens: 128000,
-      capabilities: { effort: effort('low', 'medium', 'high', 'xhigh', 'max'), image_input: { supported: true } } },
-    { id: 'claude-opus-4-5-20251101', display_name: 'Claude Opus 4.5', line: 'opus', lifecycle: 'active',
-      max_input_tokens: 200000, max_tokens: 64000,
-      capabilities: { effort: effort('low', 'medium', 'high'), image_input: { supported: true } } },
-    { id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5', lifecycle: 'active',
-      max_input_tokens: 200000, max_tokens: 64000,
-      capabilities: { effort: { supported: false }, image_input: { supported: true } } },
-    { id: 'claude-sonnet-3-9', lifecycle: 'deprecated', max_input_tokens: 200000 },
-    { id: 'gpt-something' },
+  // A slot's list entry: the name, carrying the facts of the model it serves.
+  const opus = { id: 'x', display_name: 'Claude Opus 5.5', virtual: true, serving: 'claude-opus-5-5',
+    max_input_tokens: 1000000, max_tokens: 128000,
+    capabilities: { effort: effort('low', 'medium', 'high', 'xhigh', 'max'), image_input: { supported: true } } }
+  const sonnet = { id: 'x', display_name: 'Claude Sonnet 4.5', virtual: true, serving: 'claude-sonnet-4-5-20250929',
+    max_input_tokens: 200000, max_tokens: 64000,
+    capabilities: { effort: { supported: false }, image_input: { supported: true } } }
+  const gpt = { id: 'x', display_name: 'GPT-5.5', virtual: true, serving: 'gpt-5.5', provider: 'openai',
+    max_input_tokens: 400000, max_tokens: 128000, capabilities: { effort: effort('low', 'medium', 'high') } }
+
+  // crush: the two slots, on either API.
+  const crushSlots = [
+    { id: 'large', role: 'main', field: 'models.large', name: 'large', served: opus },
+    { id: 'small', role: 'fast', field: 'models.small', name: 'small', served: sonnet },
   ]
-  const catalog = new Catalog(live)
+  const crush = JSON.parse(crushJson(committed('crush.json'), { dialect: 'anthropic', slots: crushSlots }, 'https://gw'))
+  const provider = Object.values(crush.providers)[0]
+  const byID = Object.fromEntries(provider.models.map((m) => [m.id, m]))
+  check('crush lists the client\'s names', provider.models.map((m) => m.id), ['large', 'small'])
+  check('a 1M model is declared at the compaction window', byID.large.context_window, CRUSH_WINDOW)
+  check('a 200k model keeps its own window', byID.small.context_window, 200000)
+  check('a model with no effort setting does not reason', [byID.small.can_reason, 'reasoning_levels' in byID.small], [false, false])
+  check('the output cap is the served model\'s', byID.large.default_max_tokens, 128000)
+  check('on Messages, the bare address and thinking on', [provider.type, provider.base_url, crush.models.large.think], ['anthropic', 'https://gw', true])
+  check('the rest of crush.json is the committed file\'s', [crush.$schema, Object.keys(crush.providers)[0]],
+    [JSON.parse(committed('crush.json')).$schema, 'claudication'])
+  // The committed file is what a new crush client is handed, so writing it
+  // with the default names and the committed facts changes nothing.
+  const fresh = crushJson(committed('crush.json'), { dialect: 'anthropic', slots: crushSlots.map((s) => ({ ...s, served: opus })) }, 'https://claudication.example.com')
+  check('the committed file is a new client\'s, byte for byte', fresh, committed('crush.json'))
+  const crushR = JSON.parse(crushJson(committed('crush.json'), {
+    dialect: 'openai', slots: [{ ...crushSlots[0], name: 'gpt-5-large', served: gpt }, { ...crushSlots[1], name: 'gpt-5-small', served: gpt }],
+  }, 'https://gw'))
+  const pr = Object.values(crushR.providers)[0]
+  check('on Responses, the openai type at /v1 and no think', [pr.type, pr.base_url, 'think' in crushR.models.large], ['openai', 'https://gw/v1', false])
+  check('and the names asked for', [crushR.models.large.model, crushR.models.small.model], ['gpt-5-large', 'gpt-5-small'])
 
-  check('retired and foreign models are left out', catalog.models.map((m) => m.id), [
-    'claude-haiku-5-5', 'claude-opus-5-5', 'claude-opus-4-5-20251101', 'claude-sonnet-4-5-20250929',
-  ])
-  check('the large default is the newest Opus', catalog.large, 'claude-opus-5-5')
-  check('the small default is the newest Haiku', catalog.small, 'claude-haiku-5-5')
-  check('an empty list writes nothing', new Catalog(null).known, false)
+  // Codex: four slots, one of them in two fields.
+  const codexSlots = [
+    { id: 'large', role: 'main', field: 'model', name: 'big', served: opus },
+    { id: 'review', role: 'review', field: 'review_model', name: 'rev', served: gpt },
+    { id: 'agents', role: 'subagent', field: 'agents.default_subagent_model', name: 'sub', served: sonnet },
+    { id: 'small', role: 'memories', field: 'memories.extract_model, memories.consolidation_model', name: 'mem', served: sonnet },
+  ]
+  const toml = codexToml(committed('codex.toml'), { dialect: 'openai', slots: codexSlots })
+  check('codex.toml names every slot', [
+    /^model = "big"$/m.test(toml), /^review_model = "rev"$/m.test(toml), /^default_subagent_model = "sub"$/m.test(toml),
+    /^extract_model = "mem"$/m.test(toml), /^consolidation_model = "mem"$/m.test(toml),
+  ], [true, true, true, true, true])
+  check('and nothing else in it moves', toml.split('\n').length, committed('codex.toml').split('\n').length)
+  const codex = JSON.parse(codexCatalog(committed('codex-models.json'), { dialect: 'openai', slots: codexSlots })).models
+  const template = JSON.parse(committed('codex-models.json')).models[0]
+  check('the catalog has one entry per name, in order', codex.map((m) => [m.slug, m.priority]),
+    [['big', 10], ['rev', 20], ['sub', 30], ['mem', 40]])
+  check('each at its served model\'s window', codex.map((m) => m.context_window), [1000000, 400000, 200000, 200000])
+  check('each defers its reviews to the review name', codex.map((m) => m.auto_review_model_override), ['rev', 'rev', 'rev', 'rev'])
+  check('everything else in an entry is the committed one', codex[2].base_instructions, template.base_instructions)
 
-  const crush = JSON.parse(tailorCrush(committed('crush.json'), catalog))
-  const crushModels = Object.values(crush.providers)[0].models
-  const byID = Object.fromEntries(crushModels.map((m) => [m.id, m]))
-  check('crush gets every live model', crushModels.map((m) => m.id), catalog.models.map((m) => m.id))
-  check('a 1M model is declared at the compaction window', byID['claude-opus-5-5'].context_window, CRUSH_WINDOW)
-  check('a 200k model keeps its own window', byID['claude-opus-4-5-20251101'].context_window, 200000)
-  check('effort levels are the ones the model accepts', byID['claude-opus-4-5-20251101'].reasoning_levels, ['low', 'medium', 'high'])
-  check('a model with no effort setting does not reason', [byID['claude-sonnet-4-5-20250929'].can_reason, 'reasoning_levels' in byID['claude-sonnet-4-5-20250929']], [false, false])
-  check('the output cap is the model\'s', byID['claude-opus-5-5'].default_max_tokens, 128000)
-  check('crush defaults follow', [crush.models.large.model, crush.models.small.model], ['claude-opus-5-5', 'claude-haiku-5-5'])
-  check('the rest of crush.json is the committed file\'s', [crush.$schema, Object.keys(crush.providers)[0], crush.models.large.think],
-    [JSON.parse(committed('crush.json')).$schema, 'claudication', true])
-
-  const codexCommitted = JSON.parse(committed('codex-models.json'))
-  const codex = JSON.parse(tailorCodexCatalog(committed('codex-models.json'), catalog)).models
-  check('codex gets every live model, in order', codex.map((m) => [m.slug, m.priority]),
-    catalog.models.map((m, i) => [m.id, (i + 1) * 10]))
-  check('codex windows are the real ones', [codex[1].context_window, codex[2].max_context_window], [1000000, 200000])
-  check('everything else in a codex entry is the committed one', codex[1].base_instructions, codexCommitted.models[0].base_instructions)
-
-  const toml = tailorCodexConfig(committed('codex.toml'), catalog)
-  check('codex.toml names the new default', /^model = "claude-opus-5-5"$/m.test(toml), true)
-  check('and nothing else in it moves', toml.replace('claude-opus-5-5', 'X'), committed('codex.toml').replace(/^model = "[^"]*"/m, 'model = "X"'))
-
-  const sh = tailorClaudeCode(committed('claude-code.sh'), catalog)
-  check('Claude Code asks for the aliases in every slot', [
-    /^export ANTHROPIC_MODEL=claude-large$/m.test(sh), /^export ANTHROPIC_SMALL_FAST_MODEL=claude-small$/m.test(sh),
-    /^export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus$/m.test(sh), /^export ANTHROPIC_DEFAULT_FABLE_MODEL=claude-fable$/m.test(sh),
-  ], [true, true, true, true])
-  check('an alias the gateway does not list keeps its committed description', sh, committed('claude-code.sh'))
-
-  const oc = tailorOpencode(committed('opencode.jsonc'), catalog)
-  check('opencode gets both defaults, quotes intact', [oc.includes('"model": "anthropic/claude-opus-5-5"'), oc.includes('"small_model": "anthropic/claude-haiku-5-5"')], [true, true])
-  check('opencode keeps its comments', oc.includes('// opencode, pointed at a claudication gateway.'), true)
-
-  // With the gateway's model roles in the list — first, each carrying the
-  // facts of the model it serves — every config asks for the roles, and says
-  // what each behaves like.
-  const roles = new Catalog([
-    { ...live[1], id: 'claude-large', display_name: 'Claude (large)', virtual: true, role: 'large', serving: 'claude-opus-5-5' },
-    { ...live[2], id: 'claude-small', display_name: 'Claude (small)', virtual: true, role: 'small', serving: 'claude-opus-4-5-20251101' },
-    ...live,
-  ])
-  check('the roles are the defaults', [roles.large, roles.small], ['claude-large', 'claude-small'])
-  const rsh = tailorClaudeCode(committed('claude-code.sh'), roles)
-  check('Claude Code is told what each listed alias behaves like', [
-    rsh.includes('{"model":"claude-large","behavesAs":"claude-opus-5-5"}'),
-    rsh.includes('{"model":"claude-small","behavesAs":"claude-opus-4-5-20251101"}'),
-    rsh.includes('{"model":"claude-fable","behavesAs":"claude-fable-5-1"}'),
+  // Claude Code: every model variable its slot's name, the picker told what each behaves like.
+  const ccSlots = [
+    ['ANTHROPIC_MODEL', 'main', 'claude-large', opus],
+    ['ANTHROPIC_SMALL_FAST_MODEL', 'fast', 'claude-small', sonnet],
+    ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'opus', 'claude-opus', opus],
+    ['ANTHROPIC_DEFAULT_SONNET_MODEL', 'sonnet', 'claude-sonnet-mine', sonnet],
+    ['CLAUDE_CODE_AUTO_MODE_MODEL', 'classifier', 'claude-auto', sonnet],
+  ].map(([field, role, name, served]) => ({ id: name, role, field, name, served }))
+  const sh = claudeCodeSh(committed('claude-code.sh'), { dialect: 'anthropic', slots: ccSlots })
+  check('each variable names its slot', [
+    /^export ANTHROPIC_MODEL=claude-large$/m.test(sh), /^export ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-mine$/m.test(sh),
+    /^export CLAUDE_CODE_AUTO_MODE_MODEL=claude-auto$/m.test(sh),
   ], [true, true, true])
-  const roc = tailorOpencode(committed('opencode.jsonc'), roles)
-  check('opencode asks for the roles', [roc.includes('"model": "anthropic/claude-large"'), roc.includes('"small_model": "anthropic/claude-small"')], [true, true])
-  const smallAt = roc.slice(roc.indexOf('"claude-small": {'))
-  check('opencode declares each role with its model\'s limits',
-    [smallAt.match(/"context": (\d+)/)?.[1], smallAt.match(/"output": (\d+)/)?.[1]], ['200000', '64000'])
-  const rcrush = JSON.parse(tailorCrush(committed('crush.json'), roles))
-  check('crush asks for the roles, listed first', [rcrush.models.large.model, rcrush.models.small.model, Object.values(rcrush.providers)[0].models[0].id],
-    ['claude-large', 'claude-small', 'claude-large'])
-  check('codex.toml asks for the large role', /^model = "claude-large"$/m.test(tailorCodexConfig(committed('codex.toml'), roles)), true)
+  check('a variable with no slot is left out', /ANTHROPIC_DEFAULT_FABLE_MODEL/.test(sh), false)
+  const picker = JSON.parse(sh.match(/--settings '(\{.*\})'/)[1]).modelPicker.options
+  check('the picker says what each name behaves like', picker.map((o) => `${o.model}=${o.behavesAs}`), [
+    'claude-large=claude-opus-5-5', 'claude-small=claude-sonnet-4-5-20250929', 'claude-opus=claude-opus-5-5',
+    'claude-sonnet-mine=claude-sonnet-4-5-20250929',
+  ])
+  check('and leaves the classifier out: nobody picks it', picker.some((o) => o.model === 'claude-auto'), false)
+
+  // opencode: its built-in provider of the client's API, overridden.
+  const ocSlots = [
+    { id: 'large', role: 'main', field: 'model', name: 'large', served: opus },
+    { id: 'small', role: 'fast', field: 'small_model', name: 'small', served: sonnet },
+  ]
+  const ocR = opencodeJsonc(committed('opencode.jsonc'), { dialect: 'openai', slots: ocSlots })
+  const ocRj = JSON.parse(stripComments(ocR))
+  check('on Responses, the openai provider', [Object.keys(ocRj.provider), ocRj.model, ocRj.small_model], [['openai'], 'openai/large', 'openai/small'])
+  check('each name at its model\'s limits', ocRj.provider.openai.models.small.limit, { context: 200000, output: 64000 })
+  check('with no thinking modes on Responses', 'variants' in ocRj.provider.openai.models.large, false)
+  check('its opening comment kept', ocR.includes('// opencode, pointed at a claudication gateway.'), true)
+  check('a URL\'s // is not a comment', stripComments('{"u": "https://x"} // c'), '{"u": "https://x"} \n')
+  const ocM = JSON.parse(stripComments(opencodeJsonc(committed('opencode.jsonc'), {
+    dialect: 'anthropic', slots: ocSlots.map((s) => ({ ...s, name: `claude-${s.name}` })),
+  })))
+  check('on Messages, the anthropic provider and claude names', [Object.keys(ocM.provider), ocM.model], [['anthropic'], 'anthropic/claude-large'])
+  check('with adaptive thinking for a reasoning model', Object.keys(ocM.provider.anthropic.models['claude-large'].variants), ['low', 'medium', 'high', 'xhigh', 'max'])
+  check('and the committed baseURL', ocM.provider.anthropic.options, JSON.parse(stripComments(committed('opencode.jsonc'))).provider.openai.options)
+}
+
+console.log('\n— client specs: a slot\'s binding is one menu value —')
+{
+  const { Binding, bindingOptions, reaches } = await import(`${OUT}/clients/specs.js`)
+  check('a model round-trips', Binding.parse(Binding.model('claude-opus-5-5').value).body, { model: 'claude-opus-5-5' })
+  check('a target too', Binding.parse(Binding.follow('claude:opus').value).body, { follows: 'claude:opus' })
+  check('a model id with a colon survives', Binding.parse('model:a:b').model, 'a:b')
+  check('a slot reads as its binding', Binding.of({ model: '', bound: 'openai:first' }).value, 'follow:openai:first')
+  check('Messages reaches only Claude', [reaches('anthropic', 'anthropic'), reaches('anthropic', 'openai'), reaches('openai', 'openai')], [true, false, true])
+  const opts = bindingOptions(
+    [{ id: 'large', virtual: true }, { id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }, { id: 'gpt-5.5', provider: 'openai' }],
+    [{ id: 'claude:opus', title: 'Newest Opus', serving: 'claude-opus-5-5' }],
+    'anthropic',
+  )
+  check('targets first, then each provider\'s models, names left out', opts.map((o) => [o.group, o.value]), [
+    ['Follow the newest', 'follow:claude:opus'], ['Claude', 'model:claude-opus-5-5'], ['ChatGPT', 'model:gpt-5.5'],
+  ])
+  check('a model the API cannot reach is marked, not hidden', opts[2].hint, 'gpt-5.5 — not on this client\'s API')
+}
+
+console.log('\n— model tests: a few at a time, each result as it lands —')
+{
+  const { eachBounded, explain, failing } = await import(`${OUT}/domain/model-tests.js`)
+  let running = 0
+  let peak = 0
+  const landed = []
+  const delays = { a: 30, b: 5, c: 5, d: 5 }
+  await eachBounded(['a', 'b', 'c', 'd'], 2, async (m) => {
+    running++
+    peak = Math.max(peak, running)
+    await new Promise((r) => setTimeout(r, delays[m]))
+    running--
+    return m.toUpperCase()
+  }, (m, r) => landed.push(`${m}${r}`))
+  check('never more than the bound at once', peak, 2)
+  check('a slow one does not hold the rest up', landed, ['bB', 'cC', 'dD', 'aA'])
+  let none = 0
+  await eachBounded([], 2, async () => none++, () => {})
+  check('an empty list runs nothing', none, 0)
+  const t = (ok, status, error) => ({ model: 'm', at: '', ok, status, latency_ms: 120, error })
+  check('a pass says how long', explain(t(true, 200)), 'ok · 120 ms')
+  check('a model outside the plan says so', explain(t(false, 400, 'usage_not_included')), 'not in this plan')
+  check('an unknown model too', explain(t(false, 404, '')), 'not served to this account')
+  check('a rate limit passes', failing([{ id: 'a', enabled: true, test: t(false, 429) }]), [])
+  check('a lasting failure on an enabled model is offered', failing([
+    { id: 'a', enabled: true, test: t(false, 404) }, { id: 'b', enabled: false, test: t(false, 404) },
+    { id: 'c', enabled: true, test: t(true, 200) }, { id: 'd', enabled: true },
+  ]), ['a'])
 }
 
 console.log('\n— RequestFilter: the URL is the filter, and survives the trip —')
@@ -399,12 +449,12 @@ console.log('\n— RequestFilter: the URL is the filter, and survives the trip �
   check('the outcome funnels the Status column', RequestFilter.none.withStatus('failed').narrows('code'), true)
   check('one account opens its own Requests page',
     requestsHref({ account: ['acc 1'], status: 'failed' }), '/accounts/acc%201/requests?status=failed')
-  check('one key too', requestsHref({ key: ['k'] }), '/keys/k/requests')
+  check('one client too', requestsHref({ key: ['k'] }), '/clients/k/requests')
   check('both stay on Activity', requestsHref({ key: ['k'], account: ['a'] }), '/activity/requests?key=k&account=a')
   const scope = { key: 'k' }
   const scoped = RequestFilter.of({ model: ['m'] }).scopedTo(scope)
   check('a scope is applied', scoped.values('key'), ['k'])
-  check('and never written into the query', scoped.outside(scope).pathIn(scope), '/keys/k/requests?model=m')
+  check('and never written into the query', scoped.outside(scope).pathIn(scope), '/clients/k/requests?model=m')
 }
 
 console.log('\n— RequestLogPager: polling must not undo paging —')

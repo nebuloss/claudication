@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from 'react'
 import AccountSettings, { type AccountSettingsSection } from './settings'
-import { ChatsPage } from '../chats'
 import { DetailHeader } from '../detail'
 import QuotaMeter, { QuotaGauges } from './quota-meter'
 import RequestsPanel from '../requests'
-import ScopedUsage from '../usage'
+import { AccountClients } from './usage'
+import { AccountSwitch } from './index'
 import { api, type Account } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { navigate, pathOf, type AccountPageId } from '../../route'
@@ -32,10 +32,10 @@ const REFRESH_MS = 20_000
 /**
  * One account, Claude or ChatGPT, on its pages:
  *
- *   /accounts/<id>/usage     the subscription's own windows as its provider
- *                            reports them, and what this gateway sent it
- *   /accounts/<id>/chats     the conversations it served
- *   /accounts/<id>/requests  the request log, narrowed to it
+ *   /accounts/<id>/usage     which clients drew on it, by name and model,
+ *                            and each one's share of its windows
+ *   /accounts/<id>/requests  the request log, narrowed to it: errors,
+ *                            cooldowns and refusals on this account
  *   /accounts/<id>/models, /connection, /advanced  its settings, a page each
  *
  * Read from the account list rather than an endpoint of its own: the list is
@@ -97,8 +97,7 @@ export default function AccountPage({
         onChanged={() => void reload()}
       />
     ),
-    usage: () => <ScopedUsage scope={{ account: account.id }} breakdown="key" />,
-    chats: () => <ChatsPage scope={{ account: account.id }} />,
+    usage: () => <AccountClients accountId={account.id} />,
     requests: () => <RequestsPanel scope={{ account: account.id }} />,
     models: settings('models'),
     connection: settings('connection'),
@@ -127,6 +126,7 @@ export default function AccountPage({
                 <QuotaGauges quota={account.quota} />
               </Figures>
             )}
+            <AccountSwitch key={String(account.disabled)} account={account} onChanged={() => void reload()} />
           </>
         }
         freshness={{ updatedAt, refreshing, live, onRefresh: () => void reload() }}

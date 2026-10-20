@@ -30,7 +30,7 @@ export const PROVIDERS: [Provider, ...Provider[]] = [
   {
     id: 'openai',
     label: 'ChatGPT',
-    detail: 'A ChatGPT Plus, Pro or Team subscription, signed in with a device code. Serves Codex.',
+    detail: 'A ChatGPT Plus, Pro or Team subscription, signed in with a device code. Serves clients on the OpenAI Responses API.',
     signIn: 'device',
     usage: { source: 'OpenAI', client: '/status in Codex' },
   },

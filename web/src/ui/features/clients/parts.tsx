@@ -1,61 +1,22 @@
-import {
-  type ApiKey,
-  type SubscriptionShare,
-} from '../../../api/client'
+import { type ApiKey, type SubscriptionShare } from '../../../api/client'
 import { accountHref } from '../../route'
-import {
-  AppLink,
-  Card,
-  Chip,
-  Figure,
-  Muted,
-  Stat,
-  StatGrid,
-  Table,
-  Td,
-  Tr,
-} from '../../primitives'
+import { AppLink, Card, Figure, Muted, Stat, StatGrid, Table, Td, Tr } from '../../primitives'
 import { compact, smallPercent } from '../../format'
+import { providerTitle } from '../../clients/specs'
 import { periodName } from './limits'
 
-/** The pieces of a key that its list and its pages both show. */
+/** The pieces of a client that its list and its pages both show. */
 
 /**
- * Keys change when someone mints one, but "last used" and the spent budget
+ * Clients change when someone adds one, but "last used" and the spent budget
  * move with traffic, and the budget is the figure an operator watches when
  * they are deciding whether a limit is set too low.
  */
 export const REFRESH_MS = 20_000
 
 /**
- * Why the gateway's own key has no working controls.
- *
- * Deleting it never did what the button implied — the next chat needing a name
- * issued a fresh one under a new id and orphaned the usage attributed to the
- * old one — and editing it is the operator changing limits on something they
- * did not create and do not call. The control that governs what it spends is
- * the switch that turns the feature on.
- */
-export const MANAGED_HINT =
-  'Issued by the gateway for its own requests. Turn off chat names in Settings to stop it.'
-
-/** What sets a key apart, as chips: the gateway's own, or models switched off. */
-export function KeyChips({ k }: { k: ApiKey }) {
-  return (
-    <>
-      {k.managed && <Chip tone="neutral">gateway&rsquo;s own</Chip>}
-      {k.models_off.length > 0 && (
-        <Chip tone="warn">
-          {k.models_off.length} model{k.models_off.length === 1 ? '' : 's'} off
-        </Chip>
-      )}
-    </>
-  )
-}
-
-/**
- * A key's limits and spend, as one row of figures: the same in the list and
- * on the key's own page, so the two cannot disagree about it.
+ * A client's limits and spend, as one row of figures: the same in the list
+ * and on the client's own page, so the two cannot disagree about it.
  */
 export function KeyFigures({ k, always = true }: { k: ApiKey; always?: boolean }) {
   return (
@@ -75,12 +36,12 @@ export function KeyFigures({ k, always = true }: { k: ApiKey; always?: boolean }
 
 /** What the subscription figures are, said once wherever they appear. */
 export const SUBSCRIPTION_NOTE =
-  'Subscription is an estimate: each account’s 5-hour and 7-day utilisation, split ' +
-  'between keys by their cost-weighted share of what this gateway sent it, as a share of ' +
-  'every account’s capacity together. Anything else using an account is counted against ' +
-  'the keys that used it here.'
+  'Subscription is an estimate: each account’s 5-hour and 7-day utilisation, split between ' +
+  'clients by their cost-weighted share of what this gateway sent it, as a share of the capacity ' +
+  'of every account of that provider together. Anything else using an account is counted ' +
+  'against the clients that used it here.'
 
-/** A key's estimated part of the subscription, both windows, for a table cell. */
+/** A client's estimated part of the subscription, both windows, for a table cell. */
 export function SubscriptionCell({ share }: { share: SubscriptionShare | undefined }) {
   if (share === undefined) return <Muted as="span" size="xs">—</Muted>
   return (
@@ -93,16 +54,27 @@ export function SubscriptionCell({ share }: { share: SubscriptionShare | undefin
 }
 
 /**
- * The same estimate on a key's page, account by account: how many points of
- * each account's windows this key accounts for, and its share of what the
- * gateway sent that account.
+ * The same estimate on a client's page: per provider's pool — Claude's and
+ * ChatGPT's subscriptions are separate budgets — and account by account.
  */
 export function SubscriptionCard({ share }: { share: SubscriptionShare }) {
   return (
-    <Card title="Share of the Claude subscription" info={<p>{SUBSCRIPTION_NOTE}</p>}>
+    <Card title="Share of the subscriptions" info={<p>{SUBSCRIPTION_NOTE}</p>}>
       <StatGrid>
-        <Stat label="5-hour" value={smallPercent(share.five_hour)} hint="of all accounts" />
-        <Stat label="7-day" value={smallPercent(share.seven_day)} hint="of all accounts" />
+        {(share.providers ?? []).flatMap((p) => [
+          <Stat
+            key={`${p.provider}-5h`}
+            label={`${providerTitle(p.provider)} 5-hour`}
+            value={smallPercent(p.five_hour)}
+            hint={`of ${p.accounts} account${p.accounts === 1 ? '' : 's'}`}
+          />,
+          <Stat
+            key={`${p.provider}-7d`}
+            label={`${providerTitle(p.provider)} 7-day`}
+            value={smallPercent(p.seven_day)}
+            hint={`of ${p.accounts} account${p.accounts === 1 ? '' : 's'}`}
+          />,
+        ])}
       </StatGrid>
       {share.accounts.length > 0 && (
         <div className="mt-4">
@@ -112,7 +84,10 @@ export function SubscriptionCard({ share }: { share: SubscriptionShare }) {
                 <Td>
                   <AppLink href={accountHref(a.account_id)} strong>
                     {a.email}
-                  </AppLink>
+                  </AppLink>{' '}
+                  <Muted as="span" size="xs">
+                    {providerTitle(a.provider)}
+                  </Muted>
                 </Td>
                 <Td nums>
                   {smallPercent(a.five_hour)}{' '}
@@ -136,11 +111,10 @@ export function SubscriptionCard({ share }: { share: SubscriptionShare }) {
 }
 
 /**
- * A key's daily token ceiling, and how close it is to it.
+ * A client's daily token ceiling, and how close it is to it.
  *
  * "Unlimited" spelled out rather than shown as 0, which reads as the opposite
- * of what it means. When there is a budget the spend is shown against it, since
- * "is this key about to be cut off" is the question the column exists for.
+ * of what it means. When there is a budget the spend is shown against it.
  */
 export function Budget({ budget, spent }: { budget: number; spent: number }) {
   if (budget <= 0) return <Muted as="span" size="xs">unlimited</Muted>

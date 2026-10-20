@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useState, type ReactNode } from 'react'
 import { Help } from './info'
 import { Overline } from './data'
 import { Popover, menuItem, useAnchoredPanel } from './popover'
@@ -68,8 +68,11 @@ export function Field({
   )
 }
 
-/** One choice in a Select. */
-export type SelectOption = { value: string; label: string; hint?: string }
+/**
+ * One choice in a Select. Options sharing a `group` are listed under its
+ * heading, in the order they come; the heading is no choice of its own.
+ */
+export type SelectOption = { value: string; label: string; hint?: string; group?: string }
 
 /**
  * A choice from a list, as an MD3 outlined select: the field the text fields
@@ -173,8 +176,13 @@ export function Select({
       {p.at !== null && (
         <Popover panelRef={p.panel} at={p.at} role="listbox" label={label} id={id}>
           {options.map((o, i) => (
+            <Fragment key={o.value}>
+            {o.group !== undefined && o.group !== options[i - 1]?.group && (
+              <div role="presentation" className="px-3 pt-3 pb-1">
+                <Overline as="span">{o.group}</Overline>
+              </div>
+            )}
             <div
-              key={o.value}
               data-index={i}
               role="option"
               aria-selected={o.value === value}
@@ -195,6 +203,7 @@ export function Select({
                 </svg>
               )}
             </div>
+            </Fragment>
           ))}
         </Popover>
       )}
@@ -213,6 +222,7 @@ export function Switch({
   label,
   disabled,
   info,
+  quiet = false,
 }: {
   checked: boolean
   onChange: (v: boolean) => void
@@ -220,12 +230,17 @@ export function Switch({
   disabled?: boolean
   /** What the switch does, as bullets under it, in line with its label. */
   info?: ReactNode
+  /**
+   * The label spoken but not shown: an item's on/off switch in a list row or
+   * a page's header, where the row or the title already says what it is.
+   */
+  quiet?: boolean
 }) {
   // Outside the label, so selecting its text never flips the switch.
   if (info !== undefined) {
     return (
       <div className="flex flex-col gap-2">
-        <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} />
+        <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} quiet={quiet} />
         <Help plain className="sm:ml-16">
           {info}
         </Help>
@@ -253,7 +268,7 @@ export function Switch({
           }`}
         />
       </button>
-      <span className="text-sm text-on-surface">{label}</span>
+      <span className={quiet ? 'sr-only' : 'text-sm text-on-surface'}>{label}</span>
     </label>
   )
 }

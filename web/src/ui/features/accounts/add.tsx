@@ -13,6 +13,7 @@ import {
   Button,
   ButtonLink,
   Card,
+  CopyButton,
   CopyField,
   ErrorBanner,
   Field,
@@ -23,6 +24,8 @@ import {
 } from '../../primitives'
 import { PROVIDERS, providerOf } from '../../providers'
 import { useSession } from '../../session'
+import { useNow } from '../../hooks'
+import { duration } from '../../format'
 
 type Phase = 'idle' | 'starting' | 'waiting' | 'exchanging'
 
@@ -291,6 +294,8 @@ function DeviceFlow({
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
   const session = useSession()
+  const now = useNow(1000)
+  const left = start === null ? 0 : Math.max(0, Math.round((new Date(start.expires_at).getTime() - now) / 1000))
   const who = account?.email
   const label = providerOf(provider)?.label ?? provider
   // The latest callbacks, so the polling effect does not restart when the
@@ -317,6 +322,13 @@ function DeviceFlow({
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const ask = () => {
+      // Past its expiry the code is dead at OpenAI too; asking again only
+      // earns an error the countdown has already shown.
+      if (Date.now() >= new Date(start.expires_at).getTime()) {
+        setStart(null)
+        setError('The code expired before it was entered. Get a new one to try again.')
+        return
+      }
       api.accounts
         .pollOAuth(provider, start.state)
         .then((result) => {
@@ -367,13 +379,19 @@ function DeviceFlow({
               <>
                 Gives you a code to enter on OpenAI&rsquo;s own page, in any browser signed in to
                 the {label} account to add. Each workspace is an account of its own: a personal one
-                and a Team one under the same address are added separately. These accounts serve
-                Codex, over the OpenAI Responses API.
+                and a Team one under the same address are added separately. Its GPT models are then
+                served to every client on the OpenAI Responses API.
               </>
             )}
           </p>
           <Button onClick={begin} busy={starting}>
-            {starting ? 'Asking OpenAI…' : who !== undefined ? 'Start reconnect' : `Start ${label} login`}
+            {starting
+              ? 'Asking OpenAI…'
+              : error !== ''
+                ? 'Get a new code'
+                : who !== undefined
+                  ? 'Start reconnect'
+                  : `Start ${label} login`}
           </Button>
         </>
       ) : (
@@ -393,7 +411,17 @@ function DeviceFlow({
             <li>This page notices on its own and adds the account.</li>
           </ol>
 
-          <CopyField label="Your code" value={start.user_code ?? ''} />
+          {/* Large, because it is read off this screen and typed into another
+              one, often on another device; copied, for the same browser. */}
+          <div className="flex flex-wrap items-center gap-3">
+            <code
+              aria-label="Your code"
+              className="rounded-md3-m border border-outline-variant bg-surface px-4 py-2 font-mono text-3xl font-medium tracking-[0.2em] text-on-surface select-all"
+            >
+              {start.user_code ?? ''}
+            </code>
+            <CopyButton label="Copy code" value={start.user_code ?? ''} />
+          </div>
 
           <Actions>
             <ButtonLink href={start.verification_uri ?? ''} external variant="filled">
@@ -414,7 +442,7 @@ function DeviceFlow({
           <Muted size="xs">
             <span className="inline-flex items-center gap-2">
               <Spinner />
-              Waiting for the code to be entered — it works for fifteen minutes.
+              Waiting for the code to be entered — {duration(left)} left.
             </span>
           </Muted>
         </Stack>

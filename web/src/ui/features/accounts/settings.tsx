@@ -141,7 +141,7 @@ export default function AccountSettings({
               busy={busy === 'test'}
               disabled={busy !== ''}
             >
-              {busy === 'test' ? 'Testing…' : 'Test'}
+              {busy === 'test' ? 'Testing…' : 'Test connection'}
             </Button>
             <Button
               variant="outlined"

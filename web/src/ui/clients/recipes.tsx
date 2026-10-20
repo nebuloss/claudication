@@ -3,36 +3,28 @@ import codexToml from '#configs/clients/codex.toml?raw'
 import codexModels from '#configs/clients/codex-models.json?raw'
 import crushJson from '#configs/clients/crush.json?raw'
 import opencodeJsonc from '#configs/clients/opencode.jsonc?raw'
-import {
-  tailorClaudeCode,
-  tailorCodexCatalog,
-  tailorCodexConfig,
-  tailorCrush,
-  tailorOpencode,
-} from './catalog'
+import * as write from './configs'
 import { ClientRecipe } from './model'
 
 /**
- * Every client this gateway hands configs to, as data: its address rule, its
- * files and how each is tailored. Shared by the public docs page and a key's
- * Clients page, which is why it lives beside the catalog rather than in either.
+ * Every client type the gateway hands configs to, as data: its address rule,
+ * its files and how each is written for one client. Shared by the public docs
+ * page, which shows the files as committed, and a client's page, which writes
+ * them with the client's own names.
  *
  * The config files themselves are not here — they are the committed ones under
  * configs/clients, imported as text, so there is one copy of each rather than a
- * second set pasted into a component.
+ * second set pasted into a component. The types' slots and labels are not here
+ * either: they are the server's (/admin/client-types).
  */
-export const CLIENTS: ClientRecipe[] = [
+export const RECIPES: ClientRecipe[] = [
   new ClientRecipe({
     id: 'claude-code',
-    label: 'Claude Code',
-    client: 'Claude Code',
-    surface: 'anthropic',
-    versioned: false,
+    versioned: { anthropic: false },
     lead: (
       <>
-        Claude Code appends <code>/v1</code> to whatever base URL it is
-        given, so the address here carries none. Source the file, or put its contents in your
-        shell profile.
+        Claude Code appends <code>/v1</code> to whatever base URL it is given, so the address here
+        carries none. Source the file, or put its contents in your shell profile.
       </>
     ),
     files: [
@@ -41,22 +33,19 @@ export const CLIENTS: ClientRecipe[] = [
         filename: 'claude-code.sh',
         lang: 'sh',
         body: claudeCodeSh,
-        tailor: tailorClaudeCode,
+        write: write.claudeCodeSh,
         install: { path: '.config/claudication/claude-code.sh', env: true },
       },
     ],
   }),
   new ClientRecipe({
     id: 'codex',
-    label: 'Codex CLI',
-    client: 'Codex',
-    surface: 'openai',
-    versioned: true,
+    versioned: { openai: true },
     lead: (
       <>
-        The only client here that goes through the OpenAI Responses API rather than the Anthropic
-        one — so the gateway translates, and Codex never learns it is talking to Claude. Two files:
-        the config, and a model catalog Codex reads instead of asking.
+        Codex speaks the OpenAI Responses API alone, which reaches both providers: a GPT model as
+        Codex wrote the request, a Claude one translated. Two files: the config, and a model catalog
+        Codex reads instead of asking.
       </>
     ),
     files: [
@@ -65,43 +54,41 @@ export const CLIENTS: ClientRecipe[] = [
         filename: 'config.toml',
         lang: 'toml',
         body: codexToml,
-        tailor: tailorCodexConfig,
+        write: write.codexToml,
         install: { path: '.codex/config.toml', merge: { format: 'toml' } },
       },
       {
-        label: '~/.codex/claude-models.json',
-        filename: 'claude-models.json',
+        label: '~/.codex/claudication-models.json',
+        filename: 'claudication-models.json',
         lang: 'json',
         body: codexModels,
-        tailor: tailorCodexCatalog,
-        install: { path: '.codex/claude-models.json' },
+        write: write.codexCatalog,
+        install: { path: '.codex/claudication-models.json' },
       },
     ],
     notes: [
       <>
-        Codex needs <code>bubblewrap</code> installed before it can run any
-        shell command. Without it the first tool call panics, and the model then explains —
-        convincingly — that nothing works.
+        Codex needs <code>bubblewrap</code> installed before it can run any shell command. Without
+        it the first tool call panics, and the model then explains — convincingly — that nothing
+        works.
       </>,
       <>
         The catalog carries a short stand-in for Codex&rsquo;s own system prompt, because Codex
         refuses an entry without one and its real prompt lives inside its binary. The stand-in is
         about nine thousand tokens cheaper per turn, and less good at editing.{' '}
-        <code>scripts/codex-model-catalog.py</code> clones the real one out
-        of your own Codex if you would rather have that.
+        <code>scripts/codex-model-catalog.py</code> clones the real one out of your own Codex if you
+        would rather have that.
       </>,
     ],
   }),
   new ClientRecipe({
     id: 'opencode',
-    label: 'opencode',
-    client: 'opencode',
-    surface: 'anthropic',
-    versioned: true,
+    versioned: { anthropic: true, openai: true },
     lead: (
       <>
-        This overrides opencode&rsquo;s built-in Anthropic provider rather than declaring a new
-        one, so every model the gateway serves is available without listing any of them.
+        This overrides one of opencode&rsquo;s built-in providers rather than declaring a new one:
+        the OpenAI one on the Responses API, the Anthropic one on Messages. Each name is declared
+        with the limits of the model it serves.
       </>
     ),
     files: [
@@ -110,28 +97,27 @@ export const CLIENTS: ClientRecipe[] = [
         filename: 'opencode.jsonc',
         lang: 'jsonc',
         body: opencodeJsonc,
-        tailor: tailorOpencode,
-        // The anthropic provider is the gateway's whole; the default models
-        // are its too, since they name its aliases.
+        write: (body, setup) => write.opencodeJsonc(body, setup),
+        // The provider of the client's API is the gateway's to own, whichever
+        // it is; the default models are its too, since they name its slots.
+        // An override of the other provider from before an API switch is left
+        // as it was (the merge only rewrites what the new file has): it
+        // points at the gateway and names nothing the defaults use.
         install: {
           path: '.config/opencode/opencode.jsonc',
-          merge: { format: 'json', owns: ['provider.anthropic', 'model', 'small_model'] },
+          merge: { format: 'json', owns: ['provider.anthropic', 'provider.openai', 'model', 'small_model'] },
         },
       },
     ],
   }),
   new ClientRecipe({
     id: 'crush',
-    label: 'crush',
-    client: 'crush',
-    surface: 'anthropic',
-    versioned: false,
+    versioned: { anthropic: false, openai: true },
     lead: (
       <>
-        Every model is spelled out here, and that is deliberate: crush never calls{' '}
-        <code>/v1/models</code>, so a model missing from this file cannot be
-        selected however well the gateway serves it. The list is the gateway&rsquo;s own, read
-        from Anthropic when this page loaded, so download it again when a model is released.
+        Every name is spelled out here, and that is deliberate: crush never calls{' '}
+        <code>/v1/models</code>, so a model missing from this file cannot be selected however well
+        the gateway serves it.
       </>
     ),
     files: [
@@ -140,9 +126,9 @@ export const CLIENTS: ClientRecipe[] = [
         filename: 'crush.json',
         lang: 'json',
         body: crushJson,
-        tailor: tailorCrush,
-        // crush reads %LOCALAPPDATA%\crush on Windows, not ~/.config.
-        // Its own provider, and the large and small picks, which name it; the
+        write: write.crushJson,
+        // crush reads %LOCALAPPDATA%\crush on Windows, not ~/.config. Its own
+        // provider, and the large and small picks, which name it; the
         // operator's other providers stay.
         install: {
           path: '.config/crush/crush.json',
@@ -153,3 +139,8 @@ export const CLIENTS: ClientRecipe[] = [
     ],
   }),
 ]
+
+/** A type's recipe, or none for a custom client. */
+export function recipeFor(typeId: string): ClientRecipe | undefined {
+  return RECIPES.find((r) => r.id === typeId)
+}

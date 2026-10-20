@@ -135,7 +135,12 @@ function TrafficCard() {
  * user arrives to do was a card at the bottom of a dashboard. Those live with
  * the key a client is given, so this links there rather than repeating them.
  */
-export default function Overview() {
+export default function Overview({
+  serving = true,
+}: {
+  /** The gateway switch: off, no client is served, and the overview says so first. */
+  serving?: boolean
+}) {
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<OverviewData>(
     (signal) => api.gateway.overview(signal),
     { refreshMs: REFRESH_MS },
@@ -165,6 +170,12 @@ export default function Overview() {
 
   return (
     <Page>
+      {!serving && (
+        <Banner tone="error">
+          The gateway is switched off: every client is refused until it is switched back on.{' '}
+          <InlineLink href="/settings">Settings</InlineLink>.
+        </Banner>
+      )}
       {!data.ready && (
         <Banner tone="warn">
           No usable Claude account, so the proxy cannot serve a request yet.{' '}
@@ -219,7 +230,7 @@ export default function Overview() {
             value={data.accounts.usable}
             hint={`of ${data.accounts.total} connected`}
           />
-          <Stat label="API keys" value={data.keys.total} hint="in use" />
+          <Stat label="Clients" value={data.keys.total} hint="set up" />
           <Stat
             label="Requests 24h"
             value={day ? compact(day.requests) : '—'}

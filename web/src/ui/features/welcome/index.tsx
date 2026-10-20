@@ -36,9 +36,11 @@ const REFRESH_MS = 30_000
 function status(health: Health | null, error: string): { tone: Tone; label: string } {
   if (error !== '') return { tone: 'error', label: 'Not answering' }
   if (health === null) return { tone: 'neutral', label: 'Checking…' }
-  return health.status === 'ok'
-    ? { tone: 'ok', label: 'Online' }
-    : { tone: 'warn', label: health.status }
+  if (health.status !== 'ok') return { tone: 'warn', label: health.status }
+  // Up, but switched off by its operator: every client request is refused
+  // until it is switched back on, which is what a passer-by needs to know.
+  if (health.accepting === false) return { tone: 'warn', label: 'Not accepting requests' }
+  return { tone: 'ok', label: 'Online' }
 }
 
 /**

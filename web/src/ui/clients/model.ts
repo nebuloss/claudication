@@ -1,27 +1,23 @@
 import { type ReactNode } from 'react'
-import { type InstallMerge, type Surface } from '../../api/client'
+import { type DialectId, type InstallFile, type InstallMerge } from '../../api/client'
 import { type Lang } from '../primitives/code'
-import { type Catalog } from './catalog'
+import { type Setup } from './configs'
 
 /**
  * The example address inside configs/clients/*.
  *
  * Those are plain, complete, committed files — readable in the repository,
  * linked from the README, and usable as they stand after one edit. Swapping
- * this for a gateway's own address is the only thing done to them, and it is a
- * string replace rather than a template language with a renderer at each end.
+ * this for a gateway's own address is a string replace rather than a template
+ * language with a renderer at each end.
  */
 export const EXAMPLE_BASE = 'https://claudication.example.com'
 
 /**
- * The example key inside the same files, replaced the same way when a real one
- * is known — which is only ever in the dialog that shows a key the moment it
- * is minted. The public page never has one and leaves this as it is.
+ * The example key inside the same files, replaced by a client's own key on
+ * its page while the key is still offered.
  */
 export const EXAMPLE_KEY = 'clc_...'
-
-/** Which client-facing API a client speaks. */
-export type SurfaceID = 'anthropic' | 'openai' | 'both'
 
 /** One file a client is configured with. */
 export type ConfigFile = {
@@ -33,10 +29,11 @@ export type ConfigFile = {
   /** The committed file, imported as text. */
   body: string
   /**
-   * Rewrites the file's models from the live list, when there is one. Absent
-   * on a file that names no model. See catalog.ts.
+   * Writes the file for one client: its names in every model field, its API
+   * where its type has two. `base` is the example address, which the caller
+   * swaps for the gateway's afterwards. See configs.ts.
    */
-  tailor?: (body: string, catalog: Catalog) => string
+  write: (body: string, setup: Setup, base: string) => string
   /** Where the one-line installer puts it. */
   install: InstallTarget
 }
@@ -62,54 +59,37 @@ export type InstallTarget = {
   merge?: InstallMerge
 }
 
-/** What a client needs, before any of it is resolved against a gateway. */
-export type ClientData = {
+/** What a client type's files need, before any of it is resolved. */
+export type RecipeData = {
+  /** The client type's id (internal/service/clients). */
   id: string
-  label: string
   /**
-   * The name the gateway knows it by, from its User-Agent (api.ClientName):
-   * what an alias is bound for in Settings › Aliases, so its files are
-   * written for the models its own bindings choose.
-   */
-  client: string
-  surface: SurfaceID
-  /**
-   * Whether the base URL this client wants carries /v1.
+   * Whether the base URL this client wants carries /v1, per API.
    *
    * The single most common way this goes wrong, and the clients genuinely
-   * disagree: Claude Code and crush append it themselves, opencode and Codex
-   * do not. Carried as data rather than written into each description, so the
-   * page can state it per client without anyone having to remember to.
+   * disagree: Claude Code and crush on Messages append it themselves,
+   * opencode and Codex do not, and crush on Responses wants it given.
    */
-  versioned: boolean
+  versioned: Partial<Record<DialectId, boolean>>
   lead: ReactNode
   files: ConfigFile[]
   notes?: ReactNode[]
 }
 
 /**
- * One client's recipe, resolved against a particular gateway.
+ * One client type's recipe: its files and how each is written for a client.
  *
- * A class rather than a bag of fields and a handful of helpers beside it,
- * because every question the page asks about a client — what address to give
- * it, which files with which contents, whether the API it needs is switched
- * off — is a question about *that* client and has an answer that depends on
- * its own data. Keeping those answers here means the view asks rather than
- * computes, and a new client is a new entry rather than a new branch.
+ * A class rather than a bag of fields and helpers beside it, because every
+ * question a page asks — what address to give it, which files with which
+ * contents, what the installer is handed — is a question about *that* type
+ * with an answer that depends on its own data. The view asks; a new type is
+ * a new entry rather than a new branch.
  */
 export class ClientRecipe {
-  constructor(private readonly data: ClientData) {}
+  constructor(private readonly data: RecipeData) {}
 
   get id(): string {
     return this.data.id
-  }
-
-  get label(): string {
-    return this.data.label
-  }
-
-  get client(): string {
-    return this.data.client
   }
 
   get lead(): ReactNode {
@@ -120,25 +100,26 @@ export class ClientRecipe {
     return this.data.notes ?? []
   }
 
-  /** The address to give this client, which may or may not carry /v1. */
-  baseURL(gateway: string): string {
-    return this.data.versioned ? `${gateway}/v1` : gateway
+  /** The address to give this client on an API, which may or may not carry /v1. */
+  baseURL(gateway: string, dialect: DialectId): string {
+    return this.data.versioned[dialect] === true ? `${gateway}/v1` : gateway
   }
 
   /**
-   * Its files, with the example address replaced by this gateway's own, the
-   * example key by a real one when there is one to give, and the models by the
-   * ones the gateway's accounts serve when that list could be read.
+   * Its files: as committed (no setup), or written for one
+   * client from its setup; then the example address replaced by the
+   * gateway's, and the example key by the client's own when there is one to
+   * give.
    */
-  files(gateway: string, key = '', catalog?: Catalog): ConfigFile[] {
+  files(gateway: string, key = '', setup?: Setup): ConfigFile[] {
     return this.data.files.map((f) => {
       let body = f.body
-      if (catalog?.known && f.tailor) {
+      if (setup !== undefined) {
         try {
-          body = f.tailor(body, catalog)
+          body = f.write(body, setup, EXAMPLE_BASE)
         } catch {
-          // A committed file the rewrite cannot read is still a working file:
-          // hand it out as it stands rather than nothing.
+          // A committed file the rewrite cannot read is still a working file
+          // for the type's default names: hand it out rather than nothing.
           body = f.body
         }
       }
@@ -148,17 +129,16 @@ export class ClientRecipe {
     })
   }
 
-  /**
-   * The APIs this client needs that are currently switched off.
-   *
-   * Empty is the normal answer and the page says nothing; anything else is a
-   * configuration that will answer 404 however carefully it is copied, which
-   * is worth saying next to the file rather than leaving to be discovered.
-   */
-  missingSurfaces(surfaces: Surface[]): Surface[] {
-    return surfaces.filter(
-      (s) => !s.enabled && (this.data.surface === 'both' || s.id === this.data.surface),
-    )
+  /** The files as the one-line installer takes them. */
+  installFiles(label: string, gateway: string, key: string, setup: Setup): InstallFile[] {
+    return this.files(gateway, key, setup).map((f) => ({
+      client_id: this.data.id,
+      client: label,
+      path: f.install.path,
+      windows_path: f.install.windowsPath,
+      env: f.install.env,
+      merge: f.install.merge,
+      body: f.body,
+    }))
   }
 }
-

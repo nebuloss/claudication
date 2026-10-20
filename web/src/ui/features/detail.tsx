@@ -1,9 +1,9 @@
 import { useEffect, type ReactNode } from 'react'
-import { nameItem } from '../names'
+import { nameItem, type ItemKind } from '../names'
 import { Freshness } from '../primitives'
 
 /**
- * The top of an account's or a key's pages: what it is, and the state it is
+  * The top of an account's or a client's pages: what it is, and the state it is
  * in at a glance. Where it sits and its pages are the app's navigation — the
  * trail above and the rail beside — so they are not repeated here; this only
  * tells that navigation the item's name, so the trail says it rather than its
@@ -17,7 +17,7 @@ export function DetailHeader({
   aside,
   freshness,
 }: {
-  kind: 'accounts' | 'keys'
+  kind: ItemKind
   id: string
   title: string
   subtitle?: ReactNode

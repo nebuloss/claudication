@@ -22,6 +22,7 @@ import {
   RowBadge,
   Section,
   Stack,
+  Switch,
 } from '../../primitives'
 import { accountStatus } from '../../domain/account'
 import { compact } from '../../format'
@@ -136,12 +137,14 @@ export default function Accounts() {
             // The browser decides which account approves, so "add" in a browser
             // still signed in to a connected account renews that one. Say so,
             // or it looks as though nothing happened.
+            const site = account.provider === 'openai' ? 'chatgpt.com' : 'claude.ai'
             setNotice(
               renewed
                 ? `${account.email} was already connected, so it was renewed rather than added. ` +
-                    'To add a different account, sign in to claude.ai as it first, or open the ' +
+                    `To add a different account, sign in to ${site} as it first, or open the ` +
                     'login link in a private window.'
-                : '',
+                : `${account.email} is connected, at the bottom of the list. ` +
+                    'Move it up to have it serve first.',
             )
             void reload()
           }}
@@ -211,6 +214,7 @@ export default function Accounts() {
                           busy={ordering}
                           onMoveUp={() => void move(g.provider, i, i - 1)}
                           onMoveDown={() => void move(g.provider, i, i + 1)}
+                          onChanged={() => void reload()}
                         />
                       </li>
                     ))}
@@ -242,6 +246,7 @@ function AccountRow({
   busy,
   onMoveUp,
   onMoveDown,
+  onChanged,
 }: {
   account: Account
   rank: number
@@ -251,6 +256,7 @@ function AccountRow({
   busy: boolean
   onMoveUp: () => void
   onMoveDown: () => void
+  onChanged: () => void
 }) {
   const chip = accountStatus(a)
   return (
@@ -288,22 +294,44 @@ function AccountRow({
       }
       meters={a.quota !== undefined ? <QuotaGauges quota={a.quota} /> : undefined}
       actions={
-        orderable ? (
-          <>
-            <IconButton label="Higher priority" disabled={busy || rank === 0} onClick={onMoveUp}>
-              <path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z" />
-            </IconButton>
-            <IconButton
-              label="Lower priority"
-              disabled={busy || rank === total - 1}
-              onClick={onMoveDown}
-            >
-              <path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z" />
-            </IconButton>
-          </>
-        ) : undefined
+        <>
+          {orderable && (
+            <>
+              <IconButton label="Higher priority" disabled={busy || rank === 0} onClick={onMoveUp}>
+                <path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z" />
+              </IconButton>
+              <IconButton label="Lower priority" disabled={busy || rank === total - 1} onClick={onMoveDown}>
+                <path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z" />
+              </IconButton>
+            </>
+          )}
+          <AccountSwitch account={a} onChanged={onChanged} />
+        </>
       }
     />
+  )
+}
+
+/**
+ * An account's on/off switch, the same in its list row and its page's
+ * header, and the client's twin. Off pauses it without signing it out: it
+ * serves nothing and keeps its credentials and its place in the order.
+ */
+export function AccountSwitch({ account, onChanged }: { account: Account; onChanged: () => void }) {
+  const [on, setOn] = useState(!account.disabled)
+  const { busy, error, run } = useAction()
+  const flip = async (v: boolean) => {
+    setOn(v)
+    const ok = await run('switch', async () => {
+      await api.accounts.setDisabled(account.id, !v)
+      onChanged()
+    })
+    if (!ok) setOn(!v)
+  }
+  return (
+    <span title={error || (on ? 'Serving from this account' : 'This account is paused')}>
+      <Switch checked={on} onChange={(v) => void flip(v)} label={`Serve from ${account.email}`} disabled={busy !== ''} quiet />
+    </span>
   )
 }
 

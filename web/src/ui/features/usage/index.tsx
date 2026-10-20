@@ -3,7 +3,7 @@ import { api, type Usage, type UsageBucket, type UsageScope } from '../../../api
 import { RankedBars } from '../../charts'
 import { Traffic } from './traffic'
 import { useLoader } from '../../hooks'
-import { accountHref, keyHref, navigate } from '../../route'
+import { accountHref, clientHref, navigate } from '../../route'
 import { requestsHref } from '../requests/filter'
 import {
   AppLink,
@@ -208,7 +208,7 @@ export default function ScopedUsage({
             <div className="grid gap-6 lg:grid-cols-3">
               <Breakdown title="Models" buckets={report.by_model} measure="tokens" />
               {breakdown === 'key' ? (
-                <Breakdown title="API keys" buckets={report.by_key} measure="tokens" href={keyHref} />
+                <Breakdown title="Clients" buckets={report.by_key} measure="tokens" href={clientHref} />
               ) : (
                 <Breakdown
                   title="Accounts"

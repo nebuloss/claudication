@@ -1,32 +1,19 @@
-import ChatTitles from './chat-titles'
 import ConfigTable from './config-table'
+import GatewaySwitch from './gateway-switch'
 import ImageFit from './image-fit'
-import ModelsTab from '../models/roles'
 import Security from './security'
-import Surfaces from './surfaces'
 import { type GatewayConfig, type Session } from '../../../api/client'
 import { Card, Empty, Loading, Page } from '../../primitives'
 import type { SettingsSectionId } from '../../route'
 
 /**
- * Settings: a page per section (/settings/<section>) — the model aliases
- * every client config asks for, which APIs are served, the switches, the
- * admin account, and the configuration as loaded.
+ * Settings: the gateway switch and the admin account on /settings itself, and
+ * a page per other section (/settings/<section>) — image fitting and the
+ * configuration as loaded.
  *
- * The configuration is loaded here rather than inside the table, because the
- * same request carries the API switches and the settings rows. One fetch, one
- * error state, and a switch that reloads both — so the switch card and the
- * provenance column can never disagree about what is in effect.
- *
- * There used to be an "Instance" card above the configuration table with the
- * listen address, the admin split and the public URL in it. Every one of those
- * is a configuration value, so once the table started reporting all of them —
- * with where each came from, which the card could not say — the card was four
- * rows of the same facts and a note that had moved too.
- *
- * The shell commands that used to sit at the bottom have gone to Setup, which
- * is where someone looks when they are trying to make something work rather
- * than trying to change how it is configured.
+ * Model names and chat naming are not here: both are each client's, on its
+ * page. The configuration is loaded by the shell, because the same request
+ * carries the switches and the settings rows, and the header reads it too.
  */
 export default function Settings({
   section,
@@ -39,13 +26,9 @@ export default function Settings({
   session: Session
   onSessionChanged: () => void
   /**
-   * Loaded by the shell rather than here.
-   *
-   * The same argument this screen already made for loading the switches and
-   * the settings rows together, one level up: the header carries a link that
-   * one of these switches turns on, and with two copies of the configuration
-   * the card knew it had changed and the header did not — so the link only
-   * appeared after a refresh.
+   * Loaded by the shell rather than here: the header carries a link that one
+   * of these switches turns on, and with two copies of the configuration the
+   * card knew it had changed and the header did not.
    */
   config: { data: GatewayConfig | null; error: string; loading: boolean }
   onConfigChanged: () => void
@@ -53,13 +36,7 @@ export default function Settings({
   const { data, error, loading } = config
   const reload = onConfigChanged
 
-  const page = (() => {
-    if (section === 'aliases') return <ModelsTab />
-    // The settings' own page: the admin account, its password and its
-    // sessions — what was the Advanced section.
-    if (section === '') {
-      return <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
-    }
+  const configured = (render: (d: GatewayConfig) => JSX.Element) => {
     if (loading && data === null) {
       return (
         <Card>
@@ -74,21 +51,26 @@ export default function Settings({
         </Card>
       )
     }
+    return render(data)
+  }
+
+  const page = (() => {
     switch (section) {
-      case 'apis':
-        return <Surfaces surfaces={data.surfaces} onChanged={() => void reload()} />
-      case 'titles':
+      // The settings' own page: whether the gateway serves at all, and the
+      // admin account, its password and its sessions.
+      case '':
         return (
-          <ChatTitles
-            enabled={data.chat_titles}
-            capture={data.chat_titles_capture}
-            onChanged={() => void reload()}
-          />
+          <>
+            {configured((d) => (
+              <GatewaySwitch enabled={d.gateway_enabled} onChanged={() => void reload()} />
+            ))}
+            <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
+          </>
         )
       case 'images':
-        return <ImageFit enabled={data.fit_images} onChanged={() => void reload()} />
+        return configured((d) => <ImageFit enabled={d.fit_images} onChanged={() => void reload()} />)
       case 'configuration':
-        return <ConfigTable config={data} />
+        return configured((d) => <ConfigTable config={d} />)
     }
   })()
 

@@ -36,7 +36,7 @@ type TabSpec = {
 
 const TABS = [
   { id: 'model', label: 'Models', unit: 'model' },
-  { id: 'key', label: 'API keys', unit: 'key' },
+  { id: 'key', label: 'Clients', unit: 'client' },
   { id: 'account', label: 'Accounts', unit: 'account' },
   { id: 'status', label: 'Status', unit: 'code', tokens: false, failureLine: false },
 ] as const satisfies readonly TabSpec[]

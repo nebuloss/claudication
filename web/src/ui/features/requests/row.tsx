@@ -114,7 +114,10 @@ export function RequestRowView({
       <FilterableCell
         max={11}
         value={r.model}
-        title={`Only requests for ${r.model}`}
+        // The client's own name first, when it asked by one: that is the
+        // name its configuration shows, and the model is what it served.
+        shown={record.modelLabel}
+        title={`Only requests for ${r.model}${r.virtual_model ? `, asked for as ${r.virtual_model}` : ''}`}
         onNarrow={(v) => onNarrow('model', v)}
       />
       {/* The id, shortened. Nobody reads a session id, but they do recognise
@@ -129,10 +132,18 @@ export function RequestRowView({
         title={`Only requests in ${r.conversation_id}`}
         onNarrow={(v) => onNarrow('chat', v)}
       />
-      {/* What was running, not who is paying. The key is still what the chip
-          and the links filter on; it just made a poor column, because a key
-          is named by whoever minted it and one called "test" can serve every
-          request on the gateway. */}
+      {/* Which client sent it, by the name it has now; narrows on its id so
+          a rename does not lose the filter. */}
+      <FilterableCell
+        nowrap
+        value={r.key_id}
+        shown={r.key_name || r.key_id}
+        title={`Only requests from ${r.key_name ?? 'this client'}`}
+        onNarrow={(v) => onNarrow('key', v)}
+      />
+      {/* The program that was running, from its User-Agent: what tells a
+          custom client's several programs apart, and what a request refused
+          before it named a key still has. */}
       <FilterableCell
         nowrap
         muted

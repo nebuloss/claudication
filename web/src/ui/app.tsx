@@ -2,19 +2,19 @@ import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
 import AccountPage from './features/accounts/page'
 import Activity from './features/activity'
-import Keys, { KeyPage } from './features/keys'
+import Clients, { ClientPage } from './features/clients'
 import Overview from './features/overview'
 import Settings from './features/settings'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import { usePath, useLive, useLoader, useUpdateAvailable } from './hooks'
-import { nameOf, useNames } from './names'
+import { nameOf, omittedPages, useNames } from './names'
 import { SessionProvider } from './session'
 import {
   ACCOUNT_PAGES,
   ACTIVITY_PAGES,
+  CLIENT_PAGES,
   GATEWAY_SETTINGS,
-  KEY_PAGES,
   navLevel,
   pageIdOf,
   pathOf,
@@ -49,8 +49,7 @@ type State =
 
 // Every page is a path, and the path is the tree: route.ts lists it, and
 // completes a path that names a branch (/accounts/<id>, /settings) to the
-// branch's first page. The model aliases are a section of Settings, and old
-// paths (/models, /chats, /requests, /usage) are moved to where they went.
+// branch's first page.
 
 /**
  * Screens that earn more than the reading width.
@@ -191,7 +190,7 @@ export default function App() {
   // One value for the header, the nav and the page, so the tab underline stays
   // over its tab when the measure changes.
   const measure = MEASURE
-  const level = navLevel(here)
+  const level = navLevel(here, omittedPages(tab, item))
   const trail = trailOf(here, nameOf)
 
   return (
@@ -244,7 +243,7 @@ export default function App() {
               <NavRail level={level} row />
             </div>
             <main className="min-w-0 flex-1 pt-6 pb-16 md:pt-0">
-              {tab === 'overview' && <Overview />}
+              {tab === 'overview' && <Overview serving={config.data?.gateway_enabled !== false} />}
               {/* Keyed by the item, so moving from one account's page to another's
                   starts clean rather than showing the last one's state. */}
               {tab === 'accounts' &&
@@ -253,18 +252,13 @@ export default function App() {
                 ) : (
                   <AccountPage key={item} id={item} page={pageIdOf(ACCOUNT_PAGES, page)} />
                 ))}
-              {tab === 'keys' &&
+              {tab === 'clients' &&
                 (item === '' ? (
-                  <Keys />
+                  <Clients />
                 ) : (
-                  <KeyPage
-                    key={item}
-                    id={item}
-                    page={pageIdOf(KEY_PAGES, page)}
-                    config={config.data}
-                  />
+                  <ClientPage key={item} id={item} page={pageIdOf(CLIENT_PAGES, page)} config={config.data} />
                 ))}
-              {tab === 'activity' && <Activity page={pageIdOf(ACTIVITY_PAGES, item) || 'chats'} />}
+              {tab === 'activity' && <Activity page={pageIdOf(ACTIVITY_PAGES, item) || 'requests'} />}
               {tab === 'settings' && (
                 <Settings
                   section={pageIdOf(GATEWAY_SETTINGS, item)}

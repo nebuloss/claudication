@@ -1,58 +1,44 @@
 import type { ReactNode } from 'react'
-import type { Surface } from '../../api/client'
-import { CodeViewer, CopyField, Note, Stack } from '../primitives'
-import type { Catalog } from './catalog'
+import type { DialectId } from '../../api/client'
+import { CodeViewer, CopyField, Stack } from '../primitives'
+import type { Setup } from './configs'
 import type { ClientRecipe } from './model'
 
-/** Body prose, at the one measure and rhythm both pages use. */
+/** Body prose, at the measure and rhythm of a client's setup. */
 export function Prose({ children }: { children: ReactNode }) {
   return <p className="mb-4 text-sm leading-relaxed text-on-surface">{children}</p>
 }
 
 /**
- * One client's setup: the address it wants, what is peculiar to it, and its
- * files — the inside of a client's card on the public docs page and on a key's
- * Clients page alike. The two drew it separately, and their warnings about a
- * switched-off API had drifted into two wordings of one fact.
+ * One client's setup: the address it wants, what is peculiar to its type, its
+ * files, and the type's notes — what goes wrong with it that no file can fix.
  *
  * `secret` is the key to write into the files, shown as dots; '' leaves the
- * committed placeholder, which is what the public page shows.
+ * committed placeholder, once the key is no longer offered. `setup` writes the
+ * files with the client's names; without it they are as committed.
  */
 export function ClientBody({
-  client,
+  recipe,
   gateway,
+  dialect,
   secret = '',
-  catalog,
-  surfaces,
-  notes = true,
+  setup,
 }: {
-  client: ClientRecipe
+  recipe: ClientRecipe
   gateway: string
+  dialect: DialectId
   secret?: string
-  catalog: Catalog
-  surfaces: Surface[]
-  /** The client's own notes, after its files: the docs page's, not a key's. */
-  notes?: boolean
+  setup?: Setup
 }) {
-  const missing = client.missingSurfaces(surfaces)
   return (
     <>
       <div className="mb-4">
-        <CopyField label="Base URL" value={client.baseURL(gateway)} />
+        <CopyField label="Base URL" value={recipe.baseURL(gateway, dialect)} />
       </div>
-      <Prose>{client.lead}</Prose>
-
-      {missing.length > 0 && (
-        <Note tone="warn" className="my-4">
-          {client.label} needs the {missing.map((s) => s.title).join(' and ')}, which is currently
-          switched off on this gateway. Until it is turned back on, this configuration will answer
-          404.
-        </Note>
-      )}
-
+      <Prose>{recipe.lead}</Prose>
       <div className="mt-5">
         <Stack>
-          {client.files(gateway, secret, catalog).map((f) => (
+          {recipe.files(gateway, secret, setup).map((f) => (
             <CodeViewer
               key={f.filename}
               label={f.label}
@@ -64,10 +50,9 @@ export function ClientBody({
           ))}
         </Stack>
       </div>
-
-      {notes && client.notes.length > 0 && (
+      {recipe.notes.length > 0 && (
         <div className="mt-5">
-          {client.notes.map((n, i) => (
+          {recipe.notes.map((n, i) => (
             <Prose key={i}>{n}</Prose>
           ))}
         </div>

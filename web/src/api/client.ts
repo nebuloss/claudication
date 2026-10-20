@@ -19,14 +19,24 @@ import type {
   Account,
   AccountList,
   AccountModel,
+  AccountShare,
   ApiKey,
   ChatDetail,
+  ClientChange,
+  ClientLive,
+  ClientMode,
+  ClientTypesWire,
+  ClientWire,
+  DialectId,
+  LimitReplay,
+  LimitSuggestion,
+  SlotUse,
+  SubscriptionShare,
   Chats,
   GatewayConfig,
   Health,
   InstallFile,
   Model,
-  ModelRole,
   OAuthResult,
   OAuthStart,
   Overview,
@@ -35,7 +45,6 @@ import type {
   RequestRow,
   Session,
   SetupStatus,
-  Surface,
   Usage,
   UsageScope,
 } from './types'
@@ -168,7 +177,8 @@ const accounts = {
   setModel: (id: string, model: string, enabled: boolean) =>
     http.send('POST', path`/admin/accounts/${id}/models`, { body: { model, enabled } }),
 
-  test: (id: string) => http.post<ProbeResult>(path`/admin/accounts/${id}/test`, { model: '' }),
+  /** One tiny turn on the account's own credential: on a model, or on the provider's default. */
+  test: (id: string, model = '') => http.post<ProbeResult>(path`/admin/accounts/${id}/test`, { model }),
 
   /** Re-reads the subscription usage now, rather than waiting for the poll. */
   refreshUsage: async (id: string): Promise<Account> =>
@@ -185,55 +195,91 @@ const accounts = {
     http.post<Account>(path`/admin/accounts/${id}/disabled`, { disabled }),
 
   remove: (id: string) => http.send('DELETE', path`/admin/accounts/${id}`),
+
+  /** Which clients drew on this account, by model name and model, and each one's share of it. */
+  clients: (id: string, days: number, signal?: AbortSignal) =>
+    http.get<{ days: number; rows: SlotUse[] | null; shares: Record<string, AccountShare> }>(
+      path`/admin/accounts/${id}/clients?days=${String(days)}`,
+      signal,
+    ),
 }
 
-/** The API keys clients hold. */
-const keys = {
+/** The clients, each holding one key; the key's own calls take the client's id. */
+const clients = {
+  /** The table of client types, the APIs and the targets a slot can follow. */
+  types: (signal?: AbortSignal) => http.get<ClientTypesWire>('/admin/client-types', signal),
+
   list: async (
     signal?: AbortSignal,
-  ): Promise<{ keys: ApiKey[]; windowDays: number; budgetHours: number; defaultRpm: number }> => {
+  ): Promise<{ clients: ClientWire[]; windowDays: number; budgetHours: number; defaultRpm: number }> => {
     const res = await http.get<{
-      keys: ApiKey[] | null
+      clients: ClientWire[] | null
       window_days: number
       budget_hours: number
       default_rpm: number
-    }>('/admin/keys', signal)
+    }>('/admin/clients', signal)
     return {
-      keys: res.keys ?? [],
+      clients: res.clients ?? [],
       windowDays: res.window_days,
       budgetHours: res.budget_hours,
       defaultRpm: res.default_rpm,
     }
   },
 
-  /** The plaintext comes back once from here; secret() reads it again later. */
-  create: (name: string, limits: KeyLimits) =>
-    http.post<{ key: ApiKey; plaintext: string }>('/admin/keys', toKeyBody(name, limits)),
+  get: async (id: string, signal?: AbortSignal): Promise<ClientWire> =>
+    (await http.get<{ client: ClientWire }>(path`/admin/clients/${id}`, signal)).client,
 
-  /** Rename a key or change its limits. The secret is untouched. */
+  /** The plaintext comes back once from here; secret() reads it again until first use. */
+  create: (name: string, type: string, dialect: DialectId | '', limits: KeyLimits) =>
+    http.post<{ client: ClientWire; plaintext: string }>('/admin/clients', {
+      ...toKeyBody(name, limits),
+      type,
+      ...(dialect !== '' ? { dialect } : {}),
+    }),
+
+  /** Rename a client or change its limits. Its key is untouched. */
   update: (id: string, name: string, limits: KeyLimits) =>
     http.patch<{ key: ApiKey }>(path`/admin/keys/${id}`, toKeyBody(name, limits)),
 
   remove: (id: string) => http.send('DELETE', path`/admin/keys/${id}`),
 
-  /**
-   * A key's secret again, for its client configs. 409 secret_not_kept for a
-   * key made before secrets were kept: those need a new one, once.
-   */
+  /** What a change of type or dialect would do to its slots, without doing it. */
+  plan: async (id: string, type: string, dialect: DialectId | ''): Promise<ClientChange> =>
+    (await http.post<{ change: ClientChange }>(path`/admin/clients/${id}/plan`, { type, dialect })).change,
+
+  change: async (id: string, type: string, dialect: DialectId | ''): Promise<ClientWire> =>
+    (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/type`, { type, dialect })).client,
+
+  setMode: async (id: string, mode: ClientMode): Promise<ClientWire> =>
+    (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/mode`, { mode })).client,
+
+  setDisabled: async (id: string, disabled: boolean): Promise<ClientWire> =>
+    (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/disabled`, { disabled })).client,
+
+  setNameChats: async (id: string, enabled: boolean): Promise<ClientWire> =>
+    (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/name-chats`, { enabled })).client,
+
+  /** Rename a slot and bind it: to a real model, or to a target it follows. */
+  setSlot: async (id: string, slot: string, name: string, binding: { model?: string; follows?: string }) =>
+    (await http.send('PUT', path`/admin/clients/${id}/slots/${slot}`, { body: { name, ...binding } })),
+
+  addSlot: (id: string, name: string, binding: { model?: string; follows?: string } = {}) =>
+    http.post<{ client: ClientWire }>(path`/admin/clients/${id}/slots`, { name, ...binding }),
+
+  removeSlot: (id: string, slot: string) => http.send('DELETE', path`/admin/clients/${id}/slots/${slot}`),
+
+  /** Its key, until the client is first set up with it. 409 configured after. */
   secret: (id: string, signal?: AbortSignal) =>
     http.get<{ plaintext: string }>(path`/admin/keys/${id}/secret`, signal),
 
-  /**
-   * A new secret for an existing key. The old secret stops working at once;
-   * everything else about the key is kept.
-   */
+  /** A new key: the old one stops at once, and the client is to set up again. */
   rotate: (id: string) => http.post<{ key: ApiKey; plaintext: string }>(path`/admin/keys/${id}/rotate`),
 
-  /** Keeps a key's client files for the one-line installer; the token fetches them. */
+  /** Keeps the client's files for one install command; the token fetches them once. */
   createInstall: (id: string, files: InstallFile[]) =>
     http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/install`, { files }),
 
-  /** Every model the gateway serves, each with whether this key may ask for it. */
+  /** Every model the gateway serves, each with whether a direct-mode client may ask for it. */
   models: async (id: string, signal?: AbortSignal): Promise<ModelSwitches> => {
     const res = await http.get<{ models: AccountModel[] | null }>(path`/admin/keys/${id}/models`, signal)
     return { models: res.models ?? [] }
@@ -242,54 +288,33 @@ const keys = {
   setModel: (id: string, model: string, enabled: boolean) =>
     http.send('POST', path`/admin/keys/${id}/models`, { body: { model, enabled } }),
 
-  /**
-   * What one key is offered — /v1/models as it sees it, the roles first — from
-   * one client, as the request log names it; empty for no client in
-   * particular.
-   */
-  offeredModels: async (id: string, client: string, signal?: AbortSignal): Promise<Model[]> =>
-    (
-      await http.get<{ data: Model[] | null }>(
-        client === ''
-          ? path`/admin/keys/${id}/offered-models`
-          : path`/admin/keys/${id}/offered-models?client=${client}`,
-        signal,
-      )
-    ).data ?? [],
+  /** /v1/models as this client sees it: its slots, each with its model's facts. */
+  offeredModels: async (id: string, signal?: AbortSignal): Promise<Model[]> =>
+    (await http.get<{ data: Model[] | null }>(path`/admin/keys/${id}/offered-models`, signal)).data ?? [],
+
+  usage: (id: string, days: number, signal?: AbortSignal) =>
+    http.get<{ days: number; rows: SlotUse[] | null; share?: SubscriptionShare }>(
+      path`/admin/clients/${id}/usage?days=${String(days)}`,
+      signal,
+    ),
+
+  live: (id: string, signal?: AbortSignal) => http.get<ClientLive>(path`/admin/clients/${id}/limits`, signal),
+
+  suggest: async (id: string, signal?: AbortSignal): Promise<LimitSuggestion[]> =>
+    (await http.get<{ suggestions: LimitSuggestion[] }>(path`/admin/clients/${id}/limits/suggest`, signal))
+      .suggestions,
+
+  preview: (id: string, limits: KeyLimits) =>
+    http.post<{ days: number; replay: LimitReplay }>(
+      path`/admin/clients/${id}/limits/preview`,
+      toKeyBody('', limits),
+    ),
 }
 
-/** The models the accounts serve, and the aliases clients ask for instead. */
+/** The models the accounts serve. */
 const models = {
   list: async (signal?: AbortSignal): Promise<Model[]> =>
     (await http.get<{ data: Model[] | null }>('/admin/models', signal)).data ?? [],
-
-  /**
-   * The model roles for the gateway, or for one key; the gateway's also say
-   * which clients a role can be bound for.
-   */
-  roles: async (
-    keyId = '',
-    signal?: AbortSignal,
-  ): Promise<{ roles: ModelRole[]; clients: string[] }> => {
-    const res = await http.get<{ roles: ModelRole[] | null; clients?: string[] | null }>(
-      keyId === '' ? '/admin/model-roles' : path`/admin/model-roles?key=${keyId}`,
-      signal,
-    )
-    return { roles: res.roles ?? [], clients: res.clients ?? [] }
-  },
-
-  /**
-   * Bind a role, for the gateway, one key, or one client (never a key and a
-   * client at once). An empty model is automatic for the gateway, and "follow
-   * the gateway" for a key or a client.
-   */
-  setRole: (scope: { keyId?: string; client?: string }, role: string, model: string) =>
-    http.send('PUT', '/admin/model-roles', {
-      body: { key_id: scope.keyId ?? '', client: scope.client ?? '', role, model },
-    }),
-
-  /** Delete a custom alias, from the gateway and every key. */
-  deleteAlias: (name: string) => http.send('DELETE', path`/admin/model-roles?name=${name}`),
 }
 
 /** The gateway's own state and switches. */
@@ -297,8 +322,7 @@ const gateway = {
   overview: (signal?: AbortSignal) => http.get<Overview>('/admin/overview', signal),
   config: (signal?: AbortSignal) => http.get<GatewayConfig>('/admin/config', signal),
 
-  setSurface: (id: string, enabled: boolean) =>
-    http.post<{ surfaces: Surface[] }>(path`/admin/surfaces/${id}`, { enabled }),
+  setServing: (enabled: boolean) => http.send('POST', '/admin/gateway', { body: { enabled } }),
   setFitImages: (enabled: boolean) => http.send('POST', '/admin/fit-images', { body: { enabled } }),
   setChatTitles: (change: { enabled?: boolean; capture?: boolean }) =>
     http.send('POST', '/admin/chat-titles', { body: change }),
@@ -361,4 +385,4 @@ const traffic = {
   },
 }
 
-export const api = { session, accounts, keys, models, gateway, traffic }
+export const api = { session, accounts, clients, models, gateway, traffic }
