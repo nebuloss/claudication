@@ -219,9 +219,15 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// request recognised by shape and filed as part of the chat's cost but
 		// not one of its turns; a custom client's is noticed by the same
 		// shape. Either way the answer is read only while the client's "Name
-		// chats" switch is on. Only a small body is looked at: a naming
-		// request is one message, and an agent turn is routinely megabytes.
-		naming := conversation != "" && len(outbound) < maxNamingBody && titles.IsClientTitleRequest(outbound)
+		// chats" switch is on, and only a client that may send one is looked
+		// at — Claude Code and Codex never do, and parsing each of their small
+		// requests would be spent for nothing. Only a small body is looked at:
+		// a naming request is one message, and an agent turn is routinely
+		// megabytes.
+		// A type that names its own chats is looked at whatever the switch,
+		// since its naming request is filed apart from its turns either way.
+		mayName := spec.NamesItsChats || (spec.Custom && key.NameChats)
+		naming := mayName && conversation != "" && len(outbound) < maxNamingBody && titles.IsClientTitleRequest(outbound)
 		sink := ex.Sink(w)
 		var captured *titles.CaptureSink
 		if naming && key.NameChats {
