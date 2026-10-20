@@ -194,7 +194,8 @@ check('the overview lives at the root, not at its own name', canonical('/overvie
 check('a trailing slash is the same page', canonical('/accounts/'), '/accounts')
 check('a doubled slash is forgiven', canonical('//clients'), '/clients')
 check('settings is its own page', canonical('/settings'), '/settings')
-check('an unknown setting lands on it', canonical('/settings/nonesuch'), '/settings')
+check('it has no pages under it', canonical('/settings/configuration'), '/settings')
+check('nor any setting of its own', canonical('/settings/images'), '/settings')
 check('an unknown screen falls back', canonical('/nonesuch'), '/')
 // Screens that went away are not redirected: their bookmarks land on the
 // overview, rather than on a page that only looks like the one they named.
@@ -224,7 +225,7 @@ check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts
 check('a client page too', tab('/clients/c1/requests'), 'clients')
 // Round trip: every canonical path is its own canonical form.
 {
-  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/requests', '/settings', '/settings/configuration']
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/requests', '/settings']
   check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
 }
 
@@ -254,7 +255,9 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
   check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')
   check('and goes back to the list', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients' })
-  check('settings go back to the top', lvl('/settings/configuration').back.href, '/')
+  // Settings is one page on the top level, so the rail stays on the screens.
+  check('settings is on the top level', lvl('/settings').back, undefined)
+  check('and is current there', lvl('/settings').current, '/settings')
 
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
   // Every trail starts at the root, and no level is named twice.
@@ -263,7 +266,6 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('the settings page', trail('/settings'), ['Overview', 'Settings'])
   check('a client is its name, not its name then Overview', trail('/clients/c1'), ['Overview', 'Clients', 'clients:c1'])
   check('a page of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
-  check('a gateway section', trail('/settings/configuration'), ['Overview', 'Settings', 'Configuration'])
   check('an activity page', trail('/activity/requests'), ['Overview', 'Activity', 'Requests'])
   check('the item step is its overview', trailOf('/clients/c1/usage', name)[2].href, '/clients/c1')
 }

@@ -14,7 +14,6 @@ import {
   ACCOUNT_PAGES,
   ACTIVITY_PAGES,
   CLIENT_PAGES,
-  GATEWAY_SETTINGS,
   navLevel,
   pageIdOf,
   pathOf,
@@ -48,8 +47,7 @@ type State =
   | { phase: 'in'; session: Session }
 
 // Every page is a path, and the path is the tree: route.ts lists it, and
-// completes a path that names a branch (/accounts/<id>, /settings) to the
-// branch's first page.
+// completes a path that names a branch (/activity) to the branch's first page.
 
 /**
  * Screens that earn more than the reading width.
@@ -261,7 +259,6 @@ export default function App() {
               {tab === 'activity' && <Activity page={pageIdOf(ACTIVITY_PAGES, item) || 'requests'} />}
               {tab === 'settings' && (
                 <Settings
-                  section={pageIdOf(GATEWAY_SETTINGS, item)}
                   session={state.session}
                   onSessionChanged={() => void probe()}
                   config={config}

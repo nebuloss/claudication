@@ -58,7 +58,7 @@ export default function ConfigTable({ config }: { config: GatewayConfig }) {
   }
 
   return (
-    <Card>
+    <Card title="Configuration">
       <div className="mb-5">
         <Stack gap={3}>
           <Note>

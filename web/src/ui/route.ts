@@ -9,15 +9,15 @@
  *   /accounts/<id>/<page>               its traffic and its settings, side by side
  *   /clients … the same shape, for clients
  *   /activity/requests                  the request log, every client
- *   /settings                           the admin account and its security
- *   /settings/<section>                 each of the others
+ *   /settings                           the gateway switch, the admin account
+ *                                       and the configuration, on one page
  *
  * So a link, a bookmark and Back all land on a page, never on "whatever
  * sub-tab was open last". Each level's overview is the level itself — the
  * root, an account's own path — rather than a page named Overview under it,
  * so the trail never says Overview twice over. A path that names a branch
- * with no page of its own — /settings, /activity — is completed to its first
- * page by canonical(), and old paths are moved to where their screen went.
+ * with no page of its own — /activity — is completed to its first page by
+ * canonical(), and old paths are moved to where their screen went.
  *
  * Pure: string in, string out, no window. Kept apart from the hooks because
  * this is the part that is quietly wrong — a trailing slash from a copied
@@ -107,12 +107,6 @@ export function pagesOf(kind: 'accounts' | 'clients'): readonly ItemPage[] {
 export const ACTIVITY_PAGES = [{ id: 'requests', label: 'Requests' }] as const satisfies readonly Section[]
 export type ActivityPageId = (typeof ACTIVITY_PAGES)[number]['id']
 
-export const GATEWAY_SETTINGS = [
-  { id: 'configuration', label: 'Configuration' },
-] as const satisfies readonly Section[]
-/** A Settings section, or '' for /settings itself: the gateway switch and the admin account. */
-export type SettingsSectionId = (typeof GATEWAY_SETTINGS)[number]['id'] | ''
-
 /** The path's segments, decoded. A malformed escape is kept as it came. */
 export function segments(pathname: string): string[] {
   return pathname
@@ -162,8 +156,11 @@ export function canonical(pathname: string): string {
     }
     case 'activity':
       return pathOf('activity', known(ACTIVITY_PAGES, a) ? a! : ACTIVITY_PAGES[0].id)
+    // One page, with nothing under it: what is left of the gateway's own
+    // settings — its switch, the admin account, the configuration as loaded —
+    // reads in one screen, and a sub-page each was a click apiece for it.
     case 'settings':
-      return known(GATEWAY_SETTINGS, a) ? pathOf('settings', a!) : pathOf('settings')
+      return pathOf('settings')
   }
   return '/'
 }
@@ -224,14 +221,8 @@ export function navLevel(pathname: string, omit: readonly string[] = []): NavLev
   if (top === 'activity') {
     return { back: HOME, items: links('/activity', ACTIVITY_PAGES), current: pathOf(top, id ?? '') }
   }
-  if (top === 'settings') {
-    return {
-      back: HOME,
-      items: links('/settings', GATEWAY_SETTINGS),
-      current: id === undefined ? pathOf(top) : pathOf(top, id),
-    }
-  }
-  // The root's own level: the screens, each opening on its first page.
+  // The root's own level, Settings among it: the screens, each opening on
+  // its first page.
   return {
     items: ROOT.map((l) => ({ ...l, href: canonical(l.href) })),
     current: canonical(top === undefined ? '/' : pathOf(top)),
@@ -260,8 +251,6 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
   out.push({ href: canonical(pathOf(tab.id)), label: tab.label })
   if (top === 'activity' && id !== undefined) {
     out.push({ href: pathOf(top, id), label: label(ACTIVITY_PAGES, id) })
-  } else if (top === 'settings' && id !== undefined) {
-    out.push({ href: pathOf(top, id), label: label(GATEWAY_SETTINGS, id) })
   }
   return out
 }

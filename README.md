@@ -109,8 +109,8 @@ a switch to turn it off, and one to shrink images Claude would refuse.
 **Activity** — the request log, every client's, with the upstream's own error
 text, paged back as far as retention keeps it.
 
-**Settings** — the Gateway switch, the admin password and sessions, and the
-configuration as loaded.
+**Settings** — one page: the Gateway switch, the admin password and sessions,
+and the configuration as loaded.
 
 ## Claude accounts
 
