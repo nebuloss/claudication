@@ -226,6 +226,11 @@ type Type struct {
 	// as part of the chat's cost but not one of its turns, and never asks for
 	// a name of its own: the client's is the one it shows, and asking too
 	// would spend a call on a name about to be replaced.
+	//
+	// Such a type has no "Name chats" switch. The switch is there because
+	// the gateway's titler spends a request on the operator's subscription;
+	// reading a name the client paid for anyway spends nothing, so there is
+	// nothing to switch off, and its chats are always named.
 	NamesItsChats bool `json:"names_its_chats"`
 }
 
@@ -266,12 +271,41 @@ var ClaudeCode = Type{
 	ID: "claude-code", Label: "Claude Code",
 	// Measured 2026-09-17 (internal/api, conversation.go): the header on every
 	// request, the same id in metadata.user_id, which the Messages API reads
-	// when the header is missing. Claude Code never asks a model to name its
-	// conversations: there is no naming request in that capture, and the
-	// gateway titler names its chats when switched on.
-	Sessions: []string{"X-Claude-Code-Session-Id"},
-	Dialects: []Dialect{Messages},
-	Marks:    map[Dialect]string{Messages: "claude"},
+	// when the header is missing.
+	//
+	// It names its own sessions. Read from the 2.1.304 binary
+	// (~/.local/share/claude/versions/2.1.304, byte offsets into it) and
+	// captured the same day (2026-10-20) against a stub Messages server:
+	//
+	//	what      one tool-free request on the small-fast slot
+	//	          (ANTHROPIC_SMALL_FAST_MODEL), querySource
+	//	          generate_session_title, @254164669
+	//	system    billing header, "You are Claude Code, ...", then a prompt
+	//	          opening "You are naming a coding session so the user can
+	//	          pick it out of a long list of sessions." @254160947
+	//	user      "<session>\n<the first prompt>\n</session>\n\nWrite the
+	//	          title in ..."; the whole prompt unless a flag caps it at
+	//	          2,000 characters (@254164974), and none for a prompt
+	//	          under 10 (@254165191); the template @254164458
+	//	body      "tools": [], stream true, max_tokens 32000, no thinking,
+	//	          output_config.format a json_schema of one string "title"
+	//	answer    text that is JSON, {"title": "..."}, parsed and trimmed
+	//	          (@254164874); stored as the session's ai-title
+	//	session   the session's own X-Claude-Code-Session-Id and
+	//	          metadata.user_id, so it is filed under the right chat
+	//
+	// Sent once per session, alongside the first prompt that is not a slash
+	// command, and only while the session has no title. Not on a resumed
+	// session that already has messages, and not under claude -p: the latch is
+	// set closed at start for either, and for CLAUDE_CODE_DISABLE_TERMINAL_TITLE
+	// (@273693876, @254160088). Compaction has no call to it. The interactive
+	// REPL sent it in the capture, before the first turn; a --continue of
+	// that session and a claude -p session sent none. So a headless Claude
+	// Code chat is not named — the price of never spending a request on it.
+	Sessions:      []string{"X-Claude-Code-Session-Id"},
+	NamesItsChats: true,
+	Dialects:      []Dialect{Messages},
+	Marks:         map[Dialect]string{Messages: "claude"},
 	Slots: []Slot{
 		{ID: "main", Label: "Main", Role: RoleMain, Field: "ANTHROPIC_MODEL", Name: "large",
 			Follows: FollowOpus, Hint: "The session's model, and the sub-agents that inherit it."},

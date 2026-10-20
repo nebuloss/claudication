@@ -626,6 +626,20 @@ func TestIsClientTitleRequest(t *testing.T) {
 			`{"role":"system","content":"You will generate a short title based on the first message a user begins a conversation with.\n /no_think"},` +
 			`{"role":"user","content":[{"type":"input_text","text":"Generate a concise title for the following content:\n\nfix the build"}]}]}`, true},
 		{"Responses, as instructions", `{"instructions":"You are a title generator. You output ONLY a thread title.","input":[]}`, true},
+		// Claude Code 2.1.304's session title request, as captured on
+		// 2026-10-20 (internal/service/clients, ClaudeCode): the billing
+		// header and identity blocks first, the naming prompt third, an empty
+		// tools array, structured output asking for {"title"}.
+		{"Claude Code", claudeCodeNaming, true},
+		{"Claude Code's first turn", `{"model":"claude-large","max_tokens":32000,"stream":true,` +
+			`"system":[{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude."}],` +
+			`"tools":[{"name":"Read","input_schema":{"type":"object"}}],` +
+			`"messages":[{"role":"user","content":"explain the login bug in auth.go please"}]}`, false},
+		// Its teleport title for a cloud session puts its prompt in the user
+		// message, none of it in the system: not a chat of this gateway's,
+		// and not taken.
+		{"Claude Code's teleport title", `{"model":"claude-small","tools":[],"messages":[{"role":"user","content":` +
+			`"You are coming up with a title and a git branch name for a coding session based on the provided description."}]}`, false},
 		{"crush's coder turn", `{"system":[{"type":"text","text":"You are Crush"}],"tools":[{"name":"bash"}],` +
 			`"messages":[{"role":"user","content":"Generate a concise title"}]}`, false},
 		{"agent turn with the same words", `{"system":"You are a title generator.","tools":[{"name":"Read"}]}`, false},
@@ -639,6 +653,19 @@ func TestIsClientTitleRequest(t *testing.T) {
 		}
 	}
 }
+
+// claudeCodeNaming is Claude Code 2.1.304's session title request as the stub
+// recorded it, its naming prompt cut to its first and last sentences and its
+// metadata device id shortened.
+const claudeCodeNaming = `{"model":"claude-small","messages":[{"role":"user","content":[{"type":"text",` +
+	`"text":"<session>\nexplain the login bug in auth.go please\n</session>\n\nWrite the title in the predominant language of the session."}]}],` +
+	`"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.304.644; cc_entrypoint=cli;"},` +
+	`{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude."},` +
+	`{"type":"text","text":"You are naming a coding session so the user can pick it out of a long list of sessions. ` +
+	`Return JSON with a single \"title\" field. Capitalize the first letter of the title."}],` +
+	`"tools":[],"metadata":{"user_id":"{\"device_id\":\"ea63\",\"account_uuid\":\"\",\"session_id\":\"e966da91-ed4b-4451-9a11-478849a2cd97\"}"},` +
+	`"max_tokens":32000,"output_config":{"effort":"high","format":{"type":"json_schema","schema":{"type":"object",` +
+	`"properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}},"stream":true}`
 
 // The name a client asked for comes back streamed or not, and has to be read
 // out of either; deltas that are not text (thinking, tool input) are not part

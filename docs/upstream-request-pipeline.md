@@ -191,3 +191,42 @@ Token budgeting is local, not a `count_tokens` call: last reported usage plus
 2000 each. `region_004 @2463318`.
 
 ---
+
+## 7. Naming a session
+
+[client] Version 2.1.304, read out of the binary (`BIN @offset` into
+`~/.local/share/claude/versions/2.1.304`, see [reversing.md](reversing.md))
+and confirmed by pointing that build at a local stub that recorded what it was
+sent (2026-10-20). Claude Code names each interactive session itself, with one
+extra request:
+
+| | |
+|---|---|
+| model | the small-fast slot, `ANTHROPIC_SMALL_FAST_MODEL` (`y0`, `BIN @248167176`) |
+| `system` | the billing-header block, `You are Claude Code, Anthropic's official CLI for Claude.`, then a prompt opening `You are naming a coding session so the user can pick it out of a long list of sessions.` `BIN @254160947` |
+| `messages` | one user message, `<session>\n<the first prompt>\n</session>\n\nWrite the title in …` `BIN @254164458` |
+| `tools` | `[]`, present and empty |
+| other fields | `stream: true`, `max_tokens: 32000`, no `thinking`, `output_config.format` a `json_schema` of one required string `title`, beta `structured-outputs-2025-12-15` |
+| session | the session's own `X-Claude-Code-Session-Id` and `metadata.user_id` |
+| answer | text that is JSON, `{"title": "…"}`, parsed and trimmed `BIN @254164874`, stored in the transcript as an `ai-title` row |
+
+When: once per session, alongside the first typed prompt that is not a slash
+command, and only while the session has no title (custom or AI). In the capture
+it went out just before the first turn. A prompt under 10 characters gets no
+request (`BIN @254165191`); a long one is sent whole unless a server flag caps it
+at 2,000 characters (`BIN @254164974`). Never under `claude -p`, nor on a
+resumed session that already has messages, nor with
+`CLAUDE_CODE_DISABLE_TERMINAL_TITLE`: the latch starts closed for each
+(`BIN @273693876`, `BIN @254160088`). Compaction does not call it. The capture
+agrees: the REPL sent it, a `--continue` of the same session and a `claude -p`
+session did not.
+
+A second, separate title prompt (`You are coming up with a title and a git
+branch name …`, `BIN @247373238`) names a cloud session on teleport; it is in
+the user message, with no prompt of its own in `system`, and is not this.
+
+The gateway reads this name rather than asking for one of its own
+(`internal/service/titles`, `IsClientTitleRequest`; the type's record is
+`ClaudeCode` in `internal/service/clients`).
+
+---

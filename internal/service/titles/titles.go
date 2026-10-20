@@ -1,6 +1,6 @@
 // Package titles names chats: reading the name a client asked a model for as
-// it goes past, and — where the client's "Name chats" switch is on — asking for
-// one where the client never does. See the long comment below for what was
+// it goes past, and — where the client never asks and its "Name chats" switch
+// is on — asking for one itself. See the long comment below for what was
 // measured before either was built, and why the request it makes is the
 // caller's own with one message appended.
 package titles
@@ -28,9 +28,11 @@ import (
 
 // Naming a chat.
 //
-// Claude Code never asks a model to name its own conversations, so unlike
-// opencode and crush there is no title on the wire to read. The gateway asks
-// for one itself, the way Claude Code's own /btw asks a side question: one
+// Codex never asks a model to name its own conversations (no naming request
+// in the 0.154.0 capture, internal/service/clients), and nor need a custom
+// client, so unlike Claude Code, opencode and crush there is no title on the
+// wire to read. The gateway asks for one itself, the way Claude Code's own
+// /btw asks a side question: one
 // turn, over the conversation that is already in flight, written back nowhere
 // the client can see.
 //
@@ -62,9 +64,9 @@ import (
 
 // Reading a name the client asked for itself.
 //
-// opencode and crush both name their own conversations by asking a model, and
-// that request comes through this gateway carrying the same session id as the
-// chat it belongs to. Its answer is the title the client will display —
+// Claude Code, opencode and crush all name their own conversations by asking
+// a model, and that request comes through this gateway carrying the same
+// session id as the chat it belongs to. Its answer is the title the client will display —
 // verbatim, not an approximation — so for those clients the name is already
 // going past and only has to be noticed.
 //
@@ -78,9 +80,18 @@ import (
 // crush does the same with "You will generate a short title based on the first
 // message a user begins a conversation with."
 //
+// Claude Code (2.1.304, captured 2026-10-20; the full shape is on the type in
+// internal/service/clients) sends one tool-free request on its small-fast
+// model whose system prompt opens "You are naming a coding session so the
+// user can pick it out of a long list of sessions.", and asks for the answer
+// as JSON, {"title": "..."}, through output_config.format: so its answer is a
+// JSON object in the text, which cleanTitle reads the field out of.
+//
 // Matching on a prompt string is brittle and will drift as those clients
-// change. It fails safe in both directions: a missed match costs nothing but a
-// name, and generation still covers the chat if it is switched on.
+// change. It fails safe: a missed match costs a name and nothing else — the
+// request is filed as an ordinary turn and the chat stays unnamed, since the
+// gateway never asks on behalf of a type that names its own chats — and a
+// false match needs a tool-free request carrying one of these prompts.
 //
 // It also stops generation wasting a request. For opencode the title call is
 // the *first* request of a session — measured: 2,618 bytes before the 42,284
@@ -118,6 +129,7 @@ var titleMarkers = []string{
 	"generate a short title",    // crush
 	"generate a concise title",  // crush's user prompt
 	"you output only a thread title",
+	"you are naming a coding session", // Claude Code
 }
 
 // maxCapturedTitleAnswer bounds what is held while watching for a title. A
@@ -968,6 +980,19 @@ func cleanTitle(text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return ""
+	}
+	// Claude Code asks for its name as JSON, {"title": "..."}, and parses it
+	// out the same way. Read before the first line is taken, which would cut
+	// an indented object to its brace. An object without the field, or one
+	// that does not parse, is not a name.
+	if strings.HasPrefix(text, "{") {
+		var answer struct {
+			Title string `json:"title"`
+		}
+		if json.Unmarshal([]byte(text), &answer) != nil {
+			return ""
+		}
+		text = strings.TrimSpace(answer.Title)
 	}
 	if line, _, found := strings.Cut(text, "\n"); found {
 		text = strings.TrimSpace(line)

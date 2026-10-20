@@ -157,6 +157,24 @@ func TestTitleFromAnswer(t *testing.T) {
 		body: `{"content":[{"type":"tool_use","id":"t1","name":"Read"}]}`,
 		want: "",
 	}, {
+		// Claude Code asks for its title through output_config.format, a
+		// json_schema of one string "title", and reads that field.
+		name: "Claude Code's structured answer",
+		body: `{"content":[{"type":"text","text":"{\"title\":\"auth.go login bug\"}"}]}`,
+		want: "auth.go login bug",
+	}, {
+		name: "a structured answer pretty-printed",
+		body: `{"content":[{"type":"text","text":"{\n  \"title\": \"Session cookie handling\"\n}"}]}`,
+		want: "Session cookie handling",
+	}, {
+		name: "an object without the field",
+		body: `{"content":[{"type":"text","text":"{\"name\":\"x\"}"}]}`,
+		want: "",
+	}, {
+		name: "an object cut short",
+		body: `{"content":[{"type":"text","text":"{\"title\":\"auth"}]}`,
+		want: "",
+	}, {
 		name: "nothing at all",
 		body: `{"content":[]}`,
 		want: "",
