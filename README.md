@@ -456,11 +456,12 @@ writes do not set it: they name every model the client may use.
 
 ## Deploy
 
-`deploy/claudication.service` for systemd, with the hardening a single-purpose
-daemon should have: its own user, `ProtectSystem=strict`, a `SystemCallFilter`,
-`GOMEMLIMIT` so a burst degrades into GC pressure rather than an OOM kill, and a
+`deploy/claudication.service` for systemd — the unit `scripts/install.sh`
+writes, with the default paths — with the hardening a single-purpose daemon
+should have: its own user, `ProtectSystem=strict`, a `SystemCallFilter`, and a
 `TimeoutStopSec` longer than the drain grace so a stop does not sever a stream
-mid-frame. The OpenRC path is supervised and registers logrotate.
+mid-frame. A memory ceiling is `memory-limit` in the config, or the cgroup's,
+which the gateway reads itself. The OpenRC path is supervised and registers logrotate.
 
 An update refuses no connection. `serve` runs as a small supervisor holding
 the sockets and a worker serving them; `reload` (`rc-service claudication

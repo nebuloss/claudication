@@ -56,7 +56,7 @@ PLATFORMS ?= linux/amd64 linux/arm64 linux/arm linux/riscv64 \
              freebsd/amd64
 
 .PHONY: help all build backend web web-deps dev dev-api run dist repro \
-        fmt fmt-check vet tidy test test-go test-sh test-web typecheck web-build \
+        fmt fmt-check vet tidy test test-go test-sh test-web typecheck web-build unit \
         check clean
 
 ## help: list the targets worth knowing about
@@ -152,6 +152,10 @@ test-web:
 	  src/ui/features/usage/rollup.ts
 	@node scripts/check-charts.mjs
 	@rm -rf web/.charts-check
+
+## unit: write deploy/claudication.service from install.sh, its one source
+unit:
+	env -i PATH="$$PATH" INSTALL_SH_SOURCED=1 sh -c '. scripts/install.sh; systemd_unit' > deploy/claudication.service
 
 ## test-sh: install.sh's update decisions, against stubs; no root needed
 test-sh:

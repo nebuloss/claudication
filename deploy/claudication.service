@@ -1,47 +1,35 @@
 [Unit]
 Description=claudication - Claude API gateway
+Documentation=https://github.com/nebuloss/claudication
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=exec
+User=claudication
+Group=claudication
 ExecStart=/usr/local/bin/claudication serve -config /etc/claudication/config.yaml
 Restart=on-failure
 RestartSec=2s
 
-# The main process is the gateway's own supervisor, which holds the sockets
-# and outlives every worker (internal/handover, docs/deploying.md). Reload
-# starts a worker from the binary on disk beside the running one, which lets
-# go only once the new one serves: an upgrade is a binary swap and a
-# `systemctl reload`, and refuses no connection. `restart` is still a stop.
+# The main process is the gateway's own supervisor: it holds the sockets and
+# outlives every worker (internal/handover). SIGHUP to it starts a worker from
+# the binary on disk beside the running one, which lets go only once the new
+# one is serving, so a reload refuses nothing and MAINPID never changes.
 ExecReload=/bin/kill -HUP $MAINPID
 # A stop goes to the supervisor alone, which lets go of the sockets and then
 # stops its workers; the whole group is killed only at the timeout.
 KillMode=mixed
 
-# SIGTERM is the default KillSignal; claudication drains in-flight streams within its
-# configured grace period, so give systemd more patience than that grace.
+# Only the state directory, which the CLI subcommands need before any config
+# is read. Everything else lives in the config file, because an environment
+# variable silently overrides it and half a configuration is worse than either.
+Environment=CLAUDICATION_STATE_DIR=/var/lib/claudication
+
+# Responses are long-lived streams and the gateway drains them within its own
+# grace period, so give systemd more patience than that grace.
 KillSignal=SIGTERM
 TimeoutStopSec=150s
-
-# A ceiling the Go runtime knows about, and one the kernel enforces.
-#
-# GOMEMLIMIT is the important half: without it the garbage collector paces
-# itself against a heap that can grow to whatever is available, so on a small
-# box the first thing that happens under load is the OOM killer rather than a
-# collection. MemoryMax is the backstop for when the runtime is wrong.
-# Both are generous for this workload — steady state is tens of megabytes —
-# and exist so a burst degrades into GC pressure instead of a killed process.
-# MemoryMax is the whole unit's: for the length of a handover's drain two
-# workers count against it, which tens of megabytes each leaves room for.
-Environment=GOMEMLIMIT=384MiB
-MemoryMax=512M
-MemoryAccounting=yes
-
-User=claudication
-Group=claudication
-StateDirectory=claudication
-Environment=CLAUDICATION_STATE_DIR=/var/lib/claudication
 
 NoNewPrivileges=yes
 PrivateTmp=yes
@@ -57,6 +45,7 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
+ReadWritePaths=/var/lib/claudication
 
 [Install]
 WantedBy=multi-user.target

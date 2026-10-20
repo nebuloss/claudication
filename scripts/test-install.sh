@@ -192,6 +192,15 @@ after=$(ls -i "$BINARY" | awk '{print $1}')
 [ -x "$BINARY" ] && echo "executable" >> "$calls"
 check "swap_binary renames the new binary into place" "new in place previous kept renamed executable"
 
+# The unit in the repository is the one install.sh writes, with the default
+# paths: one copy, so the two cannot drift.
+: > "$calls"
+if env -i PATH="$PATH" INSTALL_SH_SOURCED=1 sh -c '. "$1"; systemd_unit' sh "$here/install.sh" |
+   cmp -s - "$here/../deploy/claudication.service"; then
+  echo "same" >> "$calls"
+fi
+check "deploy/claudication.service is what install.sh writes (make unit)" "same"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failed"
   exit 1

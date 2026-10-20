@@ -470,8 +470,17 @@ write_config_file() {
 
 write_systemd_service() {
   info "Installing the systemd service"
+  systemd_unit > "/etc/systemd/system/$SERVICE_NAME.service"
+  systemctl daemon-reload
+  systemctl enable "$SERVICE_NAME" >/dev/null 2>&1
+}
 
-  cat > "/etc/systemd/system/$SERVICE_NAME.service" <<EOF
+# The systemd unit, and the only copy of it: deploy/claudication.service is
+# this with the default paths, written by `make unit` and checked by
+# scripts/test-install.sh, so a unit a reader finds in the repository is the
+# one an install gets.
+systemd_unit() {
+  cat <<EOF
 [Unit]
 Description=claudication - Claude API gateway
 Documentation=https://github.com/$GH_REPO
@@ -524,8 +533,6 @@ ReadWritePaths=$STATE_DIR
 [Install]
 WantedBy=multi-user.target
 EOF
-  systemctl daemon-reload
-  systemctl enable "$SERVICE_NAME" >/dev/null 2>&1
 }
 
 # A top-level scalar from the config file, or empty. Good enough for the flat
