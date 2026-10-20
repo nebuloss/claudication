@@ -413,13 +413,13 @@ func TestClaudeCodeReachesAGPTSlot(t *testing.T) {
 	// Streamed: Anthropic's events, the slot's name said back, usage as the
 	// meter reads it.
 	resp, body := send(t, base+"/v1/messages", key, claudeUA,
-		`{"model":"claude-large","max_tokens":10,"stream":true,"system":"be terse",`+
+		`{"model":"large","max_tokens":10,"stream":true,"system":"be terse",`+
 			`"messages":[{"role":"user","content":"hi"}]}`, session)
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 		t.Fatalf("status = %d, type %q: %s", resp.StatusCode, resp.Header.Get("Content-Type"), body)
 	}
 	for _, want := range []string{
-		"event: message_start", `"model":"claude-large"`, `"text":"hi","type":"text_delta"`,
+		"event: message_start", `"model":"large"`, `"text":"hi","type":"text_delta"`,
 		`"stop_reason":"end_turn"`, `"cache_read_input_tokens":100`, `"input_tokens":20`, "event: message_stop",
 	} {
 		if !strings.Contains(string(body), want) {
@@ -445,14 +445,14 @@ func TestClaudeCodeReachesAGPTSlot(t *testing.T) {
 			t.Errorf("%s went to ChatGPT", h)
 		}
 	}
-	if e := nthEvent(t, st, 1); e.Provider != "openai" || e.Model != "gpt-6.1-sol" || e.VirtualModel != "claude-large" ||
+	if e := nthEvent(t, st, 1); e.Provider != "openai" || e.Model != "gpt-6.1-sol" || e.VirtualModel != "large" ||
 		e.InputTokens != 20 || e.CacheReadTokens != 100 || e.OutputTokens != 9 {
 		t.Errorf("the turn was recorded as %+v", e)
 	}
 
 	// Not streamed: the same answer, gathered, though the backend streamed.
 	resp, body = send(t, base+"/v1/messages", key, claudeUA,
-		`{"model":"claude-large","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}`, session)
+		`{"model":"large","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}`, session)
 	var msg struct {
 		Model   string `json:"model"`
 		Content []struct {
@@ -460,7 +460,7 @@ func TestClaudeCodeReachesAGPTSlot(t *testing.T) {
 		} `json:"content"`
 		StopReason string `json:"stop_reason"`
 	}
-	if resp.StatusCode != http.StatusOK || json.Unmarshal(body, &msg) != nil || msg.Model != "claude-large" ||
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(body, &msg) != nil || msg.Model != "large" ||
 		len(msg.Content) != 1 || msg.Content[0].Text != "hi" || msg.StopReason != "end_turn" {
 		t.Errorf("status = %d: %s", resp.StatusCode, body)
 	}
@@ -470,7 +470,7 @@ func TestClaudeCodeReachesAGPTSlot(t *testing.T) {
 
 	// count_tokens is answered here, an estimate that says so.
 	resp, body = send(t, base+"/v1/messages/count_tokens", key, claudeUA,
-		`{"model":"claude-large","messages":[{"role":"user","content":"hello there, how are you"}]}`, session)
+		`{"model":"large","messages":[{"role":"user","content":"hello there, how are you"}]}`, session)
 	var count struct {
 		InputTokens int `json:"input_tokens"`
 	}
@@ -492,7 +492,7 @@ func TestClaudeCodeReachesAGPTSlot(t *testing.T) {
 	}
 	listed, _ := io.ReadAll(r.Body)
 	r.Body.Close()
-	if !strings.Contains(string(listed), `"id":"claude-large"`) || !strings.Contains(string(listed), `"id":"claude-small"`) {
+	if !strings.Contains(string(listed), `"id":"large"`) || !strings.Contains(string(listed), `"id":"small"`) {
 		t.Errorf("Claude Code was not offered its names: %s", listed)
 	}
 }
@@ -502,7 +502,7 @@ func TestClaudeCodeReachesAGPTSlot(t *testing.T) {
 func TestATypedClientNamesOnlyItsSlots(t *testing.T) {
 	_, st, base, _, claude, _ := twoUpstreams(t)
 	_, key := newClient(t, st, "box", "crush", nil)
-	for _, asked := range []string{"claude-sonnet-5", "claude-large", "main"} {
+	for _, asked := range []string{"claude-sonnet-5", "auto", "main"} {
 		resp, body := send(t, base+"/v1/messages", key, "Charm Crush/0.9",
 			`{"model":"`+asked+`","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
 		if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "large, small") {
@@ -676,7 +676,7 @@ func TestClaudeCodeNamesItsOwnChat(t *testing.T) {
 	c, key := newClient(t, st, "laptop", "claude-code", map[string]store.Binding{
 		"main": {Model: "claude-sonnet-5"}, "fast": {Model: "claude-haiku-5"}})
 	const session = "e966da91-ed4b-4451-9a11-478849a2cd97"
-	naming := `{"model":"claude-small","messages":[{"role":"user","content":[{"type":"text",` +
+	naming := `{"model":"small","messages":[{"role":"user","content":[{"type":"text",` +
 		`"text":"<session>\nexplain the login bug in auth.go please\n</session>\n\nWrite the title in the predominant language of the session."}]}],` +
 		`"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.304.644; cc_entrypoint=cli;"},` +
 		`{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude."},` +
@@ -684,7 +684,7 @@ func TestClaudeCodeNamesItsOwnChat(t *testing.T) {
 		`Return JSON with a single \"title\" field."}],"tools":[],` +
 		`"max_tokens":32000,"output_config":{"format":{"type":"json_schema","schema":{"type":"object",` +
 		`"properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}},"stream":true}`
-	turn := `{"model":"claude-large","max_tokens":32000,"stream":true,` +
+	turn := `{"model":"large","max_tokens":32000,"stream":true,` +
 		`"system":[{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude."}],` +
 		`"tools":[{"name":"Read","input_schema":{"type":"object"}}],` +
 		`"messages":[{"role":"user","content":"explain the login bug in auth.go please"}]}`

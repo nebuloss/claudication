@@ -6,6 +6,9 @@
       "base_url": "https://claudication.example.com",
       "type": "anthropic",
       "api_key": "clc_...",
+      "provider_options": {
+        "thinking_display": "summarized"
+      },
       "models": [
         {
           "id": "large",

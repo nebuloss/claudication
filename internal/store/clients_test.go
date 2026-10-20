@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -103,23 +102,30 @@ func TestClientsOwnTheirNames(t *testing.T) {
 	}
 }
 
-// A new name must carry the mark the client's type needs, as the page says
-// beside the field: Claude Code's keep "claude".
-
-func TestASlotNameCarriesItsMark(t *testing.T) {
+// A slot takes any valid name, whatever its type: no client needs a
+// provider's word in it (internal/service/clients). Only the name's own rule
+// holds, and a rebind keeps the name it has.
+func TestASlotTakesAPlainName(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	c := makeClient(t, st, "laptop", "claude-code")
-	err := st.SetSlot(ctx, c.ID, "main", "big", Binding{Follows: clients.FollowOpus})
-	if !errors.Is(err, ErrInvalidClient) || !strings.Contains(err.Error(), "claude-big") {
-		t.Errorf("a Claude Code name without claude: %v", err)
-	}
-	if err := st.SetSlot(ctx, c.ID, "main", "claude-big", Binding{Follows: clients.FollowOpus}); err != nil {
-		t.Errorf("a Claude Code name with it: %v", err)
-	}
-	// Rebinding keeps the name it has, which is not checked again.
-	if err := st.SetSlot(ctx, c.ID, "main", "", Binding{Model: "claude-sonnet-5"}); err != nil {
-		t.Errorf("a rebind: %v", err)
+	for _, typ := range []string{"claude-code", "opencode"} {
+		c := makeClient(t, st, "laptop-"+typ, typ)
+		if err := st.SetSlot(ctx, c.ID, "main", "big", Binding{Follows: clients.FollowOpus}); err != nil {
+			t.Errorf("%s: a plain name: %v", typ, err)
+		}
+		if err := st.SetSlot(ctx, c.ID, "main", "Big Model", Binding{Follows: clients.FollowOpus}); !errors.Is(err, ErrInvalidClient) {
+			t.Errorf("%s: a name a config cannot carry: %v", typ, err)
+		}
+		if err := st.SetSlot(ctx, c.ID, "main", "", Binding{Model: "claude-sonnet-5"}); err != nil {
+			t.Errorf("%s: a rebind: %v", typ, err)
+		}
+		got, err := st.Client(ctx, c.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slotNamed(t, got, "big") != "main" {
+			t.Errorf("%s: slots after the rename %+v", typ, got.Slots)
+		}
 	}
 }
 

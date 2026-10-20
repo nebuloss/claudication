@@ -99,7 +99,6 @@ function SlotRow({
   // bound to — marked, and not choosable, once it is no longer available.
   const all = bindingOptions(choices, s)
   const unavailable = s.unavailable ?? ''
-  const misfit = !c.type.fits(name)
 
   return (
     <Tile>
@@ -132,7 +131,6 @@ function SlotRow({
             {s.provider !== undefined && ` on ${providerTitle(s.provider)}`}
           </span>
           {unavailable !== '' && <Chip tone="error">unavailable: {unavailable}</Chip>}
-          {misfit && <Chip tone="warn">needs “{c.type.mark}” in the name</Chip>}
         </div>
         <ErrorBanner error={error} />
       </div>

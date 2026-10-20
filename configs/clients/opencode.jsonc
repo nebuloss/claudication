@@ -5,8 +5,9 @@
   // WITH /v1. This overrides opencode's built-in Anthropic provider, which
   // speaks the Anthropic Messages API — and that reaches both of the gateway's
   // providers, so each of the names below can serve a Claude model or a GPT
-  // one, chosen on the client's page in the gateway. The names carry "claude"
-  // because opencode streams tool calls on this provider only for such ids.
+  // one, chosen on the client's page in the gateway. Each name turns tool-call
+  // streaming on in its options: opencode leaves it off on this provider for
+  // a model whose id lacks "claude", and a name's options override that.
   "$schema": "https://opencode.ai/config.json",
   "provider": {
     "anthropic": {
@@ -18,8 +19,8 @@
       // declared with the limits of the model it serves: an undeclared limit
       // is 0, which turns auto-compaction off.
       "models": {
-        "claude-large": {
-          "name": "claude-large",
+        "large": {
+          "name": "large",
           "limit": {
             "context": 1000000,
             "output": 128000
@@ -37,6 +38,9 @@
             "output": [
               "text"
             ]
+          },
+          "options": {
+            "toolStreaming": true
           },
           "variants": {
             "low": {
@@ -71,8 +75,8 @@
             }
           }
         },
-        "claude-small": {
-          "name": "claude-small",
+        "small": {
+          "name": "small",
           "limit": {
             "context": 1000000,
             "output": 128000
@@ -90,6 +94,9 @@
             "output": [
               "text"
             ]
+          },
+          "options": {
+            "toolStreaming": true
           },
           "variants": {
             "low": {
@@ -127,6 +134,6 @@
       }
     }
   },
-  "model": "anthropic/claude-large",
-  "small_model": "anthropic/claude-small"
+  "model": "anthropic/large",
+  "small_model": "anthropic/small"
 }

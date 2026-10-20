@@ -174,6 +174,11 @@ export function codexCatalog(body: string, setup: Setup): string {
  * crush.json: its anthropic provider at the bare address (crush adds /v1),
  * its model list the client's names with their models' facts, and
  * models.large and models.small naming the two slots, the large one thinking.
+ *
+ * The provider asks for summarized thinking. crush's SDK asks for it only by
+ * a real model's id (fantasy, providers/anthropic, thinkingDisplay), which a
+ * slot name is not, and Opus, Sonnet and Fable 5 return empty thinking text
+ * without it (internal/service/clients, Crush).
  */
 export function crushJson(body: string, setup: Setup, base: string): string {
   const json = JSON.parse(body) as {
@@ -184,6 +189,10 @@ export function crushJson(body: string, setup: Setup, base: string): string {
   if (provider === undefined) return body
   provider.type = 'anthropic'
   provider.base_url = base
+  provider.provider_options = {
+    ...(provider.provider_options as Record<string, unknown> | undefined),
+    thinking_display: 'summarized',
+  }
   provider.models = unique(setup.slots).map((s) => {
     const m = s.served
     const levels = efforts(m)
@@ -242,6 +251,11 @@ export function stripComments(body: string): string {
  * the two slots. The file's opening comment is kept; the rest is written
  * whole. A reasoning model gets opencode's adaptive thinking modes, as current
  * Claude models take them.
+ *
+ * Each name turns tool-call streaming on in its own options: opencode starts
+ * every model on this provider without it unless its id contains "claude",
+ * and a name's options are merged over that default (internal/service/clients,
+ * Opencode).
  */
 export function opencodeJsonc(body: string, setup: Setup): string {
   const head = body.split('\n').filter((l, i, all) => i < all.findIndex((x) => x.includes('"$schema"')) && l.trim().startsWith('//'))
@@ -264,6 +278,7 @@ export function opencodeJsonc(body: string, setup: Setup): string {
       tool_call: true,
       temperature: false,
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { toolStreaming: true },
     }
     if (levels.length > 0) {
       entry.variants = Object.fromEntries(levels.map((l) => [l, { thinking: { type: 'adaptive' }, effort: l }]))

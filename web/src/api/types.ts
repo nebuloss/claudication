@@ -608,7 +608,7 @@ export interface SlotSpec {
   role: string
   /** Where the client's configuration takes it, as the client spells it. */
   field: string
-  /** The name a new slot is given, before any mark its type needs. */
+  /** The name a new slot is given. */
   name: string
   /** The moving target a new slot follows. */
   follows: string
@@ -623,8 +623,6 @@ export interface TypeSpec {
   api?: DialectId
   slots: SlotSpec[]
   custom: boolean
-  /** What every slot name must contain, when the type needs a mark. */
-  mark?: string
   /** The client names its own sessions and the gateway reads the name: no "Name chats" switch. */
   names_its_chats: boolean
 }

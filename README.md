@@ -253,9 +253,9 @@ setting its tool has, each with a name the tool asks for:
 
 | Client | Slots |
 |---|---|
-| Claude Code | `claude-large` (`ANTHROPIC_MODEL`), `claude-small` (`ANTHROPIC_SMALL_FAST_MODEL`), `claude-opus`, `claude-sonnet`, `claude-haiku`, `claude-fable` (the `/model` tiers), `claude-auto` (auto mode's classifier) |
+| Claude Code | `large` (`ANTHROPIC_MODEL`), `small` (`ANTHROPIC_SMALL_FAST_MODEL`), `opus`, `sonnet`, `haiku`, `fable` (the `/model` tiers), `auto` (auto mode's classifier) |
 | Codex | `large` (`model`), `review` (`review_model`), `agents` (sub-agents), `small` (memories) |
-| opencode | `claude-large` (`model`), `claude-small` (`small_model`) |
+| opencode | `large` (`model`), `small` (`small_model`) |
 | crush | `large` (`models.large`), `small` (`models.small`) |
 | Custom | `large`, and any the operator adds — or real model ids, in direct mode |
 
@@ -281,7 +281,11 @@ for the admin screens; no client is offered any of them until an account serves 
 Each client's files also carry what each name's model can do — Claude Code's
 `behavesAs`, opencode's declared limits, the crush and Codex model lists —
 because a client sizes its requests from those. Rebinding a slot to a model
-with a smaller window means running the client's install command again.
+with a smaller window means running the client's install command again. They
+also set what a client would otherwise read off a real model's id — opencode's
+tool-call streaming, crush's thinking display — so a plain name behaves as the
+model it serves ([docs/clients.md](docs/clients.md), "What a client reads off
+a name").
 
 Rewriting the model is the relay's seventh exception to sending the caller's
 bytes as they are; see `go doc ./internal/relay/passes`.
@@ -444,7 +448,9 @@ the release that introduces it.
 
 Model discovery is pinned by the contract: `GET /v1/models?limit=1000`, a
 3-second timeout, **any redirect counts as failure**, and Claude Code keeps only
-ids containing `claude` or `anthropic`.
+ids containing `claude` or `anthropic` — when it asks at all, which is only
+with `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` set. The files the gateway
+writes do not set it: they name every model the client may use.
 
 ## Deploy
 

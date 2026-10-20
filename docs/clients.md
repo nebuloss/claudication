@@ -84,17 +84,35 @@ gateway resolves it to.
 
 | Type | Slots, and the name each starts with |
 |---|---|
-| Claude Code | `claude-large` (`ANTHROPIC_MODEL`), `claude-small` (`ANTHROPIC_SMALL_FAST_MODEL`), `claude-opus`, `claude-sonnet`, `claude-haiku`, `claude-fable` (`ANTHROPIC_DEFAULT_*_MODEL`), `claude-auto` (`CLAUDE_CODE_AUTO_MODE_MODEL`) |
+| Claude Code | `large` (`ANTHROPIC_MODEL`), `small` (`ANTHROPIC_SMALL_FAST_MODEL`), `opus`, `sonnet`, `haiku`, `fable` (`ANTHROPIC_DEFAULT_*_MODEL`), `auto` (`CLAUDE_CODE_AUTO_MODE_MODEL`) |
 | Codex CLI | `large` (`model`), `review` (`review_model`), `agents` (`agents.default_subagent_model`), `small` (`memories.extract_model`, `memories.consolidation_model`) |
-| opencode | `claude-large` (`model`), `claude-small` (`small_model`) |
+| opencode | `large` (`model`), `small` (`small_model`) |
 | crush | `large` (`models.large`), `small` (`models.small`) |
 | Custom | `large`, and any more the operator adds |
 
 A name is the client's own: two clients can both have a `large`, bound to
-different models. It can be renamed on the client's page, within a rule two
-tools impose on the name, whatever it serves — Claude Code keeps only model ids
-containing `claude`, and opencode streams tool calls on its Anthropic provider
-only for such ids — so their names carry `claude`, a GPT model's included.
+different models. It can be renamed on the client's page to anything a config
+can carry — lower case, digits, dots and dashes. Names say nothing of a
+provider, because a slot can serve either; a Claude Code tier is named for the
+tier (`opus` is what `/model opus` asks for), not for the model behind it.
+
+### What a client reads off a name
+
+Some clients switch features on a model's id. None needs the name for it: each
+switch has a setting that says the same thing, and the client's files set it.
+Each was read from the client and checked against a stub server with the
+generated files (the full record is `go doc ./internal/service/clients`):
+
+| Client | Keyed off the id | The setting the files use instead |
+|---|---|---|
+| Claude Code 2.1.304 | prompt profile, thinking and effort defaults, window — by family substring and full versioned id; `/v1/models` keeps ids with `claude`, but only with `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`, which is not set | `modelPicker` rows with `behavesAs`, one per name but the classifier's: requests under `large`, `opus`… match those under `claude-large`, `claude-opus`… byte for byte but for the model field |
+| opencode 1.17.13 | tool-call streaming off on the Anthropic provider for an id without `claude`; the Anthropic-tuned system prompt for one with it | `"options": {"toolStreaming": true}` on each name, which brings `eager_input_streaming` back on every tool. The prompt has no per-model setting: a plain name gets opencode's generic one |
+| crush (fantasy 0.45.1) | summarized thinking asked for only for real Opus, Sonnet and Fable 5 ids, which return empty thinking text otherwise — no name matches, marked or not | `"provider_options": {"thinking_display": "summarized"}` on the provider |
+| Codex | nothing: everything it decides about a model is a field of the catalog entry its name keys | the catalog, `codex-models.json` |
+
+Claude Code and opencode names used to carry `claude` for the first two rows.
+Clients made then keep their names, which go on working; running the install
+command again writes the settings above for them too.
 
 A slot is bound either to a **model** — any model an account serves, Claude or
 GPT — or to a **target it follows**: the newest Opus, Sonnet, Haiku or Fable,
@@ -126,14 +144,13 @@ switched off on every account — and leaves the client's model list until it
 is rebound to something available.
 
 A client keeps the type it was made with. Its key was issued for that one
-client, and its names carry what its type needs (`claude`), so another type
+client, and its slots are its type's configuration fields, so another type
 is another client: make one, with its own key, rather than change one.
 
 A client made before the API became its type's — an opencode or a crush once
 pointed at Responses — speaks its type's API from then on, and needs its
 install command run again for its files to say so. Its names stay as they
-were; an opencode's `large` is marked on its page for lacking `claude`, and
-works, without streamed tool calls, until it is renamed.
+were.
 
 ### The files carry the models' facts
 

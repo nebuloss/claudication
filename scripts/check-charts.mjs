@@ -307,6 +307,9 @@ console.log('\n— client configs: the committed files, with the client\'s names
   check('a model with no effort setting does not reason', [byID.small.can_reason, 'reasoning_levels' in byID.small], [false, false])
   check('the output cap is the served model\'s', byID.large.default_max_tokens, 128000)
   check('the anthropic type, the bare address and thinking on', [provider.type, provider.base_url, crush.models.large.think], ['anthropic', 'https://gw', true])
+  // fantasy asks for summarized thinking only by a real model's id; a plain
+  // name gets it from the provider's options.
+  check('summarized thinking for every name', provider.provider_options, { thinking_display: 'summarized' })
   check('the rest of crush.json is the committed file\'s', [crush.$schema, Object.keys(crush.providers)[0]],
     [JSON.parse(committed('crush.json')).$schema, 'claudication'])
   // The committed file is what a new crush client is handed, so writing it
@@ -342,46 +345,60 @@ console.log('\n— client configs: the committed files, with the client\'s names
   check('each defers its reviews to the review name', codex.map((m) => m.auto_review_model_override), ['rev', 'rev', 'rev', 'rev'])
   check('everything else in an entry is the committed one', codex[2].base_instructions, template.base_instructions)
 
-  // Claude Code: every model variable its slot's name, the picker told what each behaves like.
+  // Claude Code: every model variable its slot's name, the picker told what
+  // each behaves like — the setting that makes a plain name act as its model.
   const ccSlots = [
-    ['ANTHROPIC_MODEL', 'main', 'claude-large', opus],
-    ['ANTHROPIC_SMALL_FAST_MODEL', 'fast', 'claude-small', sonnet],
-    ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'opus', 'claude-opus', opus],
-    ['ANTHROPIC_DEFAULT_SONNET_MODEL', 'sonnet', 'claude-sonnet-mine', sonnet],
-    ['CLAUDE_CODE_AUTO_MODE_MODEL', 'classifier', 'claude-auto', sonnet],
+    ['ANTHROPIC_MODEL', 'main', 'large', opus],
+    ['ANTHROPIC_SMALL_FAST_MODEL', 'fast', 'small', sonnet],
+    ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'opus', 'opus', opus],
+    ['ANTHROPIC_DEFAULT_SONNET_MODEL', 'sonnet', 'sonnet-mine', sonnet],
+    ['CLAUDE_CODE_AUTO_MODE_MODEL', 'classifier', 'auto', sonnet],
   ].map(([field, role, name, served]) => ({ id: name, role, field, name, served }))
   const sh = claudeCodeSh(committed('claude-code.sh'), { slots: ccSlots })
   check('each variable names its slot', [
-    /^export ANTHROPIC_MODEL=claude-large$/m.test(sh), /^export ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-mine$/m.test(sh),
-    /^export CLAUDE_CODE_AUTO_MODE_MODEL=claude-auto$/m.test(sh),
+    /^export ANTHROPIC_MODEL=large$/m.test(sh), /^export ANTHROPIC_DEFAULT_SONNET_MODEL=sonnet-mine$/m.test(sh),
+    /^export CLAUDE_CODE_AUTO_MODE_MODEL=auto$/m.test(sh),
   ], [true, true, true])
   check('a variable with no slot is left out', /ANTHROPIC_DEFAULT_FABLE_MODEL/.test(sh), false)
   const picker = JSON.parse(sh.match(/--settings '(\{.*\})'/)[1]).modelPicker.options
   check('the picker says what each name behaves like', picker.map((o) => `${o.model}=${o.behavesAs}`), [
-    'claude-large=claude-opus-5-5', 'claude-small=claude-sonnet-4-5-20250929', 'claude-opus=claude-opus-5-5',
-    'claude-sonnet-mine=claude-sonnet-4-5-20250929',
+    'large=claude-opus-5-5', 'small=claude-sonnet-4-5-20250929', 'opus=claude-opus-5-5',
+    'sonnet-mine=claude-sonnet-4-5-20250929',
   ])
-  check('and leaves the classifier out: nobody picks it', picker.some((o) => o.model === 'claude-auto'), false)
+  check('and leaves the classifier out: nobody picks it', picker.some((o) => o.model === 'auto'), false)
+  // The committed file is a new client's: the plain names, each in the picker
+  // but the classifier's.
+  const ccCommitted = committed('claude-code.sh')
+  const ccPicker = JSON.parse(ccCommitted.match(/--settings '(\{.*\})'/)[1]).modelPicker.options
+  check('the committed file names a new client\'s slots, each behaving as a real model', [
+    [...ccCommitted.matchAll(/^export [A-Z_]+_MODEL=(.*)$/gm)].map((m) => m[1]),
+    ccPicker.map((o) => o.model), ccPicker.every((o) => /^claude-/.test(o.behavesAs)),
+  ], [['large', 'small', 'opus', 'sonnet', 'haiku', 'fable', 'auto'], ['large', 'small', 'opus', 'sonnet', 'haiku', 'fable'], true])
 
   // opencode: its built-in anthropic provider, overridden.
   const ocSlots = [
-    { id: 'large', role: 'main', field: 'model', name: 'claude-large', served: opus },
-    { id: 'small', role: 'fast', field: 'small_model', name: 'claude-small', served: sonnet },
+    { id: 'large', role: 'main', field: 'model', name: 'large', served: opus },
+    { id: 'small', role: 'fast', field: 'small_model', name: 'small', served: sonnet },
   ]
   const oc = opencodeJsonc(committed('opencode.jsonc'), { slots: ocSlots })
   const ocM = JSON.parse(stripComments(oc))
   check('the anthropic provider and the client\'s names', [Object.keys(ocM.provider), ocM.model, ocM.small_model],
-    [['anthropic'], 'anthropic/claude-large', 'anthropic/claude-small'])
-  check('each name at its model\'s limits', ocM.provider.anthropic.models['claude-small'].limit, { context: 200000, output: 64000 })
-  check('with adaptive thinking for a reasoning model', Object.keys(ocM.provider.anthropic.models['claude-large'].variants), ['low', 'medium', 'high', 'xhigh', 'max'])
-  check('and none for one without', 'variants' in ocM.provider.anthropic.models['claude-small'], false)
+    [['anthropic'], 'anthropic/large', 'anthropic/small'])
+  check('each name at its model\'s limits', ocM.provider.anthropic.models.small.limit, { context: 200000, output: 64000 })
+  check('with adaptive thinking for a reasoning model', Object.keys(ocM.provider.anthropic.models.large.variants), ['low', 'medium', 'high', 'xhigh', 'max'])
+  check('and none for one without', 'variants' in ocM.provider.anthropic.models.small, false)
+  // opencode streams tool calls on this provider only for an id with
+  // "claude" unless the model's own options say otherwise.
+  check('tool-call streaming on for every name', Object.values(ocM.provider.anthropic.models).map((m) => m.options),
+    [{ toolStreaming: true }, { toolStreaming: true }])
   check('its opening comment kept', oc.includes('// opencode, pointed at a claudication gateway.'), true)
   check('a URL\'s // is not a comment', stripComments('{"u": "https://x"} // c'), '{"u": "https://x"} \n')
   const ocCommitted = JSON.parse(stripComments(committed('opencode.jsonc')))
   check('and the committed baseURL', ocM.provider.anthropic.options, ocCommitted.provider.anthropic.options)
   // The committed file is what a new opencode client is handed: its names.
   check('the committed file names a new client\'s slots', [ocCommitted.model, ocCommitted.small_model, Object.keys(ocCommitted.provider.anthropic.models)],
-    ['anthropic/claude-large', 'anthropic/claude-small', ['claude-large', 'claude-small']])
+    ['anthropic/large', 'anthropic/small', ['large', 'small']])
+  check('and streams their tool calls', Object.values(ocCommitted.provider.anthropic.models).map((m) => m.options.toolStreaming), [true, true])
 }
 
 console.log('\n— client specs: a slot\'s binding is one menu value —')

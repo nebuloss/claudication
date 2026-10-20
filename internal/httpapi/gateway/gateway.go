@@ -154,7 +154,10 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 //
 // The contract pins the shape hard: Claude Code sends GET /v1/models?limit=1000
 // with a 3-second timeout, treats any redirect as failure, and keeps only ids
-// containing "claude" or "anthropic".
+// containing "claude" or "anthropic" — though 2.1.304 asks only with
+// CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY set, which the files the gateway
+// writes do not set, so a typed Claude Code client's plain names are never
+// filtered here (internal/service/clients, ClaudeCode).
 //
 // A failure must be answered as a failure. The client falls back to its cached
 // list only when the request fails; a 200 carrying an empty data array is a

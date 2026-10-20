@@ -313,10 +313,9 @@ func (s *Store) SetSlot(ctx context.Context, keyID, slot, name string, b Binding
 		return err
 	}
 	return s.inTx(ctx, "set slot", func(tx *sql.Tx) error {
-		var current, typ string
+		var current string
 		err := tx.QueryRowContext(ctx,
-			`SELECT s.name, c.type FROM client_slots s JOIN clients c ON c.key_id = s.key_id
-			  WHERE s.key_id = ? AND s.slot = ?`, keyID, slot).Scan(&current, &typ)
+			`SELECT name FROM client_slots WHERE key_id = ? AND slot = ?`, keyID, slot).Scan(&current)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrClientNotFound
 		}
@@ -328,11 +327,6 @@ func (s *Store) SetSlot(ctx context.Context, keyID, slot, name string, b Binding
 		}
 		if name, err = checkSlotName(name); err != nil {
 			return err
-		}
-		if name != current {
-			if err := checkMark(typ, name); err != nil {
-				return err
-			}
 		}
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE client_slots SET name = ?, model = ?, follows = ?, updated_at = ? WHERE key_id = ? AND slot = ?`,
@@ -365,32 +359,12 @@ func (s *Store) AddSlot(ctx context.Context, keyID, name string, b Binding) erro
 		if t, ok := clients.Find(typ); ok && !t.Custom {
 			return invalidClient(t.Label + "'s slots are its configuration's; only a custom client names its own")
 		}
-		if err := checkMark(typ, name); err != nil {
-			return err
-		}
 		id, err := newSlotID()
 		if err != nil {
 			return err
 		}
 		return insertSlot(ctx, tx, keyID, NewSlot{Slot: id, Name: name, Binding: b}, time.Now())
 	})
-}
-
-// checkMark refuses a new name the client's type would not handle right:
-// Claude Code keeps only ids with "claude", opencode streams tool calls over
-// Messages only for one (internal/service/clients, Type.Mark). The page says
-// so beside the field; this is what holds when the API is called directly. A
-// name the slot already has is not checked again: it was given under the
-// same type, so it fit then and still does — unless it was given under the
-// API a client could once choose, whose mark it may carry instead, and which
-// it may keep (a rename is what checks it).
-func checkMark(typ, name string) error {
-	t, ok := clients.Find(typ)
-	if !ok || t.Fits(name) {
-		return nil
-	}
-	return invalidClient(fmt.Sprintf("%s needs every model name to contain %q, and %q does not; try %q",
-		t.Label, t.Mark, name, t.Name(name, nil)))
 }
 
 // newSlotID is an id for an operator's own slot: "s-" and random hex, which no

@@ -11,10 +11,11 @@ import (
 
 // Model roles: the seventh exception.
 //
-// Every client config the gateway writes asks for claude-large and
-// claude-small, two roles the operator binds to real models in the gateway
-// (store.RoleLarge, store.RoleSmall) — so moving every client from one model
-// to the next is one edit here rather than one per client. The upstream knows
+// Every client config the gateway writes asks for that client's own slot
+// names — large, small and the rest — which the operator binds to real models
+// on the client's page (internal/service/clients) — so moving a client from
+// one model to the next is one edit there rather than a round of its
+// configuration. The upstream knows
 // only real ids, so a request naming a role cannot succeed as sent: the model
 // field has to say the real one.
 //
@@ -25,8 +26,8 @@ import (
 // else the gateway's, else the newest of the role's family). So it is a
 // function the gateway calls with that decision, not a step in the pipeline.
 //
-// The answer says the role back: the client asked for claude-large, and an
-// answer naming claude-opus-5-5 is a name it was never configured with.
+// The answer says the role back: the client asked for large, and an answer
+// naming claude-opus-5-5 is a name it was never configured with.
 // ModelRenamer does that on the way out. The request log keeps both.
 
 // SetModel puts model where body's model field is. ok is false when the body

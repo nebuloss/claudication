@@ -1,7 +1,7 @@
 // Package clients is what the gateway knows about each kind of client it hands
 // a configuration to: the model slots that client's configuration has, which
-// of the gateway's two APIs it speaks, and what each slot's model name has to
-// look like for the client to treat it right.
+// of the gateway's two APIs it speaks, and what its configuration has to say
+// for the client to treat a name of the gateway's as the model behind it.
 //
 // A client of the gateway is a named thing the operator set up — "laptop",
 // "work crush" — holding one API key; its type is one of the Types below, and
@@ -18,6 +18,16 @@
 // not a round of every configuration. No model name is shared between
 // clients, and there is none a request can name that is not some client's
 // own — or, for a custom client in direct mode, a real model's id.
+//
+// A slot's name is plain — large, small, review — and names no provider,
+// because a slot can be bound to a model of either. Some clients do switch
+// features on a model's id; none of them needs the name for it, because each
+// such switch has a setting that says the same thing, and the files the
+// gateway writes set it. Each Type below records what its client reads off
+// an id, where, and the setting that replaces it, measured against the
+// client itself. Names used to carry "claude" for Claude Code and opencode;
+// neither needs it (see their Types), and clients made then keep the names
+// they were given.
 //
 // The slots are the ones each client's own configuration takes, read from the
 // client's source or documentation rather than guessed; each Type says where.
@@ -178,9 +188,8 @@ type Slot struct {
 	// Field is where the client's configuration takes it, as the client
 	// spells it.
 	Field string `json:"field"`
-	// Name is the model name a new slot is given, before any mark its type
-	// needs (Type.Name): short, read in the client's own model picker, and
-	// never a real model's id.
+	// Name is the model name a new slot is given (Type.Name): short, plain,
+	// read in the client's own model picker, and never a real model's id.
 	Name string `json:"name"`
 	// Follows is the moving target a new slot is bound to, so a client set
 	// up today goes on serving the newest model of its kind.
@@ -203,9 +212,6 @@ type Type struct {
 	// Custom is the type with no recipe: no files to write, slots of the
 	// operator's own naming, and a direct mode.
 	Custom bool `json:"custom"`
-	// Mark is what every slot name must contain for the client to handle
-	// the model right on its API, or ""; see the type's own comment.
-	Mark string `json:"mark,omitempty"`
 	// Sessions are the request headers the type names its chat in, most
 	// specific first: what the gateway groups its requests into chats by.
 	// None for a custom client, whose requests are read the way each API
@@ -246,17 +252,57 @@ type Type struct {
 // the operator move one at a time. A model typed into /model by hand is
 // refused, naming the slots.
 //
-// Messages: Claude Code speaks nothing else. Its names are claude-large,
-// claude-small, claude-opus and so on rather than the bare large, small,
-// opus the other types have, for two reasons in Claude Code itself: its
-// /v1/models reading keeps only ids containing "claude" (gateway.handleModels),
-// and opus, sonnet, haiku and default are its own model aliases — the
-// ANTHROPIC_DEFAULT_*_MODEL variables are what those resolve to, and its
-// documentation lists values it ignores as aliases (haiku, default, inherit,
-// opusplan for ANTHROPIC_DEFAULT_MODEL), so a bare "haiku" there is not a
-// name it would send. The modelPicker behavesAs setting in the generated file tells it which real
-// model each name acts as, without which it caps an unknown name at a 200k
-// window.
+// Messages: Claude Code speaks nothing else.
+//
+// Its names are the plain large, small, opus, sonnet, haiku, fable and auto.
+// A tier slot is named for the tier it fills — Claude Code's own word for it,
+// the one /model and a sub-agent's model: field use — and not for the model
+// behind it, which may be a GPT one: a sub-agent asking for opus asks the
+// gateway for "opus", a name that means what the client meant by it.
+// What Claude Code reads off a model id, read from the 2.1.304 binary
+// (~/.local/share/claude/versions/2.1.304, byte offsets) on 2026-10-20:
+//
+//	/v1/models    keeps ids matching /(claude|anthropic)/i (@239613896,
+//	              @254499289), but only asks with
+//	              CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY set (@239610674,
+//	              and the bootstrap's own gate @254493275);
+//	              the file does not set it, so Claude Code never asks, and
+//	              every name it uses is in the file anyway
+//	family        y4 picks opus/sonnet/haiku/fable by substring (@239618383)
+//	              and the canonical id by full versioned id
+//	              (QS @239676434); claude-large matched neither, claude-sonnet
+//	              and claude-haiku matched a family by accident
+//	behavesAs     the modelPicker setting's row for a name: "the ID of a
+//	              model it does know whose client-side handling — prompt
+//	              profile, capability and effort defaults — applies to it"
+//	              (@237153249); looked up by the name (BU @239682076)
+//	telemetry     a model name without "claude" is logged as null rather
+//	              than "other" (@244612190): nothing a request carries
+//	aliases       opus, sonnet, haiku, fable, best, opusplan (+[1m]) (q4
+//	              @237017993): a tier variable set to its own alias is sent
+//	              verbatim, so /model opus asks for "opus"
+//
+// So the setting that makes a name behave as its model is behavesAs, which
+// the generated file has always written for every name but the classifier's,
+// and the name itself decides nothing. Captured the same day against a stub
+// Messages server, in a network namespace with only loopback, with the
+// generated configuration — claude -p once on the session model and once per
+// --model opus, sonnet, haiku and fable — the requests under claude-large,
+// claude-opus... and under large, opus... (or large, strong, balanced...)
+// are byte for byte the same but for the model field and the system prompt's
+// "You are powered by the model <name>" line: the same betas, thinking
+// (adaptive, display omitted), effort, max_tokens, context_management, cache
+// marks, tools and system prompt. Without behavesAs the two sets differed —
+// claude-sonnet and claude-haiku drew the Sonnet and Haiku prompt profiles
+// by substring, the rest none — and with behavesAs a name follows its row
+// even against its family word: "opus" set to behave as Haiku drew the Haiku
+// profile.
+//
+// The classifier's name stays out of the picker, as before: nobody picks it.
+// Claude Code checks CLAUDE_CODE_AUTO_MODE_MODEL against a short list of real
+// ids it refuses there (claude-sonnet-5-5, claude-opus-5-5, claude-opus-5;
+// P$o @239656802) and falls back to a model of its own choosing, which this
+// client may not name; "auto" is on no list, as "claude-auto" was not.
 var ClaudeCode = Type{
 	ID: "claude-code", Label: "Claude Code",
 	// Measured 2026-09-17 (internal/api, conversation.go): the header on every
@@ -297,7 +343,6 @@ var ClaudeCode = Type{
 	Sessions:      []string{"X-Claude-Code-Session-Id"},
 	NamesItsChats: true,
 	API:           Messages,
-	Mark:          "claude",
 	Slots: []Slot{
 		{ID: "main", Label: "Main", Role: RoleMain, Field: "ANTHROPIC_MODEL", Name: "large",
 			Follows: FollowOpus, Hint: "The session's model, and the sub-agents that inherit it."},
@@ -337,8 +382,17 @@ var ClaudeCode = Type{
 // so the approval reviewer does not ask for a model of its own (Codex's
 // codex-auto-review, which the ChatGPT list keeps hidden).
 //
-// Responses: Codex speaks nothing else (internal/api/openai). No mark:
-// with the catalog, Codex reads everything it needs about a name from there.
+// Responses: Codex speaks nothing else (internal/api/openai).
+//
+// Nothing in Codex's handling of a model is keyed off a name the catalog
+// carries: the catalog entry is looked up by its slug, and everything Codex
+// decides about the model — its window and compaction, reasoning levels and
+// summaries, tool shapes (apply_patch_tool_type, shell_type), parallel tool
+// calls, its system prompt (base_instructions) — is a field of that entry
+// (configs/clients/codex-models.json). The name is only the key, so a plain
+// one behaves as fully as a real slug would; the one way a name goes wrong
+// is a catalog without it, when Codex falls back to its generic metadata
+// (docs/clients.md, "The model catalog").
 var Codex = Type{
 	ID: "codex", Label: "Codex CLI",
 	// session_id and conversation_id on 0.154.0 (measured, internal/api/openai,
@@ -371,17 +425,42 @@ var Codex = Type{
 // Messages, through its built-in "anthropic" provider (@ai-sdk/anthropic),
 // overridden to point at the gateway: either of opencode's providers would
 // reach both of the gateway's, and this is the one with thinking for Claude.
-// Read from the opencode 1.17.13 binary (~/.opencode/bin/opencode, its
-// bundled provider code), re-read 2026-10-20:
 //
-//	if (... || !model.api.id.includes("claude") && model.api.npm === "@ai-sdk/anthropic")
-//	    options.toolStreaming = false
+// Its names are the plain large and small. What opencode reads off a model's
+// id (model.api.id, the id it sends), read from the 1.17.13 binary
+// (~/.opencode/bin/opencode, byte offsets into its bundled code) on
+// 2026-10-20:
 //
-// so over Messages opencode turns tool-call streaming off for an id that does
-// not contain "claude", and its names carry it whatever the slot is bound
-// to, a GPT model included: the mark is about the name opencode sees, not the
-// model behind it. (The same binary picks its system prompt by the id too,
-// the Claude one for an id with "claude"; with the mark that is the one sent.)
+//	tool streaming  the call options start with toolStreaming false for an id
+//	                without "claude" on @ai-sdk/anthropic (@97905071); the
+//	                SDK reads it (@111708457) and leaves eager_input_streaming
+//	                off every tool (@111672706), so a tool call's input
+//	                arrives whole
+//	system prompt   the Anthropic-tuned one for an id with "claude", its
+//	                generic one otherwise (@96421643)
+//	tool call ids   in the history, rewritten to [a-zA-Z0-9_-] for an id with
+//	                "claude" (@97891337); ids this gateway hands out already
+//	                are (toolu_..., and call_... from a GPT model)
+//	caching         cache marks for provider "anthropic" whatever the id
+//	                (@97895334)
+//	top_p           dropped beside a temperature for "claude-*" ids in the SDK
+//	                (@112130321); the file sends no temperature
+//
+// Tool streaming has a setting: a declared model's own options are merged
+// over those defaults (@97937152 reads them from the config; @96424514
+// merges model.options last but for the agent's and the variant's), so
+// "options": {"toolStreaming": true} on each name turns it back on. Captured
+// the same day against a stub, in a loopback-only network namespace,
+// opencode run with the generated file: under claude-large every one of the
+// 10 tools carried eager_input_streaming; under large none did, and with the
+// option all 10 did again, the requests otherwise the same.
+//
+// The system prompt has no per-model setting — an agent's own prompt
+// replaces it for every model the agent runs, which would pin opencode's
+// prompt text into this file — and is the one difference left: a plain name
+// gets opencode's generic prompt. It is no feature switch: the tools, thinking,
+// caching and streaming are the same, and the mark sent the Claude-tuned
+// prompt to a GPT model as readily as to Claude. So no mark.
 var Opencode = Type{
 	ID: "opencode", Label: "opencode",
 	// x-session-id: ses_<id>, beside x-session-affinity, measured 2026-09-17;
@@ -391,7 +470,6 @@ var Opencode = Type{
 	Sessions:      []string{"X-Session-Id"},
 	NamesItsChats: true,
 	API:           Messages,
-	Mark:          "claude",
 	Slots: []Slot{
 		{ID: "main", Label: "Main", Role: RoleMain, Field: "model", Name: "large",
 			Follows: FollowOpus, Hint: "The model doing the work, and every agent's."},
@@ -404,13 +482,27 @@ var Opencode = Type{
 // (crush internal/config, SelectedModelTypeLarge/Small, at 76cc5c5): its
 // coder runs the large one, its titles and summaries the small one.
 //
-// Messages, through its "anthropic" provider type, which has no rule about a
-// model's id and is the path the gateway's crush handling was measured on.
+// Messages, through its "anthropic" provider type, the path the gateway's
+// crush handling was measured on. crush itself has no rule about a model's
+// id on it (the id rules in internal/agent/coordinator.go are for OpenCode's
+// providers, Gemini and MiniMax). Its SDK has one: fantasy (providers/
+// anthropic/anthropic.go:43-110, v0.45.1) asks for summarized thinking only
+// for an id containing claude-opus-5, claude-sonnet-5, claude-fable-5,
+// claude-mythos-5 or a recent claude-opus-4-N, which no slot name matches —
+// nor did any mark — and those models, by fantasy's reading of Anthropic's
+// thinking documentation, return empty thinking text unless a display is
+// asked for, so crush would show none. The setting is the provider option thinking_display
+// (provider_options.go:83), merged from the provider's provider_options
+// (coordinator.go:494); captured against a stub with the installed crush
+// (v0.97.2), "large" sends thinking {"type": "adaptive"} without it and
+// {"type": "adaptive", "display": "summarized"} with it. The file sets it on
+// the provider, so it holds for every name.
+//
 // Its "openai" type would not do: it asks fantasy for the Responses API
 // (internal/agent/coordinator.go, buildOpenaiProvider), and fantasy
 // (providers/openai, v0.45.1) grants that only to an id matching gpt-[4-9] or
 // gpt-<two digits>, sending every other to /chat/completions, which this
-// gateway does not serve. No mark.
+// gateway does not serve.
 var Crush = Type{
 	ID: "crush", Label: "crush",
 	// x-session-id and x-session-affinity, a hash of the session id, on every
@@ -478,11 +570,6 @@ func (t Type) SlotFor(id string) (Slot, bool) {
 	return Slot{}, false
 }
 
-// Fits reports whether a name is one the type handles right.
-func (t Type) Fits(name string) bool {
-	return t.Mark == "" || strings.Contains(name, t.Mark)
-}
-
 // name is what a model name may be: lower case, digits, dots and dashes, as a
 // real id is, so it sits in a config and a URL unquoted.
 var name = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,63}$`)
@@ -490,17 +577,14 @@ var name = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,63}$`)
 // ValidName reports whether s can be a model name, or a custom slot's id.
 func ValidName(s string) bool { return name.MatchString(s) }
 
-// Name is the model name slot is given: the slot's own name, with the type's
-// mark in front when it lacks it. taken says a name is already this client's;
-// a number is added until one is free. The client's own name is no part of
-// it: a rename never touches its configuration.
+// Name is the model name slot is given: the slot's own name, or for an
+// operator's slot its id. taken says a name is already this client's; a
+// number is added until one is free. The client's own name is no part of it:
+// a rename never touches its configuration.
 func (t Type) Name(slot string, taken func(string) bool) string {
 	base := slot
 	if s, ok := t.Slot(slot); ok && s.Name != "" {
 		base = s.Name
-	}
-	if t.Mark != "" && !strings.Contains(base, t.Mark) {
-		base = t.Mark + "-" + base
 	}
 	n := base
 	for i := 2; taken != nil && taken(n); i++ {
@@ -517,8 +601,8 @@ func itoa(i int) string {
 	return itoa(i/10) + digits[i%10:i%10+1]
 }
 
-// Initial is one slot a new client is made with: one of its type's, under the
-// name its type needs, following the slot's default target.
+// Initial is one slot a new client is made with: one of its type's, under its
+// default name, following the slot's default target.
 type Initial struct {
 	Slot    string
 	Name    string
@@ -529,9 +613,8 @@ type Initial struct {
 // client starts with its one slot; the rest are the operator's to add.
 //
 // A client keeps the type it was made with: its key was handed out for that
-// client, and the names its configuration asks for carry the type's mark, so
-// another type would be another set of names — another client, with a key of
-// its own.
+// client, and its slots are its type's configuration fields, so another type
+// would be another set of slots — another client, with a key of its own.
 func (t Type) Initial() []Initial {
 	slots := t.Slots
 	if t.Custom {

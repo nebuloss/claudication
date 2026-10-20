@@ -55,16 +55,6 @@ export class ClientType {
     return this.spec.api
   }
 
-  /** What every slot name must contain, or ''. */
-  get mark(): string {
-    return this.spec.mark ?? ''
-  }
-
-  /** Whether a name is one the client handles right. */
-  fits(name: string): boolean {
-    return this.mark === '' || name.includes(this.mark)
-  }
-
   /** A slot of this type, by id. */
   slot(id: string): TypeSpec['slots'][number] | undefined {
     return this.spec.slots.find((s) => s.id === id)
