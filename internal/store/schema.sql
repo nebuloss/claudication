@@ -425,3 +425,17 @@ CREATE TABLE uptime_samples (
     -- account able to serve). The worst seen in the minute wins.
     state  INTEGER NOT NULL
 ) WITHOUT ROWID;
+
+-- The gateway's own stops, to the second: a row is written the moment it stops
+-- taking requests (a deploy, a restart, a shutdown) and closed when it takes
+-- them again. The minute samples alone cannot see a restart that lasts less
+-- than a minute — the half minute a deploy waits for the last stream to end
+-- is a refused request for everyone who asks in it, and the page has to show
+-- it. A crash writes no row; that one is still read from the gap in the
+-- samples.
+CREATE TABLE uptime_outages (
+    -- When the gateway stopped taking requests, unix milliseconds UTC.
+    started INTEGER PRIMARY KEY,
+    -- When it took them again; NULL while it has not.
+    ended   INTEGER
+) WITHOUT ROWID;

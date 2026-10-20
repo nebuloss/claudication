@@ -1,6 +1,7 @@
 package uptime
 
 import (
+	"sort"
 	"time"
 
 	"claudication/internal/store"
@@ -105,6 +106,57 @@ func timeline(samples []store.UptimeSample, now time.Time) []span {
 	return out
 }
 
+// overlay lays the recorded stops over the timeline: each is Down for exactly
+// as long as it lasted, whatever the minute samples around it say. A sample
+// covers its whole minute, so without this a restart inside one minute — the
+// half minute a deploy waits for the last stream before the new process can
+// listen — read as a minute up, and a page that is meant to be honest about
+// availability said 100% over a stretch in which requests were refused.
+//
+// An outage with no end is cut at now: one is only open while the gateway is
+// stopped, and the next start closes it.
+func overlay(spans []span, outages []store.UptimeOutage, now time.Time) []span {
+	for _, o := range outages {
+		end := o.End
+		if end.IsZero() || end.After(now) {
+			end = now
+		}
+		if !end.After(o.Start) {
+			continue
+		}
+		var out []span
+		for _, sp := range spans {
+			if !sp.end.After(o.Start) || !end.After(sp.start) {
+				out = append(out, sp)
+				continue
+			}
+			if sp.start.Before(o.Start) {
+				out = append(out, span{sp.start, o.Start, sp.state})
+			}
+			if end.Before(sp.end) {
+				out = append(out, span{end, sp.end, sp.state})
+			}
+		}
+		out = append(out, span{o.Start, end, Down})
+		spans = merged(out)
+	}
+	return spans
+}
+
+// merged sorts spans by start and joins neighbours in the same state.
+func merged(spans []span) []span {
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start.Before(spans[j].start) })
+	var out []span
+	for _, sp := range spans {
+		if n := len(out); n > 0 && out[n-1].state == sp.state && !out[n-1].end.Before(sp.start) {
+			out[n-1].end = maxTime(out[n-1].end, sp.end)
+			continue
+		}
+		out = append(out, sp)
+	}
+	return out
+}
+
 func maxTime(a, b time.Time) time.Time {
 	if a.After(b) {
 		return a
@@ -166,9 +218,9 @@ func buckets(spans []span, first time.Time, step time.Duration, n int, now time.
 // Build is the report from the samples at now, with current the state the
 // gateway is in as it answers. Pure, so every rule above is tested on it
 // without a clock or a database.
-func Build(samples []store.UptimeSample, now time.Time, current State) Report {
+func Build(samples []store.UptimeSample, outages []store.UptimeOutage, now time.Time, current State) Report {
 	now = now.UTC()
-	spans := timeline(samples, now)
+	spans := overlay(timeline(samples, now), outages, now)
 	r := Report{
 		State:     current.String(),
 		Generated: now.UnixMilli(),

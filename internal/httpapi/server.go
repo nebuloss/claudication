@@ -655,6 +655,9 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.recorder.RunPruner(s.stopSweeper, 24*time.Hour)
 	go s.poller.Run(ctx, s.stopSweeper, accountsvc.Tick)
 	go s.trimmer.Run(s.stopSweeper, 5*time.Second)
+	// Every listener is bound by now: the stop the last run recorded, if it
+	// recorded one, ends here.
+	s.uptime.Started(ctx)
 	go s.uptime.Run(s.stopSweeper)
 
 	// Buffered for every listener, so no goroutine blocks on a send once
@@ -680,6 +683,10 @@ func (s *Server) Run(ctx context.Context) error {
 
 	grace := s.cfg.Shutdown.Grace.D()
 	s.log.Info("shutting down", "grace", grace.String())
+	// Recorded before the listeners close: from here a new request is refused,
+	// however long the drain then takes, and the status page must count it.
+	// Not under ctx, which is already done.
+	s.uptime.Stopping(context.Background())
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()

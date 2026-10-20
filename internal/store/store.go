@@ -141,7 +141,7 @@ func dsn(dbPath string) string {
 // schemaVersion alone; an upgraded one records each step it took. The rows for
 // 001-028 went with the files they named (see migrations/029): history that
 // no binary can replay is not history worth keeping.
-const schemaVersion = 35
+const schemaVersion = 36
 
 // oldestUpgradable is the earliest version an upgrade starts from. 001-028 were
 // folded into schema.sql, so a database from before 028 has no path from here;

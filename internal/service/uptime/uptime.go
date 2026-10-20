@@ -16,12 +16,13 @@
 //     uptime figures leave it out, the way a status page leaves out a
 //     maintenance window.
 //
-// Down is never recorded, because a process that is not running records
-// nothing. It is read from the gaps instead: two samples further apart than
-// Tolerance mean the gateway was not running in between. A restart for a
-// deploy takes seconds and costs at most a missed minute, which the tolerance
-// absorbs, so it does not paint a day red; a crash that waits for somebody
-// to notice does.
+// Down is recorded two ways. A stop the gateway sees — a deploy, a restart,
+// a shutdown — is written the moment it stops taking requests and closed
+// when it takes them again (BeginOutage, Start), to the second: a deploy that
+// waits half a minute for the last stream to end refused every request in
+// that half minute, and the page shows it. A stop it cannot see, a crash or
+// the machine going away, writes nothing; that one is read from the gaps, two
+// samples further apart than Tolerance.
 //
 // Not recorded: anything about why. A failure rate from the request log would
 // make "degraded" sharper, but every way of deriving it publishes something
@@ -57,7 +58,8 @@ const (
 	Up
 	Paused
 	Degraded
-	// Down is a gap between samples longer than Tolerance. Never stored.
+	// Down is a recorded stop, or a gap between samples longer than
+	// Tolerance. Not a sample state.
 	Down
 )
 
@@ -81,10 +83,11 @@ const (
 	Every = time.Minute
 
 	// Tolerance is the longest gap between samples that is still read as the
-	// gateway running. Five minutes: a deploy's restart misses one sample at
-	// most, and an outage shorter than this is one nobody can act on before
-	// it is over.
-	Tolerance = 5 * time.Minute
+	// gateway running: two sampling intervals and a half, so one late tick is
+	// not an outage. Only crashes are read this way — every stop the gateway
+	// sees is recorded exactly — so it can be short; it was five minutes,
+	// which hid a whole class of real outages.
+	Tolerance = 2*Every + Every/2
 
 	// History is how far back the report reaches, and how long samples are
 	// kept at least, whatever the usage retention says: the retention bounds
@@ -108,6 +111,10 @@ type Store interface {
 	RecordUptime(ctx context.Context, at time.Time, state int) error
 	UptimeSince(ctx context.Context, from time.Time) ([]store.UptimeSample, error)
 	PruneUptime(ctx context.Context, before time.Time) (int64, error)
+	BeginOutage(ctx context.Context, at time.Time) error
+	EndOutages(ctx context.Context, at time.Time) error
+	OutagesSince(ctx context.Context, from time.Time) ([]store.UptimeOutage, error)
+	PruneOutages(ctx context.Context, before time.Time) error
 }
 
 // Sampler takes the samples, prunes them, and answers the report.
@@ -148,10 +155,37 @@ func (s *Sampler) Sample(ctx context.Context) error {
 	return s.Store.RecordUptime(ctx, s.now(), int(s.probe(ctx)))
 }
 
-// Prune drops the samples older than the longer of the retention and History.
+// Prune drops the samples and outages older than the longer of the retention
+// and History.
 func (s *Sampler) Prune(ctx context.Context) (int64, error) {
-	keep := max(s.Retention, History)
-	return s.Store.PruneUptime(ctx, s.now().Add(-keep))
+	before := s.now().Add(-max(s.Retention, History))
+	if err := s.Store.PruneOutages(ctx, before); err != nil {
+		return 0, err
+	}
+	return s.Store.PruneUptime(ctx, before)
+}
+
+// Stopping records that the gateway has stopped taking requests, now. Called
+// as the listeners close, before any draining: from that moment a new request
+// is refused, whoever is still being answered.
+func (s *Sampler) Stopping(ctx context.Context) {
+	if err := s.Store.BeginOutage(ctx, s.now()); err != nil {
+		s.Log.Warn("could not record the stop", "err", err)
+	}
+	s.mu.Lock()
+	s.cachedAt = time.Time{}
+	s.mu.Unlock()
+}
+
+// Started records that the gateway takes requests again, closing the stop
+// the last run recorded. Called once the listeners are bound.
+func (s *Sampler) Started(ctx context.Context) {
+	if err := s.Store.EndOutages(ctx, s.now()); err != nil {
+		s.Log.Warn("could not record the start", "err", err)
+	}
+	s.mu.Lock()
+	s.cachedAt = time.Time{}
+	s.mu.Unlock()
 }
 
 // Run samples at once and then every Every, and prunes daily, until stop.
@@ -201,6 +235,10 @@ func (s *Sampler) Report(ctx context.Context) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	s.cached, s.cachedAt = Build(samples, now, s.probe(ctx)), now
+	outages, err := s.Store.OutagesSince(ctx, now.Add(-History))
+	if err != nil {
+		return Report{}, err
+	}
+	s.cached, s.cachedAt = Build(samples, outages, now, s.probe(ctx)), now
 	return s.cached, nil
 }

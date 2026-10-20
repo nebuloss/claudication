@@ -21,10 +21,15 @@ Once a minute the gateway notes one of three states in `uptime_samples`:
 | degraded | the switch is on and no account could: none connected, or all cooling or spent    |
 | paused   | the operator switched the gateway off                                             |
 
-Down is never recorded — a process that is not running records nothing — and is
-read from the gaps: two samples more than five minutes apart mean the gateway
-was not running in between. A deploy's restart takes seconds and misses at most
-one sample, so it does not show; a crash that waits for someone to notice does.
+Down is recorded two ways. A stop the gateway sees — a deploy, a restart, a
+shutdown — goes into `uptime_outages` the moment it stops taking requests, and
+is closed when it takes them again, to the millisecond. A deploy that waits half
+a minute for the last stream to finish refused every request in that half
+minute, so it shows: down for exactly that long. (Until 2026-10-20 such a
+restart was absorbed by a five-minute tolerance and the page said 100% over
+it.) A stop the gateway cannot see — a crash, the machine going away — records
+nothing, and is read from the gaps: two samples more than two and a half
+minutes apart mean the gateway was not running in between.
 Paused is shown as its own state and left out of the uptime figures, the way a
 status page leaves out a maintenance window.
 

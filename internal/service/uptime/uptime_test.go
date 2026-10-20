@@ -55,7 +55,7 @@ func val(f *float64) float64 {
 // bar up, and the figures at 100%.
 func TestADeployRestartIsNotAnOutage(t *testing.T) {
 	s := without(steady(48*time.Hour), now.Add(-3*time.Hour), now.Add(-3*time.Hour+2*time.Minute))
-	r := Build(s, now, Up)
+	r := Build(s, nil, now, Up)
 	if len(r.Incidents) != 0 {
 		t.Errorf("incidents = %+v, want none", r.Incidents)
 	}
@@ -74,7 +74,7 @@ func TestADeployRestartIsNotAnOutage(t *testing.T) {
 // both ends.
 func TestALongGapIsDown(t *testing.T) {
 	from, to := now.Add(-3*time.Hour).Truncate(time.Minute), now.Add(-3*time.Hour+30*time.Minute).Truncate(time.Minute)
-	r := Build(without(steady(48*time.Hour), from, to), now, Up)
+	r := Build(without(steady(48*time.Hour), from, to), nil, now, Up)
 	if len(r.Incidents) != 1 {
 		t.Fatalf("incidents = %+v, want one", r.Incidents)
 	}
@@ -101,7 +101,7 @@ func TestPausedIsNeitherAnIncidentNorDowntime(t *testing.T) {
 			s[i].State = int(Paused)
 		}
 	}
-	r := Build(s, now, Up)
+	r := Build(s, nil, now, Up)
 	if len(r.Incidents) != 0 || val(r.Uptime.Day) != 1 {
 		t.Errorf("incidents %+v, uptime %v; want none and 1", r.Incidents, val(r.Uptime.Day))
 	}
@@ -116,7 +116,7 @@ func TestAnOngoingIncidentHasNoEnd(t *testing.T) {
 	for i := len(s) - 10; i < len(s); i++ {
 		s[i].State = int(Degraded)
 	}
-	r := Build(s, now, Degraded)
+	r := Build(s, nil, now, Degraded)
 	if r.State != "degraded" || len(r.Incidents) != 1 || r.Incidents[0].End != nil || r.Incidents[0].State != "degraded" {
 		t.Errorf("state %s, incidents %+v; want one open degraded incident", r.State, r.Incidents)
 	}
@@ -125,7 +125,7 @@ func TestAnOngoingIncidentHasNoEnd(t *testing.T) {
 // Before the first sample is no data, not an outage: a gateway installed an
 // hour ago has 89 empty days and a full hour, not 89 red days.
 func TestBeforeTheHistoryIsNoData(t *testing.T) {
-	r := Build(steady(time.Hour), now, Up)
+	r := Build(steady(time.Hour), nil, now, Up)
 	if len(r.Days) != 90 || len(r.Hours) != 24 {
 		t.Fatalf("%d days, %d hours", len(r.Days), len(r.Hours))
 	}
@@ -140,7 +140,7 @@ func TestBeforeTheHistoryIsNoData(t *testing.T) {
 	if val(r.Uptime.Quarter) != 1 || len(r.Incidents) != 0 {
 		t.Errorf("90d %v, incidents %+v", val(r.Uptime.Quarter), r.Incidents)
 	}
-	if empty := Build(nil, now, Up); empty.Uptime.Day != nil || len(empty.Incidents) != 0 {
+	if empty := Build(nil, nil, now, Up); empty.Uptime.Day != nil || len(empty.Incidents) != 0 {
 		t.Errorf("no samples at all: %+v", empty.Uptime)
 	}
 }
@@ -149,7 +149,7 @@ func TestBeforeTheHistoryIsNoData(t *testing.T) {
 // the running process: the report reads the record, and the record has a gap.
 func TestTheTailAfterTheLastSampleIsReadLikeAGap(t *testing.T) {
 	s := minutes(now.Add(-2*time.Hour), 60, Up)
-	r := Build(s, now, Up)
+	r := Build(s, nil, now, Up)
 	if len(r.Incidents) != 1 || r.Incidents[0].State != "down" || r.Incidents[0].End != nil {
 		t.Errorf("incidents = %+v, want one open down", r.Incidents)
 	}
@@ -160,7 +160,7 @@ func TestTheTailAfterTheLastSampleIsReadLikeAGap(t *testing.T) {
 // whoever changes it has to say in docs/status-page.md why it is safe.
 func TestReportFields(t *testing.T) {
 	s := without(steady(48*time.Hour), now.Add(-3*time.Hour), now.Add(-2*time.Hour))
-	raw, err := json.Marshal(Build(s, now, Up))
+	raw, err := json.Marshal(Build(s, nil, now, Up))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,43 @@ func TestReportFields(t *testing.T) {
 
 // memStore is the Store in memory, with the store's worst-in-the-minute rule.
 type memStore struct {
-	rows map[int64]int
+	rows    map[int64]int
+	outages []store.UptimeOutage
+}
+
+func (m *memStore) BeginOutage(_ context.Context, at time.Time) error {
+	m.outages = append(m.outages, store.UptimeOutage{Start: at})
+	return nil
+}
+
+func (m *memStore) EndOutages(_ context.Context, at time.Time) error {
+	for i := range m.outages {
+		if m.outages[i].End.IsZero() {
+			m.outages[i].End = at
+		}
+	}
+	return nil
+}
+
+func (m *memStore) OutagesSince(_ context.Context, from time.Time) ([]store.UptimeOutage, error) {
+	var out []store.UptimeOutage
+	for _, o := range m.outages {
+		if o.End.IsZero() || !o.End.Before(from) {
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
+
+func (m *memStore) PruneOutages(_ context.Context, before time.Time) error {
+	kept := m.outages[:0]
+	for _, o := range m.outages {
+		if o.End.IsZero() || !o.End.Before(before) {
+			kept = append(kept, o)
+		}
+	}
+	m.outages = kept
+	return nil
 }
 
 func (m *memStore) RecordUptime(_ context.Context, at time.Time, state int) error {
@@ -292,5 +328,61 @@ func TestSampler(t *testing.T) {
 	clock = clock.Add(time.Minute)
 	if r3, _ := s.Report(ctx); r3.State != "paused" {
 		t.Errorf("after a minute the report says %s, want paused", r3.State)
+	}
+}
+
+// A restart inside one minute — the half minute a deploy waits for the last
+// stream — is recorded and shown: down for exactly its length, an incident,
+// and less than 100% for the day. The minute samples alone read it as up.
+func TestARecordedStopIsDownToTheSecond(t *testing.T) {
+	s := steady(48 * time.Hour)
+	start := now.Add(-2 * time.Hour).Truncate(time.Minute).Add(15 * time.Second)
+	stop := []store.UptimeOutage{{Start: start, End: start.Add(30 * time.Second)}}
+	if r := Build(s, nil, now, Up); len(r.Incidents) != 0 {
+		t.Fatalf("without the record the samples alone show %+v", r.Incidents)
+	}
+	r := Build(s, stop, now, Up)
+	if len(r.Incidents) != 1 || r.Incidents[0].State != "down" {
+		t.Fatalf("incidents = %+v, want one down", r.Incidents)
+	}
+	in := r.Incidents[0]
+	if in.Start != start.UnixMilli() || in.End == nil || *in.End != start.Add(30*time.Second).UnixMilli() {
+		t.Errorf("incident = %d..%v, want the 30 s exactly", in.Start, in.End)
+	}
+	if d := val(r.Uptime.Day); d >= 1 || d < 0.999 {
+		t.Errorf("day uptime = %v, want just under 1", d)
+	}
+	var red int
+	for _, b := range r.Hours {
+		if b.State == "down" {
+			red++
+		}
+	}
+	if red != 1 {
+		t.Errorf("%d hours drawn down, want the one it fell in", red)
+	}
+}
+
+// A crash records no stop; a gap of three minutes between samples is still
+// read as down, which the old five-minute tolerance hid.
+func TestAThreeMinuteGapIsDown(t *testing.T) {
+	from := now.Add(-time.Hour).Truncate(time.Minute)
+	r := Build(without(steady(4*time.Hour), from, from.Add(3*time.Minute)), nil, now, Up)
+	if len(r.Incidents) != 1 || r.Incidents[0].State != "down" {
+		t.Fatalf("incidents = %+v, want one down", r.Incidents)
+	}
+}
+
+// Stopping then Started records one closed outage.
+func TestStoppingThenStartedRecordsTheStop(t *testing.T) {
+	m := &memStore{rows: map[int64]int{}}
+	clock := now
+	smp := &Sampler{Store: m, Probe: func(context.Context) State { return Up }, Log: slog.Default(),
+		Now: func() time.Time { return clock }}
+	smp.Stopping(context.Background())
+	clock = clock.Add(30 * time.Second)
+	smp.Started(context.Background())
+	if len(m.outages) != 1 || m.outages[0].End.Sub(m.outages[0].Start) != 30*time.Second {
+		t.Fatalf("outages = %+v, want one of 30 s", m.outages)
 	}
 }

@@ -58,3 +58,63 @@ func (s *Store) PruneUptime(ctx context.Context, before time.Time) (int64, error
 	n, _ := res.RowsAffected()
 	return n, nil
 }
+
+// UptimeOutage is a stretch the gateway was not taking requests: see
+// uptime_outages in schema.sql. End is zero while it has not ended.
+type UptimeOutage struct {
+	Start, End time.Time
+}
+
+// BeginOutage notes that the gateway stopped taking requests at at.
+func (s *Store) BeginOutage(ctx context.Context, at time.Time) error {
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO uptime_outages (started, ended) VALUES (?, NULL) ON CONFLICT (started) DO NOTHING`,
+		ms(at)); err != nil {
+		return fmt.Errorf("record outage: %w", err)
+	}
+	return nil
+}
+
+// EndOutages closes every outage still open at at: the gateway takes requests
+// again.
+func (s *Store) EndOutages(ctx context.Context, at time.Time) error {
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE uptime_outages SET ended = ? WHERE ended IS NULL AND started <= ?`, ms(at), ms(at)); err != nil {
+		return fmt.Errorf("end outage: %w", err)
+	}
+	return nil
+}
+
+// OutagesSince is every outage that ended at or after from, or has not ended,
+// oldest first.
+func (s *Store) OutagesSince(ctx context.Context, from time.Time) ([]UptimeOutage, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT started, ended FROM uptime_outages WHERE ended IS NULL OR ended >= ? ORDER BY started`, ms(from))
+	if err != nil {
+		return nil, fmt.Errorf("read outages: %w", err)
+	}
+	defer rows.Close()
+	var out []UptimeOutage
+	for rows.Next() {
+		var start int64
+		var end *int64
+		if err := rows.Scan(&start, &end); err != nil {
+			return nil, fmt.Errorf("read outages: %w", err)
+		}
+		o := UptimeOutage{Start: fromMS(start)}
+		if end != nil {
+			o.End = fromMS(*end)
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// PruneOutages drops the outages that ended before before.
+func (s *Store) PruneOutages(ctx context.Context, before time.Time) error {
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM uptime_outages WHERE ended IS NOT NULL AND ended < ?`, ms(before)); err != nil {
+		return fmt.Errorf("prune outages: %w", err)
+	}
+	return nil
+}
