@@ -4,6 +4,8 @@
   "private": true,
   "description": "Admin UI for claudication: React and Tailwind, compiled into the static Go binary that serves it.",
   "type": "module",
+  "//sideEffects": "Only stylesheets do anything on import. Saying so lets the bundler drop a module whose exports go unused, top-level calls and all, rather than keep it in case: without it the public welcome page carried the admin app's session context and its tab list, reached through a primitive it never used. scripts/check-welcome.mjs is what notices if that changes.",
+  "sideEffects": ["**/*.css"],
   "scripts": {
     "dev": "vite",
     "build": "vite build && vite build --mode welcome",

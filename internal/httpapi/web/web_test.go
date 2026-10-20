@@ -76,7 +76,7 @@ func TestWelcomeFallbackNamesNothing(t *testing.T) {
 		`(?i)claude`, `(?i)anthropic`, `(?i)openai`, `(?i)chatgpt`, `(?i)(^|[^a-z])gpt`,
 		`(?i)codex`, `(?i)opencode`, `(?i)(^|[^a-z])crush`, `(?i)sonnet`, `(?i)(^|[^a-z])opus($|[^a-z])`,
 		`(?i)haiku`, `(?i)gemini`, `/v1($|[^0-9])`, `/admin`, `(?i)oauth`, `(?i)x-api-key`,
-		`(?i)subscription`, `(?i)upstream`, `/health`,
+		`(?i)subscription`, `(?i)upstream`, `(?i)(^|[^a-z])accounts?($|[^a-z])`, `/health`,
 	}
 	site := New(Deps{Log: slog.New(slog.DiscardHandler), Files: fstest.MapFS{}})
 	w := get(t, site.WelcomeHandler(), http.MethodGet, "/", nil)

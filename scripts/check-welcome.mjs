@@ -47,6 +47,12 @@ const FORBIDDEN = [
   /x-api-key/i,
   /subscription/i,
   /upstream/i,
+  // The admin app's own vocabulary: its tabs and its error type. They name
+  // nothing about the deployment, but finding one means an admin module came
+  // along, and the next thing it brings may.
+  /(?<![a-z])accounts?(?![a-z])/i,
+  /(?<![a-z])overview(?![a-z])/i,
+  /ApiError/,
 ]
 
 // An asset reference as Vite writes one into HTML, CSS or JS: an absolute
