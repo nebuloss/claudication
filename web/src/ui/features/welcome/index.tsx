@@ -6,25 +6,17 @@ import { percent, useStatus, type StatusReport, type StatusResult } from '../sta
 /**
  * The words on the page, apart from how it is drawn.
  *
- * Written for a person, not an integrator, and for one who may have no
- * business here: the page is public, so it says what the address is, what to
- * do about it and whether it has been up, and nothing about what the gateway
- * does. No provider, model, client, path or API is named — each is a fact
+ * Written for a person, and for one who may have no business here: the page
+ * is public, so it says whether the gateway is and has been up, and nothing
+ * about what it does. No provider, model, client, path or API is named — each is a fact
  * about this deployment that a passer-by does not need and a scanner would
- * like to have. The people who should use it already have a key and their
- * settings from whoever runs it; this page cannot add to that without telling
- * everyone else too.
+ * like to have.
  *
  * scripts/check-welcome.mjs fails the build if the bundle grows one of those
  * names, so a later edit here that means well still cannot ship it.
  */
 const COPY = {
   title: 'A private AI gateway',
-  lead: 'This address belongs to a private service, run for a small group of people. There is nothing to browse and nothing to sign in to here.',
-  given: {
-    title: 'Were you given access?',
-    body: 'Use the key and the settings the person who runs it gave you. Your tools talk to this address on their own; you never need to open this page.',
-  },
 }
 
 type Shown = { tone: Tone; label: string; detail: string }
@@ -110,14 +102,6 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
   )
 }
 
-function Guide({ title, body }: { title: string; body: string }) {
-  return (
-    <Card title={title}>
-      <p className="text-sm leading-relaxed text-on-surface-variant">{body}</p>
-    </Card>
-  )
-}
-
 /**
  * The root of a relay that has no admin UI beside it: what the address is, what
  * to do about it, whether it is up now and whether it has been.
@@ -131,11 +115,11 @@ function Guide({ title, body }: { title: string; body: string }) {
  * on another address, and naming that address is what splitting the listeners
  * keeps from the public side.
  *
- * On a desktop the explanation takes the left and the status the right, with
- * the history across the width below and the two answers under it; on a phone
- * they stack with the status second, because "is it up" is what somebody whose
- * tool just failed opened the page to learn, and it should not wait below the
- * advice.
+ * Only what someone who opened it can use: is it up, and has it been. The
+ * paragraphs that explained the address and told visitors what to do said
+ * nothing a person with a key needs, or anyone else can act on, and went.
+ * On a desktop the title takes the left and the status the right, with the
+ * history across the width below; on a phone they stack.
  */
 export default function Welcome() {
   const { result, last } = useStatus()
@@ -146,7 +130,6 @@ export default function Welcome() {
         <h1 id="welcome-title" className="text-4xl leading-tight font-normal tracking-tight text-on-surface sm:text-5xl">
           {COPY.title}
         </h1>
-        <p className="max-w-[60ch] text-lg leading-relaxed text-on-surface-variant">{COPY.lead}</p>
       </section>
       <div className="lg:self-center">
         <Now result={result} last={last} />
@@ -161,9 +144,6 @@ export default function Welcome() {
           </Card>
         </div>
       )}
-      <div className="lg:col-span-2">
-        <Guide {...COPY.given} />
-      </div>
     </div>
   )
 }

@@ -35,9 +35,6 @@ const welcomeFallback = `<!doctype html>
 </style>
 <main>
   <h1>A private AI gateway</h1>
-  <p>This address belongs to a private service, run for a small group of
-     people. If you were given access, use the key and the settings you were
-     given. Otherwise there is nothing for you to do here.</p>
 </main>
 `
 

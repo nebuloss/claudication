@@ -14,7 +14,7 @@ import './ui/styles/welcome.css'
  * path, are not in its bundle to be read.
  *
  * A page rather than a card: the name and the theme switch in a thin header, the content
- * on a grid that uses a desktop's width, a footer. The soft disc behind the
+ * on a grid that uses a desktop's width. The soft disc behind the
  * hero is the accent container at low opacity — a token, not a new colour —
  * and is decoration only, so it is hidden from assistive technology.
  */
@@ -37,9 +37,6 @@ createRoot(root).render(
       <main className="mx-auto flex w-full max-w-6xl flex-1 items-center px-4 py-10 sm:px-8 lg:py-16">
         <Welcome />
       </main>
-      <footer className="mx-auto w-full max-w-6xl px-4 pb-6 sm:px-8">
-        <p className="text-xs text-on-surface-variant">This page shows only whether the gateway is, and has been, up.</p>
-      </footer>
     </div>
   </StrictMode>,
 )
