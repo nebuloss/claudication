@@ -25,7 +25,7 @@ import {
 import { PROVIDERS, providerOf } from '../../providers'
 import { useSession } from '../../session'
 import { useNow } from '../../hooks'
-import { duration } from '../../format'
+import { countdown } from '../../format'
 
 type Phase = 'idle' | 'starting' | 'waiting' | 'exchanging'
 
@@ -440,9 +440,11 @@ function DeviceFlow({
           </Actions>
 
           <Muted size="xs">
-            <span className="inline-flex items-center gap-2">
-              <Spinner />
-              Waiting for the code to be entered — {duration(left)} left.
+            {/* tabular-nums: the clock ticks every second, and proportional
+                digits made the line twitch as they changed width. */}
+            <span className="inline-flex items-center gap-2 tabular-nums">
+              <Spinner className="shrink-0" />
+              Waiting for the code to be entered — {countdown(left)} left.
             </span>
           </Muted>
         </Stack>

@@ -109,6 +109,16 @@ export function relative(iso: string | undefined, now?: string): string {
   return delta < 0 ? `${text} ago` : `in ${text}`
 }
 
+/**
+ * Seconds left as a clock, "14:59", for a countdown read while it ticks.
+ * duration's whole minutes sat on "14m" for a minute, flipped between 15m and
+ * 14m as the second rounded, and read "0m" for all of the last minute.
+ */
+export function countdown(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
 /** A duration in seconds as "3d 4h", for uptime. */
 export function duration(seconds: number): string {
   const d = Math.floor(seconds / 86400)

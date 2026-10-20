@@ -14,7 +14,7 @@ import {
   Stack,
   useConfirm,
 } from '../../primitives'
-import { dateTime, duration } from '../../format'
+import { countdown, dateTime } from '../../format'
 import { relayAddress } from '../../clients/address'
 import { ClientBody } from '../../clients/client-body'
 import type { Setup } from '../../clients/configs'
@@ -213,7 +213,7 @@ function InstallCommand({
         <>
           <CopyField label={platform === 'windows' ? 'PowerShell' : 'Terminal'} value={command(state.token)}
             conceal={state.token} />
-          <KeyValue items={[['Waiting', `to be run — ${duration(left)} left, once`]]} />
+          <KeyValue items={[['Waiting', `to be run — ${countdown(left)} left, once`]]} />
         </>
       ) : (
         <>
