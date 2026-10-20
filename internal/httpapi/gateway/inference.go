@@ -215,37 +215,37 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// will display. Tee that one answer so the gateway can read it; every
 		// other request is untouched, and the tee never gates the write.
 		//
-		// A type that names its own chats (crush, opencode) has its naming
-		// request recognised by shape and filed as part of the chat's cost but
-		// not one of its turns; a custom client's is noticed by the same
-		// shape. Either way the answer is read only while the client's "Name
-		// chats" switch is on, and only a client that may send one is looked
-		// at — Claude Code and Codex never do, and parsing each of their small
-		// requests would be spent for nothing. Only a small body is looked at:
-		// a naming request is one message, and an agent turn is routinely
-		// megabytes.
-		// A type that names its own chats is looked at whatever the switch,
-		// since its naming request is filed apart from its turns either way.
+		// A type that names its own chats (Claude Code, opencode, crush) has
+		// its naming request recognised by shape, its answer read, and the
+		// request filed as part of the chat's cost but not one of its turns —
+		// always: reading a name the client paid for anyway spends nothing,
+		// so such a type has no "Name chats" switch (clients.Type,
+		// NamesItsChats) and the stored flag means nothing for it. A custom
+		// client's naming request is noticed by the same shape, while its
+		// switch is on. Codex never sends one, and parsing each of its small
+		// requests would be spent for nothing. Only a small body is looked
+		// at: a naming request is one message, and an agent turn is
+		// routinely megabytes.
 		mayName := spec.NamesItsChats || (spec.Custom && key.NameChats)
 		naming := mayName && conversation != "" && len(outbound) < maxNamingBody && titles.IsClientTitleRequest(outbound)
 		sink := ex.Sink(w)
 		var captured *titles.CaptureSink
-		if naming && key.NameChats {
+		if naming {
 			captured = &titles.CaptureSink{Sink: sink}
 			sink = captured
 		}
 		naming = naming && spec.NamesItsChats
 
 		// The body outlives the relay only if a title may be asked for it:
-		// a client whose chats are named, of a type that does not name them
-		// itself, on a request that is not a naming request.
+		// a client whose switch is on, of a type that does not name its
+		// chats itself, on a request that is not a naming request.
 		//
 		// Anything still referring to it after Do keeps it in memory for the
 		// whole stream — minutes, for a body that is routinely megabytes, once
 		// per open stream — and the titler wants only a chat with no name yet,
 		// or one due its one rename.
 		var titleBody []byte
-		if conversation != "" && key.NameChats && !spec.NamesItsChats && !naming {
+		if conversation != "" && key.NameChats && !spec.NamesItsChats {
 			titleBody = outbound
 		}
 
@@ -405,8 +405,9 @@ func (s *Gateway) relayFailure(w http.ResponseWriter, r *http.Request, p api.Pro
 }
 
 // maxNamingBody is the largest request looked at for a client's own naming
-// request: one system prompt and one message. crush's sends the user's first
-// message in it whole, so this is generous rather than tight.
+// request: one system prompt and one message. crush's and Claude Code's send
+// the user's first message in it whole, so this is generous rather than
+// tight; a first message pasted past it leaves the chat unnamed.
 const maxNamingBody = 256 << 10
 
 // peekedExchange is an exchange that has already read its request's prologue:

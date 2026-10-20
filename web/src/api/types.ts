@@ -615,6 +615,7 @@ export interface TypeSpec {
   /** Per dialect, what every slot name must contain. */
   marks?: Partial<Record<DialectId, string>>
   why?: string
+  /** The client names its own sessions and the gateway reads the name: no "Name chats" switch. */
   names_its_chats: boolean
 }
 
@@ -668,6 +669,7 @@ export interface ClientWire extends ApiKey {
   mode: ClientMode
   disabled: boolean
   disabled_at?: string
+  /** Whether its chats are named: its switch, or always for a type that names its own. */
   name_chats: boolean
   configured_at?: string
   install: InstallState

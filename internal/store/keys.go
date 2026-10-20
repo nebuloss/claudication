@@ -53,8 +53,11 @@ type APIKey struct {
 	// ClientDialect is the API the client was made for, which decides the
 	// providers it can be served by and so the models it is offered.
 	ClientDialect clients.Dialect
-	// NameChats is the client's switch for naming its chats (clients in
-	// schema.sql), read with the key for the request path.
+	// NameChats is the client's switch for the gateway naming its chats
+	// (clients in schema.sql), read with the key for the request path. It
+	// means nothing for a type that names its own chats, which has no switch
+	// (clients.Type, NamesItsChats): the column is left as it was for those,
+	// rather than dropped, because Codex and custom clients still need it.
 	NameChats bool
 }
 

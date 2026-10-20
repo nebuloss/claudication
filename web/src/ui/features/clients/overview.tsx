@@ -109,17 +109,22 @@ function AboutCard({ client: c, types, onChanged }: { client: Client; types: Cli
           />
         )}
 
-        <SettingSwitch
-          checked={k.name_chats}
-          onChange={(v) => void switchChats(v)}
-          disabled={busy !== ''}
-          label="Name chats"
-          info={
-            c.type.namesItsChats
-              ? `${c.type.label} names its own sessions: the gateway reads the name off its answer, which costs nothing.`
-              : 'The gateway asks the chat’s own model for a name, under this client’s key and on the account that served the chat, so it is this client’s spend — and skips it when the client is at a limit.'
-          }
-        />
+        {/* A type that names its own sessions has no switch: reading that name
+            spends nothing, so there is nothing to turn off. The switch is for
+            the gateway's own title request, which is this client's spend. */}
+        {c.type.namesItsChats ? (
+          <Note>
+            {c.type.label} names its own sessions: the gateway reads the name off its answer, which costs nothing.
+          </Note>
+        ) : (
+          <SettingSwitch
+            checked={k.name_chats}
+            onChange={(v) => void switchChats(v)}
+            disabled={busy !== ''}
+            label="Name chats"
+            info="The gateway asks the chat’s own model for a name, under this client’s key and on the account that served the chat, so it is this client’s spend — and skips it when the client is at a limit."
+          />
+        )}
         <ErrorBanner error={error} />
       </Stack>
     </Card>

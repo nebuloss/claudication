@@ -143,13 +143,19 @@ every rewrite against the committed files; `web/src/ui/clients/configs.ts`).
 ## Chats
 
 A client's chats are on its page. The gateway groups requests into chats by the
-session header its type sends (in `internal/service/clients`), and names them
-while the client's **Name chats** switch is on: crush and opencode name their
-own sessions, and the gateway reads that name off the answer — that request is
-counted in the chat's cost but not as one of its turns, and nothing more is
-sent. For the others it asks the chat's own model for a title, under the
-client's key, on the provider that served the chat, and not while the client
-is at a limit.
+session header its type sends (in `internal/service/clients`), and names them.
+
+Claude Code, crush and opencode name their own sessions, and the gateway reads
+that name off the answer: that request is counted in the chat's cost but not
+as one of its turns, and nothing more is sent. Since that costs nothing, those
+types have no switch and their chats are always named. (Claude Code names only
+interactive sessions: `claude -p` sends no naming request, so a headless chat
+stays unnamed.)
+
+For Codex and custom clients the gateway asks the chat's own model for a
+title itself, under the client's key, on the provider that served the chat,
+and not while the client is at a limit — a request on the operator's
+subscription, which the client's **Name chats** switch turns off.
 
 ## Switches and limits
 

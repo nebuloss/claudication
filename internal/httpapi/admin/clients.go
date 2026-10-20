@@ -31,7 +31,9 @@ type ClientJSON struct {
 	Dialect  clients.Dialect `json:"dialect"`
 	Mode     clients.Mode    `json:"mode"`
 	Disabled bool            `json:"disabled"`
-	// NameChats is its "Name chats" switch.
+	// NameChats is whether its chats are named: its "Name chats" switch, or
+	// always for a type that names its own and so has none (clients.Type,
+	// NamesItsChats), whatever an older release stored for it.
 	NameChats bool `json:"name_chats"`
 	// DisabledAt is when it was switched off, when it is.
 	DisabledAt string `json:"disabled_at,omitempty"`
@@ -73,7 +75,7 @@ type SlotJSON struct {
 // clientJSON is a client as the admin API reports it, its slots resolved.
 func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) ClientJSON {
 	out := ClientJSON{KeyJSON: key, Type: c.Type, Dialect: c.Dialect, Mode: c.Mode, Disabled: c.DisabledAt != nil,
-		NameChats: c.NameChats,
+		NameChats: c.NameChats || c.Spec().NamesItsChats,
 		Slots:     make([]SlotJSON, 0, len(c.Slots))}
 	if c.DisabledAt != nil {
 		out.DisabledAt = c.DisabledAt.UTC().Format(time.RFC3339)
@@ -379,8 +381,9 @@ func (s *Admin) handleSetClientDisabled(w http.ResponseWriter, r *http.Request) 
 	s.writeClient(w, r, c.ID, nil)
 }
 
-// handleSetClientNameChats switches the naming of a client's chats, from its
-// next request.
+// handleSetClientNameChats switches the gateway's naming of a client's chats,
+// from its next request. A type that names its own chats has no switch, and
+// the store refuses it (400).
 func (s *Admin) handleSetClientNameChats(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.loadClient(w, r)
 	if !ok {

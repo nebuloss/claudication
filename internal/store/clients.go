@@ -444,8 +444,18 @@ func (s *Store) SetClientMode(ctx context.Context, keyID string, mode clients.Mo
 	return nil
 }
 
-// SetClientNameChats switches the naming of a client's chats on or off.
+// SetClientNameChats switches the gateway's naming of a client's chats on or
+// off. Refused for a type that names its own (clients.Type, NamesItsChats):
+// reading that name spends nothing, so it has no switch, and a stored flag
+// would be one the gateway never reads (internal/httpapi/gateway).
 func (s *Store) SetClientNameChats(ctx context.Context, keyID string, on bool) error {
+	c, err := s.Client(ctx, keyID)
+	if err != nil {
+		return err
+	}
+	if t := c.Spec(); t.NamesItsChats {
+		return invalidClient(t.Label + " names its own chats: the gateway only reads the name, so there is no switch")
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE clients SET name_chats = ? WHERE key_id = ?`, on, keyID)
 	if err != nil {
 		return fmt.Errorf("switch chat naming: %w", err)

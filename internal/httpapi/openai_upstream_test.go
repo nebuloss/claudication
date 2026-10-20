@@ -100,7 +100,7 @@ func twoUpstreams(t *testing.T) (*Server, *store.Store, string, string, *upstrea
 
 	claude := &upstreamStub{}
 	claudeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claude.record(r)
+		got := claude.record(r)
 		if r.URL.Path == "/v1/models" {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"data":[{"type":"model","id":"claude-sonnet-5","created_at":"2026-09-01T00:00:00Z"},`+
@@ -108,6 +108,13 @@ func twoUpstreams(t *testing.T) (*Server, *store.Store, string, string, *upstrea
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		// Claude Code's naming request asks for JSON, and gets it, as
+		// structured output answers.
+		if bytes.Contains(got.body, []byte("You are naming a coding session")) {
+			_, _ = io.WriteString(w, strings.Replace(anthropicStream, `"text":"hi"`,
+				`"text":"{\"title\":\"auth.go login bug\"}"`, 1))
+			return
+		}
 		_, _ = io.WriteString(w, anthropicStream)
 	}))
 	t.Cleanup(claudeSrv.Close)
@@ -209,9 +216,12 @@ func newClient(t *testing.T, st *store.Store, name, typ string, d clients.Dialec
 	}
 	// Naming chats off: a title request is a second request, sent after the
 	// answer, which a test counting turns or reading the newest row would
-	// race. The tests of naming switch it on.
-	if err := st.SetClientNameChats(ctx, c.ID, false); err != nil {
-		t.Fatal(err)
+	// race. The tests of naming switch it on. A type that names its own chats
+	// has no switch, and the gateway sends nothing of its own for it.
+	if !ty.NamesItsChats {
+		if err := st.SetClientNameChats(ctx, c.ID, false); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return c, plain
 }
@@ -553,12 +563,12 @@ func TestASlotBoundToAnUnlistedModelIsServedByTheDefault(t *testing.T) {
 // GenerateTitle in crush's source) is recognised, its answer becomes the
 // chat's title, the request is the chat's cost but not one of its turns, and
 // the gateway's titler asks nothing of its own. The chat is grouped by
-// crush's x-session-id, its type's header.
+// crush's x-session-id, its type's header. No switch is touched: crush has
+// none, and its chats are always named.
 func TestCrushNamesItsOwnChat(t *testing.T) {
 	_, st, base, _, claude, _ := twoUpstreams(t)
-	c, key := newClient(t, st, "box", "crush", "", map[string]store.Binding{
+	_, key := newClient(t, st, "box", "crush", "", map[string]store.Binding{
 		"large": {Model: "claude-sonnet-5"}, "small": {Model: "claude-haiku-5"}})
-	namingChats(t, st, c)
 	session := map[string]string{"X-Session-Id": "9f2c", "X-Session-Affinity": "9f2c"}
 	naming := `{"model":"small","max_tokens":40,"stream":true,` +
 		`"system":[{"type":"text","text":"You will generate a short title based on the first message a user begins a conversation with.\n /no_think"}],` +
@@ -594,20 +604,84 @@ func TestCrushNamesItsOwnChat(t *testing.T) {
 	}
 }
 
-// A Claude Code chat — a type that names nothing itself — is named by the
-// gateway under the client's own key, on the chat's model and account, while
-// its "Name chats" switch is on; switched off, nothing is sent.
+// A Claude Code chat is named by Claude Code: its session title request (the
+// shape captured from 2.1.304, internal/service/clients) is recognised, the
+// title read out of the JSON its answer is, and the request filed as the
+// chat's cost but not one of its turns, with nothing asked by the gateway.
+// It has no "Name chats" switch: the admin API refuses to set one, and
+// reports its chats named.
+func TestClaudeCodeNamesItsOwnChat(t *testing.T) {
+	srv, st, base, _, claude, _ := twoUpstreams(t)
+	abase, ck := adminAPI(t, srv)
+	c, key := newClient(t, st, "laptop", "claude-code", "", map[string]store.Binding{
+		"main": {Model: "claude-sonnet-5"}, "fast": {Model: "claude-haiku-5"}})
+	const session = "e966da91-ed4b-4451-9a11-478849a2cd97"
+	naming := `{"model":"claude-small","messages":[{"role":"user","content":[{"type":"text",` +
+		`"text":"<session>\nexplain the login bug in auth.go please\n</session>\n\nWrite the title in the predominant language of the session."}]}],` +
+		`"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.304.644; cc_entrypoint=cli;"},` +
+		`{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude."},` +
+		`{"type":"text","text":"You are naming a coding session so the user can pick it out of a long list of sessions. ` +
+		`Return JSON with a single \"title\" field."}],"tools":[],` +
+		`"max_tokens":32000,"output_config":{"format":{"type":"json_schema","schema":{"type":"object",` +
+		`"properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}},"stream":true}`
+	turn := `{"model":"claude-large","max_tokens":32000,"stream":true,` +
+		`"system":[{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude."}],` +
+		`"tools":[{"name":"Read","input_schema":{"type":"object"}}],` +
+		`"messages":[{"role":"user","content":"explain the login bug in auth.go please"}]}`
+	for _, body := range []string{naming, turn} {
+		resp, out := send(t, base+"/v1/messages", key, "claude-cli/2.1.304 (external, cli)", body,
+			map[string]string{"X-Claude-Code-Session-Id": session})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d: %s", resp.StatusCode, out)
+		}
+	}
+	nthEvent(t, st, 2)
+	deadline := time.Now().Add(5 * time.Second)
+	var rec store.TitleRecord
+	for time.Now().Before(deadline) {
+		var found bool
+		if rec, found, _ = st.TitleRecord(context.Background(), session); found {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rec.Title != "auth.go login bug" || rec.Requests != 0 {
+		t.Errorf("title %+v, want Claude Code's own", rec)
+	}
+	chats, err := st.Chats(context.Background(), time.Now().Add(-time.Hour), 10)
+	if err != nil || len(chats.Chats) != 1 || chats.Chats[0].ID != session || chats.Chats[0].Requests != 2 ||
+		chats.Chats[0].Turns != 1 {
+		t.Errorf("chats %+v, %v: want one chat of two requests and one turn", chats.Chats, err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := len(claude.turns()); n != 2 {
+		t.Errorf("Anthropic was sent %d turns, want Claude Code's two and nothing of the gateway's", n)
+	}
+
+	if status, body := call(t, abase, http.MethodPost, "/admin/clients/"+c.ID+"/name-chats",
+		`{"enabled":false}`, ck); status != http.StatusBadRequest {
+		t.Errorf("name-chats on Claude Code: %d %s, want it refused", status, body)
+	}
+	status, body := call(t, abase, http.MethodGet, "/admin/clients/"+c.ID, "", ck)
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"name_chats":true`)) {
+		t.Errorf("client: %d %s, want its chats reported named", status, body)
+	}
+}
+
+// A custom client's chat — it names nothing itself — is named by the gateway
+// under the client's own key, on the chat's model and account, while its
+// "Name chats" switch is on; switched off, nothing is sent.
 func TestGatewayNamesAChatUnderTheClientsKey(t *testing.T) {
 	srv, st, base, _, claude, _ := twoUpstreams(t)
 	abase, ck := adminAPI(t, srv)
-	c, key := newClient(t, st, "laptop", "claude-code", "", map[string]store.Binding{"main": {Model: "claude-sonnet-5"}})
+	c, key := newClient(t, st, "tool", "custom", "", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
 	namingChats(t, st, c)
-	turn := `{"model":"claude-large","max_tokens":100,"stream":true,` +
+	turn := `{"model":"large","max_tokens":100,"stream":true,` +
 		`"tools":[{"name":"Read","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"say hi"}]}`
 	ask := func(session string) {
 		t.Helper()
-		resp, out := send(t, base+"/v1/messages", key, "claude-cli/2.1.274 (external, sdk-cli)", turn,
-			map[string]string{"X-Claude-Code-Session-Id": session})
+		resp, out := send(t, base+"/v1/messages", key, "mytool/1.0", turn,
+			map[string]string{"X-Session-Id": session})
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d: %s", resp.StatusCode, out)
 		}
@@ -628,7 +702,7 @@ func TestGatewayNamesAChatUnderTheClientsKey(t *testing.T) {
 		t.Fatalf("Anthropic got %d turns; the second: %s", len(turns), turns[len(turns)-1].body)
 	}
 	e := nthEvent(t, st, 2)
-	if e.Path != store.InternalPath || e.KeyID != c.ID || e.KeyName != "laptop" || e.ConversationID != "s1" {
+	if e.Path != store.InternalPath || e.KeyID != c.ID || e.KeyName != "tool" || e.ConversationID != "s1" {
 		t.Errorf("the title request was recorded as %+v, want the client's", e)
 	}
 
