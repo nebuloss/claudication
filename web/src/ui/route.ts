@@ -8,9 +8,9 @@
  *   /accounts/<id>                      one account's overview
  *   /accounts/<id>/<page>               its traffic and its settings, side by side
  *   /clients … the same shape, for clients
- *   /activity/<page>                    the gateway's traffic: its load, then
- *                                       by model, by client, by account, and
- *                                       the request log
+ *   /activity/<page>                    the gateway's traffic: by model, by
+ *                                       client, by account, and the request
+ *                                       log
  *   /settings                           the gateway switch, the admin account
  *                                       and the configuration, on one page
  *
@@ -102,19 +102,17 @@ export function pagesOf(kind: 'accounts' | 'clients'): readonly ItemPage[] {
 }
 
 /**
- * The gateway-wide traffic, a page per question. Its load first, the page
- * /activity opens on: the traffic over time and the last hour live, nothing
- * else. Then where it went, a table each — by model, by client, by account,
- * each unfolding to the other side — and the request log, for debugging,
- * filterable by client, provider, account and outcome. Chats are a client's
- * and are on its page.
+ * The gateway-wide traffic, a page per question, each with its traffic over
+ * time drawn above its table: by model, by client, by account — each
+ * unfolding to the other side — and the request log, for debugging, under
+ * the last hour live and the outcomes over days, filterable by client,
+ * provider, account and outcome. Chats are a client's and are on its page.
  *
- * Its first page is called Overview because that is what it is to the
- * section, but it is the section's own step in the trail: trailOf ends at
- * Activity there, rather than say Overview twice.
+ * No Overview of its own: Activity is already the gateway's load, and a page
+ * holding only the chart the others break down was a page to click past.
+ * /activity opens on the first page, and the trail names it like any other.
  */
 export const ACTIVITY_PAGES = [
-  { id: 'overview', label: 'Overview' },
   { id: 'models', label: 'Models' },
   { id: 'clients', label: 'Clients' },
   { id: 'accounts', label: 'Accounts' },
@@ -264,7 +262,7 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
     return out
   }
   out.push({ href: canonical(pathOf(tab.id)), label: tab.label })
-  if (top === 'activity' && id !== undefined && id !== ACTIVITY_PAGES[0].id) {
+  if (top === 'activity' && id !== undefined) {
     out.push({ href: pathOf(top, id), label: label(ACTIVITY_PAGES, id) })
   }
   return out

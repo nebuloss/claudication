@@ -213,10 +213,12 @@ check('an account has no chats: a chat is a client\'s', canonical('/accounts/a1/
 check('a client has', canonical('/clients/c1/chats'), '/clients/c1/chats')
 check('and its usage, limits beside it', canonical('/clients/c1/usage'), '/clients/c1/usage')
 check('an unknown page is its overview', canonical('/clients/c1/nonesuch'), '/clients/c1')
-check('activity opens on its overview, the load', canonical('/activity'), '/activity/overview')
+check('activity opens on its first page', canonical('/activity'), '/activity/models')
 check('its tables are pages', canonical('/activity/models'), '/activity/models')
 check('the request log too', canonical('/activity/requests'), '/activity/requests')
-check('chats are not on activity', canonical('/activity/chats'), '/activity/overview')
+check('chats are not on activity', canonical('/activity/chats'), '/activity/models')
+// It has no overview: the path is not kept, it is a page it does not have.
+check('nor an overview', canonical('/activity/overview'), '/activity/models')
 // Ids are encoded once, whatever they hold.
 check('an id is kept encoded', canonical('/clients/a%2Fb'), '/clients/a%2Fb')
 check('and decoded when read', segments('/clients/a%2Fb/usage'), ['clients', 'a/b', 'usage'])
@@ -227,7 +229,7 @@ check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts
 check('a client page too', tab('/clients/c1/requests'), 'clients')
 // Round trip: every canonical path is its own canonical form.
 {
-  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/overview', '/activity/accounts', '/activity/requests', '/settings']
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/models', '/activity/accounts', '/activity/requests', '/settings']
   check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
 }
 
@@ -242,9 +244,9 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   // The overview is the root itself, reached by the trail's first step.
   check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'Clients', 'Activity', 'Settings'])
   check('a list is on the top level', lvl('/clients').current, '/clients')
-  check('each screen opens on its first page', hrefs(lvl('/'))[2], '/activity/overview')
-  check('activity lists its five pages', hrefs(lvl('/activity/clients')), [
-    '/activity/overview', '/activity/models', '/activity/clients', '/activity/accounts', '/activity/requests',
+  check('each screen opens on its first page', hrefs(lvl('/'))[2], '/activity/models')
+  check('activity lists its four pages', hrefs(lvl('/activity/clients')), [
+    '/activity/models', '/activity/clients', '/activity/accounts', '/activity/requests',
   ])
   check('and the page open is current', lvl('/activity/clients').current, '/activity/clients')
   check('an account lists its traffic and its settings', hrefs(lvl('/accounts/a1/usage')), [
@@ -273,8 +275,8 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('a client is its name, not its name then Overview', trail('/clients/c1'), ['Overview', 'Clients', 'clients:c1'])
   check('a page of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
   check('an activity page', trail('/activity/requests'), ['Overview', 'Activity', 'Requests'])
-  // Its overview is the section's own step, so Overview is not said twice.
-  check('activity\'s overview is Activity alone', trail('/activity'), ['Overview', 'Activity'])
+  // Its first page is a page like the others, so the trail names it.
+  check('activity opens on a named page', trail('/activity'), ['Overview', 'Activity', 'Models'])
   check('the item step is its overview', trailOf('/clients/c1/usage', name)[2].href, '/clients/c1')
 }
 

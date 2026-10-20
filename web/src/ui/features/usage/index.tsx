@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api, type Usage, type UsageBucket, type UsageScope } from '../../../api/client'
 import { RankedBars } from '../../charts'
-import { Traffic } from './traffic'
+import { DIMENSIONS, Traffic, type Dimension } from './traffic'
 import { useLoader } from '../../hooks'
 import { accountHref, clientHref, navigate } from '../../route'
 import { requestsHref } from '../requests/filter'
@@ -15,6 +15,7 @@ import {
   Loading,
   Muted,
   Overline,
+  Segmented,
   Stat,
   StatGrid,
   WindowPicker,
@@ -106,8 +107,8 @@ function Breakdown({
  * it went — each a card with a heading, read top to bottom. The chats are a
  * page of their own beside this one.
  * The window chosen at the top applies to all of them. Only the chart keeps a
- * row of choices, because which dimension to draw is the one question with
- * several answers worth switching between.
+ * choice of what to draw, because which dimension to draw is the one question
+ * with several answers worth switching between.
  */
 export default function ScopedUsage({
   scope,
@@ -118,6 +119,7 @@ export default function ScopedUsage({
   breakdown: 'account' | 'key'
 }) {
   const [days, setDays] = useState<number>(7)
+  const [by, setBy] = useState<Dimension>('model')
   const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<Usage>(
     (signal) => api.traffic.usage(days, scope, signal),
     {
@@ -201,7 +203,25 @@ export default function ScopedUsage({
       {!busy && (
         <>
           <Card title="Over time">
-            <Traffic cross={report.cross} days={days} hide={[breakdown === 'key' ? 'account' : 'key']} />
+            {/* On an account's own page "by account" is one line, the account
+                itself, so it is not offered; nor "by client" on a client's. */}
+            <Traffic
+              cross={report.cross}
+              by={by}
+              days={days}
+              lead={
+                <Segmented
+                  label="Break down by"
+                  value={by}
+                  onChange={setBy}
+                  options={(['model', breakdown, 'status'] as const).map((d) => ({
+                    id: d,
+                    label: DIMENSIONS[d].label,
+                    content: DIMENSIONS[d].label,
+                  }))}
+                />
+              }
+            />
           </Card>
 
           <Card title="Where it went">

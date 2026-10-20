@@ -541,12 +541,15 @@ func toUses(reqs []store.KeyRequest) []limits.Use {
 	return out
 }
 
-// windowDays reads the ?days= window a usage page asks for: 1, 7 or 30, and
-// 7 for anything else.
+// windowDays reads the ?days= window a usage page asks for: 1, 7, 14 or 30,
+// and 7 for anything else. 14 for Activity, whose tables share a picker with
+// a chart of days, where a fortnight is the reading of a trend.
 func windowDays(r *http.Request) int {
 	switch r.URL.Query().Get("days") {
 	case "1":
 		return 1
+	case "14":
+		return 14
 	case "30":
 		return 30
 	}

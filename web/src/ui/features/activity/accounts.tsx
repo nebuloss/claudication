@@ -37,7 +37,7 @@ export default function ActivityAccounts() {
     )
   }
   return (
-    <GatewayUsage title="By account" always={accounts.length > 0}>
+    <GatewayUsage title="By account" by="account" always={accounts.length > 0}>
       {({ rows, shares }) => {
         const used = new Map(rollup(rows, (r) => r.account_id ?? '').map((u) => [u.id, u]))
         const out: AccountUse[] = accounts.map((a) => ({

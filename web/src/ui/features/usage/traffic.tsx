@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { type UsageCell } from '../../../api/client'
 import {
   FAILURE_LINE,
@@ -9,23 +9,24 @@ import {
   tipPosition,
   type LineSeries,
 } from '../../charts'
-import { Muted, Segmented, SubNav, WindowPicker } from '../../primitives'
+import { Muted, Segmented, WindowPicker } from '../../primitives'
 import { compact } from '../../format'
 
 /**
- * The traffic widget: one chart, and tabs for what its lines are.
+ * The traffic chart: a line per name of one breakdown, over days.
  *
- * One widget rather than one per question. Overview used to draw its own
- * columns and Usage its own bars, which meant two places deciding what a
- * colour meant and two places to fix when the answer changed. The tabs are
- * the dimensions the gateway already records; the same component serves both
- * screens.
+ * One chart, given the breakdown to draw, rather than one per question.
+ * Overview used to draw its own columns and Usage its own bars, which meant
+ * two places deciding what a colour meant and two places to fix when the
+ * answer changed. Which breakdown is the page's to say: Activity draws each
+ * on the page whose table holds the same names — models over the models,
+ * outcomes over the request log — and an account's or a client's Usage page
+ * offers the choice beside the chart's own controls (`lead`).
  */
 
 export type Dimension = 'model' | 'key' | 'account' | 'status'
 
-type TabSpec = {
-  id: Dimension
+type Spec = {
   label: string
   unit: string
   /** False where the breakdown has never carried token counts. */
@@ -34,12 +35,12 @@ type TabSpec = {
   failureLine?: boolean
 }
 
-const TABS = [
-  { id: 'model', label: 'Models', unit: 'model' },
-  { id: 'key', label: 'Clients', unit: 'client' },
-  { id: 'account', label: 'Accounts', unit: 'account' },
-  { id: 'status', label: 'Status', unit: 'code', tokens: false, failureLine: false },
-] as const satisfies readonly TabSpec[]
+export const DIMENSIONS: Record<Dimension, Spec> = {
+  model: { label: 'Models', unit: 'model' },
+  key: { label: 'Clients', unit: 'client' },
+  account: { label: 'Accounts', unit: 'account' },
+  status: { label: 'Status', unit: 'code', tokens: false, failureLine: false },
+}
 
 /** Past this many lines the key stops being readable; the tail becomes one. */
 const LIMIT = 6
@@ -90,32 +91,31 @@ function pivot(cells: readonly UsageCell[], metric: 'requests' | 'tokens') {
 
 export function Traffic({
   cross,
+  by,
   days,
   onDays,
   windows,
-  hide = [],
+  lead,
 }: {
   /** The cross-tabs, keyed by dimension, as /admin/usage returns them. */
   cross: Record<string, UsageCell[]> | undefined
+  /** Which names the lines are. */
+  by: Dimension
   days: number
+  /** A window picker of the chart's own, where nothing else on the page picks one. */
   onDays?: (d: number) => void
   windows?: readonly number[]
-  /**
-   * Dimensions not worth offering here: on an account's own page "by
-   * account" is one line, the account itself.
-   */
-  hide?: readonly Dimension[]
+  /** Controls ahead of the chart's own, in the same row: a choice of breakdown. */
+  lead?: ReactNode
 }) {
-  const tabs = TABS.filter((t) => !hide.includes(t.id))
-  const [tab, setTab] = useState<Dimension>('model')
   const [metric, setMetric] = useState<'requests' | 'tokens'>('requests')
   const [log, setLog] = useState(true)
   const [hovered, setHovered] = useState<number | null>(null)
 
-  const current: TabSpec = tabs.find((t) => t.id === tab) ?? tabs[0] ?? TABS[0]
-  const cells = cross?.[current.id] ?? []
-  // Tokens is not merely empty on the status tab, it has never been recorded;
-  // offering the control there would be a button that does nothing.
+  const current = DIMENSIONS[by]
+  const cells = cross?.[by] ?? []
+  // Tokens is not merely empty by status, it has never been recorded; offering
+  // the control there would be a button that does nothing.
   const effective = current.tokens === false ? 'requests' : metric
 
   const { rows, names, total } = useMemo(() => pivot(cells, effective), [cells, effective])
@@ -147,42 +147,34 @@ export function Traffic({
 
   return (
     <>
-      <SubNav
-        label="Break down by"
-        value={current.id}
-        onChange={(id) => {
-          setTab(id)
-          setHovered(null)
-        }}
-        options={tabs.map((t) => ({ id: t.id, label: t.label }))}
-        aside={
-          <div className="flex flex-wrap items-center gap-2">
-            <Segmented
-              label="Metric"
-              value={effective}
-              onChange={(v) => setMetric(v)}
-              options={[
-                { id: 'requests' as const, label: 'Requests', content: 'Requests' },
-                ...(current.tokens === false
-                  ? []
-                  : [{ id: 'tokens' as const, label: 'Tokens', content: 'Tokens' }]),
-              ]}
-            />
-            <Segmented
-              label="Scale"
-              value={log ? 'log' : 'linear'}
-              onChange={(v) => setLog(v === 'log')}
-              options={[
-                { id: 'log' as const, label: 'Logarithmic', content: 'Log' },
-                { id: 'linear' as const, label: 'Linear', content: 'Linear' },
-              ]}
-            />
-            {onDays !== undefined && windows !== undefined && (
-              <WindowPicker label="History window" value={days} windows={windows} onChange={onDays} />
-            )}
-          </div>
-        }
-      />
+      {/* A row that wraps, not the tab bar's aside it once rode in: that bar
+          scrolled sideways, so on a phone the controls sat off the screen. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {lead}
+        {current.tokens !== false && (
+          <Segmented
+            label="Metric"
+            value={effective}
+            onChange={(v) => setMetric(v)}
+            options={[
+              { id: 'requests' as const, label: 'Requests', content: 'Requests' },
+              { id: 'tokens' as const, label: 'Tokens', content: 'Tokens' },
+            ]}
+          />
+        )}
+        <Segmented
+          label="Scale"
+          value={log ? 'log' : 'linear'}
+          onChange={(v) => setLog(v === 'log')}
+          options={[
+            { id: 'log' as const, label: 'Logarithmic', content: 'Log' },
+            { id: 'linear' as const, label: 'Linear', content: 'Linear' },
+          ]}
+        />
+        {onDays !== undefined && windows !== undefined && (
+          <WindowPicker label="History window" value={days} windows={windows} onChange={onDays} />
+        )}
+      </div>
 
       {rows.length === 0 ? (
         <div className="mt-4">
