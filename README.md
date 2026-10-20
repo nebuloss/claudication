@@ -23,7 +23,8 @@ Each tool is a **client** of the gateway: a type, one key, and model names of
 its own — `large`, `small`, `review` — each bound on the client's page to a
 real model or to the newest of a family. Which upstream serves a request is
 decided by the model that name resolves to, served by the accounts that list
-it. Codex reaches both; Claude Code reaches Claude accounts only.
+it. Every client reaches both: Codex speaks OpenAI Responses and Claude Code,
+crush and opencode Anthropic Messages, and the gateway translates either way.
 
 The gateway, each client and each account can be switched off from the admin
 UI without a restart.
@@ -161,9 +162,10 @@ bills. The account shows the plan the sign-in named.
 
 What a ChatGPT account serves is what a Responses client sends it, as it was
 written — the gateway adds the account's credential and nothing that claims to
-be Codex. A client on the OpenAI Responses API whose slot is bound to a GPT
-model is served there; a client on Anthropic Messages, Claude Code among them,
-cannot be, and is refused such a slot, saying which one to rebind. Usage comes
+be Codex. A client on Anthropic Messages — Claude Code, crush, opencode —
+whose slot is bound to a GPT model is served there too, its requests
+translated into Responses and the answers back, thinking and tool calls
+included ([docs/client-apis.md](docs/client-apis.md)). Usage comes
 from the backend's own endpoint and from the headers on every answer, in the
 same 5-hour and 7-day columns.
 

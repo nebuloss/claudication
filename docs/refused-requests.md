@@ -198,6 +198,25 @@ the workspace (`ChatGPT-Account-ID`) and nothing that claims to be a client it
 is not. Codex's own `originator`, `User-Agent`, `session-id` and `x-codex-*`
 headers are relayed as they came.
 
+A Messages request for a GPT model is not a Responses body the client wrote
+but one `internal/api/anthropic` built, so what that backend refuses is the
+translation's to leave out. Measured 2026-10-20 through the gateway's native
+`/v1/responses` path, gpt-6-luna, one thing varied at a time; each line is in
+`go doc ./internal/api/anthropic` beside the mapping it decided:
+
+| request | answer | so the translation |
+|---|---|---|
+| `stream: false` | [measured] 400 `{"detail":"Stream must be set to true"}` | always streams, and gathers the answer for a client that did not ask to stream |
+| `temperature`, `top_p`, `stop` | [measured] 400 `{"detail":"Unsupported parameter: …"}` | drops `temperature`, `top_p`, `top_k`, `stop_sequences` |
+| `metadata`, `user` | [measured] 400 `Unsupported parameter` | drops `metadata.user_id`; the chat's id goes as `prompt_cache_key` |
+| `max_output_tokens: 1` | [measured] 400 `integer_below_min_value`, "Expected a value >= 16" | raises `max_tokens` below 16 to 16 |
+| `reasoning.effort: "minimal"` | [measured] 400 `unsupported_value`, listing none … max | maps effort onto low … max, which every listed model supports |
+| an unknown top-level field | [measured] 400 `Unsupported parameter: foo` | sends only the fields it builds |
+
+The backend answers a refusal in two shapes, `{"detail":"…"}` and
+`{"error":{"message","type","param","code"}}`; both are turned into
+Anthropic's envelope with the backend's status kept.
+
 ---
 
 ## How to find the next one

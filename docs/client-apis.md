@@ -47,13 +47,36 @@ Then the dialect and the upstream decide what happens:
 | Messages → Claude | as it came (the passes aside; see [refused-requests.md](refused-requests.md)) |
 | Responses → Claude | translated, in `internal/api/openai` |
 | Responses → ChatGPT | as it came, to `/responses`; only the credential and the workspace are added |
-| Messages → ChatGPT | **refused**, `400 invalid_request_error`, naming the model or slot and what to change |
+| Messages → ChatGPT | translated into Responses, in `internal/api/anthropic`, and the answer back |
 
-The last is refused because translating Messages into Responses is a mapping
-of its own — thinking against encrypted reasoning, tool ids, cache control —
-and not one this gateway has. So a Messages client is never offered a
-ChatGPT model: not in its page's menus, not in its `/v1/models`. A slot bound
-to one before is shown as unavailable, with the reason, until it is rebound.
+So every client can be served by either provider, and moving a slot from
+Claude to GPT is a choice on the client's page, not a new configuration.
+
+Messages → ChatGPT, in short (`go doc ./internal/api/anthropic` has the whole
+table, each line with its measurement):
+
+- **Always streamed upstream.** The backend refuses `stream:false`; a client
+  that did not ask to stream is answered from the stream, gathered into one
+  message. A silent stream — a reasoning model thinking with no summary — is
+  kept alive with `ping` events.
+- **Thinking.** `output_config.effort` (low … max) is the reasoning effort
+  unchanged — every listed model supports the same five — and a thinking
+  budget maps to the effort of its size. OpenAI's reasoning comes back as a
+  `thinking` block whose `signature` carries the encrypted reasoning
+  (`claudication:openai-reasoning:v1:…`), and a client that sends thinking
+  back with the next turn (Claude Code and crush do) has it sent upstream as
+  the reasoning item it was. A thinking block signed by Anthropic is dropped
+  on the way to ChatGPT.
+- **Dropped, because the backend refuses them** (400 "Unsupported
+  parameter"): `temperature`, `top_p`, `stop_sequences`, `metadata`. And
+  `cache_control`, which has no equivalent: the chat's id is the backend's
+  `prompt_cache_key` instead.
+- **Refused, by name:** Anthropic-defined tools with nothing to run them
+  there (computer, bash, text editor, code execution, web fetch, memory),
+  `mcp_servers`, files by Anthropic file id, and `web_search`'s
+  `blocked_domains`. `web_search` itself becomes the backend's web search.
+- **count_tokens** is answered by the gateway with an estimate, marked by an
+  `X-Claudication-Token-Estimate` header: the backend counts nothing.
 
 Two of the targets a slot can follow are ChatGPT's: its first-ranked model and
 its light one, read from the backend's own ranking of the models an account
@@ -69,7 +92,8 @@ new one works the day it appears. A client's page reads the live list through
 
 ```
 internal/api/            the contract, and what every dialect would otherwise rewrite
-internal/api/anthropic/  the Anthropic surface — the identity adapter
+internal/api/anthropic/  the Anthropic surface: the identity to Claude, and its
+                         translation into Responses for the ChatGPT backend
 internal/api/openai/     the OpenAI surface: its mapping both ways, and the
                          identity exchange (native.go) for the ChatGPT backend
 internal/service/clients each client type's model fields, names and session headers

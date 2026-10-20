@@ -146,10 +146,11 @@ const maxCapturedTitleAnswer = 64 << 10
 // from any other tool-less turn.
 //
 // Either dialect's body: a Messages one's system field, or a Responses one's
-// instructions and its system and developer input messages, which is where a
-// client on Responses puts the same prompt (fantasy's Responses model, which
-// crush's openai provider type uses, sends a system message as one of the
-// input).
+// instructions and its system and developer input messages. The body is the
+// one going upstream, so a Messages request translated for ChatGPT is read as
+// Responses, its system prompt as instructions (internal/api/anthropic);
+// and a custom client on Responses may put the prompt in a system message of
+// its input, as fantasy's Responses model does.
 func IsClientTitleRequest(body []byte) bool {
 	var envelope struct {
 		Tools        []json.RawMessage `json:"tools"`
