@@ -307,13 +307,16 @@ func TestSlotUsageAndKeyRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 4 || rows[0].KeyID != a.ID || rows[0].AccountID != "acc1" || rows[0].Requests != 2 ||
-		rows[1].AccountID != "acc2" || rows[1].Slot != "small" {
-		t.Errorf("gateway by client and account: %+v", rows)
-	}
+	// The three single requests tie, and ties go by key id, which is random:
+	// found by what they are rather than where they land.
 	var sum int64
+	var small bool
 	for _, r := range rows {
 		sum += r.Requests
+		small = small || (r.KeyID == a.ID && r.AccountID == "acc2" && r.Slot == "small")
+	}
+	if len(rows) != 4 || rows[0].KeyID != a.ID || rows[0].AccountID != "acc1" || rows[0].Requests != 2 || !small {
+		t.Errorf("gateway by client and account: %+v", rows)
 	}
 	if sum != 5 {
 		t.Errorf("gateway rows add up to %d requests, want the 5 relayed this week", sum)

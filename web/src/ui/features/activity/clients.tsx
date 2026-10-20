@@ -36,26 +36,28 @@ export default function ActivityClients() {
 }
 
 /**
- * A 5-hour and a 7-day column per provider whose accounts report their
- * windows, listed providers first. Named for the provider only when there is
- * more than one: a gateway on Claude alone has two columns that need no
- * qualifier.
+ * A 5-hour and a 7-day column, each holding a client's part of every
+ * provider's pool it drew on, listed providers first. The provider is named
+ * on each bar only when there is more than one pool: a gateway on Claude
+ * alone needs no qualifier.
  */
 function poolColumns(shares: Record<string, SubscriptionShare>): ShareColumn[] {
   const present = new Set(
     Object.values(shares).flatMap((s) => s.providers.filter((p) => p.accounts > 0).map((p) => p.provider)),
   )
+  if (present.size === 0) return []
   const order = (id: string) => {
     const i = PROVIDERS.findIndex((p) => p.id === id)
     return i < 0 ? PROVIDERS.length : i
   }
   const providers = [...present].sort((a, b) => order(a) - order(b) || a.localeCompare(b))
-  const pool = (id: string, provider: string) => shares[id]?.providers.find((p) => p.provider === provider)
-  return providers.flatMap((p) => {
-    const whose = providers.length > 1 ? `${providerLabel(p)} ` : ''
-    return [
-      { label: `${whose}5-hour share`, points: (id: string) => pool(id, p)?.five_hour },
-      { label: `${whose}7-day share`, points: (id: string) => pool(id, p)?.seven_day },
-    ]
-  })
+  const parts = (id: string, window: 'five_hour' | 'seven_day') =>
+    providers.map((p) => ({
+      who: providers.length > 1 ? providerLabel(p) : undefined,
+      points: shares[id]?.providers.find((x) => x.provider === p)?.[window],
+    }))
+  return [
+    { label: '5-hour share', parts: (id) => parts(id, 'five_hour') },
+    { label: '7-day share', parts: (id) => parts(id, 'seven_day') },
+  ]
 }

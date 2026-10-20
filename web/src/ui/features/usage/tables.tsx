@@ -136,16 +136,45 @@ export function Share({ points }: { points: number | undefined }) {
   return <InlineMeter percent={points} tone="neutral" figure={smallPercent(points)} />
 }
 
-/** A column of shares: its heading, and each client's points of that window. */
-export type ShareColumn = { label: string; points: (clientId: string) => number | undefined }
+/**
+ * One window's part of a client: the points, and whose window it is when a
+ * column holds several — the gateway's clients on Activity, against each
+ * provider's pool. Named only then: on one account, or one provider, the
+ * heading says it all.
+ */
+export type SharePart = { who?: string; points: number | undefined }
+
+/** A column of shares: its heading, and each client's parts of that window. */
+export type ShareColumn = { label: string; parts: (clientId: string) => SharePart[] }
+
+/**
+ * A share cell: a bar per window part the client has, one under another, or
+ * a dash for none. One column per window whatever the providers, rather than
+ * a pair per provider: four columns of mostly dashes pushed the figures off
+ * a laptop's screen, and a client rarely draws on more than one.
+ */
+function ShareCell({ parts }: { parts: SharePart[] }) {
+  const used = parts.filter((p) => p.points !== undefined && p.points > 0)
+  if (used.length === 0) return <Muted as="span">–</Muted>
+  return (
+    <div className="flex flex-col items-end gap-1">
+      {used.map((p) => (
+        <span key={p.who ?? ''} className="inline-flex items-center gap-2">
+          {p.who !== undefined && <span className="text-xs text-on-surface-variant">{p.who}</span>}
+          <Share points={p.points} />
+        </span>
+      ))}
+    </div>
+  )
+}
 
 /** The 5-hour and 7-day columns of one account's shares, read off per client. */
 export function accountShareColumns(
   share: (clientId: string) => { five_hour: number; seven_day: number } | undefined,
 ): ShareColumn[] {
   return [
-    { label: '5-hour share', points: (id) => share(id)?.five_hour },
-    { label: '7-day share', points: (id) => share(id)?.seven_day },
+    { label: '5-hour share', parts: (id) => [{ points: share(id)?.five_hour }] },
+    { label: '7-day share', parts: (id) => [{ points: share(id)?.seven_day }] },
   ]
 }
 
@@ -216,7 +245,8 @@ export function ClientTable({
       }}
       columns={shares.map((s) => ({
         head: end(s.label),
-        cell: (c: ClientUse) => <Share points={s.points(c.id)} />,
+        nowrap: true,
+        cell: (c: ClientUse) => <ShareCell parts={s.parts(c.id)} />,
       }))}
       detail={detail ? (c) => <SlotTable rows={withoutAccount(c.rows)} provider={provider} /> : undefined}
     />
