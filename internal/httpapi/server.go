@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	anthropicapi "claudication/internal/api/anthropic"
 	"claudication/internal/api/openai"
 	"claudication/internal/config"
+	"claudication/internal/handover"
 	"claudication/internal/httpapi/admin"
 	"claudication/internal/httpapi/gateway"
 	"claudication/internal/httpapi/httpx"
@@ -115,6 +117,12 @@ type Server struct {
 	// the admin's own, when admin-listen gives it one.
 	listeners     []*listener
 	adminListener *listener
+
+	// reloadable is whether this process was handed its sockets by a
+	// supervisor, so a reload replaces it without refusing a connection.
+	// /health says so, which is how the installer tells a running gateway it
+	// can hand over to from one it has to stop (scripts/install.sh).
+	reloadable bool
 
 	mu   sync.Mutex
 	addr string
@@ -232,6 +240,8 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 		refresh[p.ID()] = p.Refresh
 	}
 	s.pool = pool.New(st, s.httpClient, log, refresh)
+	// Across processes as well as within this one: see LockRefreshes.
+	s.pool.LockRefreshes(handover.FileLock(filepath.Join(cfg.StateDir, "locks")))
 	// A ChatGPT conversation stays on the account that served it last: its
 	// encrypted reasoning was made there, and whether another account can
 	// read it is not measured. See internal/pool, affinity.go.
@@ -402,15 +412,29 @@ func (s *Server) upstreams() map[string]gateway.Upstream {
 // listener is one address the gateway serves, what it serves there, and the
 // line it logs when it starts.
 type listener struct {
+	// key is the config key the address came from, ListenRelay or
+	// ListenAdmin: the name an inherited socket is handed down under.
+	key   string
 	addr  string
 	srv   *http.Server
 	msg   string
 	attrs []any
 	ln    net.Listener
+	// pending counts what srv accepted and has not yet handed a handler;
+	// see Serve's drain.
+	pending *handover.Pending
 }
 
-func (s *Server) newListener(addr string, h http.Handler, msg string, attrs ...any) *listener {
-	return &listener{
+// The config keys of the two addresses, and the names their sockets are
+// handed down under (internal/handover).
+const (
+	ListenRelay = "listen"
+	ListenAdmin = "admin-listen"
+)
+
+func (s *Server) newListener(key, addr string, h http.Handler, msg string, attrs ...any) *listener {
+	l := &listener{
+		key:  key,
 		addr: addr,
 		srv: &http.Server{
 			Addr:    addr,
@@ -425,6 +449,8 @@ func (s *Server) newListener(addr string, h http.Handler, msg string, attrs ...a
 		msg:   msg,
 		attrs: attrs,
 	}
+	l.pending = handover.Track(l.srv)
+	return l
 }
 
 // buildListeners decides which listener serves which surface. The relay's is
@@ -434,12 +460,12 @@ func (s *Server) buildListeners() {
 	// With admin-listen set, the relay's listener drops the admin API and the
 	// UI; they move to a listener of their own. Unset, it keeps serving both.
 	split := cfg.AdminListen != ""
-	s.listeners = []*listener{s.newListener(cfg.Listen,
+	s.listeners = []*listener{s.newListener(ListenRelay, cfg.Listen,
 		s.routes(role{gateway: true, admin: !split}),
 		"listening", "serving", servingWhat(!split),
 		"version", version.Version, "state_dir", cfg.StateDir)}
 	if split {
-		s.adminListener = s.newListener(cfg.AdminListen, s.routes(role{admin: true}),
+		s.adminListener = s.newListener(ListenAdmin, cfg.AdminListen, s.routes(role{admin: true}),
 			"admin listening", "serving", "admin API and UI")
 		s.listeners = append(s.listeners, s.adminListener)
 	}
@@ -563,6 +589,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"status":    "ok",
 		"version":   version.Version,
 		"accepting": s.serving.On(),
+		// A binary from before the handover says nothing here, which the
+		// installer reads the same as false.
+		"reloadable": s.reloadable,
 	})
 }
 
@@ -614,11 +643,41 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 // SIGINT, so every `docker stop` and `systemctl stop` kills it before its
 // buffers flush and severs in-flight streams mid-frame.
 func (s *Server) Run(ctx context.Context) error {
+	return s.Serve(ctx, Handoff{})
+}
+
+// Handoff is what a worker under a supervisor is given (internal/handover):
+// sockets already bound, someone to tell when it is serving, and the word to
+// let go.
+type Handoff struct {
+	// Listeners are the inherited sockets, by config key (ListenRelay,
+	// ListenAdmin). Non-nil, every listener must be among them: a worker
+	// that bound one of its own would hold a port the supervisor does not,
+	// and the next handover would find it taken.
+	Listeners map[string]net.Listener
+	// Ready is called once every listener is being served.
+	Ready func()
+	// Release, closed, is a handover: stop accepting and drain, as a stop
+	// does, but record no outage — the sockets stay open in the supervisor
+	// and the worker taking over, so nothing is refused.
+	Release <-chan struct{}
+}
+
+// Serve is Run, with the sockets and the signals of a handover.
+func (s *Server) Serve(ctx context.Context, h Handoff) error {
 	// Every listener binds before anything is served, so a port clash on the
 	// admin address is a startup failure rather than a gateway that
 	// comes up with no way in.
 	for i, l := range s.listeners {
-		ln, err := net.Listen("tcp", l.addr)
+		var ln net.Listener
+		var err error
+		if h.Listeners != nil {
+			if ln = h.Listeners[l.key]; ln == nil {
+				err = fmt.Errorf("no inherited socket for %s %s: the supervisor binds what its config said at start; restart to rebind", l.key, l.addr)
+			}
+		} else {
+			ln, err = net.Listen("tcp", l.addr)
+		}
 		if err != nil {
 			for _, bound := range s.listeners[:i] {
 				_ = bound.ln.Close()
@@ -627,6 +686,7 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		l.ln = ln
 	}
+	s.reloadable = h.Release != nil
 	s.mu.Lock()
 	s.addr = s.listeners[0].ln.Addr().String()
 	if s.adminListener != nil {
@@ -644,10 +704,15 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.anonLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
 	go s.budgets.RunSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
 	go s.recorder.RunPruner(s.stopSweeper, 24*time.Hour)
-	go s.poller.Run(ctx, s.stopSweeper, accountsvc.Tick)
+	// The poller stops as soon as this process stops taking requests, on a
+	// handover as on a stop: two processes polling the same accounts would
+	// be twice the calls for nothing.
+	pollCtx, stopPolling := context.WithCancel(ctx)
+	defer stopPolling()
+	go s.poller.Run(pollCtx, s.stopSweeper, accountsvc.Tick)
 	go s.trimmer.Run(s.stopSweeper, 5*time.Second)
 	// Every listener is bound by now: the stop the last run recorded, if it
-	// recorded one, ends here.
+	// recorded one, ends here. After a handover there is none to end.
 	s.uptime.Started(ctx)
 	go s.uptime.Run(s.stopSweeper)
 
@@ -665,22 +730,60 @@ func (s *Server) Run(ctx context.Context) error {
 		}()
 	}
 
+	if h.Ready != nil {
+		h.Ready()
+	}
+
+	released := false
 	select {
 	case err := <-errCh:
 		close(s.stopSweeper)
 		return err
 	case <-ctx.Done():
+	case <-h.Release:
+		released = true
 	}
+	stopPolling()
 
 	grace := s.cfg.Shutdown.Grace.D()
-	s.log.Info("shutting down", "grace", grace.String())
-	// Recorded before the listeners close: from here a new request is refused,
-	// however long the drain then takes, and the status page must count it.
-	// Not under ctx, which is already done.
-	s.uptime.Stopping(context.Background())
+	if released {
+		// No outage: the sockets are open in the process taking over, which
+		// is accepting already. Only what this one is answering is left.
+		s.log.Info("handed over; draining", "grace", grace.String())
+	} else {
+		s.log.Info("shutting down", "grace", grace.String())
+		// Recorded before the listeners close: from here a new request is
+		// refused, however long the drain then takes, and the status page
+		// must count it. Not under ctx, which is already done.
+		s.uptime.Stopping(context.Background())
+	}
+
+	// Stop accepting, let every connection already accepted reach a handler,
+	// and only then Shutdown, which drops a request it has not yet handed
+	// to one (handover.Pending). Across a handover that was an EOF on one
+	// connection per reload, on a socket the next worker was serving. The
+	// accept loops have to have returned first, or a connection accepted
+	// after the wait would be dropped the same way; each reports the
+	// closed listener, which is no error here. Keep-alives off first, so a
+	// connection answered while waiting closes rather than idling into
+	// Shutdown.
+	for _, l := range s.listeners {
+		l.srv.SetKeepAlivesEnabled(false)
+		_ = l.ln.Close()
+	}
+	for range s.listeners {
+		<-errCh
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()
+	// Bounded, because a client that connects and sends nothing would hold
+	// it: five seconds is how long Shutdown itself waits on such a one.
+	settleCtx, settled := context.WithTimeout(shutdownCtx, 5*time.Second)
+	for _, l := range s.listeners {
+		l.pending.Settle(settleCtx)
+	}
+	settled()
 
 	// All of them at once. Shutdown closes a server's listeners only when it is
 	// called, so in sequence the admin port stayed bound for as long as the
