@@ -185,7 +185,11 @@ export function Traffic({
             </span>
             <span className="text-xs text-on-surface-variant">
               {shown === undefined
-                ? `${unit} over ${rows.length} days, by ${current.unit}`
+                ? // The window picked, not the calendar days it touches: 7×24h
+                  // back from now spans 8 dates, and "over 8 days" under a 7d
+                  // button read as a bug. The card's title already names the
+                  // breakdown.
+                  `${unit} in the last ${days} days`
                 : `${unit} on ${shown.day}`}
             </span>
           </div>

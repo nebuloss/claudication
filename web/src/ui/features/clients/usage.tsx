@@ -190,7 +190,7 @@ function SlotBreakdown({ clientId }: { clientId: string }) {
   })
   const rows: SlotUse[] = data?.rows ?? []
   return (
-    <Card title="By model name" aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}>
+    <Card title="Model names" aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}>
       <ErrorBanner error={error} />
       {loading && data === null ? (
         <Loading />

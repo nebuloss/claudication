@@ -61,7 +61,7 @@ function Outcomes() {
     refreshMs: OUTCOMES_REFRESH_MS,
   })
   return (
-    <Card title="By outcome">
+    <Card title="Outcomes">
       {usage === null ? (
         <Loading />
       ) : (

@@ -71,7 +71,7 @@ function AccountClients({ accountId }: { accountId: string }) {
   const shares = data?.shares ?? {}
   const shared = Object.keys(shares).length > 0
   return (
-    <Card title="By client" aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}>
+    <Card title="Clients" aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}>
       <ErrorBanner error={error} />
       {loading && data === null ? (
         <Loading />
