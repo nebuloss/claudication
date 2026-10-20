@@ -82,9 +82,13 @@ export function SubscriptionCard({ share }: { share: SubscriptionShare }) {
             {share.accounts.map((a) => (
               <Tr key={a.account_id}>
                 <Td>
-                  <AppLink href={accountHref(a.account_id)} strong>
-                    {a.email}
-                  </AppLink>{' '}
+                  {/* The address on hover, for a named account: the name is
+                      the operator's, the address is what tells it apart. */}
+                  <span title={a.name !== a.email ? a.email : undefined}>
+                    <AppLink href={accountHref(a.account_id)} strong>
+                      {a.name || a.email}
+                    </AppLink>
+                  </span>{' '}
                   <Muted as="span" size="xs">
                     {providerTitle(a.provider)}
                   </Muted>

@@ -4,6 +4,7 @@ import AccountModels from '../models/switches'
 import { useAction } from '../../hooks'
 import { api, type Account, type ProbeResult } from '../../../api/client'
 import { dateTime, relative } from '../../format'
+import { accountName } from '../../domain/account'
 import {
   Actions,
   Banner,
@@ -63,7 +64,7 @@ export default function AccountSettings({
 
   const runDelete = () =>
     confirm({
-      title: `Remove ${account.email}?`,
+      title: `Remove ${accountName(account)}?`,
       body: 'The stored credentials are destroyed.',
       confirmLabel: 'Remove account',
       tone: 'danger',
@@ -194,7 +195,7 @@ export default function AccountSettings({
         title="Remove this account"
         action={
           <Button variant="outlined" tone="error" onClick={() => void runDelete()} disabled={busy !== ''}>
-            Remove {account.email}
+            Remove {accountName(account)}
           </Button>
         }
       >

@@ -22,7 +22,7 @@ import {
   Stat,
   StatGrid,
 } from '../../primitives'
-import { accountStatus } from '../../domain/account'
+import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact, dateTime, relative } from '../../format'
 
 /** As on the list: the server says how often it re-reads the quota. */
@@ -68,7 +68,7 @@ export default function AccountPage({
         <ErrorBanner error={error} />
         <Empty>
           No such account — it may have been removed. Its past usage is still in the request log
-          under the email it was recorded with.
+          under the name it was recorded with.
         </Empty>
       </Page>
     )
@@ -108,8 +108,24 @@ export default function AccountPage({
       <DetailHeader
         kind="accounts"
         id={account.id}
-        title={account.email}
+        title={accountName(account)}
+        rename={{
+          value: account.name ?? '',
+          // An unnamed account's field is empty with its address in grey:
+          // what it is called until it is named, and what Enter on an empty
+          // field keeps.
+          placeholder: account.email,
+          label: 'Account name',
+          clearLabel: 'Clear the name — call it by its address',
+          onSave: async (name) => {
+            await api.accounts.setName(account.id, name)
+            void reload()
+          },
+        }}
         subtitle={[
+          // The address under a name, as the one thing that tells two
+          // accounts named alike apart, and the account the provider knows.
+          isNamed(account) ? account.email : '',
           `Priority ${rank + 1} of ${accounts.length}`,
           providerLabel(account.provider),
           planLabel(account.plan),
@@ -187,6 +203,8 @@ function AccountOverview({
       <Card>
         <KeyValue
           items={[
+            // The sign-in's own, whatever the account is called here.
+            ['Address', account.email],
             ['Provider', providerLabel(account.provider)],
             ...(account.plan !== undefined && account.plan !== ''
               ? ([['Plan', planLabel(account.plan)]] as [string, string][])

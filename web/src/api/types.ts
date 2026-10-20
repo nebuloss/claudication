@@ -37,6 +37,11 @@ export interface Account {
   id: string
   provider: string
   email: string
+  /**
+   * What the operator calls it; absent when it is known by its address.
+   * accountName (ui/domain/account) is the one to show.
+   */
+  name?: string
   /** The subscription the sign-in named (ChatGPT's plus, pro, team). */
   plan?: string
   expires_at: string
@@ -191,6 +196,8 @@ export interface SubscriptionShare {
   accounts: {
     account_id: string
     email: string
+    /** What the account is called: its name, or its address. */
+    name: string
     provider: string
     /** Percentage points of this account's window. */
     five_hour: number
@@ -291,6 +298,7 @@ export interface Chat {
    */
   surface?: string
   key_name: string
+  /** What the account is called now: its name, or its address (the field is older than names). */
   account_email: string
   /** In first-seen order. A chat that switched model mid-way shows both. */
   models: string[]
@@ -357,6 +365,7 @@ export interface RequestRow {
   /** The client that sent it: its id (its key's) and what it is called now. */
   key_id?: string
   key_name?: string
+  /** And the account that served it, as it is called now: its name, or its address. */
   account_email?: string
   /** Whose account served it: anthropic, openai. */
   provider?: string

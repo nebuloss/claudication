@@ -3,6 +3,21 @@ import { relative } from '../format'
 import type { Tone } from '../styles/tone'
 
 /**
+ * What an account is called: the name the operator gave it, or its address
+ * when it has none — the gateway's Account.DisplayName, and what the names
+ * ledger labels its history with, so a row in the request log and the
+ * account's own page say the same.
+ */
+export function accountName(a: Pick<Account, 'name' | 'email'>): string {
+  return a.name !== undefined && a.name !== '' ? a.name : a.email
+}
+
+/** Whether the account is named, so its address is worth showing beside the name. */
+export function isNamed(a: Pick<Account, 'name'>): boolean {
+  return a.name !== undefined && a.name !== ''
+}
+
+/**
  * What state an account is in: one colour, the chip's words (`label`), and
  * the same state as a headline with what to know about it underneath
  * (`headline`, `detail`), for the tile on its Usage page. The chip on its row

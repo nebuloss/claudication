@@ -192,6 +192,9 @@ const accounts = {
   setDisabled: (id: string, disabled: boolean) =>
     http.post<Account>(path`/admin/accounts/${id}/disabled`, { disabled }),
 
+  /** Names an account; '' gives it back its address as its name. */
+  setName: (id: string, name: string) => http.put<Account>(path`/admin/accounts/${id}/name`, { name }),
+
   remove: (id: string) => http.send('DELETE', path`/admin/accounts/${id}`),
 
   /** Which clients drew on this account, by model name and model, and each one's share of it. */

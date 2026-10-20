@@ -24,7 +24,7 @@ import {
   Stack,
   Switch,
 } from '../../primitives'
-import { accountStatus } from '../../domain/account'
+import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact } from '../../format'
 
 /**
@@ -140,10 +140,10 @@ export default function Accounts() {
             const site = account.provider === 'openai' ? 'chatgpt.com' : 'claude.ai'
             setNotice(
               renewed
-                ? `${account.email} was already connected, so it was renewed rather than added. ` +
+                ? `${accountName(account)} was already connected, so it was renewed rather than added. ` +
                     `To add a different account, sign in to ${site} as it first, or open the ` +
                     'login link in a private window.'
-                : `${account.email} is connected, at the bottom of the list. ` +
+                : `${accountName(account)} is connected, at the bottom of the list. ` +
                     'Move it up to have it serve first.',
             )
             void reload()
@@ -279,8 +279,11 @@ function AccountRow({
           <RowBadge>{rank + 1}</RowBadge>
         </>
       }
-      title={a.email}
+      title={accountName(a)}
       subtitle={[
+        // A named account's address under its name: what tells two named
+        // alike apart, and which sign-in it is.
+        isNamed(a) ? a.email : '',
         planLabel(a.plan),
         `${compact(a.requests)} requests · ${compact(a.tokens)} tokens over ${windowDays}d`,
       ]
@@ -330,7 +333,7 @@ export function AccountSwitch({ account, onChanged }: { account: Account; onChan
   }
   return (
     <span title={error || (on ? 'Serving from this account' : 'This account is paused')}>
-      <Switch checked={on} onChange={(v) => void flip(v)} label={`Serve from ${account.email}`} disabled={busy !== ''} quiet />
+      <Switch checked={on} onChange={(v) => void flip(v)} label={`Serve from ${accountName(account)}`} disabled={busy !== ''} quiet />
     </span>
   )
 }
