@@ -13,7 +13,7 @@ import './ui/styles/welcome.css'
  * recoloured — the admin screens, and the API client that names every admin
  * path, are not in its bundle to be read.
  *
- * A page rather than a card: the name and theme in a thin header, the content
+ * A page rather than a card: the name and the theme switch in a thin header, the content
  * on a grid that uses a desktop's width, a footer. The soft disc behind the
  * hero is the accent container at low opacity — a token, not a new colour —
  * and is decoration only, so it is hidden from assistive technology.
@@ -30,15 +30,15 @@ createRoot(root).render(
         aria-hidden
         className="pointer-events-none absolute -top-48 left-1/2 -z-10 size-[48rem] -translate-x-1/2 rounded-full bg-primary-container opacity-40 blur-3xl lg:left-1/4"
       />
-      <header className="mx-auto flex w-full max-w-6xl items-center px-4 pt-6 sm:px-8">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 pt-6 sm:px-8">
         <span className="text-sm font-medium tracking-wide text-on-surface-variant">claudication</span>
+        <ThemeToggle />
       </header>
       <main className="mx-auto flex w-full max-w-6xl flex-1 items-center px-4 py-10 sm:px-8 lg:py-16">
         <Welcome />
       </main>
-      <footer className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-4 pb-6 sm:px-8">
+      <footer className="mx-auto w-full max-w-6xl px-4 pb-6 sm:px-8">
         <p className="text-xs text-on-surface-variant">This page shows only whether the gateway is, and has been, up.</p>
-        <ThemeToggle />
       </footer>
     </div>
   </StrictMode>,

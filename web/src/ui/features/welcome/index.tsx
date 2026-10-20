@@ -25,10 +25,6 @@ const COPY = {
     title: 'Were you given access?',
     body: 'Use the key and the settings the person who runs it gave you. Your tools talk to this address on their own; you never need to open this page.',
   },
-  passing: {
-    title: 'Not expecting this page?',
-    body: 'Then there is nothing for you to do here. If you think you should have access, ask whoever gave you the address.',
-  },
 }
 
 type Shown = { tone: Tone; label: string; detail: string }
@@ -165,9 +161,8 @@ export default function Welcome() {
           </Card>
         </div>
       )}
-      <div className="grid gap-6 sm:grid-cols-2 lg:col-span-2">
+      <div className="lg:col-span-2">
         <Guide {...COPY.given} />
-        <Guide {...COPY.passing} />
       </div>
     </div>
   )
