@@ -21,8 +21,8 @@ export default function ActivityRequests() {
     <Stack>
       <LastHour />
       <Outcomes />
-      <Card title="Log">
-        <RequestsPanel />
+      <Card>
+        <RequestsPanel title="Log" />
       </Card>
     </Stack>
   )

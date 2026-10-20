@@ -3,6 +3,7 @@ import { api, type RequestFacets } from '../../../api/client'
 import {
   Button,
   ButtonLink,
+  CardTitle,
   Empty,
   ErrorBanner,
   Freshness,
@@ -64,8 +65,12 @@ function chipValue(value: string): string {
  * The request log. Under an account or a key it is that one's requests: the
  * scope is in the path, so it is always applied and never written into the
  * query string, and the rest of the filter is.
+ *
+ * `title` is for a log that sits in a card among others, as on Activity's
+ * Requests page: the heading takes the toolbar's row, beside its actions,
+ * rather than a row of its own above them.
  */
-export default function RequestsPanel({ scope = {} }: { scope?: RequestScope }) {
+export default function RequestsPanel({ scope = {}, title }: { scope?: RequestScope; title?: string }) {
   // Read once per mount and on Back, so a link lands on its filter and the
   // browser's history still works.
   const [filter, setFilter] = useState(() => RequestFilter.fromSearch(window.location.search))
@@ -81,15 +86,17 @@ export default function RequestsPanel({ scope = {} }: { scope?: RequestScope }) 
     window.history.pushState(null, '', rest.pathIn(scope))
   }
 
-  return <RecentRequests filter={filter.scopedTo(scope)} onNarrow={narrow} />
+  return <RecentRequests filter={filter.scopedTo(scope)} onNarrow={narrow} title={title} />
 }
 
 function RecentRequests({
   filter,
   onNarrow,
+  title,
 }: {
   filter: RequestFilter
   onNarrow: (f: RequestFilter) => void
+  title?: string
 }) {
   const [shown, setShown] = useState<RequestRecord | null>(null)
   const [sort, setSort] = useState<Sort>({ key: 'at', dir: 'desc' })
@@ -195,30 +202,36 @@ function RecentRequests({
 
   const query = filter.query()
 
-  // No card and no title of its own: it is the body of a tab, and the tab is
-  // already called Requests.
+  const actions = (
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      {/* An anchor rather than a fetch-and-blob: the browser already knows
+          how to save a response it is given, it carries the session cookie
+          on its own, and a download that streams from the server never has
+          the whole file in the page.
+
+          The same filter as the table, so what lands in the file is what was
+          on the screen — including the rows below the ones loaded, which is
+          the reason to download rather than select and copy. */}
+      <ButtonLink href={`/admin/requests/export${query === '' ? '' : `?${query}`}`} variant="text">
+        Download CSV
+      </ButtonLink>
+      <Freshness updatedAt={log.updatedAt} refreshing={log.refreshing} live={log.live} onRefresh={log.refresh} />
+    </div>
+  )
+
+  // No card and no title of its own unless given one: on an account's or a
+  // client's page it is the body of a tab, and the tab is already called
+  // Requests.
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <span className="flex-grow" />
-        {/* An anchor rather than a fetch-and-blob: the browser already knows
-            how to save a response it is given, it carries the session cookie
-            on its own, and a download that streams from the server never has
-            the whole file in the page.
-
-            The same filter as the table, so what lands in the file is what was
-            on the screen — including the rows below the ones loaded, which is
-            the reason to download rather than select and copy. */}
-        <ButtonLink href={`/admin/requests/export${query === '' ? '' : `?${query}`}`} variant="text">
-          Download CSV
-        </ButtonLink>
-        <Freshness
-          updatedAt={log.updatedAt}
-          refreshing={log.refreshing}
-          live={log.live}
-          onRefresh={log.refresh}
-        />
-      </div>
+      {title !== undefined ? (
+        <CardTitle aside={actions}>{title}</CardTitle>
+      ) : (
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          <span className="flex-grow" />
+          {actions}
+        </div>
+      )}
 
       {/* What is narrowed, all of it, in one place. A filtered list that looks
           like the whole list is how someone concludes the gateway served four
