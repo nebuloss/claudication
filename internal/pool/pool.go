@@ -137,6 +137,25 @@ type Pool struct {
 	// gateway, because only the pool knows which account a request went to
 	// before it is answered — and a stream holds its account for minutes.
 	open map[string]int
+
+	// lockRefresh, when set, is held around each token exchange across
+	// processes; see LockRefreshes.
+	lockRefresh func(ctx context.Context, id string) (unlock func(), err error)
+}
+
+// LockRefreshes has every token exchange hold lock, keyed by account id, from
+// reading the refresh token to storing its replacement.
+//
+// Refresh already lets one exchange per account run in this process. During
+// a handover two processes serve from one database for up to the shutdown
+// grace (internal/handover), and both reading the same refresh token and
+// exchanging it is the race Refresh exists to prevent: the provider rotates
+// it, and the slower process spends a token that is already spent, which
+// takes the account offline until someone signs it in again. The second
+// exchange, once the first has stored its result, reads the new token and is
+// merely redundant.
+func (p *Pool) LockRefreshes(lock func(ctx context.Context, id string) (unlock func(), err error)) {
+	p.lockRefresh = lock
 }
 
 // RefreshFunc trades a refresh token for new tokens at the provider. The pool
@@ -515,6 +534,15 @@ func (p *Pool) refresh(ctx context.Context, id string, h *health) error {
 
 	exchangeCtx, cancel := context.WithTimeout(ctx, refreshTimeout)
 	defer cancel()
+
+	// Before the token is read, so the one read is the latest stored.
+	if p.lockRefresh != nil {
+		unlock, err := p.lockRefresh(exchangeCtx, id)
+		defer unlock()
+		if err != nil {
+			return err
+		}
+	}
 
 	acct, err := p.store.Account(exchangeCtx, id)
 	if err != nil {
