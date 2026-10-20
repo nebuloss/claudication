@@ -557,6 +557,34 @@ func TestUpgradeMergesTheSwitchesAndDropsTheTitler(t *testing.T) {
 	}
 }
 
+// A migrated client names its chats as the gateway-wide switch did: on only
+// where it was switched on. Absent was its default, which was off.
+func TestUpgradeCarriesTheTitlingSwitch(t *testing.T) {
+	for setting, want := range map[string]bool{"": false, "true": true, "false": false} {
+		p := filepath.Join(t.TempDir(), "v28.db")
+		db := buildOld(t, dsn(p), 28)
+		f := fillV28(t, db)
+		if setting != "" {
+			if _, err := db.Exec(`INSERT INTO settings VALUES ('chat.titles.enabled', ?, 1760000000)`, setting); err != nil {
+				t.Fatal(err)
+			}
+		}
+		db.Close()
+		st, err := Open(context.Background(), p, testSealer(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := st.Client(context.Background(), f.keyKept)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.NameChats != want {
+			t.Errorf("chat.titles.enabled %q: the migrated client names chats = %v, want %v", setting, c.NameChats, want)
+		}
+		st.Close()
+	}
+}
+
 // A database the upgrade cannot start from is refused, with the reason, and
 // left as it was.
 func TestUpgradeRefusesWhatItCannotRead(t *testing.T) {

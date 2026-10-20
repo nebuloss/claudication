@@ -63,12 +63,20 @@ CREATE TABLE client_slots (
 -- The gateway's own titling key goes: a chat is named under its client's own
 -- key now, or not at all, so nothing authenticates as the gateway any more.
 -- Its history stays, named through the names table as any deleted key's is.
--- The titling switches go with it: naming chats is each client's setting.
 DELETE FROM api_keys WHERE id IN (SELECT value FROM settings WHERE key = 'chat.titles.key');
-DELETE FROM settings WHERE key IN ('chat.titles.key', 'chat.titles.enabled', 'chat.titles.capture');
 
-INSERT INTO clients (key_id, type, dialect, mode, configured_at)
-SELECT id, 'custom', 'anthropic', 'direct', last_used_at FROM api_keys;
+-- Every key left becomes a custom client in direct mode, which is what it was:
+-- a key naming real models. Each names its chats as the gateway-wide switch
+-- did — on only where it was switched on, its default having been off — so
+-- an upgrade starts no titling the operator had not asked for. A custom
+-- client names nothing itself, so the capture switch has nothing to carry.
+INSERT INTO clients (key_id, type, dialect, mode, configured_at, name_chats)
+SELECT id, 'custom', 'anthropic', 'direct', last_used_at,
+       COALESCE((SELECT value = 'true' FROM settings WHERE key = 'chat.titles.enabled'), 0)
+  FROM api_keys;
+
+-- The titling switches go: naming chats is each client's setting.
+DELETE FROM settings WHERE key IN ('chat.titles.key', 'chat.titles.enabled', 'chat.titles.capture');
 
 DROP INDEX model_roles_global;
 DROP INDEX model_roles_key;
