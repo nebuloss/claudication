@@ -8,18 +8,17 @@
  *   /accounts/<id>                      one account's overview
  *   /accounts/<id>/<page>               its traffic and its settings, side by side
  *   /clients … the same shape, for clients
- *   /activity/<page>                    the gateway's traffic: by model, by
- *                                       client, by account, and the request
- *                                       log
+ *   /activity                           the gateway's load: the last hour, and
+ *                                       its requests by outcome over days
+ *   /activity/<page>                    its traffic by model, by client, by
+ *                                       account, and the request log
  *   /settings                           the gateway switch, the admin account
  *                                       and the configuration, on one page
  *
  * So a link, a bookmark and Back all land on a page, never on "whatever
  * sub-tab was open last". Each level's overview is the level itself — the
- * root, an account's own path — rather than a page named Overview under it,
- * so the trail never says Overview twice over. A path that names a branch
- * with no page of its own — /activity — is completed to its first page by
- * canonical(), and old paths are moved to where their screen went.
+ * root, an account's own path, /activity — rather than a page named Overview
+ * under it, so the trail never says Overview twice over.
  *
  * Pure: string in, string out, no window. Kept apart from the hooks because
  * this is the part that is quietly wrong — a trailing slash from a copied
@@ -108,9 +107,8 @@ export function pagesOf(kind: 'accounts' | 'clients'): readonly ItemPage[] {
  * the last hour live and the outcomes over days, filterable by client,
  * provider, account and outcome. Chats are a client's and are on its page.
  *
- * No Overview of its own: Activity is already the gateway's load, and a page
- * holding only the chart the others break down was a page to click past.
- * /activity opens on the first page, and the trail names it like any other.
+ * Activity's own path is its overview, as an account's is: the load as it
+ * happens. These are the pages under it, each a breakdown of that load.
  */
 export const ACTIVITY_PAGES = [
   { id: 'models', label: 'Models' },
@@ -167,8 +165,9 @@ export function canonical(pathname: string): string {
       if (!known(pagesOf(top), b)) return pathOf(top, a)
       return pathOf(top, a, b!)
     }
+    // Its overview is its own path; a page it does not have lands there.
     case 'activity':
-      return pathOf('activity', known(ACTIVITY_PAGES, a) ? a! : ACTIVITY_PAGES[0].id)
+      return known(ACTIVITY_PAGES, a) ? pathOf('activity', a!) : pathOf('activity')
     // One page, with nothing under it: what is left of the gateway's own
     // settings — its switch, the admin account, the configuration as loaded —
     // reads in one screen, and a sub-page each was a click apiece for it.
@@ -232,7 +231,12 @@ export function navLevel(pathname: string, omit: readonly string[] = []): NavLev
     }
   }
   if (top === 'activity') {
-    return { back: HOME, items: links('/activity', ACTIVITY_PAGES), current: pathOf(top, id ?? '') }
+    // On its overview, no entry: the overview is Activity itself.
+    return {
+      back: HOME,
+      items: links('/activity', ACTIVITY_PAGES),
+      current: id === undefined ? pathOf(top) : pathOf(top, id),
+    }
   }
   // The root's own level, Settings among it: the screens, each opening on
   // its first page.
