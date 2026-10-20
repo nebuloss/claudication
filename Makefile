@@ -94,6 +94,7 @@ web-deps:
 ## web: build the UI and stage it where go:embed picks it up
 web:
 	cd web && npm run build
+	@node scripts/check-welcome.mjs
 	@rm -rf $(WEBDIST)
 	@mkdir -p $(WEBDIST)
 	@cp -r web/dist/. $(WEBDIST)/
@@ -156,8 +157,14 @@ check: fmt-check vet test typecheck test-web web-build
 
 # tsc does not run Tailwind, so a stylesheet that cannot compile sails through
 # a typecheck. Building the UI is the only thing that proves it compiles.
+#
+# And the public welcome page is checked on what was built rather than on its
+# source, because its bundle is what anyone with the relay's address can read,
+# and an import can carry a provider's name into it without the page's own
+# words changing.
 web-build:
 	cd web && npm run build
+	@node scripts/check-welcome.mjs
 
 ## repro: build twice in different conditions and prove the bytes match
 #

@@ -2,6 +2,7 @@ package web
 
 import (
 	"log/slog"
+	"regexp"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,5 +65,27 @@ func TestNoUIBuiltSaysSo(t *testing.T) {
 	}
 	if w := get(t, h, http.MethodGet, "/app.js", nil); w.Code != http.StatusNotFound {
 		t.Errorf("an asset with no UI: %d, want 404", w.Code)
+	}
+}
+
+// The page a relay without a built UI answers its root with is as public as
+// the built one, so it is held to the list scripts/check-welcome.mjs holds the
+// build to. A name added there belongs here too.
+func TestWelcomeFallbackNamesNothing(t *testing.T) {
+	forbidden := []string{
+		`(?i)claude`, `(?i)anthropic`, `(?i)openai`, `(?i)chatgpt`, `(?i)(^|[^a-z])gpt`,
+		`(?i)codex`, `(?i)opencode`, `(?i)(^|[^a-z])crush`, `(?i)sonnet`, `(?i)(^|[^a-z])opus($|[^a-z])`,
+		`(?i)haiku`, `(?i)gemini`, `/v1($|[^0-9])`, `/admin`, `(?i)oauth`, `(?i)x-api-key`,
+		`(?i)subscription`, `(?i)upstream`, `/health`,
+	}
+	site := New(Deps{Log: slog.New(slog.DiscardHandler), Files: fstest.MapFS{}})
+	w := get(t, site.WelcomeHandler(), http.MethodGet, "/", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("fallback: %d", w.Code)
+	}
+	for _, re := range forbidden {
+		if loc := regexp.MustCompile(re).FindStringIndex(w.Body.String()); loc != nil {
+			t.Errorf("the fallback page matches %s at %q", re, w.Body.String()[loc[0]:loc[1]])
+		}
 	}
 }

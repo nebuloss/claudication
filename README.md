@@ -324,9 +324,11 @@ The relay listener then answers 404 to every `/admin/…` path and to the UI, an
 a `?token=` sign-in link spends nothing there. That separation is the gateway's
 own, so it holds even if the proxy in front is misconfigured — which is the
 failure worth designing for, because it is silent. Its root serves a small
-welcome page instead: what the address is, whether it is up and which build,
-read from `/health` — nothing a monitor does not already see, and no link to the
-admin address.
+welcome page instead: that this is a private gateway, what to do if you were or
+were not given access, and whether it is accepting requests, read from
+`/health`. It names no provider, model, client, API or path, links nowhere, and
+does not print the build; `make check` fails if its bundle ever carries such a
+name.
 
 Two more things before exposing it. Use a **long random admin password**: the
 sign-in limiter allows `anon-per-minute` attempts per IP (60 by default) with no

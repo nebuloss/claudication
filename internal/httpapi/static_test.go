@@ -136,7 +136,7 @@ func TestRelayOnlyRootIsTheWelcomePage(t *testing.T) {
 	srv.web = web.New(web.Deps{Log: srv.log, Files: fstest.MapFS{}})
 	base := relay()
 	status, body := call(t, base, http.MethodGet, "/", "", nil)
-	if status != http.StatusOK || !strings.Contains(string(body), "claudication gateway") {
+	if status != http.StatusOK || !strings.Contains(string(body), "A private AI gateway") {
 		t.Errorf("unbuilt welcome: %d %q", status, body)
 	}
 

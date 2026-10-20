@@ -144,10 +144,13 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
  * both headers carry, the admin app's and the welcome page's, so they read as
  * one product whatever each page's own colours are.
  */
-export function BrandMark() {
+export function BrandMark({ size = 'md' }: { size?: 'md' | 'lg' }) {
+  // lg is the welcome page's hero, where the mark is the picture: the same
+  // tile scaled up rather than a second drawing of it.
+  const [tile, glyph] = size === 'lg' ? ['size-20 rounded-md3-xl', 'size-10'] : ['size-10 rounded-md3-m', 'size-5']
   return (
-    <span className="grid size-10 shrink-0 place-items-center rounded-md3-m bg-primary-container text-on-primary-container">
-      <svg viewBox="0 0 32 32" className="size-5" aria-hidden>
+    <span className={`grid ${tile} shrink-0 place-items-center bg-primary-container text-on-primary-container`}>
+      <svg viewBox="0 0 32 32" className={glyph} aria-hidden>
         <g fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
           <path d="M3 8c6.5 0 6.5 6 10 6s3.5-6 10-6" />
           <path d="M3 24c6.5 0 6.5-6 10-6s3.5 6 10 6" />

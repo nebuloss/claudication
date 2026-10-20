@@ -14,8 +14,12 @@ const welcomeEntry = "welcome.html"
 // welcomeFallback is the root of a relay whose binary has no UI embedded.
 //
 // Self-contained on purpose: with no build there is no stylesheet to link and
-// no script to read /health with, and a person who typed the address should
+// no script to read the status with, and a person who typed the address should
 // still learn what it is rather than read a JSON error that looks like a fault.
+//
+// The built page's words, and its restraint: it is just as public, so it names
+// no API, path, provider or client. TestWelcomeFallbackNamesNothing holds it
+// to the same list scripts/check-welcome.mjs holds the build to.
 const welcomeFallback = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -30,9 +34,10 @@ const welcomeFallback = `<!doctype html>
   p { margin:0 0 .5rem; opacity:.8; }
 </style>
 <main>
-  <h1>claudication gateway</h1>
-  <p>This address serves an API for coding tools, and a request to it needs a
-     key from whoever runs it. Health checks: <code>/health</code>.</p>
+  <h1>A private AI gateway</h1>
+  <p>This address belongs to a private service, run for a small group of
+     people. If you were given access, use the key and the settings you were
+     given. Otherwise there is nothing for you to do here.</p>
 </main>
 `
 
