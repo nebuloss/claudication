@@ -28,7 +28,7 @@ func NewLimiter() *Limiter {
 // Allow consumes one token for key, refilling at count tokens per period.
 // A count of zero or less disables limiting for that caller.
 func (l *Limiter) Allow(key string, count int, period time.Duration) bool {
-	return l.take(key, count, period, true)
+	return l.take(key, count, period, true, 1)
 }
 
 // AllowSpare consumes one token for key only while another would be left
@@ -41,23 +41,10 @@ func (l *Limiter) AllowSpare(key string, count int, period time.Duration) bool {
 	if count < 2 {
 		return false
 	}
-	// Two takes under one lock would be simpler to read and wrong to write:
-	// the first would be spent even when the second failed. So: peek at the
-	// refilled level, then spend one.
-	l.mu.Lock()
-	b, ok := l.buckets[key]
-	if ok {
-		if period <= 0 {
-			period = time.Minute
-		}
-		level := b.tokens + l.now().Sub(b.last).Seconds()*float64(count)/period.Seconds()
-		if level < 2 {
-			l.mu.Unlock()
-			return false
-		}
-	}
-	l.mu.Unlock()
-	return l.Allow(key, count, period)
+	// Checked and spent under the one lock: a peek, an unlock and then a
+	// take let a client's own request spend the second-last token in
+	// between, and the gateway's then took the last.
+	return l.take(key, count, period, true, 2)
 }
 
 // AllowPerMinute is the common case, and what the anonymous budget uses.
@@ -74,7 +61,7 @@ func (l *Limiter) AllowPerMinute(key string, perMinute int) bool {
 // budget never reaches the database) and allow runs afterwards, on the requests
 // that turned out to be anonymous.
 func (l *Limiter) Peek(key string, perMinute int) bool {
-	return l.take(key, perMinute, time.Minute, false)
+	return l.take(key, perMinute, time.Minute, false, 1)
 }
 
 // take is the bucket itself: burst is the whole allowance, and it refills over
@@ -85,7 +72,11 @@ func (l *Limiter) Peek(key string, perMinute int) bool {
 // of ten in twenty seconds, which is exactly what two hundred an hour is
 // supposed to permit; the bucket already had a rate and a burst, and one number
 // conflated them.
-func (l *Limiter) take(key string, count int, period time.Duration, spend bool) bool {
+//
+// need is how many tokens must be there for the take to succeed — one for a
+// caller's own request, two for one the gateway makes on its behalf — and one
+// is spent either way.
+func (l *Limiter) take(key string, count int, period time.Duration, spend bool, need float64) bool {
 	if count <= 0 {
 		return true
 	}
@@ -102,6 +93,9 @@ func (l *Limiter) take(key string, count int, period time.Duration, spend bool) 
 	b, ok := l.buckets[key]
 	if !ok {
 		// A fresh caller starts full, minus the request being served.
+		if burst < need {
+			return false
+		}
 		if !spend {
 			return true
 		}
@@ -115,7 +109,7 @@ func (l *Limiter) take(key string, count int, period time.Duration, spend bool) 
 	}
 	b.last = now
 
-	if b.tokens < 1 {
+	if b.tokens < need {
 		return false
 	}
 	if spend {

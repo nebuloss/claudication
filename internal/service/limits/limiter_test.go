@@ -1,6 +1,8 @@
 package limits
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -126,5 +128,56 @@ func TestLimiterSweepEvictsIdle(t *testing.T) {
 	l.mu.Unlock()
 	if n != 0 {
 		t.Errorf("len(buckets) = %d, want 0 after sweep", n)
+	}
+}
+
+// A request made on a caller's behalf never takes the caller's last token.
+func TestAllowSpareLeavesTheLastToken(t *testing.T) {
+	l := NewLimiter()
+	now := time.Now()
+	l.now = func() time.Time { return now }
+	if l.AllowSpare("k", 1, time.Minute) {
+		t.Error("an allowance of one has no spare")
+	}
+	// Three: the spare take leaves two, the caller's own one, the next spare
+	// take is refused, and the caller still has its last.
+	if !l.AllowSpare("k3", 3, time.Minute) || !l.Allow("k3", 3, time.Minute) {
+		t.Fatal("the first two takes were refused")
+	}
+	if l.AllowSpare("k3", 3, time.Minute) {
+		t.Error("a spare take spent the last token")
+	}
+	if !l.Allow("k3", 3, time.Minute) {
+		t.Error("the caller lost its last token")
+	}
+}
+
+// Checked and spent at once: however many race for it, spare takes leave the
+// caller one token. A check, an unlock and a take let all of them through.
+func TestAllowSpareIsAtomic(t *testing.T) {
+	const n = 64
+	for round := 0; round < 20; round++ {
+		l := NewLimiter()
+		now := time.Now()
+		l.now = func() time.Time { return now }
+		l.Allow("k", n, time.Hour) // the bucket exists, n-1 left
+		var wg sync.WaitGroup
+		var granted atomic.Int32
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if l.AllowSpare("k", n, time.Hour) {
+					granted.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+		if got := granted.Load(); got != n-2 {
+			t.Fatalf("round %d: %d spare takes granted, want %d", round, got, n-2)
+		}
+		if !l.Allow("k", n, time.Hour) {
+			t.Fatalf("round %d: the caller's last token was spent", round)
+		}
 	}
 }
