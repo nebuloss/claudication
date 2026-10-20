@@ -43,6 +43,29 @@ type Store struct {
 // Open connects to the database at path and brings the schema up to date.
 // sealer is what the database's credentials are sealed with.
 func Open(ctx context.Context, dbPath string, sealer *secret.Sealer) (*Store, error) {
+	return open(ctx, dbPath, sealer, false)
+}
+
+// ErrSchemaChange is OpenAlongside refusing: the database is not at the schema
+// this binary serves, and bringing it there would change it under another
+// process still serving from it.
+var ErrSchemaChange = errors.New("the database needs a schema change")
+
+// OpenAlongside opens the database while another process serves from it — a
+// worker started beside the one it is taking over from (internal/handover).
+//
+// Two processes writing one WAL database is safe; one changing its schema
+// under the other is not, because the other goes on writing what the old
+// schema expects. So this never migrates: a database at any version but
+// schemaVersion, or an empty one, is ErrSchemaChange, and the caller falls
+// back to stopping the other process first. Nor does it reclaim: VACUUM would
+// hold the write lock for the length of a rewrite, past the busy timeout the
+// serving process waits for it, and nothing was rebuilt to reclaim.
+func OpenAlongside(ctx context.Context, dbPath string, sealer *secret.Sealer) (*Store, error) {
+	return open(ctx, dbPath, sealer, true)
+}
+
+func open(ctx context.Context, dbPath string, sealer *secret.Sealer, alongside bool) (*Store, error) {
 	if sealer == nil {
 		return nil, errors.New("open database: no sealer")
 	}
@@ -68,11 +91,23 @@ func Open(ctx context.Context, dbPath string, sealer *secret.Sealer) (*Store, er
 	// gains nothing — the transaction rolls back and the next command starts
 	// it again from the top. So the upgrade runs to the end once begun.
 	mctx := context.WithoutCancel(ctx)
-	if err := migrate(mctx, db); err != nil {
-		db.Close()
-		return nil, err
+	var compactErr error
+	if alongside {
+		version, empty, err := schemaVersionOf(ctx, db)
+		if err == nil && (empty || version != schemaVersion) {
+			err = fmt.Errorf("%w: it is at version %d, this release serves %d", ErrSchemaChange, version, schemaVersion)
+		}
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+	} else {
+		if err := migrate(mctx, db); err != nil {
+			db.Close()
+			return nil, err
+		}
+		compactErr = reclaim(mctx, db)
 	}
-	compactErr := reclaim(mctx, db)
 
 	// SQLite creates the file honouring umask, which typically yields 0644.
 	// It holds sealed credentials, so tighten it: the 0700 state directory is
