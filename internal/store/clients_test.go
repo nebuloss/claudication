@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,6 +100,25 @@ func TestClientsOwnTheirNames(t *testing.T) {
 	all, _ := st.Clients(ctx)
 	if len(all) != 1 || all[0].ID != b.ID {
 		t.Errorf("clients after the delete: %+v", all)
+	}
+}
+
+// A new name must carry the mark the client's type needs on its API, as the
+// page says beside the field: Claude Code's keep "claude".
+func TestASlotNameCarriesItsMark(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	c := makeClient(t, st, "laptop", "claude-code")
+	err := st.SetSlot(ctx, c.ID, "main", "big", Binding{Follows: clients.FollowOpus})
+	if !errors.Is(err, ErrInvalidClient) || !strings.Contains(err.Error(), "claude-big") {
+		t.Errorf("a Claude Code name without claude: %v", err)
+	}
+	if err := st.SetSlot(ctx, c.ID, "main", "claude-big", Binding{Follows: clients.FollowOpus}); err != nil {
+		t.Errorf("a Claude Code name with it: %v", err)
+	}
+	// Rebinding keeps the name it has, which is not checked again.
+	if err := st.SetSlot(ctx, c.ID, "main", "", Binding{Model: "claude-sonnet-5"}); err != nil {
+		t.Errorf("a rebind: %v", err)
 	}
 }
 
