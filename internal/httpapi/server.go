@@ -241,7 +241,7 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 	}
 	s.pool = pool.New(st, s.httpClient, log, refresh)
 	// Across processes as well as within this one: see LockRefreshes.
-	s.pool.LockRefreshes(handover.FileLock(filepath.Join(cfg.StateDir, "locks")))
+	s.pool.LockRefreshes(handover.FileLock(filepath.Join(cfg.StateDir, "locks"), log))
 	// A ChatGPT conversation stays on the account that served it last: its
 	// encrypted reasoning was made there, and whether another account can
 	// read it is not measured. See internal/pool, affinity.go.

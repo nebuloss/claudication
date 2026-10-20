@@ -56,6 +56,6 @@ func (w *Worker) Orphaned() <-chan struct{}          { return nil }
 
 // FileLock is a no-op: with no handover there is never a second process to
 // exclude.
-func FileLock(string) func(context.Context, string) (func(), error) {
+func FileLock(string, *slog.Logger) func(context.Context, string) (func(), error) {
 	return func(context.Context, string) (func(), error) { return func() {}, nil }
 }

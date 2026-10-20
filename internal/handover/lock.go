@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -24,17 +25,30 @@ import (
 // into file names, so any string is safe.
 //
 // The returned unlock is never nil. Waiting is polled, because flock cannot
-// be interrupted by a context.
-func FileLock(dir string) func(ctx context.Context, name string) (unlock func(), err error) {
+// be interrupted by a context; running out of ctx while another holds the
+// lock is the one error.
+//
+// A lock that cannot be taken at all — the directory unwritable, flock not
+// supported — is logged and skipped rather than returned. What it guards is a
+// race that needs a handover to happen during a refresh; failing every
+// refresh would take every account offline for certain, to avoid a chance
+// of taking one.
+func FileLock(dir string, log *slog.Logger) func(ctx context.Context, name string) (unlock func(), err error) {
+	unusable := func(name string, err error) (func(), error) {
+		log.Error("cannot lock token refreshes across processes; refreshing with only this process's own lock "+
+			"(a handover overlapping this refresh could spend the refresh token twice)",
+			"dir", dir, "name", name, "err", err)
+		return func() {}, nil
+	}
 	return func(ctx context.Context, name string) (func(), error) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return func() {}, fmt.Errorf("lock %s: %w", name, err)
+			return unusable(name, err)
 		}
 		sum := sha256.Sum256([]byte(name))
 		path := filepath.Join(dir, hex.EncodeToString(sum[:8])+".lock")
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
-			return func() {}, fmt.Errorf("lock %s: %w", name, err)
+			return unusable(name, err)
 		}
 		for {
 			err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
@@ -44,7 +58,7 @@ func FileLock(dir string) func(ctx context.Context, name string) (unlock func(),
 			}
 			if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
 				f.Close()
-				return func() {}, fmt.Errorf("lock %s: %w", name, err)
+				return unusable(name, err)
 			}
 			select {
 			case <-ctx.Done():

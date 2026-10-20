@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -485,7 +486,7 @@ func TestWorkerReadsTheControlPipe(t *testing.T) {
 
 // Two holders of one name take turns; two names do not wait on each other.
 func TestFileLockExcludesAcrossHolders(t *testing.T) {
-	lock := FileLock(t.TempDir())
+	lock := FileLock(t.TempDir(), slog.New(slog.DiscardHandler))
 	ctx := context.Background()
 	unlock, err := lock(ctx, "acct-1")
 	if err != nil {
@@ -509,4 +510,23 @@ func TestFileLockExcludesAcrossHolders(t *testing.T) {
 		t.Fatalf("after unlock: %v", err)
 	}
 	u()
+}
+
+// A lock that cannot be taken is no reason to fail a refresh: that would take
+// every account offline for certain, against the chance of a race.
+func TestAnUnusableLockDirectoryDoesNotFailTheRefresh(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var logged strings.Builder
+	lock := FileLock(filepath.Join(file, "locks"), slog.New(slog.NewTextHandler(&logged, nil)))
+	unlock, err := lock(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatalf("an unusable lock directory failed the lock: %v", err)
+	}
+	unlock()
+	if !strings.Contains(logged.String(), "cannot lock token refreshes") {
+		t.Errorf("not said out loud: %q", logged.String())
+	}
 }
