@@ -128,20 +128,27 @@ supervisor is running, and every later update is a handover.
 ## Measured
 
 On dev-build, 2026-10-20. Four client threads opening a new connection for
-every `/health` request, on the relay and the admin port, and one request held
-open for 22 seconds on the admin port (its body sent a byte at a time) across
-the update.
+every `/health` request, on the relay and the admin port; four keep-alive
+clients sending POSTs on one connection each, reconnecting only when told
+`Connection: close`, with no retry; and one request held open for 22 seconds
+on the admin port (its body sent a byte at a time) across the update.
 
 Under OpenRC 0.63.2, in an Alpine 3.24 user namespace, with the real
 `install.sh` driving `rc-service` and `supervise-daemon`:
 
-| update | requests | refused | other errors | long request |
+| update | new connections | refused | pooled POSTs failed | long request |
 |---|---|---|---|---|
-| the release before this one → this one (stop and start) | 69,871 | 9,663, over 19.0 s | 2 (reset, EOF) | completed |
-| this one → this one (handover) | 287,171 | **0** | **0** | completed on the old worker, 19 s after the handover |
-| this one → a binary that cannot serve (handover, rolled back) | 777,162 | **0** | **0** | completed; nothing was stopped |
+| the release before this one → this one (stop and start) | 68,165 | 10,165, over 19.1 s | 1,248 of 1,608 | completed |
+| this one → this one (handover) | 281,893 | **0** | **0** of 1,753 | completed on the old worker, 19 s after the handover |
+| this one → the same version again (handover) | 282,798 | **0** | **0** of 1,753 | completed |
+| this one → a binary that cannot serve (handover, rolled back; earlier run) | 777,162 | **0** | — | completed; nothing was stopped |
 
-The uptime record for the first two: an outage of 19 s, the length of the refusals, and none.
+In the handovers, four of the pooled connections were answered with
+`Connection: close` by the old worker and reopened to the new one; none was
+closed under a request. The uptime record: an outage of 19.1 s for the stop
+and start, the length of the refusals, and none for either handover. The
+same-version run is the one the version string could not tell apart; the
+installer waited for the new worker's instance.
 
 Under systemd 257 (a `--user` unit with this unit's `Type=exec`,
 `ExecReload` and `KillMode=mixed`), binary renamed into place and
