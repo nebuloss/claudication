@@ -1,6 +1,6 @@
 # claudication docs
 
-Five documents, and one rule that matters more than any of them.
+Six documents, and one rule that matters more than any of them.
 
 **The rule:** when a request starts failing for a reason its error message does
 not name, do not reason about it. Bisect it. None of the three content triggers
@@ -30,6 +30,7 @@ real system prompt out of your own binary, which that file cannot carry.
 | [upstream-request-pipeline.md](upstream-request-pipeline.md) | What the official client assembles and sends between a prompt and its POST — system array, messages, cache breakpoints, headers, timeouts, truncation. The reference for judging whether a third-party client's request is unusual. |
 | [reversing.md](reversing.md) | How all of it was obtained, how to check any single claim again, and what could not be determined. |
 | [clients.md](clients.md) | **Setting one up.** Working configuration for Claude Code, opencode, crush and Codex CLI, and what each failure mode actually means. |
+| [deploying.md](deploying.md) | **Updating it.** How an update hands over to the new binary without refusing a connection, under OpenRC and systemd, what falls back to a stop and a start, and what was measured. |
 | [client-apis.md](client-apis.md) | The APIs clients speak to the gateway — Anthropic Messages and OpenAI Responses — the Gateway switch, how a request is routed, and how to add a third. |
 
 The same record as `refused-requests.md`, condensed, is in the code:

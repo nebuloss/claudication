@@ -462,6 +462,15 @@ daemon should have: its own user, `ProtectSystem=strict`, a `SystemCallFilter`,
 `TimeoutStopSec` longer than the drain grace so a stop does not sever a stream
 mid-frame. The OpenRC path is supervised and registers logrotate.
 
+An update refuses no connection. `serve` runs as a small supervisor holding
+the sockets and a worker serving them; `reload` (`rc-service claudication
+reload`, `systemctl reload claudication`) starts a worker from the binary on
+disk beside the running one, which lets go only once the new one answers and
+then finishes its open streams. `scripts/install.sh` updates that way whenever
+the running gateway can, and otherwise stops and starts it as before. How, why
+that shape for both OpenRC and systemd, what falls back to a stop, and what was
+measured: [docs/deploying.md](docs/deploying.md).
+
 The state directory has to be writable and claudication refuses to start if it is
 not, which turns "the tokens were on a layer that got thrown away" into a startup
 error rather than silent data loss.

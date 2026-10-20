@@ -139,7 +139,10 @@ API is a script under `scripts/`, run by hand, and says so.
 ## Deploying
 
 `scripts/install.sh` installs or updates a systemd or OpenRC service and writes
-`/etc/claudication/config.yaml` on first run. State — the database and the
+`/etc/claudication/config.yaml` on first run. An update is a handover, not a
+stop: `serve` is a supervisor holding the sockets plus a worker, and a reload
+swaps the worker without refusing a connection (`go doc ./internal/handover`,
+[`docs/deploying.md`](docs/deploying.md)). State — the database and the
 sealing key — lives in the state directory and never in config.
 `claudication backup FILE` takes a consistent snapshot without stopping the
 service; that file holds the sealing key and every stored token together, so it
