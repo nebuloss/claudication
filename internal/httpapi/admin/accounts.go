@@ -16,6 +16,9 @@ type AccountJSON struct {
 	ID       string `json:"id"`
 	Provider string `json:"provider"`
 	Email    string `json:"email"`
+	// Name is what the operator calls the account; omitted when it has
+	// none, and the UI shows the address in its place.
+	Name string `json:"name,omitempty"`
 	// Plan is the subscription the sign-in named (ChatGPT's plus, pro,
 	// team); omitted when it named none.
 	Plan          string `json:"plan,omitempty"`
@@ -81,6 +84,7 @@ func toAccountJSON(a store.Account, prov provider.Accounts) AccountJSON {
 		ID:        a.ID,
 		Provider:  a.Provider,
 		Email:     a.Email,
+		Name:      a.Name,
 		Plan:      a.Plan,
 		ExpiresAt: a.ExpiresAt.UTC().Format(time.RFC3339),
 		CreatedAt: a.CreatedAt.UTC().Format(time.RFC3339),
@@ -356,6 +360,37 @@ func (s *Admin) handleSetAccountDisabled(w http.ResponseWriter, r *http.Request)
 		httpx.WriteJSON(w, http.StatusOK, map[string]bool{"disabled": body.Disabled})
 		return
 	}
+	httpx.WriteJSON(w, http.StatusOK, s.accountJSON(acct))
+}
+
+// handleSetAccountName names an account, or with an empty name lets it be
+// known by its address again. A PUT of the whole name, so the same request
+// twice leaves the same name.
+func (s *Admin) handleSetAccountName(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	id := r.PathValue("id")
+	switch err := s.store.SetAccountName(r.Context(), id, body.Name); {
+	case errors.Is(err, store.ErrAccountNotFound):
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
+		return
+	case errors.Is(err, store.ErrInvalidName):
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
+		return
+	case err != nil:
+		httpx.Internal(w, s.log, "name account", err)
+		return
+	}
+	acct, err := s.store.Account(r.Context(), id)
+	if err != nil {
+		httpx.Internal(w, s.log, "read the named account", err)
+		return
+	}
+	s.log.Info("account named", "account", id, "name", acct.Name, "ip", httpx.ClientIP(r.Context()))
 	httpx.WriteJSON(w, http.StatusOK, s.accountJSON(acct))
 }
 

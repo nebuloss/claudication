@@ -47,7 +47,9 @@ type ProviderShare struct {
 type AccountShare struct {
 	AccountID string `json:"account_id"`
 	Email     string `json:"email"`
-	Provider  string `json:"provider"`
+	// Name is what the account is called: its name, or its address.
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
 	// FiveHour and SevenDay are percentage points of this account's window.
 	FiveHour float64 `json:"five_hour"`
 	SevenDay float64 `json:"seven_day"`
@@ -59,7 +61,7 @@ type AccountShare struct {
 
 // accountWindows is what the estimate needs from one account.
 type accountWindows struct {
-	id, email        string
+	id, email, name  string
 	provider         string
 	util5, util7     float64
 	weight5, weight7 map[string]float64
@@ -89,7 +91,7 @@ func shareOf(keyID string, accounts []accountWindows) SubscriptionShare {
 			continue
 		}
 		s := AccountShare{
-			AccountID: a.id, Email: a.email, Provider: a.provider,
+			AccountID: a.id, Email: a.email, Name: a.name, Provider: a.provider,
 			FiveHourShare: f5, SevenDayShare: f7,
 			FiveHour: f5 * a.util5, SevenDay: f7 * a.util7,
 		}
@@ -144,7 +146,7 @@ func (s *Admin) subscriptionWindows(ctx context.Context) ([]accountWindows, erro
 		if !q.Known() {
 			continue
 		}
-		w := accountWindows{id: a.ID, email: a.Email, provider: a.Provider, util5: max(q.FiveHourUtil, 0), util7: max(q.SevenDayUtil, 0)}
+		w := accountWindows{id: a.ID, email: a.Email, name: a.DisplayName(), provider: a.Provider, util5: max(q.FiveHourUtil, 0), util7: max(q.SevenDayUtil, 0)}
 		if w.weight5, err = s.store.KeyWeights(ctx, a.ID, windowStart(q.FiveHourReset, 5*time.Hour, now)); err != nil {
 			return nil, err
 		}

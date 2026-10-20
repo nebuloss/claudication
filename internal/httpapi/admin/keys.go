@@ -260,6 +260,9 @@ func (s *Admin) handleUpdateKey(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrKeyNotFound):
 		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
 		return
+	case errors.Is(err, store.ErrInvalidName):
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
+		return
 	case err != nil:
 		s.log.Error("update api key", "err", err, "id", id)
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not update the key")

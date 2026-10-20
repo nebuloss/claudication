@@ -146,6 +146,10 @@ CREATE TABLE accounts (
     id                 TEXT    PRIMARY KEY,
     provider           TEXT    NOT NULL,
     email              TEXT    NOT NULL,
+    -- What the operator calls it, where it is not its address: a personal
+    -- subscription and a work one can share one, and an address says nothing
+    -- of which seat it is. '' is unnamed, shown as the address (038).
+    name               TEXT    NOT NULL DEFAULT '',
     -- The provider's own id for the account. For ChatGPT it is the
     -- chatgpt_account_id every request carries, naming the workspace billed.
     account_uuid       TEXT    NOT NULL DEFAULT '',

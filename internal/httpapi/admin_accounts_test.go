@@ -551,6 +551,34 @@ func TestPauseAccountOverTheAPI(t *testing.T) {
 	}
 }
 
+// Naming over the API answers with the account as it now reads, an empty name
+// gives it back its address, and a name the store refuses is the caller's
+// error, not the gateway's.
+func TestNameAccountOverTheAPI(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	base, c := adminAPI(t, srv)
+	a := addAccount(t, srv, st, "a@example.com", "x", "r", time.Now().Add(time.Hour))
+	path := "/admin/accounts/" + a.ID + "/name"
+
+	status, body := call(t, base, http.MethodPut, path, `{"name":" Work "}`, c)
+	if got := decode[admin.AccountJSON](t, body); status != http.StatusOK || got.Name != "Work" || got.Email != "a@example.com" {
+		t.Fatalf("name: %d %s", status, body)
+	}
+	status, body = call(t, base, http.MethodPut, path, `{"name":""}`, c)
+	if got := decode[admin.AccountJSON](t, body); status != http.StatusOK || got.Name != "" {
+		t.Fatalf("clear: %d %s", status, body)
+	}
+	if status, body := call(t, base, http.MethodPut, path, `{"name":"a\nb"}`, c); status != http.StatusBadRequest {
+		t.Errorf("a name across lines: %d %s", status, body)
+	}
+	if status, _ := call(t, base, http.MethodPut, "/admin/accounts/nope/name", `{"name":"x"}`, c); status != http.StatusNotFound {
+		t.Errorf("unknown account: %d", status)
+	}
+	if status, _ := call(t, base, http.MethodPut, path, `x`, c); status != http.StatusBadRequest {
+		t.Errorf("malformed body: %d", status)
+	}
+}
+
 // Deleting hands the refresh token back upstream before forgetting it — and an
 // upstream that will not take it back must not keep the account alive here.
 func TestDeleteAccountRevokesThenForgets(t *testing.T) {
@@ -601,6 +629,7 @@ func TestAccountEndpointsRequireASession(t *testing.T) {
 		{http.MethodPost, "/admin/accounts/x/refresh"},
 		{http.MethodPost, "/admin/accounts/x/usage"},
 		{http.MethodPost, "/admin/accounts/x/disabled"},
+		{http.MethodPut, "/admin/accounts/x/name"},
 		{http.MethodDelete, "/admin/accounts/x"},
 		{http.MethodGet, "/admin/config"},
 		{http.MethodGet, "/admin/models"},

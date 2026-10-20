@@ -135,6 +135,7 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/accounts/{id}/refresh", admin(s.handleRefreshAccount))
 	mux.Handle("POST /admin/accounts/{id}/usage", admin(s.handleRefreshUsage))
 	mux.Handle("POST /admin/accounts/{id}/disabled", admin(s.handleSetAccountDisabled))
+	mux.Handle("PUT /admin/accounts/{id}/name", admin(s.handleSetAccountName))
 	mux.Handle("GET /admin/accounts/{id}/models", admin(s.handleAccountModels))
 	mux.Handle("POST /admin/accounts/{id}/models", admin(s.handleSetAccountModel))
 	mux.Handle("GET /admin/accounts/{id}/clients", admin(s.handleAccountClients))

@@ -279,9 +279,12 @@ func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (A
 // insertKey writes a new key inside tx, with its name, so history never holds
 // an id with no name: the half of CreateKey that creating a client shares.
 func (s *Store) insertKey(ctx context.Context, tx *sql.Tx, name string, limits KeyLimits) (APIKey, string, error) {
-	name = strings.TrimSpace(name)
+	name, err := CleanName(name)
+	if err != nil {
+		return APIKey{}, "", err
+	}
 	if name == "" {
-		return APIKey{}, "", errors.New("key name must not be empty")
+		return APIKey{}, "", invalidName("key name must not be empty")
 	}
 	if err := limits.validate(); err != nil {
 		return APIKey{}, "", err
@@ -416,9 +419,12 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 // round every client that holds it. The credential is what is expensive to
 // change; its label is not.
 func (s *Store) UpdateKey(ctx context.Context, id, name string, limits KeyLimits) error {
-	name = strings.TrimSpace(name)
+	name, err := CleanName(name)
+	if err != nil {
+		return err
+	}
 	if name == "" {
-		return errors.New("a key needs a name")
+		return invalidName("a key needs a name")
 	}
 	if err := limits.validate(); err != nil {
 		return err

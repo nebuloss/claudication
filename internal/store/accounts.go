@@ -15,9 +15,12 @@ var ErrAccountNotFound = errors.New("account not found")
 
 // Account is one logged-in upstream credential.
 type Account struct {
-	ID          string
-	Provider    string
-	Email       string
+	ID       string
+	Provider string
+	Email    string
+	// Name is what the operator calls the account; empty when it is known
+	// by its address. DisplayName is the one to show.
+	Name        string
 	AccountUUID string
 	// Plan is the subscription, in the provider's word, as the sign-in said;
 	// empty when it did not.
@@ -166,6 +169,15 @@ func QuotaFromWindows(at time.Time, windows []QuotaWindow, limited bool, detail 
 
 func (a Account) Disabled() bool { return a.DisabledAt != nil }
 
+// DisplayName is what the account is called: its name, or its address when
+// it has none. The names ledger holds the same (rememberAccountName).
+func (a Account) DisplayName() string {
+	if a.Name != "" {
+		return a.Name
+	}
+	return a.Email
+}
+
 // RefreshDead reports whether the refresh token has been refused for good.
 func (a Account) RefreshDead() bool { return a.RefreshDeadAt != nil }
 
@@ -272,7 +284,7 @@ func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Ac
 			acct.Provider, acct.Email, acct.AccountUUID).Scan(&id); err != nil {
 			return fmt.Errorf("store account: %w", err)
 		}
-		return rememberName(ctx, tx, nameAccount, id, acct.Email)
+		return rememberAccountName(ctx, tx, id)
 	}); err != nil {
 		return Account{}, err
 	}
@@ -284,7 +296,7 @@ func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Ac
 // order, selected FROM accountsWithQuota. The quota has its own table, joined
 // rather than subqueried column by column; it shares no column name with
 // accounts, so the statements' own WHERE and ORDER BY stay unqualified.
-const accountColumns = `accounts.id, provider, email, account_uuid, plan, expires_at, refresh_expires_at,
+const accountColumns = `accounts.id, provider, email, name, account_uuid, plan, expires_at, refresh_expires_at,
                         created_at, last_refresh_at, last_used_at, last_error, disabled_at,
                         refresh_dead_at,
                         q.updated_at, q.five_hour_util, q.five_hour_reset, COALESCE(q.five_hour_status, ''),
@@ -305,7 +317,7 @@ func scanAccount(sc scanner) (Account, error) {
 		util5h, util7d                  sql.NullFloat64
 		modelsOff                       string
 	)
-	if err := sc.Scan(&a.ID, &a.Provider, &a.Email, &a.AccountUUID, &a.Plan, &expiresAt, &refreshExpires,
+	if err := sc.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.AccountUUID, &a.Plan, &expiresAt, &refreshExpires,
 		&createdAt, &lastRefresh, &lastUsed, &a.LastError, &disabled, &refreshDead,
 		&quotaUpdated, &util5h, &reset5h, &a.Quota.FiveHourStatus,
 		&util7d, &reset7d, &a.Quota.SevenDayStatus, &a.Position,
@@ -566,8 +578,9 @@ func (s *Store) RenewAccount(ctx context.Context, id string, acct Account, tok T
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrAccountNotFound
 		}
-		// A new address is a rename, and the account's history follows it.
-		return rememberName(ctx, tx, nameAccount, id, acct.Email)
+		// A new address is a rename of an unnamed account, and its history
+		// follows it; a named one keeps the name it was given.
+		return rememberAccountName(ctx, tx, id)
 	}); err != nil {
 		return Account{}, err
 	}
@@ -644,6 +657,28 @@ func (s *Store) SetAccountDisabled(ctx context.Context, id string, disabled bool
 		return ErrAccountNotFound
 	}
 	return nil
+}
+
+// SetAccountName names an account, or with "" gives it back its address as
+// its name. Names need not be unique: an account's id is what identifies it,
+// and two seats an operator calls the same are the operator's to tell apart.
+// The ledger is written in the same transaction, so its history is relabelled
+// at once.
+func (s *Store) SetAccountName(ctx context.Context, id, name string) error {
+	name, err := CleanName(name)
+	if err != nil {
+		return err
+	}
+	return s.inTx(ctx, "name account", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE accounts SET name = ? WHERE id = ?`, name, id)
+		if err != nil {
+			return fmt.Errorf("name account: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrAccountNotFound
+		}
+		return rememberAccountName(ctx, tx, id)
+	})
 }
 
 func (s *Store) DeleteAccount(ctx context.Context, id string) error {
