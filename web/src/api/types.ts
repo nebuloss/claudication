@@ -65,6 +65,8 @@ export interface Account {
    * so this is empty for a healthy account and after a restart.
    */
   cooling_until?: string
+  /** Requests it is serving now, streams included. In memory, like cooling_until. */
+  in_flight: number
   /** Models turned off for this account, as they were switched. */
   models_off?: string[]
 }

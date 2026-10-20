@@ -254,6 +254,45 @@ func TestAcquireServesAValidTokenWithoutRefreshing(t *testing.T) {
 	}
 }
 
+// Each lease counts as one request in flight on its account until it is
+// released, and releasing twice — the relay releases on every path — takes
+// off one, not two.
+func TestLeasesCountInFlightUntilReleased(t *testing.T) {
+	p, _ := fixture(t)
+	id := connect(t, p, "a@example.com", fresh())
+	ctx := context.Background()
+	inFlight := func() int {
+		t.Helper()
+		st, err := p.Status(ctx, "anthropic")
+		if err != nil {
+			t.Fatalf("Status: %v", err)
+		}
+		return st.InFlight[id]
+	}
+
+	one, err := p.Acquire(ctx, "anthropic", "", nil)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	two, err := p.Acquire(ctx, "anthropic", "", nil)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if n := inFlight(); n != 2 {
+		t.Fatalf("in flight with two leases out = %d, want 2", n)
+	}
+	one.Release()
+	one.Release()
+	if n := inFlight(); n != 1 {
+		t.Fatalf("in flight after releasing one lease twice = %d, want 1", n)
+	}
+	two.Release()
+	if n := inFlight(); n != 0 {
+		t.Fatalf("in flight after releasing both = %d, want 0", n)
+	}
+	Lease{}.Release() // a fake pool's lease: nothing to release, and no panic
+}
+
 // A token about to expire is refreshed before it is handed out, and the lease
 // carries the new one: a request must not ride a token that dies mid-flight.
 func TestAcquireRefreshesANearlyExpiredToken(t *testing.T) {

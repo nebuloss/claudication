@@ -48,6 +48,9 @@ type AccountJSON struct {
 	// When a sidelined account comes back, if it is sitting one out. This is
 	// the pool's in-memory state, so it is empty after a restart.
 	CoolingUntil string `json:"cooling_until,omitempty"`
+	// InFlight is how many requests the account is serving now, streams
+	// included: the pool's leases out on it, so also in memory only.
+	InFlight int `json:"in_flight"`
 	// ModelsOff are the models turned off for this account, as switched.
 	ModelsOff []string `json:"models_off,omitempty"`
 }
@@ -177,6 +180,7 @@ func (s *Admin) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 		if until, ok := status.Cooling[a.ID]; ok {
 			j.CoolingUntil = until.UTC().Format(time.RFC3339)
 		}
+		j.InFlight = status.InFlight[a.ID]
 		out = append(out, j)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{

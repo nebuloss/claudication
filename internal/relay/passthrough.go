@@ -217,6 +217,13 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 	// answers with the upstream's own words rather than ours.
 	var last *refusal
 
+	// The lease the current attempt holds, released when the attempt gives
+	// way to the next one and when the answer is done — after a stream has
+	// been relayed in full, which is what keeps the pool's in-flight count
+	// true for a request that holds its account for minutes.
+	var held pool.Lease
+	defer func() { held.Release() }()
+
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		res.Attempts = attempt
 
@@ -244,6 +251,8 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 			res.Err = err
 			return res
 		}
+		held.Release()
+		held = lease
 		res.AccountID = lease.Account.ID
 		res.AccountEmail = lease.Account.Email
 		res.Provider = r.Wire.ID()

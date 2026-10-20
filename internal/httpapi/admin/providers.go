@@ -40,10 +40,11 @@ type poolStatus struct {
 	Cooling     map[string]time.Time
 	Usable      int
 	NeedsReauth int
+	InFlight    map[string]int
 }
 
 func (s *Admin) poolStatus(ctx context.Context) (poolStatus, error) {
-	out := poolStatus{Serving: map[string]bool{}, Cooling: map[string]time.Time{}}
+	out := poolStatus{Serving: map[string]bool{}, Cooling: map[string]time.Time{}, InFlight: map[string]int{}}
 	for _, p := range s.providers {
 		st, err := s.pool.Status(ctx, p.ID())
 		if err != nil {
@@ -54,6 +55,9 @@ func (s *Admin) poolStatus(ctx context.Context) (poolStatus, error) {
 		}
 		for id, until := range st.Cooling {
 			out.Cooling[id] = until
+		}
+		for id, n := range st.InFlight {
+			out.InFlight[id] = n
 		}
 		out.Usable += st.Usable
 		out.NeedsReauth += st.NeedsReauth

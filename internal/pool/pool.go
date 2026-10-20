@@ -74,6 +74,19 @@ var (
 type Lease struct {
 	Account     store.Account
 	AccessToken string
+	// release takes this request off the account's in-flight count. Nil on
+	// a lease the pool did not hand out, which a test's fake pool returns.
+	release func()
+}
+
+// Release says the request this lease was taken for is done with the
+// account: answered, abandoned for another, or failed. Safe to call more than
+// once and on the zero Lease, so a caller can release on every path without
+// tracking which ones already did.
+func (l Lease) Release() {
+	if l.release != nil {
+		l.release()
+	}
 }
 
 type health struct {
@@ -118,6 +131,12 @@ type Pool struct {
 	// NoteQuota. quotaWrites counts the writes in flight.
 	quotaSeen   map[string]quotaNote
 	quotaWrites sync.WaitGroup
+
+	// open counts the leases each account has out, under mu: what the
+	// account's page shows as in flight. Counted here rather than at the
+	// gateway, because only the pool knows which account a request went to
+	// before it is answered — and a stream holds its account for minutes.
+	open map[string]int
 }
 
 // RefreshFunc trades a refresh token for new tokens at the provider. The pool
@@ -146,6 +165,7 @@ func New(st *store.Store, client *http.Client, log *slog.Logger, refresh map[str
 		refreshers: refreshers,
 		affinity:   affinity{last: map[string]affine{}},
 		quotaSeen:  map[string]quotaNote{},
+		open:       map[string]int{},
 	}
 }
 
@@ -179,6 +199,9 @@ type Status struct {
 	// NeedsReauth counts accounts no amount of waiting will recover: a refresh
 	// token refused for good, or a refresh window that has closed.
 	NeedsReauth int
+	// InFlight counts the requests each account is serving now, by the
+	// leases out on it. Absent means none.
+	InFlight map[string]int
 }
 
 // Status reports what the pool would do right now, without doing it.
@@ -189,7 +212,7 @@ func (p *Pool) Status(ctx context.Context, provider string) (Status, error) {
 	}
 	candidates := candidatesFor(accounts, provider, "", nil, p.now())
 
-	st := Status{Cooling: map[string]time.Time{}}
+	st := Status{Cooling: map[string]time.Time{}, InFlight: map[string]int{}}
 	for _, a := range accounts {
 		if a.Provider == provider && a.NeedsReauth() {
 			st.NeedsReauth++
@@ -197,6 +220,13 @@ func (p *Pool) Status(ctx context.Context, provider string) (Status, error) {
 	}
 
 	p.mu.Lock()
+	for _, a := range accounts {
+		// Every account of the provider, not only the candidates: one just
+		// paused can still be finishing a stream it started.
+		if n := p.open[a.ID]; a.Provider == provider && n > 0 {
+			st.InFlight[a.ID] = n
+		}
+	}
 	now := p.now()
 	for _, a := range candidates {
 		until := p.stateOf(a.ID).cooldownUntil
@@ -299,7 +329,28 @@ func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[
 	if err != nil {
 		return Lease{}, err
 	}
-	return Lease{Account: chosen, AccessToken: tokens.AccessToken}, nil
+	return Lease{Account: chosen, AccessToken: tokens.AccessToken, release: p.hold(chosen.ID)}, nil
+}
+
+// hold counts one more request open on an account, and returns what takes it
+// off again — once, however many times it is called.
+func (p *Pool) hold(id string) func() {
+	p.mu.Lock()
+	if p.open == nil {
+		p.open = map[string]int{} // a Pool built without New, as tests do
+	}
+	p.open[id]++
+	p.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			p.mu.Lock()
+			if p.open[id]--; p.open[id] <= 0 {
+				delete(p.open, id)
+			}
+			p.mu.Unlock()
+		})
+	}
 }
 
 // pick returns the highest-priority account that can serve.
