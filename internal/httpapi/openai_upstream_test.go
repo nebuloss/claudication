@@ -193,24 +193,24 @@ func send(t *testing.T, url, key, userAgent, body string, extra map[string]strin
 
 const codexUA = "codex_cli_rs/0.155.0 (Linux 6.12; x86_64) xterm"
 
-// newClient makes a client of a type on a dialect with its type's slots under
-// their names, each bound as binds says by slot id and following its default
+// newClient makes a client of a type with its type's slots under their
+// names, each bound as binds says by slot id and following its default
 // otherwise, and returns it with its key's plaintext.
-func newClient(t *testing.T, st *store.Store, name, typ string, d clients.Dialect,
+func newClient(t *testing.T, st *store.Store, name, typ string,
 	binds map[string]store.Binding) (store.Client, string) {
 	t.Helper()
 	ctx := context.Background()
 	ty, _ := clients.Find(typ)
-	d, initial := ty.Initial(d)
 	var slots []store.NewSlot
-	for _, a := range initial {
+	for _, a := range ty.Initial() {
 		b := store.Binding{Follows: a.Follows}
 		if got, ok := binds[a.Slot]; ok {
 			b = got
 		}
 		slots = append(slots, store.NewSlot{Slot: a.Slot, Name: a.Name, Binding: b})
 	}
-	c, plain, err := st.CreateClient(ctx, name, ty.ID, d, store.KeyLimits{}, slots)
+	c, plain, err := st.CreateClient(ctx, name, ty.ID, store.KeyLimits{}, slots)
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func namingChats(t *testing.T, st *store.Store, c store.Client) {
 func TestCodexSlotBoundToGPTReachesChatGPTUnchanged(t *testing.T) {
 	_, st, base, _, claude, chatgpt := twoUpstreams(t)
 	ctx := context.Background()
-	_, key := newClient(t, st, "ci", "codex", "", map[string]store.Binding{"main": {Model: "gpt-6-luna"}})
+	_, key := newClient(t, st, "ci", "codex", map[string]store.Binding{"main": {Model: "gpt-6-luna"}})
 
 	sent := codexTurn("large")
 	resp, body := send(t, base+"/v1/responses", key, codexUA, sent, map[string]string{
@@ -318,14 +318,14 @@ func TestCodexSlotBoundToGPTReachesChatGPTUnchanged(t *testing.T) {
 func TestFollowTargets(t *testing.T) {
 	_, st, base, _, claude, chatgpt := twoUpstreams(t)
 	ctx := context.Background()
-	c, key := newClient(t, st, "tool", "custom", clients.Responses, nil)
+	c, key := newClient(t, st, "tool", "custom", nil)
 	for name, f := range map[string]clients.Follow{"first": clients.FollowFirst, "light": clients.FollowLight,
 		"sonnet": clients.FollowSonnet} {
 		if err := st.AddSlot(ctx, c.ID, name, store.Binding{Follows: f}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, direct := newClient(t, st, "direct", "custom", clients.Responses, nil)
+	_, direct := newClient(t, st, "direct", "custom", nil)
 	if err := st.SetClientMode(ctx, keyID(t, st, "direct"), clients.Direct); err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func keyID(t *testing.T, st *store.Store, name string) string {
 // A Codex slot bound to a Claude model goes to Anthropic, translated.
 func TestCodexClaudeSlotTranslatesToAnthropic(t *testing.T) {
 	_, st, base, _, claude, chatgpt := twoUpstreams(t)
-	_, key := newClient(t, st, "ci", "codex", "", map[string]store.Binding{"main": {Model: "claude-sonnet-5"}})
+	_, key := newClient(t, st, "ci", "codex", map[string]store.Binding{"main": {Model: "claude-sonnet-5"}})
 	resp, body := send(t, base+"/v1/responses", key, codexUA, codexTurn("large"), nil)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "response.completed") {
 		t.Fatalf("status = %d: %s", resp.StatusCode, body)
@@ -401,7 +401,7 @@ func TestCodexClaudeSlotTranslatesToAnthropic(t *testing.T) {
 // list offers its own names that it can use and nothing else.
 func TestClaudeCodeIsRefusedAGPTSlot(t *testing.T) {
 	_, st, base, _, claude, chatgpt := twoUpstreams(t)
-	_, key := newClient(t, st, "laptop", "claude-code", "", map[string]store.Binding{"main": {Model: "gpt-6.1-sol"}})
+	_, key := newClient(t, st, "laptop", "claude-code", map[string]store.Binding{"main": {Model: "gpt-6.1-sol"}})
 	const claudeUA = "claude-cli/2.1.274 (external, sdk-cli)"
 	resp, body := send(t, base+"/v1/messages", key, claudeUA,
 		`{"model":"claude-large","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
@@ -441,7 +441,7 @@ func TestClaudeCodeIsRefusedAGPTSlot(t *testing.T) {
 // another client's name, is refused listing its own.
 func TestATypedClientNamesOnlyItsSlots(t *testing.T) {
 	_, st, base, _, claude, _ := twoUpstreams(t)
-	_, key := newClient(t, st, "box", "crush", "", nil)
+	_, key := newClient(t, st, "box", "crush", nil)
 	for _, asked := range []string{"claude-sonnet-5", "claude-large", "main"} {
 		resp, body := send(t, base+"/v1/messages", key, "Charm Crush/0.9",
 			`{"model":"`+asked+`","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
@@ -457,8 +457,8 @@ func TestATypedClientNamesOnlyItsSlots(t *testing.T) {
 // Two clients may each have a "large", and each is served its own.
 func TestNamesAreTheClientsOwn(t *testing.T) {
 	_, st, base, _, claude, _ := twoUpstreams(t)
-	_, a := newClient(t, st, "a", "crush", "", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
-	_, b := newClient(t, st, "b", "crush", "", map[string]store.Binding{"large": {Model: "claude-haiku-5"}})
+	_, a := newClient(t, st, "a", "crush", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
+	_, b := newClient(t, st, "b", "crush", map[string]store.Binding{"large": {Model: "claude-haiku-5"}})
 	for _, tc := range []struct{ key, want string }{{a, "claude-sonnet-5"}, {b, "claude-haiku-5"}} {
 		resp, body := send(t, base+"/v1/messages", tc.key, "Charm Crush/0.9",
 			`{"model":"large","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
@@ -478,7 +478,7 @@ func TestNamesAreTheClientsOwn(t *testing.T) {
 func TestDirectModeHoldsItsSwitches(t *testing.T) {
 	_, st, base, _, claude, _ := twoUpstreams(t)
 	ctx := context.Background()
-	c, key := newClient(t, st, "tool", "custom", "", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
+	c, key := newClient(t, st, "tool", "custom", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
 	if err := st.SetClientMode(ctx, c.ID, clients.Direct); err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +515,7 @@ func TestDirectModeHoldsItsSwitches(t *testing.T) {
 func TestADisabledClientIsRefused(t *testing.T) {
 	_, st, base, _, claude, _ := twoUpstreams(t)
 	ctx := context.Background()
-	c, key := newClient(t, st, "box", "crush", "", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
+	c, key := newClient(t, st, "box", "crush", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
 	if err := st.SetClientDisabled(ctx, c.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +544,7 @@ func TestADisabledClientIsRefused(t *testing.T) {
 // whether an account there can take it are one answer.
 func TestASlotBoundToAnUnlistedModelIsServedByTheDefault(t *testing.T) {
 	_, st, base, _, claude, chatgpt := twoUpstreams(t)
-	_, key := newClient(t, st, "box", "crush", "", map[string]store.Binding{"large": {Model: "mystery-7"}})
+	_, key := newClient(t, st, "box", "crush", map[string]store.Binding{"large": {Model: "mystery-7"}})
 	resp, body := send(t, base+"/v1/messages", key, "Charm Crush/0.9",
 		`{"model":"large","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -567,7 +567,7 @@ func TestASlotBoundToAnUnlistedModelIsServedByTheDefault(t *testing.T) {
 // none, and its chats are always named.
 func TestCrushNamesItsOwnChat(t *testing.T) {
 	_, st, base, _, claude, _ := twoUpstreams(t)
-	_, key := newClient(t, st, "box", "crush", "", map[string]store.Binding{
+	_, key := newClient(t, st, "box", "crush", map[string]store.Binding{
 		"large": {Model: "claude-sonnet-5"}, "small": {Model: "claude-haiku-5"}})
 	session := map[string]string{"X-Session-Id": "9f2c", "X-Session-Affinity": "9f2c"}
 	naming := `{"model":"small","max_tokens":40,"stream":true,` +
@@ -613,7 +613,7 @@ func TestCrushNamesItsOwnChat(t *testing.T) {
 func TestClaudeCodeNamesItsOwnChat(t *testing.T) {
 	srv, st, base, _, claude, _ := twoUpstreams(t)
 	abase, ck := adminAPI(t, srv)
-	c, key := newClient(t, st, "laptop", "claude-code", "", map[string]store.Binding{
+	c, key := newClient(t, st, "laptop", "claude-code", map[string]store.Binding{
 		"main": {Model: "claude-sonnet-5"}, "fast": {Model: "claude-haiku-5"}})
 	const session = "e966da91-ed4b-4451-9a11-478849a2cd97"
 	naming := `{"model":"claude-small","messages":[{"role":"user","content":[{"type":"text",` +
@@ -674,7 +674,7 @@ func TestClaudeCodeNamesItsOwnChat(t *testing.T) {
 func TestGatewayNamesAChatUnderTheClientsKey(t *testing.T) {
 	srv, st, base, _, claude, _ := twoUpstreams(t)
 	abase, ck := adminAPI(t, srv)
-	c, key := newClient(t, st, "tool", "custom", "", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
+	c, key := newClient(t, st, "tool", "custom", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})
 	namingChats(t, st, c)
 	turn := `{"model":"large","max_tokens":100,"stream":true,` +
 		`"tools":[{"name":"Read","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"say hi"}]}`
@@ -722,7 +722,7 @@ func TestGatewayNamesAChatUnderTheClientsKey(t *testing.T) {
 func TestClientLimitsReadTheWholeRatePeriod(t *testing.T) {
 	srv, st, _, _, _, _ := twoUpstreams(t)
 	abase, ck := adminAPI(t, srv)
-	c, _ := newClient(t, st, "weekly", "custom", "", nil)
+	c, _ := newClient(t, st, "weekly", "custom", nil)
 	if err := st.UpdateKey(context.Background(), c.ID, "weekly",
 		store.KeyLimits{RPMLimit: 100, RatePeriod: 7 * 24 * time.Hour}); err != nil {
 		t.Fatal(err)

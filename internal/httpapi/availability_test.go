@@ -44,44 +44,41 @@ func choiceValues(cs []modelsvc.Choice) []string {
 	return out
 }
 
-// What a client may be offered: a model a connected account lists, has on,
-// and the client's API reaches; a target only while it resolves to one.
-// The Claude stub lists claude-sonnet-5 and claude-haiku-5, so nothing
-// resolves the newest Opus.
+// What a client may be offered: a model a connected account lists and has
+// on, of either provider, whichever API the client speaks; a target only
+// while it resolves to one. The Claude stub lists claude-sonnet-5 and
+// claude-haiku-5, so nothing resolves the newest Opus.
 func TestAvailability(t *testing.T) {
 	srv, st, _, _, _, _ := twoUpstreams(t)
 	ctx := context.Background()
 	m := srv.models
 
-	messages := choiceValues(m.Choices(ctx, clients.Messages))
-	want := []string{"follow:claude:sonnet=claude-sonnet-5", "follow:claude:haiku=claude-haiku-5",
-		"model:claude-sonnet-5", "model:claude-haiku-5"}
-	if !slices.Equal(messages, want) {
-		t.Errorf("Messages choices = %v, want %v: no ChatGPT model or target, no unresolved Opus", messages, want)
+	choices := choiceValues(m.Choices(ctx))
+	if !slices.Equal(choices[:2], []string{"follow:claude:sonnet=claude-sonnet-5", "follow:claude:haiku=claude-haiku-5"}) {
+		t.Errorf("choices = %v, want the Claude targets first", choices)
 	}
-	responses := choiceValues(m.Choices(ctx, clients.Responses))
 	for _, v := range []string{"follow:openai:first=gpt-6.1-sol", "follow:openai:light=gpt-6-luna",
-		"model:gpt-6.1-sol", "model:claude-sonnet-5"} {
-		if !slices.Contains(responses, v) {
-			t.Errorf("Responses choices %v lack %s", responses, v)
+		"model:claude-sonnet-5", "model:claude-haiku-5", "model:gpt-6.1-sol"} {
+		if !slices.Contains(choices, v) {
+			t.Errorf("choices %v lack %s", choices, v)
 		}
 	}
+	if slices.ContainsFunc(choices, func(s string) bool { return strings.HasPrefix(s, "follow:claude:opus") }) {
+		t.Errorf("an unresolved Opus was offered: %v", choices)
+	}
 
-	why := func(d clients.Dialect, b store.Binding) string {
+	why := func(b store.Binding) string {
 		t.Helper()
-		_, w := m.Resolve(ctx, d, b)
+		_, w := m.Resolve(ctx, b)
 		return w
 	}
-	if w := why(clients.Messages, store.Binding{Model: "gpt-6.1-sol"}); !strings.Contains(w, "cannot reach ChatGPT") {
-		t.Errorf("a GPT model on Messages: %q", w)
+	if w := why(store.Binding{Model: "gpt-6.1-sol"}); w != "" {
+		t.Errorf("a GPT model: %q", w)
 	}
-	if w := why(clients.Responses, store.Binding{Model: "gpt-6.1-sol"}); w != "" {
-		t.Errorf("a GPT model on Responses: %q", w)
-	}
-	if w := why(clients.Messages, store.Binding{Model: "claude-opus-4"}); w != "no connected account lists it" {
+	if w := why(store.Binding{Model: "claude-opus-4"}); w != "no connected account lists it" {
 		t.Errorf("an unlisted model: %q", w)
 	}
-	if w := why(clients.Messages, store.Binding{Follows: clients.FollowOpus}); !strings.Contains(w, "no account lists a Claude opus") {
+	if w := why(store.Binding{Follows: clients.FollowOpus}); !strings.Contains(w, "no account lists a Claude opus") {
 		t.Errorf("an unresolved target: %q", w)
 	}
 
@@ -91,14 +88,15 @@ func TestAvailability(t *testing.T) {
 	if err := st.SetAccountModel(ctx, claude, "claude-haiku-5", false); err != nil {
 		t.Fatal(err)
 	}
-	if w := why(clients.Messages, store.Binding{Model: "claude-haiku-5"}); w != "it is switched off on every account that lists it" {
+	if w := why(store.Binding{Model: "claude-haiku-5"}); w != "it is switched off on every account that lists it" {
 		t.Errorf("a model off: %q", w)
 	}
-	if w := why(clients.Messages, store.Binding{Follows: clients.FollowHaiku}); w == "" {
+	if w := why(store.Binding{Follows: clients.FollowHaiku}); w == "" {
 		t.Error("a target resolving to a model off is available")
 	}
-	if got := choiceValues(m.Choices(ctx, clients.Messages)); !slices.Equal(got,
-		[]string{"follow:claude:sonnet=claude-sonnet-5", "model:claude-sonnet-5"}) {
+	if got := choiceValues(m.Choices(ctx)); slices.ContainsFunc(got, func(s string) bool {
+		return strings.Contains(s, "haiku")
+	}) || !slices.Contains(got, "model:claude-sonnet-5") {
 		t.Errorf("choices with haiku off = %v", got)
 	}
 
@@ -107,11 +105,13 @@ func TestAvailability(t *testing.T) {
 	if err := st.SetAccountDisabled(ctx, claude, true); err != nil {
 		t.Fatal(err)
 	}
-	if w := why(clients.Messages, store.Binding{Model: "claude-sonnet-5"}); w != "no connected account lists it" {
+	if w := why(store.Binding{Model: "claude-sonnet-5"}); w != "no connected account lists it" {
 		t.Errorf("the account off: %q", w)
 	}
-	if got := m.Choices(ctx, clients.Messages); len(got) != 0 {
-		t.Errorf("Messages choices with no Claude account on = %v", choiceValues(got))
+	if got := choiceValues(m.Choices(ctx)); slices.ContainsFunc(got, func(s string) bool {
+		return strings.Contains(s, "claude")
+	}) {
+		t.Errorf("choices with no Claude account on = %v", got)
 	}
 }
 
@@ -121,7 +121,7 @@ func TestAvailability(t *testing.T) {
 func TestAdminOffersOnlyAvailableBindings(t *testing.T) {
 	srv, st, _, _, _, _ := twoUpstreams(t)
 	abase, ck := adminAPI(t, srv)
-	c, _ := newClient(t, st, "box", "crush", "", nil)
+	c, _ := newClient(t, st, "box", "crush", nil)
 	get := func() admin.ClientJSON {
 		t.Helper()
 		status, body := call(t, abase, http.MethodGet, "/admin/clients/"+c.ID, "", ck)
@@ -133,10 +133,8 @@ func TestAdminOffersOnlyAvailableBindings(t *testing.T) {
 		}](t, body).Client
 	}
 	got := get()
-	if v := choiceValues(got.Choices); len(v) != 4 || slices.ContainsFunc(v, func(s string) bool {
-		return strings.Contains(s, "gpt") || strings.Contains(s, "openai")
-	}) {
-		t.Errorf("a Messages client's choices = %v", v)
+	if v := choiceValues(got.Choices); !slices.Contains(v, "model:gpt-6.1-sol") || !slices.Contains(v, "model:claude-sonnet-5") {
+		t.Errorf("a crush's choices = %v, want both providers' models", v)
 	}
 	large, small := got.Slots[0], got.Slots[1]
 	if large.Bound != clients.FollowOpus || !strings.Contains(large.Unavailable, "no account lists a Claude opus") ||
@@ -152,10 +150,6 @@ func TestAdminOffersOnlyAvailableBindings(t *testing.T) {
 		status, out := call(t, abase, http.MethodPut, "/admin/clients/"+c.ID+"/slots/"+slot, body, ck)
 		return status, string(out)
 	}
-	if status, out := set("large", `{"model":"gpt-6.1-sol"}`); status != http.StatusBadRequest ||
-		!strings.Contains(out, "cannot reach ChatGPT") {
-		t.Errorf("a GPT model on a Messages client: %d %s", status, out)
-	}
 	if status, out := set("large", `{"model":"claude-opus-4"}`); status != http.StatusBadRequest ||
 		!strings.Contains(out, "no connected account lists it") {
 		t.Errorf("an unlisted model: %d %s", status, out)
@@ -170,6 +164,13 @@ func TestAdminOffersOnlyAvailableBindings(t *testing.T) {
 	if got := get().Slots[0]; got.Name != "big" || got.Model != "claude-sonnet-5" || got.Unavailable != "" {
 		t.Errorf("large after: %+v", got)
 	}
+	// A GPT model is a crush's to have, on the API crush speaks.
+	if status, out := set("small", `{"model":"gpt-6.1-sol"}`); status != http.StatusOK {
+		t.Errorf("a GPT model on a crush: %d %s", status, out)
+	}
+	if got := get().Slots[1]; got.Serving != "gpt-6.1-sol" || got.Provider != "openai" || got.Unavailable != "" {
+		t.Errorf("small after: %+v", got)
+	}
 }
 
 // /v1/models offers a client only the names that resolve to something it
@@ -178,7 +179,7 @@ func TestModelListsOfferOnlyAvailable(t *testing.T) {
 	srv, st, base, _, _, _ := twoUpstreams(t)
 	abase, ck := adminAPI(t, srv)
 	ctx := context.Background()
-	_, key := newClient(t, st, "box", "crush", "", nil)
+	_, key := newClient(t, st, "box", "crush", nil)
 	listed := func(key string) []string {
 		t.Helper()
 		req, _ := http.NewRequest(http.MethodGet, base+"/v1/models", nil)
@@ -213,11 +214,11 @@ func TestModelListsOfferOnlyAvailable(t *testing.T) {
 		t.Errorf("with haiku off, crush's /v1/models = %v", ids)
 	}
 
-	// Direct mode: the client's Models page lists what its API reaches and
-	// an account has on, and nothing else.
-	direct := func(name string, d clients.Dialect) []string {
+	// Direct mode: the client's Models page lists what an account lists and
+	// has on, of either provider, and nothing else.
+	direct := func(name string) []string {
 		t.Helper()
-		c, _ := newClient(t, st, name, "custom", d, nil)
+		c, _ := newClient(t, st, name, "custom", nil)
 		if err := st.SetClientMode(ctx, c.ID, clients.Direct); err != nil {
 			t.Fatal(err)
 		}
@@ -235,11 +236,9 @@ func TestModelListsOfferOnlyAvailable(t *testing.T) {
 		}
 		return ids
 	}
-	if ids := direct("tool", clients.Messages); !slices.Equal(ids, []string{"claude-sonnet-5"}) {
-		t.Errorf("a Messages direct client's models = %v", ids)
-	}
-	if ids := direct("tool2", clients.Responses); !slices.Contains(ids, "gpt-6.1-sol") ||
+	if ids := direct("tool"); !slices.Contains(ids, "gpt-6.1-sol") ||
 		!slices.Contains(ids, "claude-sonnet-5") || slices.Contains(ids, "claude-haiku-5") {
-		t.Errorf("a Responses direct client's models = %v", ids)
+		t.Errorf("a direct client's models = %v", ids)
 	}
+
 }

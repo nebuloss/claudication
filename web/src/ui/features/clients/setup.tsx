@@ -137,7 +137,6 @@ function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway
   })
   const setup = useMemo<Setup>(
     () => ({
-      dialect: c.dialect,
       slots: c.slots.map((s) => ({
         id: s.id, role: s.role, field: s.field, name: s.name,
         served: offered.data?.find((m) => m.id === s.name),
@@ -156,7 +155,7 @@ function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway
         now. Switching a name to a model with other limits — a smaller window, other effort levels — means
         running the install command again.
       </Note>
-      <ClientBody recipe={recipe} gateway={gateway} dialect={c.dialect} secret={secret} setup={setup} />
+      <ClientBody recipe={recipe} gateway={gateway} secret={secret} setup={setup} />
     </>
   )
 }
@@ -271,7 +270,7 @@ function CustomSetup({ client: c, types, gateway }: { client: Client; types: Cli
         ]}
       />
       <Note>
-        Anthropic Messages reaches the Claude accounts only; OpenAI Responses reaches both, a Claude model
+        The key works on both, and both reach every model: one served by the other API&rsquo;s provider is
         translated. Paste the key in place of <code>clc_…</code>.
       </Note>
       <CopyField label="SDK environment" value={env} />

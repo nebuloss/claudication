@@ -4,8 +4,8 @@
  * The committed files under configs/clients are each type's starting point —
  * complete, readable in the repository, and written with the names a new
  * client of that type is given. A client's files are
- * those with its own names put in every model field, its API chosen where its
- * type has two, and each name described with the facts of the model it serves
+ * those with its own names put in every model field, each name described
+ * with the facts of the model it serves
  * now: the context window, the output cap, the effort levels. Those facts are
  * read once, when the file is written, which is why switching a slot to a
  * model with other limits means running the install command again.
@@ -14,7 +14,7 @@
  * against the real committed files.
  */
 
-import type { DialectId, Model } from '../../api/types'
+import type { Model } from '../../api/types'
 
 /** One slot as a file is written from it. */
 export interface SlotSetup {
@@ -29,9 +29,11 @@ export interface SlotSetup {
   served?: Model
 }
 
-/** What a client's files are written from. */
+/**
+ * What a client's files are written from. No API: each type's files point at
+ * the one its type speaks.
+ */
 export interface Setup {
-  dialect: DialectId
   slots: SlotSetup[]
 }
 
@@ -169,10 +171,9 @@ export function codexCatalog(body: string, setup: Setup): string {
 // ── crush ────────────────────────────────────────────────────────────────────
 
 /**
- * crush.json: the provider's type is the client's API — anthropic for
- * Messages, at the bare address; openai for Responses, at /v1 — its model list
- * is the client's names with their models' facts, and models.large and
- * models.small name the two slots. think is Messages' alone.
+ * crush.json: its anthropic provider at the bare address (crush adds /v1),
+ * its model list the client's names with their models' facts, and
+ * models.large and models.small naming the two slots, the large one thinking.
  */
 export function crushJson(body: string, setup: Setup, base: string): string {
   const json = JSON.parse(body) as {
@@ -181,9 +182,8 @@ export function crushJson(body: string, setup: Setup, base: string): string {
   }
   const provider = Object.values(json.providers)[0]
   if (provider === undefined) return body
-  const responses = setup.dialect === 'openai'
-  provider.type = responses ? 'openai' : 'anthropic'
-  provider.base_url = responses ? `${base}/v1` : base
+  provider.type = 'anthropic'
+  provider.base_url = base
   provider.models = unique(setup.slots).map((s) => {
     const m = s.served
     const levels = efforts(m)
@@ -210,10 +210,7 @@ export function crushJson(body: string, setup: Setup, base: string): string {
   const small = setup.slots.find((s) => s.role === 'fast') ?? large
   if (json.models?.large && large) json.models.large.model = large.name
   if (json.models?.small && small) json.models.small.model = small.name
-  if (json.models?.large) {
-    if (responses) delete json.models.large.think
-    else json.models.large.think = true
-  }
+  if (json.models?.large) json.models.large.think = true
   return JSON.stringify(json, null, 2) + '\n'
 }
 
@@ -240,15 +237,11 @@ export function stripComments(body: string): string {
 }
 
 /**
- * opencode.jsonc: its built-in provider of the client's API overridden — openai
- * for Responses, anthropic for Messages, both at /v1 — with each name declared
- * at its model's limits, and model and small_model naming the two slots. The
- * file's opening comment is kept; the rest is written whole.
- *
- * On Messages a reasoning model gets opencode's adaptive thinking modes, as
- * current Claude models take them; on Responses none are declared, because the
- * gateway does not carry a reasoning setting to Claude there and a GPT model
- * is the backend's to tune.
+ * opencode.jsonc: its built-in anthropic provider overridden, at /v1, with
+ * each name declared at its model's limits, and model and small_model naming
+ * the two slots. The file's opening comment is kept; the rest is written
+ * whole. A reasoning model gets opencode's adaptive thinking modes, as current
+ * Claude models take them.
  */
 export function opencodeJsonc(body: string, setup: Setup): string {
   const head = body.split('\n').filter((l, i, all) => i < all.findIndex((x) => x.includes('"$schema"')) && l.trim().startsWith('//'))
@@ -258,7 +251,7 @@ export function opencodeJsonc(body: string, setup: Setup): string {
     small_model?: string
   }
   const committed = Object.values(json.provider)[0] ?? {}
-  const id = setup.dialect === 'openai' ? 'openai' : 'anthropic'
+  const id = 'anthropic'
   const models: Record<string, unknown> = {}
   for (const s of unique(setup.slots)) {
     const m = s.served
@@ -272,7 +265,7 @@ export function opencodeJsonc(body: string, setup: Setup): string {
       temperature: false,
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
     }
-    if (id === 'anthropic' && levels.length > 0) {
+    if (levels.length > 0) {
       entry.variants = Object.fromEntries(levels.map((l) => [l, { thinking: { type: 'adaptive' }, effort: l }]))
     }
     models[s.name] = entry

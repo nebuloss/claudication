@@ -3,7 +3,7 @@
  *
  * The table itself is the server's (internal/service/clients, served at
  * /admin/client-types): every type's slots, labels, default names and
- * targets, which APIs it can be pointed at and why. These classes only read
+ * targets, and the API it speaks. These classes only read
  * it, so a slot's label here and in the store cannot disagree. Pure: no
  * React, so `make test-web` exercises it.
  */
@@ -45,40 +45,24 @@ export class ClientType {
     return this.spec.slots
   }
 
-  get why(): string {
-    return this.spec.why ?? ''
-  }
 
   get namesItsChats(): boolean {
     return this.spec.names_its_chats
   }
 
-  get dialects(): DialectId[] {
-    return this.spec.dialects
+  /** The API it speaks, fixed by the type; undefined for a custom client, whose key works on both. */
+  get api(): DialectId | undefined {
+    return this.spec.api
   }
 
-  get defaultDialect(): DialectId {
-    return this.spec.dialects[0] ?? 'anthropic'
+  /** What every slot name must contain, or ''. */
+  get mark(): string {
+    return this.spec.mark ?? ''
   }
 
-  /** Whether there is a choice of API to offer. */
-  get choosesDialect(): boolean {
-    return this.spec.dialects.length > 1
-  }
-
-  speaks(d: DialectId): boolean {
-    return this.spec.dialects.includes(d)
-  }
-
-  /** What every slot name must contain on a dialect, or ''. */
-  mark(d: DialectId): string {
-    return this.spec.marks?.[d] ?? ''
-  }
-
-  /** Whether a name is one the client handles right on a dialect. */
-  fits(d: DialectId, name: string): boolean {
-    const m = this.mark(d)
-    return m === '' || name.includes(m)
+  /** Whether a name is one the client handles right. */
+  fits(name: string): boolean {
+    return this.mark === '' || name.includes(this.mark)
   }
 
   /** A slot of this type, by id. */
@@ -104,10 +88,15 @@ export class ClientTypes {
   dialectTitle(d: DialectId): string {
     return this.wire.dialects.find((x) => x.id === d)?.title ?? d
   }
+
+  /** The API a type speaks, named; both for a custom client. */
+  apiTitle(t: ClientType): string {
+    return t.api !== undefined ? this.dialectTitle(t.api) : 'both APIs'
+  }
 }
 
 const FALLBACK: TypeSpec = {
-  id: 'custom', label: 'Custom', dialects: ['anthropic', 'openai'], slots: [], custom: true, names_its_chats: false,
+  id: 'custom', label: 'Custom', slots: [], custom: true, names_its_chats: false,
 }
 
 /**
@@ -214,8 +203,9 @@ export class Client {
     return this.wire.name
   }
 
-  get dialect(): DialectId {
-    return this.wire.dialect
+  /** The API it speaks: its type's. A custom client's key works on both, and has none. */
+  get api(): DialectId | undefined {
+    return this.type.api
   }
 
   get slots(): SlotWire[] {

@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import type { DialectId } from '../../api/client'
 import { CodeViewer, CopyField, Stack } from '../primitives'
 import type { Setup } from './configs'
 import type { ClientRecipe } from './model'
@@ -20,20 +19,18 @@ export function Prose({ children }: { children: ReactNode }) {
 export function ClientBody({
   recipe,
   gateway,
-  dialect,
   secret = '',
   setup,
 }: {
   recipe: ClientRecipe
   gateway: string
-  dialect: DialectId
   secret?: string
   setup?: Setup
 }) {
   return (
     <>
       <div className="mb-4">
-        <CopyField label="Base URL" value={recipe.baseURL(gateway, dialect)} />
+        <CopyField label="Base URL" value={recipe.baseURL(gateway)} />
       </div>
       <Prose>{recipe.lead}</Prose>
       <div className="mt-5">

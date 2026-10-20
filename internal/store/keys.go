@@ -50,9 +50,6 @@ type APIKey struct {
 	// else (internal/service/models, Route).
 	ClientType string
 	ClientMode clients.Mode
-	// ClientDialect is the API the client was made for, which decides the
-	// providers it can be served by and so the models it is offered.
-	ClientDialect clients.Dialect
 	// NameChats is the client's switch for the gateway naming its chats
 	// (clients in schema.sql), read with the key for the request path. It
 	// means nothing for a type that names its own chats, which has no switch
@@ -82,7 +79,6 @@ const keyColumns = `id, name, prefix, created_at, last_used_at, rate_limit, rate
 		COALESCE((SELECT c.disabled_at IS NOT NULL FROM clients c WHERE c.key_id = api_keys.id), 0),
 		COALESCE((SELECT c.type FROM clients c WHERE c.key_id = api_keys.id), ''),
 		COALESCE((SELECT c.mode FROM clients c WHERE c.key_id = api_keys.id), ''),
-		COALESCE((SELECT c.dialect FROM clients c WHERE c.key_id = api_keys.id), ''),
 		COALESCE((SELECT c.name_chats FROM clients c WHERE c.key_id = api_keys.id), 0)`
 
 // scanKey reads one row selected with keyColumns. lead are destinations for
@@ -101,18 +97,17 @@ func scanKeyAround(sc scanner, lead, trail []any) (APIKey, error) {
 		periodSeconds int64
 		modelsOff     string
 		mode          string
-		dialect       string
 	)
 	dest := append(append([]any{}, lead...), &key.ID, &key.Name, &key.Prefix, &createdAt,
 		&lastUsed, &key.RPMLimit, &periodSeconds, &key.TokenBudget, &modelsOff,
-		&key.SecretKept, &key.Disabled, &key.ClientType, &mode, &dialect, &key.NameChats)
+		&key.SecretKept, &key.Disabled, &key.ClientType, &mode, &key.NameChats)
 	dest = append(dest, trail...)
 	if err := sc.Scan(dest...); err != nil {
 		return APIKey{}, err
 	}
 	key.ModelsOff = splitModels(modelsOff)
 	key.ClientMode = clients.Mode(mode)
-	key.ClientDialect = clients.Dialect(dialect)
+
 	key.RatePeriod = time.Duration(periodSeconds) * time.Second
 	key.CreatedAt = fromMS(createdAt)
 	key.LastUsedAt = optionalMS(lastUsed)

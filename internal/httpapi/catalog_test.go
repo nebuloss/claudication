@@ -43,7 +43,7 @@ func TestModelCatalogue(t *testing.T) {
 	defer cat.Close()
 	srv.cfg.ModelsCatalog = cat.URL
 
-	_, key := newClient(t, st, "laptop", "crush", "", nil)
+	_, key := newClient(t, st, "laptop", "crush", nil)
 	base, _ := adminAPI(t, srv)
 	type entry struct {
 		ID        string `json:"id"`

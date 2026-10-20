@@ -14,20 +14,20 @@ import {
   Stack,
   Tile,
 } from '../../primitives'
-import { Binding, bindingOptions, providerTitle, type Client, type ClientTypes } from '../../clients/specs'
+import { Binding, bindingOptions, providerTitle, type Client } from '../../clients/specs'
 
 /**
  * The client's model names: one per model setting its configuration has,
  * each the client's own, each bound to a real model or to a target that
  * moves with each release. Moving the client from Claude to GPT is a change
- * here and nothing else — for a client on an API that reaches both.
+ * here and nothing else: both APIs reach both providers.
  *
  * The menus offer only what the server says is available to this client now
- * (its `choices`): listed by a connected account, on there, and reachable
- * from its API. A binding that has since become unavailable is kept and
- * shown, with why, until it is replaced.
+ * (its `choices`): listed by a connected account, and on there. A binding
+ * that has since become unavailable is kept and shown, with why, until it is
+ * replaced.
  */
-export function SlotsCard({ client: c, types, onChanged }: { client: Client; types: ClientTypes; onChanged: () => void }) {
+export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
   const choices = c.wire.choices ?? []
 
   if (!c.namesSlots) {
@@ -59,10 +59,7 @@ export function SlotsCard({ client: c, types, onChanged }: { client: Client; typ
           </Note>
         )}
         {choices.length === 0 && (
-          <Note>
-            Nothing is available to bind yet: connect an account that serves a model the{' '}
-            {types.dialectTitle(c.dialect)} API reaches.
-          </Note>
+          <Note>Nothing is available to bind yet: connect an account, and switch on a model it serves.</Note>
         )}
         {c.slots.map((s) => (
           <SlotRow key={s.id} client={c} slot={s} choices={choices} onChanged={onChanged} />
@@ -102,7 +99,7 @@ function SlotRow({
   // bound to — marked, and not choosable, once it is no longer available.
   const all = bindingOptions(choices, s)
   const unavailable = s.unavailable ?? ''
-  const misfit = !c.type.fits(c.dialect, name)
+  const misfit = !c.type.fits(name)
 
   return (
     <Tile>
@@ -135,7 +132,7 @@ function SlotRow({
             {s.provider !== undefined && ` on ${providerTitle(s.provider)}`}
           </span>
           {unavailable !== '' && <Chip tone="error">unavailable: {unavailable}</Chip>}
-          {misfit && <Chip tone="warn">needs “{c.type.mark(c.dialect)}” in the name on this API</Chip>}
+          {misfit && <Chip tone="warn">needs “{c.type.mark}” in the name</Chip>}
         </div>
         <ErrorBanner error={error} />
       </div>

@@ -448,7 +448,7 @@ func TestUpgradeKeepsTheData(t *testing.T) {
 	names := map[string]string{}
 	for _, c := range all {
 		names[c.ID] = c.Name
-		if c.Type != "custom" || c.Mode != "direct" || c.Dialect != "anthropic" || len(c.Slots) != 0 ||
+		if c.Type != "custom" || c.Mode != "direct" || len(c.Slots) != 0 ||
 			c.DisabledAt != nil {
 			t.Errorf("client %s = %+v, want a custom one in direct mode with no slots", c.ID, c)
 		}
@@ -631,4 +631,76 @@ func TestUpgradeRefusesWhatItCannotRead(t *testing.T) {
 			t.Fatalf("Open = %v, want a refusal", err)
 		}
 	})
+}
+
+// 035 drops a client's API: a crush made on Responses, with the gpt-5 names
+// it was given there, comes through as a crush with those names, its slots,
+// switches and dates as they were; an opencode made there gains the claude
+// mark its native API needs on a name that lacks it.
+func TestUpgradeDropsTheClientsAPI(t *testing.T) {
+	ctx := context.Background()
+	p := filepath.Join(t.TempDir(), "v34.db")
+	db := buildOld(t, dsn(p), 28)
+	f := fillV28(t, db)
+	steps, err := upgradeSteps(28)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range steps {
+		if s.version > 34 {
+			break
+		}
+		if err := applyStep(ctx, db, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{
+		`UPDATE clients SET type = 'crush', dialect = 'openai', mode = 'binding', disabled_at = 5,
+		        configured_at = 7, name_chats = 0 WHERE key_id = '` + f.keyKept + `'`,
+		`INSERT INTO client_slots VALUES ('` + f.keyKept + `', 'large', 'gpt-5-large', '', 'claude:opus', 1, 2),
+		                                 ('` + f.keyKept + `', 'small', 'gpt-5-small', 'gpt-6-luna', '', 3, 4)`,
+		// An opencode made on its old default, Responses, with the names it
+		// was given there: one without the mark, one that has it.
+		`UPDATE clients SET type = 'opencode', dialect = 'openai' WHERE key_id = '` + f.keyRenamed + `'`,
+		`INSERT INTO client_slots VALUES ('` + f.keyRenamed + `', 'main', 'large', '', 'claude:opus', 1, 2),
+		                                 ('` + f.keyRenamed + `', 'small', 'my-claude', '', 'claude:haiku', 3, 4)`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	st, err := Open(ctx, p, testSealer(t))
+	if err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	defer st.Close()
+	c, err := st.Client(ctx, f.keyKept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Type != "crush" || c.Mode != "binding" || c.DisabledAt == nil || c.ConfiguredAt == nil || c.NameChats ||
+		len(c.Slots) != 2 || c.Slots[0].Name != "gpt-5-large" || c.Slots[0].Follows != "claude:opus" ||
+		c.Slots[1].Model != "gpt-6-luna" {
+		t.Errorf("client after 035 = %+v", c)
+	}
+	// opencode on Messages needs "claude" in a name; crush's names are left.
+	oc, err := st.Client(ctx, f.keyRenamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.Type != "opencode" || len(oc.Slots) != 2 || oc.Slots[0].Name != "claude-large" || oc.Slots[1].Name != "my-claude" {
+		t.Errorf("opencode after 035 = %+v", oc.Slots)
+	}
+	var n int
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('clients') WHERE name = 'dialect'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("dialect survived: %d, %v", n, err)
+	}
+	// The slots still go with their client.
+	if err := st.DeleteKey(ctx, f.keyKept); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM client_slots WHERE key_id = ?`, f.keyKept).Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d slots outlived their client, %v", n, err)
+	}
 }

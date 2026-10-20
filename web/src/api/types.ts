@@ -595,7 +595,7 @@ export interface SetupStatus {
 }
 
 
-/** An API a client is pointed at: Anthropic Messages, or OpenAI Responses. */
+/** One of the gateway's two APIs: Anthropic Messages, or OpenAI Responses. */
 export type DialectId = 'anthropic' | 'openai'
 
 /** How a custom client names models: its own slots, or real model ids. */
@@ -608,7 +608,7 @@ export interface SlotSpec {
   role: string
   /** Where the client's configuration takes it, as the client spells it. */
   field: string
-  /** The name a new slot is given, before any mark its dialect needs. */
+  /** The name a new slot is given, before any mark its type needs. */
   name: string
   /** The moving target a new slot follows. */
   follows: string
@@ -619,13 +619,12 @@ export interface SlotSpec {
 export interface TypeSpec {
   id: string
   label: string
-  /** Its default first. */
-  dialects: DialectId[]
+  /** The API it speaks, fixed by the type; absent for a custom client, whose key works on both. */
+  api?: DialectId
   slots: SlotSpec[]
   custom: boolean
-  /** Per dialect, what every slot name must contain. */
-  marks?: Partial<Record<DialectId, string>>
-  why?: string
+  /** What every slot name must contain, when the type needs a mark. */
+  mark?: string
   /** The client names its own sessions and the gateway reads the name: no "Name chats" switch. */
   names_its_chats: boolean
 }
@@ -633,7 +632,7 @@ export interface TypeSpec {
 /** The table of client types and the APIs. */
 export interface ClientTypesWire {
   types: TypeSpec[]
-  dialects: { id: DialectId; title: string; route: string }[]
+  dialects: { id: DialectId; title: string }[]
 }
 
 /**
@@ -676,7 +675,6 @@ export interface InstallState {
 /** A client, and the key it holds. */
 export interface ClientWire extends ApiKey {
   type: string
-  dialect: DialectId
   mode: ClientMode
   disabled: boolean
   disabled_at?: string

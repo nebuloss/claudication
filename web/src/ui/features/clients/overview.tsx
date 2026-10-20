@@ -37,7 +37,7 @@ export function ClientOverview({
   return (
     <>
       <SetupCard client={client} types={types} config={config} onChanged={onChanged} />
-      <SlotsCard client={client} types={types} onChanged={onChanged} />
+      <SlotsCard client={client} onChanged={onChanged} />
       <AboutCard client={client} types={types} onChanged={onChanged} />
       <DeleteCard client={client} />
     </>
@@ -91,12 +91,12 @@ function AboutCard({ client: c, types, onChanged }: { client: Client; types: Cli
         <KeyValue
           items={[
             ['Type', c.type.label],
-            ['API', types.dialectTitle(c.dialect)],
+            ['API', types.apiTitle(c.type)],
           ]}
         />
         <Note>
-          A client keeps the type and API it was made with: its key was issued for it. For another, add a new
-          client.
+          A client keeps the type it was made with: its key was issued for it, and it speaks its type&rsquo;s
+          API, which reaches every model. For another type, add a new client.
         </Note>
 
         {c.type.custom && (

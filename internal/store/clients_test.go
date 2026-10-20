@@ -15,12 +15,11 @@ import (
 func makeClient(t *testing.T, st *Store, name, typ string) Client {
 	t.Helper()
 	ty, _ := clients.Find(typ)
-	d, initial := ty.Initial("")
 	var slots []NewSlot
-	for _, a := range initial {
+	for _, a := range ty.Initial() {
 		slots = append(slots, NewSlot{Slot: a.Slot, Name: a.Name, Binding: Binding{Follows: a.Follows}})
 	}
-	c, plain, err := st.CreateClient(context.Background(), name, typ, d, KeyLimits{}, slots)
+	c, plain, err := st.CreateClient(context.Background(), name, typ, KeyLimits{}, slots)
 	if err != nil || plain == "" {
 		t.Fatalf("create %s: %v", name, err)
 	}
@@ -38,7 +37,7 @@ func TestClientsOwnTheirNames(t *testing.T) {
 		a.Slots[0].Follows != clients.FollowOpus || a.Mode != clients.Binding || a.Type != "crush" {
 		t.Fatalf("a = %+v", a)
 	}
-	if k, _ := st.Key(ctx, a.ID); k.ClientType != "crush" || k.ClientDialect != clients.Messages || !k.NamesSlots() {
+	if k, _ := st.Key(ctx, a.ID); k.ClientType != "crush" || !k.NamesSlots() {
 		t.Errorf("the key does not know its client: %+v", k)
 	}
 	// Bound apart: same name, two models.
@@ -104,8 +103,9 @@ func TestClientsOwnTheirNames(t *testing.T) {
 	}
 }
 
-// A new name must carry the mark the client's type needs on its API, as the
-// page says beside the field: Claude Code's keep "claude".
+// A new name must carry the mark the client's type needs, as the page says
+// beside the field: Claude Code's keep "claude".
+
 func TestASlotNameCarriesItsMark(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

@@ -94,7 +94,7 @@ export function ClientPage({
         kind="clients"
         id={client.id}
         title={client.name}
-        subtitle={`${client.type.label} · ${types.dialectTitle(client.dialect)}`}
+        subtitle={`${client.type.label} · ${types.apiTitle(client.type)}`}
         aside={
           <Figures>
             <ClientChips client={client} />

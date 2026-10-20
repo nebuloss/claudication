@@ -20,7 +20,7 @@ import { ClientRecipe } from './model'
 export const RECIPES: ClientRecipe[] = [
   new ClientRecipe({
     id: 'claude-code',
-    versioned: { anthropic: false },
+    versioned: false,
     lead: (
       <>
         Claude Code appends <code>/v1</code> to whatever base URL it is given, so the address here
@@ -40,7 +40,7 @@ export const RECIPES: ClientRecipe[] = [
   }),
   new ClientRecipe({
     id: 'codex',
-    versioned: { openai: true },
+    versioned: true,
     lead: (
       <>
         Codex speaks the OpenAI Responses API alone, which reaches both providers: a GPT model as
@@ -83,12 +83,13 @@ export const RECIPES: ClientRecipe[] = [
   }),
   new ClientRecipe({
     id: 'opencode',
-    versioned: { anthropic: true, openai: true },
+    versioned: true,
     lead: (
       <>
-        This overrides one of opencode&rsquo;s built-in providers rather than declaring a new one:
-        the OpenAI one on the Responses API, the Anthropic one on Messages. Each name is declared
-        with the limits of the model it serves.
+        This overrides opencode&rsquo;s built-in Anthropic provider rather than declaring a new one,
+        and each name is declared with the limits of the model it serves. Its names carry{' '}
+        <code>claude</code> whatever they serve: opencode streams tool calls on that provider only for
+        such ids.
       </>
     ),
     files: [
@@ -98,21 +99,21 @@ export const RECIPES: ClientRecipe[] = [
         lang: 'jsonc',
         body: opencodeJsonc,
         write: (body, setup) => write.opencodeJsonc(body, setup),
-        // The provider of the client's API is the gateway's to own, whichever
-        // it is; the default models are its too, since they name its slots.
-        // An override of the other provider from before an API switch is left
-        // as it was (the merge only rewrites what the new file has): it
+        // The anthropic provider is the gateway's to own; the default models
+        // are its too, since they name its slots. An openai override left by
+        // a configuration from when opencode could be pointed at Responses
+        // stays as it was (the merge only rewrites what the new file has): it
         // points at the gateway and names nothing the defaults use.
         install: {
           path: '.config/opencode/opencode.jsonc',
-          merge: { format: 'json', owns: ['provider.anthropic', 'provider.openai', 'model', 'small_model'] },
+          merge: { format: 'json', owns: ['provider.anthropic', 'model', 'small_model'] },
         },
       },
     ],
   }),
   new ClientRecipe({
     id: 'crush',
-    versioned: { anthropic: false, openai: true },
+    versioned: false,
     lead: (
       <>
         Every name is spelled out here, and that is deliberate: crush never calls{' '}

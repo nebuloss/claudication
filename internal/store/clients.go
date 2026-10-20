@@ -18,12 +18,12 @@ import (
 // internal/service/clients for the types and their slots.
 //
 // A client's id is its key's id. The store keeps what is true of a client —
-// its type, its dialect, its mode, its slots' names and bindings — and checks
+// its type, its mode, its slots' names and bindings — and checks
 // what has to hold whatever the type: a model name has a model's shape and is
 // the client's only once, and a slot is bound to one model or one moving
 // target. Which slots a type has is internal/service/clients's to say. A
-// client's type and dialect are written once, when it is made, and nothing
-// here changes them.
+// client's type is written once, when it is made, and nothing here changes
+// it. Which API it speaks is its type's (clients.Type.API), not stored.
 
 // ErrClientNotFound is a client that does not exist, or a key that is no
 // client (the gateway's own).
@@ -42,7 +42,6 @@ func (e invalidClient) Is(target error) bool { return target == ErrInvalidClient
 type Client struct {
 	APIKey
 	Type       string
-	Dialect    clients.Dialect
 	Mode       clients.Mode
 	DisabledAt *time.Time
 	// ConfiguredAt is when the client was first set up with its key; see
@@ -101,14 +100,11 @@ type NewSlot struct {
 
 // CreateClient makes a client and the key it holds, in one transaction, and
 // returns the key's plaintext once, as CreateKey does.
-func (s *Store) CreateClient(ctx context.Context, name, typ string, dialect clients.Dialect,
+func (s *Store) CreateClient(ctx context.Context, name, typ string,
 	limits KeyLimits, slots []NewSlot) (Client, string, error) {
 	t, ok := clients.Find(typ)
 	if !ok {
 		return Client{}, "", invalidClient("no such client type: " + typ)
-	}
-	if !t.Speaks(dialect) {
-		return Client{}, "", invalidClient(t.Label + " cannot be pointed at the " + dialect.Title() + " API")
 	}
 	var (
 		key       APIKey
@@ -120,8 +116,8 @@ func (s *Store) CreateClient(ctx context.Context, name, typ string, dialect clie
 			return invalidClient(err.Error())
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO clients (key_id, type, dialect, mode) VALUES (?, ?, ?, ?)`,
-			key.ID, t.ID, string(dialect), string(clients.Binding)); err != nil {
+			`INSERT INTO clients (key_id, type, mode) VALUES (?, ?, ?)`,
+			key.ID, t.ID, string(clients.Binding)); err != nil {
 			return fmt.Errorf("create client: %w", err)
 		}
 		now := time.Now()
@@ -184,7 +180,7 @@ func checkSlotName(name string) (string, error) {
 }
 
 // clientColumns are a client's own columns, read beside its key's.
-const clientColumns = `c.type, c.dialect, c.mode, c.disabled_at, c.configured_at`
+const clientColumns = `c.type, c.mode, c.disabled_at, c.configured_at`
 
 // Clients lists every client, oldest first, with its key and its slots. The
 // gateway's own key is no client and is not in it.
@@ -241,14 +237,14 @@ func (s *Store) Client(ctx context.Context, id string) (Client, error) {
 func scanClient(sc scanner) (Client, error) {
 	var (
 		c                    Client
-		dialect, mode        string
+		mode                 string
 		disabled, configured sql.NullInt64
 	)
-	key, err := scanKeyAround(sc, nil, []any{&c.Type, &dialect, &mode, &disabled, &configured})
+	key, err := scanKeyAround(sc, nil, []any{&c.Type, &mode, &disabled, &configured})
 	if err != nil {
 		return Client{}, err
 	}
-	c.APIKey, c.Dialect, c.Mode = key, clients.Dialect(dialect), clients.Mode(mode)
+	c.APIKey, c.Mode = key, clients.Mode(mode)
 	c.DisabledAt, c.ConfiguredAt = optionalMS(disabled), optionalMS(configured)
 	return c, nil
 }
@@ -317,10 +313,10 @@ func (s *Store) SetSlot(ctx context.Context, keyID, slot, name string, b Binding
 		return err
 	}
 	return s.inTx(ctx, "set slot", func(tx *sql.Tx) error {
-		var current, typ, dialect string
+		var current, typ string
 		err := tx.QueryRowContext(ctx,
-			`SELECT s.name, c.type, c.dialect FROM client_slots s JOIN clients c ON c.key_id = s.key_id
-			  WHERE s.key_id = ? AND s.slot = ?`, keyID, slot).Scan(&current, &typ, &dialect)
+			`SELECT s.name, c.type FROM client_slots s JOIN clients c ON c.key_id = s.key_id
+			  WHERE s.key_id = ? AND s.slot = ?`, keyID, slot).Scan(&current, &typ)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrClientNotFound
 		}
@@ -334,7 +330,7 @@ func (s *Store) SetSlot(ctx context.Context, keyID, slot, name string, b Binding
 			return err
 		}
 		if name != current {
-			if err := checkMark(typ, clients.Dialect(dialect), name); err != nil {
+			if err := checkMark(typ, name); err != nil {
 				return err
 			}
 		}
@@ -358,8 +354,8 @@ func (s *Store) AddSlot(ctx context.Context, keyID, name string, b Binding) erro
 		return err
 	}
 	return s.inTx(ctx, "add slot", func(tx *sql.Tx) error {
-		var typ, dialect string
-		err := tx.QueryRowContext(ctx, `SELECT type, dialect FROM clients WHERE key_id = ?`, keyID).Scan(&typ, &dialect)
+		var typ string
+		err := tx.QueryRowContext(ctx, `SELECT type FROM clients WHERE key_id = ?`, keyID).Scan(&typ)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrClientNotFound
 		}
@@ -369,7 +365,7 @@ func (s *Store) AddSlot(ctx context.Context, keyID, name string, b Binding) erro
 		if t, ok := clients.Find(typ); ok && !t.Custom {
 			return invalidClient(t.Label + "'s slots are its configuration's; only a custom client names its own")
 		}
-		if err := checkMark(typ, clients.Dialect(dialect), name); err != nil {
+		if err := checkMark(typ, name); err != nil {
 			return err
 		}
 		id, err := newSlotID()
@@ -380,19 +376,21 @@ func (s *Store) AddSlot(ctx context.Context, keyID, name string, b Binding) erro
 	})
 }
 
-// checkMark refuses a new name the client's type would not handle right on
-// its API: Claude Code keeps only ids with "claude", crush speaks Responses
-// only for one with "gpt-5" (internal/service/clients, Type.Marks). The page
-// says so beside the field; this is what holds when the API is called
-// directly. A name the slot already has is not checked again: it was given
-// under the same type and API, so it fit then and still does.
-func checkMark(typ string, d clients.Dialect, name string) error {
+// checkMark refuses a new name the client's type would not handle right:
+// Claude Code keeps only ids with "claude", opencode streams tool calls over
+// Messages only for one (internal/service/clients, Type.Mark). The page says
+// so beside the field; this is what holds when the API is called directly. A
+// name the slot already has is not checked again: it was given under the
+// same type, so it fit then and still does — unless it was given under the
+// API a client could once choose, whose mark it may carry instead, and which
+// it may keep (a rename is what checks it).
+func checkMark(typ, name string) error {
 	t, ok := clients.Find(typ)
-	if !ok || t.Fits(d, name) {
+	if !ok || t.Fits(name) {
 		return nil
 	}
-	return invalidClient(fmt.Sprintf("%s on the %s API needs every model name to contain %q, and %q does not; try %q",
-		t.Label, d.Title(), t.Mark(d), name, t.Name(d, name, nil)))
+	return invalidClient(fmt.Sprintf("%s needs every model name to contain %q, and %q does not; try %q",
+		t.Label, t.Mark, name, t.Name(name, nil)))
 }
 
 // newSlotID is an id for an operator's own slot: "s-" and random hex, which no

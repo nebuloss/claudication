@@ -1,5 +1,5 @@
 -- claudication's schema, whole: what a fresh database is created with, and
--- what migrations/ brings an older one to. Version 34 (schemaVersion in
+-- what migrations/ brings an older one to. Version 35 (schemaVersion in
 -- store.go).
 --
 -- Written as if from scratch. Migrations 001-028 grew it a column at a time;
@@ -60,8 +60,10 @@ CREATE TABLE api_keys (
 ------------------------------------------------------------------ clients
 -- What a key is for: a client the operator set up -- "laptop", "work crush" --
 -- of a type the gateway writes configurations for (internal/service/clients:
--- claude-code, codex, opencode, crush, or custom), pointed at one of its two
--- APIs. One client holds exactly one key, so the client's id IS its key's id
+-- claude-code, codex, opencode, crush, or custom). Which API it speaks is
+-- its type's, not stored: each type speaks its own, and a custom client's key
+-- works on both (dialect, set per client until 035, went with the choice).
+-- One client holds exactly one key, so the client's id IS its key's id
 -- and this is a table beside api_keys rather than columns in it: everything
 -- that already names a key -- usage_events, api_key_models_off, the names
 -- table -- names the client with no second id to keep in step, and the
@@ -73,9 +75,6 @@ CREATE TABLE api_keys (
 CREATE TABLE clients (
     key_id      TEXT    PRIMARY KEY REFERENCES api_keys (id) ON DELETE CASCADE,
     type        TEXT    NOT NULL,
-    -- The API its configuration points at: anthropic (Messages) or openai
-    -- (Responses), as the gateway's protocols are named.
-    dialect     TEXT    NOT NULL,
     -- How it names models: binding, its own slot names (every typed client);
     -- direct, real model ids less api_key_models_off (a custom one may).
     -- Switching keeps both: the slots and the switches stay stored.

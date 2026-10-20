@@ -27,10 +27,9 @@ import (
 // what makes it a client.
 type ClientJSON struct {
 	KeyJSON
-	Type     string          `json:"type"`
-	Dialect  clients.Dialect `json:"dialect"`
-	Mode     clients.Mode    `json:"mode"`
-	Disabled bool            `json:"disabled"`
+	Type     string       `json:"type"`
+	Mode     clients.Mode `json:"mode"`
+	Disabled bool         `json:"disabled"`
 	// NameChats is whether its chats are named: its "Name chats" switch, or
 	// always for a type that names its own and so has none (clients.Type,
 	// NamesItsChats), whatever an older release stored for it.
@@ -66,15 +65,15 @@ type SlotJSON struct {
 	Serving  string `json:"serving"`
 	Provider string `json:"provider,omitempty"`
 	// Unavailable says why the binding is not available to this client now —
-	// no account lists it, it is switched off on every one that does, or the
-	// client's API cannot reach its provider — and is empty when it is. Such
-	// a binding is kept and shown, and replaced only by one of Choices.
+	// no account lists it, or it is switched off on every one that does — and
+	// is empty when it is. Such a binding is kept and shown, and replaced only
+	// by one of Choices.
 	Unavailable string `json:"unavailable,omitempty"`
 }
 
 // clientJSON is a client as the admin API reports it, its slots resolved.
 func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) ClientJSON {
-	out := ClientJSON{KeyJSON: key, Type: c.Type, Dialect: c.Dialect, Mode: c.Mode, Disabled: c.DisabledAt != nil,
+	out := ClientJSON{KeyJSON: key, Type: c.Type, Mode: c.Mode, Disabled: c.DisabledAt != nil,
 		NameChats: c.NameChats || c.Spec().NamesItsChats,
 		Slots:     make([]SlotJSON, 0, len(c.Slots))}
 	if c.DisabledAt != nil {
@@ -92,27 +91,26 @@ func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) Cli
 			// the operator knows it by.
 			spec.Label = sl.Name
 		}
-		b, why := s.models.Resolve(ctx, c.Dialect, store.Binding{Model: sl.Model, Follows: sl.Follows})
+		b, why := s.models.Resolve(ctx, store.Binding{Model: sl.Model, Follows: sl.Follows})
 		out.Slots = append(out.Slots, SlotJSON{Slot: spec, Name: sl.Name, Model: sl.Model, Bound: sl.Follows,
 			Title: b.Title, Serving: b.Serving, Provider: b.Provider, Unavailable: why})
 	}
 	return out
 }
 
-// handleClientTypes is the table of client types — each type's slots, the
-// APIs it can be pointed at and why its default is the default. The UI
-// builds the add-a-client picker and every slot's label from it, so the two
-// cannot disagree. What a slot can be bound to is each client's own
-// (ClientJSON.Choices), since it depends on the client's API.
+// handleClientTypes is the table of client types — each type's slots and the
+// API it speaks — and how each API is named. The UI builds the add-a-client
+// picker and every slot's label from it, so the two cannot disagree. What a
+// slot can be bound to is on each client (ClientJSON.Choices), since it
+// changes with the accounts.
 func (s *Admin) handleClientTypes(w http.ResponseWriter, r *http.Request) {
 	type dialectJSON struct {
 		ID    clients.Dialect `json:"id"`
 		Title string          `json:"title"`
-		Route string          `json:"route"`
 	}
 	dialects := []dialectJSON{}
 	for _, d := range []clients.Dialect{clients.Messages, clients.Responses} {
-		dialects = append(dialects, dialectJSON{ID: d, Title: d.Title(), Route: d.Route()})
+		dialects = append(dialects, dialectJSON{ID: d, Title: d.Title()})
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"types": clients.All, "dialects": dialects})
 }
@@ -159,7 +157,7 @@ func (s *Admin) writeClient(w http.ResponseWriter, r *http.Request, id string, e
 		return
 	}
 	j := s.clientJSON(ctx, c, s.keyStats(ctx, c.ID).of(s, c.APIKey))
-	j.Choices = s.models.Choices(ctx, c.Dialect)
+	j.Choices = s.models.Choices(ctx)
 	out := map[string]any{"client": j}
 	for k, v := range extra {
 		out[k] = v
@@ -173,17 +171,17 @@ func (s *Admin) handleGetClient(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// createClient makes a client of a type, on a dialect ("" for the type's
-// default), with the type's slots under its names, each following its
-// default target. The type and the dialect are the client's for good.
-func (s *Admin) createClient(ctx context.Context, name string, t clients.Type, d clients.Dialect,
+// createClient makes a client of a type, with the type's slots under its
+// names, each following its default target. The type is the client's for
+// good, and the API it speaks is its type's.
+func (s *Admin) createClient(ctx context.Context, name string, t clients.Type,
 	lim store.KeyLimits) (store.Client, string, error) {
-	d, initial := t.Initial(d)
+	initial := t.Initial()
 	slots := make([]store.NewSlot, 0, len(initial))
 	for _, a := range initial {
 		slots = append(slots, store.NewSlot{Slot: a.Slot, Name: a.Name, Binding: store.Binding{Follows: a.Follows}})
 	}
-	return s.store.CreateClient(ctx, name, t.ID, d, lim, slots)
+	return s.store.CreateClient(ctx, name, t.ID, lim, slots)
 }
 
 // handleCreateClient makes a client and its key, and answers the key's
@@ -191,8 +189,7 @@ func (s *Admin) createClient(ctx context.Context, name string, t clients.Type, d
 func (s *Admin) handleCreateClient(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		keyLimitsBody
-		Type    string          `json:"type"`
-		Dialect clients.Dialect `json:"dialect"`
+		Type string `json:"type"`
 	}
 	if !httpx.DecodeJSON(w, r, &body) {
 		return
@@ -206,18 +203,14 @@ func (s *Admin) handleCreateClient(w http.ResponseWriter, r *http.Request) {
 	case !ok:
 		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "no such client type")
 		return
-	case body.Dialect != "" && !t.Speaks(body.Dialect):
-		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
-			t.Label+" cannot be pointed at the "+body.Dialect.Title()+" API")
-		return
 	}
 	lim := store.KeyLimits{RPMLimit: body.RPMLimit, RatePeriod: time.Duration(body.RatePeriodS) * time.Second,
 		TokenBudget: body.TokenBudget}
-	c, plaintext, err := s.createClient(r.Context(), name, t, body.Dialect, lim)
+	c, plaintext, err := s.createClient(r.Context(), name, t, lim)
 	if s.clientError(w, err, "create the client") {
 		return
 	}
-	s.log.Info("client created", "id", c.ID, "name", c.Name, "type", c.Type, "dialect", c.Dialect,
+	s.log.Info("client created", "id", c.ID, "name", c.Name, "type", c.Type,
 		"ip", httpx.ClientIP(r.Context()))
 	s.writeClient(w, r, c.ID, map[string]any{"plaintext": plaintext})
 }
@@ -316,7 +309,8 @@ func (s *Admin) available(w http.ResponseWriter, r *http.Request, c store.Client
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	choice, why := s.models.Resolve(ctx, c.Dialect, store.Binding{Model: strings.TrimSpace(b.Model), Follows: b.Follows})
+	choice, why := s.models.Resolve(ctx, store.Binding{
+		Model: strings.TrimSpace(b.Model), Follows: b.Follows})
 	if why == "" {
 		return true
 	}

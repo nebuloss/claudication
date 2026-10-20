@@ -15,13 +15,16 @@ import (
 //
 // The owner's rule (2026-10-20): a model is available to a client when
 //
-//  1. the client's API reaches its provider (Messages reaches Claude only,
-//     Responses both; the gateway's own routes say so, Deps.Reaches),
-//  2. a connected, switched-on account of that provider lists it — the
+//  1. a connected, switched-on account of its provider lists it — the
 //     accounts' own lists, never the public catalogue the model list falls
 //     back on before the first sign-in, and
-//  3. at least one such account has it on, and can serve now (pool.Offers,
+//  2. at least one such account has it on, and can serve now (pool.Offers,
 //     the candidates Acquire picks from).
+//
+// The client's API is no part of it: both APIs reach both providers, a model
+// of the other one's translated (internal/api), so what a client is offered
+// is the same whichever it speaks. It was a third rule while Messages reached
+// Claude alone.
 //
 // A target a slot follows is available when what it points at now is. A
 // binding made before something became unavailable is kept, and said: the
@@ -49,11 +52,10 @@ type Choice struct {
 	Provider string `json:"provider"`
 }
 
-// Choices are everything a slot of a client on dialect d can be bound to now:
-// each target that resolves to an available model, then each available
-// model, provider by provider in the gateway's order. Nothing unavailable is
-// in it.
-func (s *Catalog) Choices(ctx context.Context, d clients.Dialect) []Choice {
+// Choices are everything a slot can be bound to now: each target that
+// resolves to an available model, then each available model, provider by
+// provider in the gateway's order. Nothing unavailable is in it.
+func (s *Catalog) Choices(ctx context.Context) []Choice {
 	s.refreshFamilies(ctx)
 	out := []Choice{}
 	var targets []clients.Follow
@@ -62,16 +64,16 @@ func (s *Catalog) Choices(ctx context.Context, d clients.Dialect) []Choice {
 	}
 	targets = append(targets, clients.FollowFirst, clients.FollowLight)
 	for _, f := range targets {
-		if c, why := s.Resolve(ctx, d, store.Binding{Follows: f}); why == "" {
+		if c, why := s.Resolve(ctx, store.Binding{Follows: f}); why == "" {
 			out = append(out, c)
 		}
 	}
-	return append(out, s.Available(ctx, d)...)
+	return append(out, s.Available(ctx)...)
 }
 
-// Available are the real models a client on dialect d can be served now,
-// each as a Choice: what a custom client in direct mode may name.
-func (s *Catalog) Available(ctx context.Context, d clients.Dialect) []Choice {
+// Available are the real models a client can be served now, each as a
+// Choice: what a custom client in direct mode may name.
+func (s *Catalog) Available(ctx context.Context) []Choice {
 	s.refreshFamilies(ctx)
 	out := []Choice{}
 	for _, r := range s.relays {
@@ -80,7 +82,7 @@ func (s *Catalog) Available(ctx context.Context, d clients.Dialect) []Choice {
 		models := append([]listedModel(nil), s.listed[p]...)
 		s.rolesMu.Unlock()
 		for _, m := range models {
-			if c, why := s.Resolve(ctx, d, store.Binding{Model: m.ID}); why == "" && c.Provider == p {
+			if c, why := s.Resolve(ctx, store.Binding{Model: m.ID}); why == "" && c.Provider == p {
 				if m.Name != "" {
 					c.Title = m.Name
 				}
@@ -91,11 +93,10 @@ func (s *Catalog) Available(ctx context.Context, d clients.Dialect) []Choice {
 	return out
 }
 
-// Resolve is what binding b serves a client on dialect d now, and why it
-// cannot when it cannot: "" for a binding the client can be offered. The
-// Choice is filled either way, so a binding that has become unavailable is
-// still shown as what it is.
-func (s *Catalog) Resolve(ctx context.Context, d clients.Dialect, b store.Binding) (Choice, string) {
+// Resolve is what binding b serves now, and why it cannot when it cannot: ""
+// for a binding a client can be offered. The Choice is filled either way, so
+// a binding that has become unavailable is still shown as what it is.
+func (s *Catalog) Resolve(ctx context.Context, b store.Binding) (Choice, string) {
 	c := Choice{Model: b.Model, Follows: b.Follows, Title: b.Model, Serving: b.Model}
 	if b.Model == "" {
 		c.Title = b.Follows.Title()
@@ -107,15 +108,11 @@ func (s *Catalog) Resolve(ctx context.Context, d clients.Dialect, b store.Bindin
 		c.Serving = target
 	}
 	c.Provider = s.ServingProvider(ctx, c.Serving)
-	return c, s.unavailable(ctx, d, c.Provider, c.Serving)
+	return c, s.unavailable(ctx, c.Provider, c.Serving)
 }
 
-// unavailable is why a real model cannot serve a client on dialect d, or "".
-// The client's API first: no account can change that one.
-func (s *Catalog) unavailable(ctx context.Context, d clients.Dialect, provider, model string) string {
-	if s.reaches != nil && !s.reaches(d, provider) {
-		return "this client's API, " + d.Title() + ", cannot reach " + clients.ProviderTitle(provider) + " models"
-	}
+// unavailable is why a real model cannot serve a client now, or "".
+func (s *Catalog) unavailable(ctx context.Context, provider, model string) string {
 	k := store.ModelKey(model)
 	s.rolesMu.Lock()
 	listed := false
@@ -154,10 +151,10 @@ func (s *Catalog) unavailable(ctx context.Context, d clients.Dialect, provider, 
 	return whyNoAccount
 }
 
-// onlyAvailable is a model list less what a client on dialect d cannot be
-// served now. A list it cannot read is returned with nothing in it: what it
-// would have offered could not be checked.
-func (s *Catalog) onlyAvailable(ctx context.Context, d clients.Dialect, body []byte) []byte {
+// onlyAvailable is a model list less what a client cannot be served now. A
+// list it cannot read is returned with nothing in it: what it would have
+// offered could not be checked.
+func (s *Catalog) onlyAvailable(ctx context.Context, body []byte) []byte {
 	keep := map[string]bool{}
 	var l struct {
 		Data []struct {
@@ -166,7 +163,8 @@ func (s *Catalog) onlyAvailable(ctx context.Context, d clients.Dialect, body []b
 	}
 	_ = json.Unmarshal(body, &l)
 	for _, e := range l.Data {
-		if _, why := s.Resolve(ctx, d, store.Binding{Model: e.ID}); why == "" {
+		if _, why := s.Resolve(ctx, store.Binding{Model: e.ID}); why == "" {
+
 			keep[e.ID] = true
 		}
 	}

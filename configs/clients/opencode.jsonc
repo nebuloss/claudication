@@ -2,14 +2,14 @@
   // opencode, pointed at a claudication gateway.
   // Copy to ~/.config/opencode/opencode.jsonc and change baseURL.
   //
-  // WITH /v1. This overrides opencode's built-in OpenAI provider, which sends
-  // every model over the Responses API — so each of the names below can serve
-  // a Claude model or a GPT one, chosen on the client's page in the gateway.
-  // On the Anthropic Messages API instead, the provider is "anthropic" and the
-  // names carry "claude" (opencode streams tool calls only for such ids).
+  // WITH /v1. This overrides opencode's built-in Anthropic provider, which
+  // speaks the Anthropic Messages API — and that reaches both of the gateway's
+  // providers, so each of the names below can serve a Claude model or a GPT
+  // one, chosen on the client's page in the gateway. The names carry "claude"
+  // because opencode streams tool calls on this provider only for such ids.
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "openai": {
+    "anthropic": {
       "options": {
         "baseURL": "https://claudication.example.com/v1",
         "apiKey": "clc_..."
@@ -18,27 +18,115 @@
       // declared with the limits of the model it serves: an undeclared limit
       // is 0, which turns auto-compaction off.
       "models": {
-        "large": {
-          "name": "large",
-          "limit": { "context": 1000000, "output": 128000 },
+        "claude-large": {
+          "name": "claude-large",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
           "reasoning": true,
           "attachment": true,
           "tool_call": true,
           "temperature": false,
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "variants": {
+            "low": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "low"
+            },
+            "medium": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "medium"
+            },
+            "high": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "high"
+            },
+            "xhigh": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "xhigh"
+            },
+            "max": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "max"
+            }
+          }
         },
-        "small": {
-          "name": "small",
-          "limit": { "context": 1000000, "output": 128000 },
+        "claude-small": {
+          "name": "claude-small",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
           "reasoning": true,
           "attachment": true,
           "tool_call": true,
           "temperature": false,
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "variants": {
+            "low": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "low"
+            },
+            "medium": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "medium"
+            },
+            "high": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "high"
+            },
+            "xhigh": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "xhigh"
+            },
+            "max": {
+              "thinking": {
+                "type": "adaptive"
+              },
+              "effort": "max"
+            }
+          }
         }
       }
     }
   },
-  "model": "openai/large",
-  "small_model": "openai/small"
+  "model": "anthropic/claude-large",
+  "small_model": "anthropic/claude-small"
 }

@@ -15,7 +15,7 @@ import (
 // is a status a pipe can refuse on, with a script that says why.
 func TestInstallAddress(t *testing.T) {
 	srv, st, _ := newTestServer(t)
-	c, _ := newClient(t, st, "laptop", "crush", "", nil)
+	c, _ := newClient(t, st, "laptop", "crush", nil)
 	base, ck := adminAPI(t, srv)
 
 	files := `{"files":[
@@ -133,7 +133,7 @@ func TestInstallAddress(t *testing.T) {
 // not, and its key stops being offered.
 func TestFirstRequestConfiguresTheClient(t *testing.T) {
 	srv, st, _ := newTestServer(t)
-	c, plain := newClient(t, st, "box", "crush", "", nil)
+	c, plain := newClient(t, st, "box", "crush", nil)
 	if err := st.SetClientDisabled(t.Context(), c.ID, true); err != nil {
 		t.Fatal(err)
 	}

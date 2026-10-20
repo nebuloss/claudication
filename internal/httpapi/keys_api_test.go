@@ -46,22 +46,22 @@ func TestClientLifecycleOverTheAdminAPI(t *testing.T) {
 		t.Error("the display form must be a prefix, not the key")
 	}
 	c := created.Client
-	if c.RPMLimit != 120 || c.Type != "crush" || c.Dialect != "anthropic" || c.Mode != "binding" ||
+	if c.RPMLimit != 120 || c.Type != "crush" || c.Mode != "binding" ||
 		len(c.Slots) != 2 || c.Slots[0].Name != "large" || c.Slots[1].Name != "small" ||
 		c.Slots[0].Bound != "claude:opus" {
 		t.Errorf("created %+v", c)
 	}
-	// A client keeps the type and API it was made with: its key was issued
-	// for it, so there is no endpoint that changes either.
+	// A client keeps the type it was made with: its key was issued for it,
+	// so there is no endpoint that changes it.
 	for _, p := range []string{"/plan", "/type"} {
 		r := postJSON(t, base, http.MethodPost, "/admin/clients/"+c.ID+p,
-			map[string]any{"type": "codex", "dialect": "openai"}, cookie)
+			map[string]any{"type": "codex"}, cookie)
 		r.Body.Close()
 		if r.StatusCode == http.StatusOK {
 			t.Errorf("POST %s changed a client", p)
 		}
 	}
-	if got, err := st.Client(context.Background(), c.ID); err != nil || got.Type != "crush" || got.Dialect != "anthropic" {
+	if got, err := st.Client(context.Background(), c.ID); err != nil || got.Type != "crush" {
 		t.Errorf("after the attempts: %+v %v", got, err)
 	}
 
@@ -144,9 +144,8 @@ func TestCreateClientRefusesWhatCannotBe(t *testing.T) {
 		{"name": "", "type": "crush"},
 		{"name": "   ", "type": "crush"},
 		{"name": "x", "type": "emacs"},
-		{"name": "x", "type": "claude-code", "dialect": "openai"},
-		{"name": "x", "type": "codex", "dialect": "anthropic"},
 	} {
+
 		resp := postJSON(t, base, http.MethodPost, "/admin/clients", body, cookie)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusBadRequest {

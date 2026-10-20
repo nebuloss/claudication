@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api, type ClientWire, type DialectId } from '../../../api/client'
+import { api, type ClientWire } from '../../../api/client'
 import { useAction, useLoader } from '../../hooks'
 import { clientHref, navigate } from '../../route'
 import {
@@ -17,10 +17,8 @@ import {
   ListToolbar,
   Loading,
   Modal,
-  Note,
   Page,
   RowBadge,
-  Segmented,
   Select,
   Stack,
   Switch,
@@ -112,7 +110,7 @@ function ClientRow({
       title={c.name}
       subtitle={
         <>
-          {c.type.label} · {types.dialectTitle(c.dialect)} · {c.summary} · {compact(k.requests)} requests over{' '}
+          {c.type.label} · {types.apiTitle(c.type)} · {c.summary} · {compact(k.requests)} requests over{' '}
           {windowDays}d · used {ago(k.last_used_at)}
         </>
       }
@@ -157,21 +155,15 @@ export function EnableSwitch({ client, onChanged }: { client: ClientWire; onChan
 }
 
 /**
- * Adding a client: its type, its name, and its API where its type has two. The
- * rest — the model names its type has, each following its default — is made
- * with it, and its page opens on its key and configuration.
+ * Adding a client: its type and its name. The API it speaks is its type's,
+ * and the rest — the model names its type has, each following its default —
+ * is made with it; its page opens on its key and configuration.
  */
 function NewClient({ types, onClose }: { types: ClientTypes; onClose: () => void }) {
   const [name, setName] = useState('')
   const [typeId, setTypeId] = useState(types.all[0]?.id ?? 'custom')
-  const type = types.type(typeId)
-  const [dialect, setDialect] = useState<DialectId>(type.defaultDialect)
   const { pending: busy, error, setError, run } = useAction()
 
-  const choose = (id: string) => {
-    setTypeId(id)
-    setDialect(types.type(id).defaultDialect)
-  }
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (name.trim() === '') {
@@ -179,7 +171,7 @@ function NewClient({ types, onClose }: { types: ClientTypes; onClose: () => void
       return
     }
     await run('create', async () => {
-      const made = await api.clients.create(name.trim(), typeId, type.choosesDialect ? dialect : '', {
+      const made = await api.clients.create(name.trim(), typeId, {
         rpmLimit: 0, ratePeriodS: 60, tokenBudget: 0,
       })
       onClose()
@@ -194,25 +186,16 @@ function NewClient({ types, onClose }: { types: ClientTypes; onClose: () => void
           <Select
             label="Type"
             value={typeId}
-            onChange={choose}
+            onChange={setTypeId}
             options={types.all.map((t) => ({
               value: t.id,
               label: t.label,
-              hint: t.custom ? 'a tool with no recipe: its key and the two addresses' : t.slots.map((s) => s.label).join(', '),
+              hint: t.custom
+                ? 'a tool with no recipe: its key and the two addresses'
+                : `${types.apiTitle(t)} · ${t.slots.map((s) => s.label).join(', ')}`,
             }))}
           />
           <Field label="Name" value={name} onChange={setName} autoFocus />
-          {type.choosesDialect && (
-            <Stack gap={2}>
-              <Segmented
-                label="API"
-                value={dialect}
-                onChange={setDialect}
-                options={type.dialects.map((d) => ({ id: d, label: types.dialectTitle(d), content: types.dialectTitle(d) }))}
-              />
-              {type.why !== '' && <Note>{type.why}</Note>}
-            </Stack>
-          )}
           <ErrorBanner error={error} />
           <Actions end>
             <Button variant="outlined" onClick={onClose} disabled={busy}>

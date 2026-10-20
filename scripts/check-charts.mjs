@@ -293,12 +293,12 @@ console.log('\n— client configs: the committed files, with the client\'s names
   const gpt = { id: 'x', display_name: 'GPT-5.5', virtual: true, serving: 'gpt-5.5', provider: 'openai',
     max_input_tokens: 400000, max_tokens: 128000, capabilities: { effort: effort('low', 'medium', 'high') } }
 
-  // crush: the two slots, on either API.
+  // crush: the two slots, on its anthropic provider.
   const crushSlots = [
     { id: 'large', role: 'main', field: 'models.large', name: 'large', served: opus },
     { id: 'small', role: 'fast', field: 'models.small', name: 'small', served: sonnet },
   ]
-  const crush = JSON.parse(crushJson(committed('crush.json'), { dialect: 'anthropic', slots: crushSlots }, 'https://gw'))
+  const crush = JSON.parse(crushJson(committed('crush.json'), { slots: crushSlots }, 'https://gw'))
   const provider = Object.values(crush.providers)[0]
   const byID = Object.fromEntries(provider.models.map((m) => [m.id, m]))
   check('crush lists the client\'s names', provider.models.map((m) => m.id), ['large', 'small'])
@@ -306,19 +306,20 @@ console.log('\n— client configs: the committed files, with the client\'s names
   check('a 200k model keeps its own window', byID.small.context_window, 200000)
   check('a model with no effort setting does not reason', [byID.small.can_reason, 'reasoning_levels' in byID.small], [false, false])
   check('the output cap is the served model\'s', byID.large.default_max_tokens, 128000)
-  check('on Messages, the bare address and thinking on', [provider.type, provider.base_url, crush.models.large.think], ['anthropic', 'https://gw', true])
+  check('the anthropic type, the bare address and thinking on', [provider.type, provider.base_url, crush.models.large.think], ['anthropic', 'https://gw', true])
   check('the rest of crush.json is the committed file\'s', [crush.$schema, Object.keys(crush.providers)[0]],
     [JSON.parse(committed('crush.json')).$schema, 'claudication'])
   // The committed file is what a new crush client is handed, so writing it
   // with the default names and the committed facts changes nothing.
-  const fresh = crushJson(committed('crush.json'), { dialect: 'anthropic', slots: crushSlots.map((s) => ({ ...s, served: opus })) }, 'https://claudication.example.com')
+  const fresh = crushJson(committed('crush.json'), { slots: crushSlots.map((s) => ({ ...s, served: opus })) }, 'https://claudication.example.com')
   check('the committed file is a new client\'s, byte for byte', fresh, committed('crush.json'))
-  const crushR = JSON.parse(crushJson(committed('crush.json'), {
-    dialect: 'openai', slots: [{ ...crushSlots[0], name: 'gpt-5-large', served: gpt }, { ...crushSlots[1], name: 'gpt-5-small', served: gpt }],
+  // A GPT model behind a name is still served over crush's anthropic provider.
+  const crushG = JSON.parse(crushJson(committed('crush.json'), {
+    slots: [{ ...crushSlots[0], served: gpt }, { ...crushSlots[1], served: gpt }],
   }, 'https://gw'))
-  const pr = Object.values(crushR.providers)[0]
-  check('on Responses, the openai type at /v1 and no think', [pr.type, pr.base_url, 'think' in crushR.models.large], ['openai', 'https://gw/v1', false])
-  check('and the names asked for', [crushR.models.large.model, crushR.models.small.model], ['gpt-5-large', 'gpt-5-small'])
+  const pg = Object.values(crushG.providers)[0]
+  check('a GPT model, on the same provider with its own facts', [pg.type, pg.base_url, pg.models[0].context_window, pg.models[0].reasoning_levels],
+    ['anthropic', 'https://gw', 400000, ['low', 'medium', 'high']])
 
   // Codex: four slots, one of them in two fields.
   const codexSlots = [
@@ -327,13 +328,13 @@ console.log('\n— client configs: the committed files, with the client\'s names
     { id: 'agents', role: 'subagent', field: 'agents.default_subagent_model', name: 'sub', served: sonnet },
     { id: 'small', role: 'memories', field: 'memories.extract_model, memories.consolidation_model', name: 'mem', served: sonnet },
   ]
-  const toml = codexToml(committed('codex.toml'), { dialect: 'openai', slots: codexSlots })
+  const toml = codexToml(committed('codex.toml'), { slots: codexSlots })
   check('codex.toml names every slot', [
     /^model = "big"$/m.test(toml), /^review_model = "rev"$/m.test(toml), /^default_subagent_model = "sub"$/m.test(toml),
     /^extract_model = "mem"$/m.test(toml), /^consolidation_model = "mem"$/m.test(toml),
   ], [true, true, true, true, true])
   check('and nothing else in it moves', toml.split('\n').length, committed('codex.toml').split('\n').length)
-  const codex = JSON.parse(codexCatalog(committed('codex-models.json'), { dialect: 'openai', slots: codexSlots })).models
+  const codex = JSON.parse(codexCatalog(committed('codex-models.json'), { slots: codexSlots })).models
   const template = JSON.parse(committed('codex-models.json')).models[0]
   check('the catalog has one entry per name, in order', codex.map((m) => [m.slug, m.priority]),
     [['big', 10], ['rev', 20], ['sub', 30], ['mem', 40]])
@@ -349,7 +350,7 @@ console.log('\n— client configs: the committed files, with the client\'s names
     ['ANTHROPIC_DEFAULT_SONNET_MODEL', 'sonnet', 'claude-sonnet-mine', sonnet],
     ['CLAUDE_CODE_AUTO_MODE_MODEL', 'classifier', 'claude-auto', sonnet],
   ].map(([field, role, name, served]) => ({ id: name, role, field, name, served }))
-  const sh = claudeCodeSh(committed('claude-code.sh'), { dialect: 'anthropic', slots: ccSlots })
+  const sh = claudeCodeSh(committed('claude-code.sh'), { slots: ccSlots })
   check('each variable names its slot', [
     /^export ANTHROPIC_MODEL=claude-large$/m.test(sh), /^export ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-mine$/m.test(sh),
     /^export CLAUDE_CODE_AUTO_MODE_MODEL=claude-auto$/m.test(sh),
@@ -362,24 +363,25 @@ console.log('\n— client configs: the committed files, with the client\'s names
   ])
   check('and leaves the classifier out: nobody picks it', picker.some((o) => o.model === 'claude-auto'), false)
 
-  // opencode: its built-in provider of the client's API, overridden.
+  // opencode: its built-in anthropic provider, overridden.
   const ocSlots = [
-    { id: 'large', role: 'main', field: 'model', name: 'large', served: opus },
-    { id: 'small', role: 'fast', field: 'small_model', name: 'small', served: sonnet },
+    { id: 'large', role: 'main', field: 'model', name: 'claude-large', served: opus },
+    { id: 'small', role: 'fast', field: 'small_model', name: 'claude-small', served: sonnet },
   ]
-  const ocR = opencodeJsonc(committed('opencode.jsonc'), { dialect: 'openai', slots: ocSlots })
-  const ocRj = JSON.parse(stripComments(ocR))
-  check('on Responses, the openai provider', [Object.keys(ocRj.provider), ocRj.model, ocRj.small_model], [['openai'], 'openai/large', 'openai/small'])
-  check('each name at its model\'s limits', ocRj.provider.openai.models.small.limit, { context: 200000, output: 64000 })
-  check('with no thinking modes on Responses', 'variants' in ocRj.provider.openai.models.large, false)
-  check('its opening comment kept', ocR.includes('// opencode, pointed at a claudication gateway.'), true)
-  check('a URL\'s // is not a comment', stripComments('{"u": "https://x"} // c'), '{"u": "https://x"} \n')
-  const ocM = JSON.parse(stripComments(opencodeJsonc(committed('opencode.jsonc'), {
-    dialect: 'anthropic', slots: ocSlots.map((s) => ({ ...s, name: `claude-${s.name}` })),
-  })))
-  check('on Messages, the anthropic provider and claude names', [Object.keys(ocM.provider), ocM.model], [['anthropic'], 'anthropic/claude-large'])
+  const oc = opencodeJsonc(committed('opencode.jsonc'), { slots: ocSlots })
+  const ocM = JSON.parse(stripComments(oc))
+  check('the anthropic provider and the client\'s names', [Object.keys(ocM.provider), ocM.model, ocM.small_model],
+    [['anthropic'], 'anthropic/claude-large', 'anthropic/claude-small'])
+  check('each name at its model\'s limits', ocM.provider.anthropic.models['claude-small'].limit, { context: 200000, output: 64000 })
   check('with adaptive thinking for a reasoning model', Object.keys(ocM.provider.anthropic.models['claude-large'].variants), ['low', 'medium', 'high', 'xhigh', 'max'])
-  check('and the committed baseURL', ocM.provider.anthropic.options, JSON.parse(stripComments(committed('opencode.jsonc'))).provider.openai.options)
+  check('and none for one without', 'variants' in ocM.provider.anthropic.models['claude-small'], false)
+  check('its opening comment kept', oc.includes('// opencode, pointed at a claudication gateway.'), true)
+  check('a URL\'s // is not a comment', stripComments('{"u": "https://x"} // c'), '{"u": "https://x"} \n')
+  const ocCommitted = JSON.parse(stripComments(committed('opencode.jsonc')))
+  check('and the committed baseURL', ocM.provider.anthropic.options, ocCommitted.provider.anthropic.options)
+  // The committed file is what a new opencode client is handed: its names.
+  check('the committed file names a new client\'s slots', [ocCommitted.model, ocCommitted.small_model, Object.keys(ocCommitted.provider.anthropic.models)],
+    ['anthropic/claude-large', 'anthropic/claude-small', ['claude-large', 'claude-small']])
 }
 
 console.log('\n— client specs: a slot\'s binding is one menu value —')

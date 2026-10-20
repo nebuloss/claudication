@@ -1,11 +1,14 @@
 // Package clients is what the gateway knows about each kind of client it hands
 // a configuration to: the model slots that client's configuration has, which
-// of the gateway's two APIs it can be pointed at, and what each slot's model
-// name has to look like for the client to treat it right.
+// of the gateway's two APIs it speaks, and what each slot's model name has to
+// look like for the client to treat it right.
 //
 // A client of the gateway is a named thing the operator set up — "laptop",
 // "work crush" — holding one API key; its type is one of the Types below, and
-// it keeps that type and the API it was made with (Type.Initial says why).
+// it keeps that type for good (Type.Initial says why). The API it speaks is
+// its type's (Type.API), not a choice made per client: both APIs reach both
+// providers, so which one a client speaks decides nothing about what it can
+// be served, and each type is pointed at the one it speaks natively.
 // Each slot of a client has a model name of that client's own (crush's
 // "large"), which its configuration asks for and which means something only
 // for that client's key: two clients may both have a "large", bound to
@@ -28,23 +31,19 @@ package clients
 
 import (
 	"regexp"
-	"slices"
 	"strings"
 )
 
-// Dialect is the client-facing API a client is pointed at, by the id of the
-// gateway's protocol that serves it (internal/api/anthropic, api/openai).
+// Dialect is a client-facing API, by the id of the gateway's protocol that
+// serves it (internal/api/anthropic, api/openai). Both reach both providers:
+// a model of the provider that speaks the client's API as the client wrote
+// the request, one of the other translated.
 type Dialect string
 
 const (
-	// Messages is the Anthropic Messages API, /v1/messages. It reaches the
-	// Claude accounts only: a Messages request for a ChatGPT model is
-	// refused, naming the slot to change (internal/httpapi/gateway).
+	// Messages is the Anthropic Messages API, /v1/messages.
 	Messages Dialect = "anthropic"
-	// Responses is the OpenAI Responses API, /v1/responses. It reaches both:
-	// a ChatGPT model as the client wrote it, a Claude one translated
-	// (internal/api/openai), which drops the client's reasoning settings —
-	// Claude answers without extended thinking on this path.
+	// Responses is the OpenAI Responses API, /v1/responses.
 	Responses Dialect = "openai"
 )
 
@@ -57,15 +56,6 @@ func (d Dialect) Title() string {
 		return "OpenAI Responses"
 	}
 	return string(d)
-}
-
-// Route is the gateway route a dialect's requests arrive on, which is what
-// decides the providers it can reach.
-func (d Dialect) Route() string {
-	if d == Responses {
-		return "/v1/responses"
-	}
-	return "/v1/messages"
 }
 
 // Mode is how a custom client names models. A typed client is always in
@@ -188,9 +178,9 @@ type Slot struct {
 	// Field is where the client's configuration takes it, as the client
 	// spells it.
 	Field string `json:"field"`
-	// Name is the model name a new slot is given, before any mark its
-	// dialect needs (Type.Name): short, read in the client's own model
-	// picker, and never a real model's id.
+	// Name is the model name a new slot is given, before any mark its type
+	// needs (Type.Name): short, read in the client's own model picker, and
+	// never a real model's id.
 	Name string `json:"name"`
 	// Follows is the moving target a new slot is bound to, so a client set
 	// up today goes on serving the newest model of its kind.
@@ -203,19 +193,19 @@ type Slot struct {
 type Type struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
-	// Dialects are the APIs it can be pointed at, its default first.
-	Dialects []Dialect `json:"dialects"`
+	// API is the API it speaks, the one its configuration points at: its
+	// own, fixed by the type. "" for a custom client, whose key works on
+	// both and whose page gives both addresses.
+	API Dialect `json:"api,omitempty"`
 	// Slots are its configuration's model fields; for a custom client, the
 	// slot it is created with, and the rest are the operator's.
 	Slots []Slot `json:"slots"`
 	// Custom is the type with no recipe: no files to write, slots of the
 	// operator's own naming, and a direct mode.
 	Custom bool `json:"custom"`
-	// Marks are, per dialect, what every slot name must contain for the
-	// client to handle the model right; see the type's own comment.
-	Marks map[Dialect]string `json:"marks,omitempty"`
-	// Why says why the default dialect is the default, for the UI.
-	Why string `json:"why,omitempty"`
+	// Mark is what every slot name must contain for the client to handle
+	// the model right on its API, or ""; see the type's own comment.
+	Mark string `json:"mark,omitempty"`
 	// Sessions are the request headers the type names its chat in, most
 	// specific first: what the gateway groups its requests into chats by.
 	// None for a custom client, whose requests are read the way each API
@@ -256,7 +246,7 @@ type Type struct {
 // the operator move one at a time. A model typed into /model by hand is
 // refused, naming the slots.
 //
-// Messages only: Claude Code speaks nothing else. Its names are claude-large,
+// Messages: Claude Code speaks nothing else. Its names are claude-large,
 // claude-small, claude-opus and so on rather than the bare large, small,
 // opus the other types have, for two reasons in Claude Code itself: its
 // /v1/models reading keeps only ids containing "claude" (gateway.handleModels),
@@ -306,8 +296,8 @@ var ClaudeCode = Type{
 	// it from one still to be named (Surface, surface.go).
 	Sessions:      []string{"X-Claude-Code-Session-Id"},
 	NamesItsChats: true,
-	Dialects:      []Dialect{Messages},
-	Marks:         map[Dialect]string{Messages: "claude"},
+	API:           Messages,
+	Mark:          "claude",
 	Slots: []Slot{
 		{ID: "main", Label: "Main", Role: RoleMain, Field: "ANTHROPIC_MODEL", Name: "large",
 			Follows: FollowOpus, Hint: "The session's model, and the sub-agents that inherit it."},
@@ -347,7 +337,7 @@ var ClaudeCode = Type{
 // so the approval reviewer does not ask for a model of its own (Codex's
 // codex-auto-review, which the ChatGPT list keeps hidden).
 //
-// Responses only: Codex speaks nothing else (internal/api/openai). No mark:
+// Responses: Codex speaks nothing else (internal/api/openai). No mark:
 // with the catalog, Codex reads everything it needs about a name from there.
 var Codex = Type{
 	ID: "codex", Label: "Codex CLI",
@@ -356,7 +346,7 @@ var Codex = Type{
 	// (codex-api/src/requests/headers.rs, read 2026-10-19). No naming request
 	// in the 0.154.0 capture: the gateway titler names its chats.
 	Sessions: []string{"Session_id", "Conversation_id", "Session-Id", "Thread-Id"},
-	Dialects: []Dialect{Responses},
+	API:      Responses,
 	Slots: []Slot{
 		{ID: "main", Label: "Main", Role: RoleMain, Field: "model", Name: "large",
 			Follows: FollowOpus, Hint: "The session's model, compaction included."},
@@ -378,14 +368,20 @@ var Codex = Type{
 // and summaries the small one unless configured otherwise, so the two cover
 // every request it makes of its own accord.
 //
-// Both dialects work, and Responses is the default. Read from the opencode
-// 1.17.13 binary (~/.opencode/bin/opencode, its bundled provider code): its
-// built-in "openai" provider builds every model with sdk.responses(id) and
-// sends store:false, whatever the id, so a Responses config reaches a Claude
-// and a GPT model alike and moving a slot from one to the other needs no new
-// file. Over Messages ("anthropic" provider, @ai-sdk/anthropic) opencode
-// turns tool-call streaming off for an id that does not contain "claude", so
-// Messages names carry it.
+// Messages, through its built-in "anthropic" provider (@ai-sdk/anthropic),
+// overridden to point at the gateway: either of opencode's providers would
+// reach both of the gateway's, and this is the one with thinking for Claude.
+// Read from the opencode 1.17.13 binary (~/.opencode/bin/opencode, its
+// bundled provider code), re-read 2026-10-20:
+//
+//	if (... || !model.api.id.includes("claude") && model.api.npm === "@ai-sdk/anthropic")
+//	    options.toolStreaming = false
+//
+// so over Messages opencode turns tool-call streaming off for an id that does
+// not contain "claude", and its names carry it whatever the slot is bound
+// to, a GPT model included: the mark is about the name opencode sees, not the
+// model behind it. (The same binary picks its system prompt by the id too,
+// the Claude one for an id with "claude"; with the mark that is the one sent.)
 var Opencode = Type{
 	ID: "opencode", Label: "opencode",
 	// x-session-id: ses_<id>, beside x-session-affinity, measured 2026-09-17;
@@ -394,11 +390,8 @@ var Opencode = Type{
 	// (internal/service/titles, measured the same day).
 	Sessions:      []string{"X-Session-Id"},
 	NamesItsChats: true,
-	Dialects:      []Dialect{Responses, Messages},
-	Marks:         map[Dialect]string{Messages: "claude"},
-	Why: "Responses is the default: opencode sends every model of its OpenAI provider over it, so a slot " +
-		"moves between Claude and GPT with no new file. Claude answers through the gateway's translation " +
-		"there, without extended thinking; pick Anthropic Messages to keep thinking on a Claude-only client.",
+	API:           Messages,
+	Mark:          "claude",
 	Slots: []Slot{
 		{ID: "main", Label: "Main", Role: RoleMain, Field: "model", Name: "large",
 			Follows: FollowOpus, Hint: "The model doing the work, and every agent's."},
@@ -411,14 +404,13 @@ var Opencode = Type{
 // (crush internal/config, SelectedModelTypeLarge/Small, at 76cc5c5): its
 // coder runs the large one, its titles and summaries the small one.
 //
-// Messages is the default, for a reason in crush's source: its "openai"
-// provider type (internal/agent/coordinator.go, buildOpenaiProvider) asks
-// fantasy for the Responses API, and fantasy (providers/openai, v0.45.1)
-// grants it only to a model id matching gpt-[4-9] or gpt-<two digits>
-// anywhere in it, sending every other id to /chat/completions, which this
-// gateway does not serve. So a crush on Responses works only while each of
-// its names carries "gpt-5", and its names say so. Messages has no such rule
-// and is the path the gateway's crush handling was measured on.
+// Messages, through its "anthropic" provider type, which has no rule about a
+// model's id and is the path the gateway's crush handling was measured on.
+// Its "openai" type would not do: it asks fantasy for the Responses API
+// (internal/agent/coordinator.go, buildOpenaiProvider), and fantasy
+// (providers/openai, v0.45.1) grants that only to an id matching gpt-[4-9] or
+// gpt-<two digits>, sending every other to /chat/completions, which this
+// gateway does not serve. No mark.
 var Crush = Type{
 	ID: "crush", Label: "crush",
 	// x-session-id and x-session-affinity, a hash of the session id, on every
@@ -428,11 +420,7 @@ var Crush = Type{
 	// internal/service/titles.
 	Sessions:      []string{"X-Session-Id"},
 	NamesItsChats: true,
-	Dialects:      []Dialect{Messages, Responses},
-	Marks:         map[Dialect]string{Responses: "gpt-5"},
-	Why: "Anthropic Messages is the default: it is the path crush was measured on, with thinking. " +
-		"crush speaks OpenAI Responses only for a model id it takes for a GPT one, so on Responses " +
-		"its names carry gpt-5 — and then a slot moves between Claude and GPT with no new file.",
+	API:           Messages,
 	Slots: []Slot{
 		{ID: "large", Label: "Large", Role: RoleMain, Field: "models.large", Name: "large",
 			Follows: FollowOpus, Hint: "The model doing the work."},
@@ -443,11 +431,11 @@ var Crush = Type{
 
 // Custom is a tool the gateway has no recipe for: its page shows the key, the
 // two base URLs and the slot names, and the operator names its slots — or, in
-// direct mode, lets it name real models. It starts with one slot.
+// direct mode, lets it name real models. It starts with one slot, and its key
+// works on both APIs: which one the tool speaks is the tool's.
 var Custom = Type{
 	ID: "custom", Label: "Custom",
-	Dialects: []Dialect{Messages, Responses},
-	Custom:   true,
+	Custom: true,
 	Slots: []Slot{
 		{ID: "large", Label: "Large", Role: RoleMain, Name: "large", Follows: FollowOpus,
 			Hint: "The model the tool asks for."},
@@ -466,15 +454,6 @@ func Find(id string) (Type, bool) {
 	}
 	return Type{}, false
 }
-
-// DefaultDialect is the dialect a new client of this type is pointed at.
-func (t Type) DefaultDialect() Dialect { return t.Dialects[0] }
-
-// Speaks reports whether the type can be pointed at a dialect.
-func (t Type) Speaks(d Dialect) bool { return slices.Contains(t.Dialects, d) }
-
-// Mark is what every slot name must contain on a dialect, or "".
-func (t Type) Mark(d Dialect) string { return t.Marks[d] }
 
 // Slot is one of the type's slots by id.
 func (t Type) Slot(id string) (Slot, bool) {
@@ -499,10 +478,9 @@ func (t Type) SlotFor(id string) (Slot, bool) {
 	return Slot{}, false
 }
 
-// Fits reports whether a name is one the type handles right on a dialect.
-func (t Type) Fits(d Dialect, name string) bool {
-	m := t.Mark(d)
-	return m == "" || strings.Contains(name, m)
+// Fits reports whether a name is one the type handles right.
+func (t Type) Fits(name string) bool {
+	return t.Mark == "" || strings.Contains(name, t.Mark)
 }
 
 // name is what a model name may be: lower case, digits, dots and dashes, as a
@@ -512,17 +490,17 @@ var name = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,63}$`)
 // ValidName reports whether s can be a model name, or a custom slot's id.
 func ValidName(s string) bool { return name.MatchString(s) }
 
-// Name is the model name slot is given on dialect d: the slot's own name,
-// with the dialect's mark in front when it lacks it. taken says a name is
-// already this client's; a number is added until one is free. The client's
-// own name is no part of it: a rename never touches its configuration.
-func (t Type) Name(d Dialect, slot string, taken func(string) bool) string {
+// Name is the model name slot is given: the slot's own name, with the type's
+// mark in front when it lacks it. taken says a name is already this client's;
+// a number is added until one is free. The client's own name is no part of
+// it: a rename never touches its configuration.
+func (t Type) Name(slot string, taken func(string) bool) string {
 	base := slot
 	if s, ok := t.Slot(slot); ok && s.Name != "" {
 		base = s.Name
 	}
-	if m := t.Mark(d); m != "" && !strings.Contains(base, m) {
-		base = m + "-" + base
+	if t.Mark != "" && !strings.Contains(base, t.Mark) {
+		base = t.Mark + "-" + base
 	}
 	n := base
 	for i := 2; taken != nil && taken(n); i++ {
@@ -540,25 +518,21 @@ func itoa(i int) string {
 }
 
 // Initial is one slot a new client is made with: one of its type's, under the
-// name its dialect needs, following the slot's default target.
+// name its type needs, following the slot's default target.
 type Initial struct {
 	Slot    string
 	Name    string
 	Follows Follow
 }
 
-// Initial are the slots a new client of this type starts with on dialect d,
-// the type's default when it cannot speak d. A custom client starts with its
-// one slot; the rest are the operator's to add.
+// Initial are the slots a new client of this type starts with. A custom
+// client starts with its one slot; the rest are the operator's to add.
 //
-// A client keeps the type and dialect it was made with: its key was handed
-// out for that client, and the names its configuration asks for carry the
-// dialect's mark, so another dialect would be another set of names — another
-// client, with a key of its own.
-func (t Type) Initial(d Dialect) (Dialect, []Initial) {
-	if !t.Speaks(d) {
-		d = t.DefaultDialect()
-	}
+// A client keeps the type it was made with: its key was handed out for that
+// client, and the names its configuration asks for carry the type's mark, so
+// another type would be another set of names — another client, with a key of
+// its own.
+func (t Type) Initial() []Initial {
 	slots := t.Slots
 	if t.Custom {
 		slots = slots[:1]
@@ -566,9 +540,9 @@ func (t Type) Initial(d Dialect) (Dialect, []Initial) {
 	taken := map[string]bool{}
 	out := make([]Initial, 0, len(slots))
 	for _, s := range slots {
-		n := t.Name(d, s.ID, func(n string) bool { return taken[n] })
+		n := t.Name(s.ID, func(n string) bool { return taken[n] })
 		taken[n] = true
 		out = append(out, Initial{Slot: s.ID, Name: n, Follows: s.Follows})
 	}
-	return d, out
+	return out
 }

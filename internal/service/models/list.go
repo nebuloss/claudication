@@ -59,7 +59,6 @@ type Catalog struct {
 	store      Store
 	pool       Pool
 	relays     []*relay.Relay
-	reaches    func(d clients.Dialect, provider string) bool
 	httpClient *http.Client
 
 	// What the accounts' lists last said, for the follow targets and the routes;
@@ -103,10 +102,6 @@ type Deps struct {
 	// default: whose wire an account's list is read over, so each
 	// provider's address, headers and list shape stay in its own package.
 	Relays []*relay.Relay
-	// Reaches says whether a client on a dialect can be served by a
-	// provider: the gateway's routes, handed across by the root, so what a
-	// client is offered and what the gateway refuses are one table.
-	Reaches func(d clients.Dialect, provider string) bool
 	// HTTPClient makes the small upstream calls: the lists and the catalogue.
 	HTTPClient *http.Client
 }
@@ -115,7 +110,7 @@ type Deps struct {
 func New(d Deps) *Catalog {
 	return &Catalog{
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
-		relays: d.Relays, reaches: d.Reaches, httpClient: d.HTTPClient,
+		relays: d.Relays, httpClient: d.HTTPClient,
 	}
 }
 
@@ -162,7 +157,7 @@ func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
 		// The gateway's own key is no client: it is offered the list as it
 		// stands, and the request says what it gets.
 		if key.ClientType != "" {
-			body = s.onlyAvailable(ctx, key.ClientDialect, body)
+			body = s.onlyAvailable(ctx, body)
 		}
 		// Less what the key may not use, for the reason the switched-off
 		// models are left out.
@@ -178,7 +173,8 @@ func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
 	var entries []virtualEntry
 	own := map[string]bool{}
 	for _, sl := range slots {
-		c, why := s.Resolve(ctx, key.ClientDialect, store.Binding{Model: sl.Model, Follows: sl.Follows})
+		c, why := s.Resolve(ctx, store.Binding{Model: sl.Model, Follows: sl.Follows})
+
 		if why != "" {
 			continue
 		}

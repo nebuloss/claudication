@@ -16,7 +16,6 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/provider"
 	accountsvc "claudication/internal/service/accounts"
-	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
@@ -88,14 +87,14 @@ type Models interface {
 	// For is the list one key is offered, its client's slots in it: what
 	// /v1/models answers it, and what its client's configs are written from.
 	For(ctx context.Context, key store.APIKey) ([]byte, error)
-	// Choices are what a slot of a client on a dialect can be bound to now,
-	// and nothing that is not available to it.
-	Choices(ctx context.Context, d clients.Dialect) []modelsvc.Choice
-	// Available are the real models a client on a dialect can be served now.
-	Available(ctx context.Context, d clients.Dialect) []modelsvc.Choice
-	// Resolve is what a binding serves a client on a dialect now, and why it
-	// is unavailable when it is.
-	Resolve(ctx context.Context, d clients.Dialect, b store.Binding) (modelsvc.Choice, string)
+	// Choices are what a client's slot can be bound to now, and nothing that
+	// is not available.
+	Choices(ctx context.Context) []modelsvc.Choice
+	// Available are the real models a client can be served now.
+	Available(ctx context.Context) []modelsvc.Choice
+	// Resolve is what a binding serves now, and why it is unavailable when it
+	// is.
+	Resolve(ctx context.Context, b store.Binding) (modelsvc.Choice, string)
 }
 
 // New builds an Admin with no session open.

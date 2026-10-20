@@ -116,7 +116,7 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 	var available map[string]bool
 	if key.ClientType != "" {
 		available = map[string]bool{}
-		for _, c := range s.models.Available(ctx, key.ClientDialect) {
+		for _, c := range s.models.Available(ctx) {
 			available[c.Model] = true
 		}
 	}

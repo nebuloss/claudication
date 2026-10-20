@@ -42,7 +42,6 @@ import (
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	accountsvc "claudication/internal/service/accounts"
-	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
@@ -353,7 +352,6 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	s.models = modelsvc.New(modelsvc.Deps{
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Relays:     []*relay.Relay{s.relays[anthropic.ID], s.relays[chatgpt.ID]},
-		Reaches:    s.reaches,
 		HTTPClient: s.httpClient,
 	})
 	s.gateway = gateway.New(gateway.Deps{
@@ -389,15 +387,6 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 // ChatGPT at all: that translation is a mapping of its own and not one this
 // gateway has, so a Claude client asking for a model only ChatGPT serves is
 // refused, saying which of its names to rebind.
-// reaches says whether a client pointed at a dialect can be served by a
-// provider: whether the dialect's route has a path on that provider's
-// upstream. The model service offers a client only what it reaches; the
-// gateway refuses by the same table.
-func (s *Server) reaches(d clients.Dialect, provider string) bool {
-	_, ok := s.upstreams()[provider].Paths[d.Route()]
-	return ok
-}
-
 func (s *Server) upstreams() map[string]gateway.Upstream {
 	return map[string]gateway.Upstream{
 		anthropic.ID: {

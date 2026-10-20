@@ -26,7 +26,6 @@ import type {
   ClientMode,
   ClientTypesWire,
   ClientWire,
-  DialectId,
   LimitReplay,
   LimitSuggestion,
   SlotUse,
@@ -229,11 +228,10 @@ const clients = {
     (await http.get<{ client: ClientWire }>(path`/admin/clients/${id}`, signal)).client,
 
   /** The plaintext comes back once from here; secret() reads it again until first use. */
-  create: (name: string, type: string, dialect: DialectId | '', limits: KeyLimits) =>
+  create: (name: string, type: string, limits: KeyLimits) =>
     http.post<{ client: ClientWire; plaintext: string }>('/admin/clients', {
       ...toKeyBody(name, limits),
       type,
-      ...(dialect !== '' ? { dialect } : {}),
     }),
 
   /** Rename a client or change its limits. Its key is untouched. */
