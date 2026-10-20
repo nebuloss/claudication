@@ -148,7 +148,7 @@ test-web:
 	  --jsx react-jsx --rootDir src --outDir .charts-check \
 	  src/ui/charts/scale.ts src/ui/charts/stack.ts src/ui/charts/paint.tsx \
 	  src/ui/route.ts src/ui/clients/configs.ts src/ui/clients/specs.ts src/ui/domain/model-tests.ts \
-	  src/ui/features/requests/filter.ts src/ui/features/requests/pager.ts
+	  src/ui/features/requests/filter.ts src/ui/features/requests/pager.ts src/ui/primitives/title-edit.ts
 	@node scripts/check-charts.mjs
 	@rm -rf web/.charts-check
 

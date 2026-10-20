@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { api, type GatewayConfig } from '../../../api/client'
 import { useAction } from '../../hooks'
 import { navigate } from '../../route'
@@ -7,8 +6,6 @@ import {
   Card,
   DangerZone,
   ErrorBanner,
-  Field,
-  KeyValue,
   Note,
   SettingSwitch,
   Stack,
@@ -20,8 +17,8 @@ import { SlotsCard } from './slots'
 
 /**
  * A client at a glance, on its own path: how to set it up (or that it is), its
- * model names and what each serves, what it is — its name, type and API — and
- * deleting it. Its usage and limits, chats and requests are a page away.
+ * model names and what each serves, its switches, and deleting it. Its name,
+ * type and API are the page's header, where it is renamed. Its usage and limits, chats and requests are a page away.
  */
 export function ClientOverview({
   client,
@@ -38,32 +35,26 @@ export function ClientOverview({
     <>
       <SetupCard client={client} types={types} config={config} onChanged={onChanged} />
       <SlotsCard client={client} onChanged={onChanged} />
-      <AboutCard client={client} types={types} onChanged={onChanged} />
+      <SettingsCard client={client} onChanged={onChanged} />
       <DeleteCard client={client} />
     </>
   )
 }
 
 /**
- * What the client is: its name, its type and API, and its switches.
+ * How the gateway treats the client's requests: its switches, and nothing
+ * else.
  *
- * The type and the API are shown, not offered: a client is made with them and
- * keeps them. Its key was handed out for that one client, and its model names
- * carry what its API needs, so another type or API is another client — made
- * on its own, with a key of its own.
+ * This was the "Client" card, which also held the name as a field and the
+ * type and API as facts. The name is renamed where it is read now, in the
+ * page's header (EditableTitle). The type and API are the header's subtitle:
+ * a client keeps both for life — its key was issued for that one client, and
+ * its model names carry what its API needs — so they are facts to read, not
+ * settings, and a card restating them said nothing the header did not.
  */
-function AboutCard({ client: c, types, onChanged }: { client: Client; types: ClientTypes; onChanged: () => void }) {
-  const [name, setName] = useState(c.name)
+function SettingsCard({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
   const { busy, error, run } = useAction()
   const k = c.wire
-
-  const rename = () =>
-    run('name', async () => {
-      await api.clients.update(c.id, name.trim(), {
-        rpmLimit: k.rpm_limit, ratePeriodS: k.rate_period_s, tokenBudget: k.token_budget,
-      })
-      onChanged()
-    })
 
   const switchChats = (on: boolean) =>
     run('chats', async () => {
@@ -82,28 +73,8 @@ function AboutCard({ client: c, types, onChanged }: { client: Client; types: Cli
     })
 
   return (
-    <Card title="Client">
+    <Card title="Settings">
       <Stack>
-        <div className="flex flex-wrap items-center gap-3">
-          <Field label="Name" value={name} onChange={setName} grow />
-          <Button variant="outlined" busy={busy === 'name'} disabled={name.trim() === '' || name.trim() === c.name}
-            onClick={() => void rename()}>
-            Rename
-          </Button>
-        </div>
-        <Note>The model names stay as they are: a rename never touches the client&rsquo;s configuration.</Note>
-
-        <KeyValue
-          items={[
-            ['Type', c.type.label],
-            ['API', types.apiTitle(c.type)],
-          ]}
-        />
-        <Note>
-          A client keeps the type it was made with: its key was issued for it, and it speaks its type&rsquo;s
-          API, which reaches every model. For another type, add a new client.
-        </Note>
-
         {c.type.custom && (
           <SettingSwitch
             checked={k.mode === 'direct'}

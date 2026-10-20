@@ -94,6 +94,21 @@ export function ClientPage({
         kind="clients"
         id={client.id}
         title={client.name}
+        rename={{
+          value: client.name,
+          label: 'Client name',
+          // The key's limits go back as they are: the endpoint takes the
+          // whole of what a key is, and a rename is not a change to them.
+          // The model names stay too — a rename never touches the client's
+          // configuration.
+          onSave: async (name) => {
+            const k = client.wire
+            await api.clients.update(client.id, name, {
+              rpmLimit: k.rpm_limit, ratePeriodS: k.rate_period_s, tokenBudget: k.token_budget,
+            })
+            changed()
+          },
+        }}
         subtitle={`${client.type.label} · ${types.apiTitle(client.type)}`}
         aside={
           <Figures>

@@ -12,15 +12,19 @@ import { tile } from './surface'
  * primary and 2px when focused (or, for a select, open) — with the padding
  * a pixel less, so the text does not move when the border thickens.
  */
-export function outlinedField(focused = false, top: 'label' | 'dots' = 'label'): string {
+export function outlinedField(focused = false, top: 'label' | 'dots' | 'none' = 'label'): string {
   const edge = focused
     ? 'border-2 border-primary px-[15px]'
     : 'border border-outline px-4 hover:border-on-surface focus:border-2 focus:border-primary focus:px-[15px] focus-visible:border-2 focus-visible:border-primary focus-visible:px-[15px]'
   // Room above the text for the label riding up. A password's dots sit on the
   // x-height, well below the middle of the line, and with the same room they
-  // rode at the bottom of the field: they take less, which centres them.
-  const pad = top === 'dots' ? 'pt-1' : 'pt-4'
-  return `h-14 w-full rounded-md3-m bg-transparent ${pad} text-on-surface outline-none transition-colors ${edge}`
+  // rode at the bottom of the field: they take less, which centres them. A
+  // field with no label at all (a title edited in place, which the heading it
+  // replaces already names) needs neither the room nor the height, and is
+  // only as tall as the line it stands in for.
+  const pad = top === 'dots' ? 'pt-1' : top === 'label' ? 'pt-4' : ''
+  const height = top === 'none' ? 'h-11' : 'h-14'
+  return `${height} w-full rounded-md3-m bg-transparent ${pad} text-on-surface outline-none transition-colors ${edge}`
 }
 
 /** MD3 outlined text field, with the label riding up out of the way. */

@@ -500,6 +500,22 @@ console.log('\n— RequestLogPager: polling must not undo paging —')
   check('a whole page of new rows starts over rather than leave a hole', [over.rows.length, over.cursor], [PAGE, 'p'])
 }
 
+console.log('\n— commitTitle: what Enter in a title being renamed does —')
+{
+  const { commitTitle, MAX_NAME } = await import(`${OUT}/primitives/title-edit.js`)
+  const client = { clearable: false }
+  const account = { clearable: true }
+  check('the same name, spaces aside, sends nothing', commitTitle('  Laptop ', 'Laptop', client), { kind: 'unchanged' })
+  check('a new name is sent trimmed', commitTitle(' Desk ', 'Laptop', client), { kind: 'save', value: 'Desk' })
+  check('a client cannot be left nameless', commitTitle('   ', 'Laptop', client).kind, 'invalid')
+  check("an account's empty name is its address back", commitTitle('', 'Work', account), { kind: 'save', value: '' })
+  check('an unnamed account left empty sends nothing', commitTitle(' ', '', account), { kind: 'unchanged' })
+  check('the limit is the server\'s', commitTitle('x'.repeat(MAX_NAME), '', client).kind, 'save')
+  check('one over is refused before it is sent', commitTitle('x'.repeat(MAX_NAME + 1), '', client).kind, 'invalid')
+  check('counted in characters, as the server counts', commitTitle('🙂'.repeat(MAX_NAME), '', client).kind, 'save')
+  check('a pasted newline is refused', commitTitle('two\nlines', '', client).kind, 'invalid')
+}
+
 console.log('\n— every axis covers its data —')
 for (const m of [1, 7, 42, 99, 100, 101, 999, 1183402, 5e9, 0.3]) {
   check(`top >= ${m}`, niceTicks(m).at(-1) >= m, true)

@@ -169,29 +169,45 @@ export function IconButton({
   label,
   onClick,
   disabled,
+  busy = false,
+  type = 'button',
   tone,
   children,
 }: {
   label: string
   onClick?: () => void
   disabled?: boolean
-  tone?: 'error'
+  /**
+   * In flight: the spinner in place of the icon, and not pressable again —
+   * at full ink, since dimming it as disabled would hide the one thing it
+   * is there to show.
+   */
+  busy?: boolean
+  /** "submit" for the button a small inline form is sent by, as Button's. */
+  type?: 'button' | 'submit'
+  tone?: 'error' | 'primary'
   children: ReactNode
 }) {
+  const ink = tone === 'error' ? 'text-error' : tone === 'primary' ? 'text-primary' : 'text-on-surface-variant'
   return (
     <button
-      type="button"
+      type={type}
       title={label}
       aria-label={label}
+      aria-busy={busy || undefined}
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled === true && !busy}
       className={`state-layer grid size-9 shrink-0 place-items-center rounded-md3-full border border-outline disabled:pointer-events-none disabled:opacity-30 ${
-        tone === 'error' ? 'text-error' : 'text-on-surface-variant'
-      }`}
+        busy ? 'pointer-events-none' : ''
+      } ${ink}`}
     >
-      <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
-        {children}
-      </svg>
+      {busy ? (
+        <Spinner className="size-5" />
+      ) : (
+        <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
+          {children}
+        </svg>
+      )}
     </button>
   )
 }
