@@ -420,9 +420,8 @@ type listener struct {
 	msg   string
 	attrs []any
 	ln    net.Listener
-	// pending counts what srv accepted and has not yet handed a handler;
-	// see Serve's drain.
-	pending *handover.Pending
+	// conns follows srv's connections, for the drain; see handover.Conns.
+	conns *handover.Conns
 }
 
 // The config keys of the two addresses, and the names their sockets are
@@ -449,7 +448,7 @@ func (s *Server) newListener(key, addr string, h http.Handler, msg string, attrs
 		msg:   msg,
 		attrs: attrs,
 	}
-	l.pending = handover.Track(l.srv)
+	l.conns = handover.Track(l.srv)
 	return l
 }
 
@@ -595,6 +594,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+
 // uptimeState is the gateway's state for the uptime record: paused when its
 // operator switched it off, up when some account of some provider could take
 // a request now, degraded when none could.
@@ -734,16 +734,24 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 		h.Ready()
 	}
 
+	stopBackground := sync.OnceFunc(func() {
+		stopPolling()
+		close(s.stopSweeper)
+	})
 	released := false
 	select {
 	case err := <-errCh:
-		close(s.stopSweeper)
+		stopBackground()
 		return err
 	case <-ctx.Done():
 	case <-h.Release:
 		released = true
 	}
-	stopPolling()
+	// Every background writer stops here, not after the drain: the sampler,
+	// the pruners, the sweepers and the poller belong to the process taking
+	// requests, and on a handover that is the other one now. What is left is
+	// answering what was accepted, and recording what it cost.
+	stopBackground()
 
 	grace := s.cfg.Shutdown.Grace.D()
 	if released {
@@ -758,17 +766,13 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 		s.uptime.Stopping(context.Background())
 	}
 
-	// Stop accepting, let every connection already accepted reach a handler,
-	// and only then Shutdown, which drops a request it has not yet handed
-	// to one (handover.Pending). Across a handover that was an EOF on one
-	// connection per reload, on a socket the next worker was serving. The
-	// accept loops have to have returned first, or a connection accepted
-	// after the wait would be dropped the same way; each reports the
-	// closed listener, which is no error here. Keep-alives off first, so a
-	// connection answered while waiting closes rather than idling into
-	// Shutdown.
+	// Stop accepting first, and wait for the accept loops to return, so the
+	// connections counted below are all there will be; each reports the
+	// closed listener, which is no error here.
 	for _, l := range s.listeners {
-		l.srv.SetKeepAlivesEnabled(false)
+		if !released {
+			l.srv.SetKeepAlivesEnabled(false)
+		}
 		_ = l.ln.Close()
 	}
 	for range s.listeners {
@@ -777,13 +781,33 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()
-	// Bounded, because a client that connects and sends nothing would hold
-	// it: five seconds is how long Shutdown itself waits on such a one.
-	settleCtx, settled := context.WithTimeout(shutdownCtx, 5*time.Second)
-	for _, l := range s.listeners {
-		l.pending.Settle(settleCtx)
+	if released {
+		// A handover closes no connection a client could be writing on: each
+		// idle keep-alive connection answers its next request with
+		// Connection: close, and the drain waits for every one to be closed
+		// (handover.Conns). Closing them at once, as Shutdown does, failed
+		// POSTs written on a pooled connection at that instant.
+		var wg sync.WaitGroup
+		for _, l := range s.listeners {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				l.conns.Drain(shutdownCtx)
+			}()
+		}
+		wg.Wait()
+	} else {
+		// A stop lets every connection already accepted reach a handler
+		// before Shutdown, which drops a request it has not yet handed to one
+		// (handover.Conns.Settle). Bounded, because a client that connects
+		// and sends nothing would hold it: five seconds is how long Shutdown
+		// itself waits on such a one.
+		settleCtx, settled := context.WithTimeout(shutdownCtx, 5*time.Second)
+		for _, l := range s.listeners {
+			l.conns.Settle(settleCtx)
+		}
+		settled()
 	}
-	settled()
 
 	// All of them at once. Shutdown closes a server's listeners only when it is
 	// called, so in sequence the admin port stayed bound for as long as the
@@ -810,7 +834,6 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 			break
 		}
 	}
-	close(s.stopSweeper)
 
 	if errors.Is(err, context.DeadlineExceeded) {
 		s.log.Warn("grace period expired with requests still in flight")

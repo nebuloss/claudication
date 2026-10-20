@@ -60,6 +60,11 @@ func testWorker() int {
 	mux.HandleFunc("/pid", func(rw http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(rw, os.Getpid())
 	})
+	// A POST with a body, which a client cannot safely send twice.
+	mux.HandleFunc("POST /post", func(rw http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		fmt.Fprintf(rw, "%d %d", os.Getpid(), len(b))
+	})
 	// A stream as long as asked for, a line every 50 ms: what a draining
 	// worker has to finish.
 	mux.HandleFunc("/stream", func(rw http.ResponseWriter, r *http.Request) {
@@ -73,8 +78,10 @@ func testWorker() int {
 		}
 		fmt.Fprint(rw, "done\n")
 	})
-	srv := &http.Server{Handler: mux}
-	pending := Track(srv)
+	// A short idle timeout, so a released worker's idle keep-alive
+	// connections end within a test's patience; the gateway's is 120 s.
+	srv := &http.Server{Handler: mux, IdleTimeout: 2 * time.Second}
+	conns := Track(srv)
 	var loops sync.WaitGroup
 	for _, ln := range w.Listeners() {
 		loops.Add(1)
@@ -87,21 +94,30 @@ func testWorker() int {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM)
+	released := false
 	select {
 	case <-w.Released():
+		released = true
 	case <-w.Orphaned():
 	case <-stop:
 	}
-	// As httpapi.Server drains: stop accepting, let what was accepted reach
-	// a handler, then Shutdown.
-	srv.SetKeepAlivesEnabled(false)
+	// As httpapi.Server drains: stop accepting; on a handover, close nothing
+	// a client could be writing on; on a stop, let what was accepted reach a
+	// handler; then Shutdown.
+	if !released {
+		srv.SetKeepAlivesEnabled(false)
+	}
 	for _, ln := range w.Listeners() {
 		ln.Close()
 	}
 	loops.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	pending.Settle(ctx)
+	if released {
+		conns.Drain(ctx)
+	} else {
+		conns.Settle(ctx)
+	}
 	if err := srv.Shutdown(ctx); err != nil {
 		return 1
 	}
@@ -529,4 +545,77 @@ func TestAnUnusableLockDirectoryDoesNotFailTheRefresh(t *testing.T) {
 	if !strings.Contains(logged.String(), "cannot lock token refreshes") {
 		t.Errorf("not said out loud: %q", logged.String())
 	}
+}
+
+// A client that keeps its connections — every real one — sends POSTs on
+// them across a handover, and not one fails. Closing the old worker's idle
+// keep-alive connections at the release, as Shutdown does, failed the POSTs
+// written on one at that instant: a client cannot safely resend a POST, so
+// it reports the EOF. Each now answers one more request, with
+// Connection: close, and the client's next goes to the new worker.
+func TestPooledPOSTsSurviveAHandover(t *testing.T) {
+	h := startSupervisor(t, 10*time.Second)
+	old := h.waitPID()
+	tr := &http.Transport{MaxIdleConnsPerHost: 8}
+	defer tr.CloseIdleConnections()
+	pooled := &http.Client{Transport: tr, Timeout: 10 * time.Second}
+
+	var ok, failed atomic.Int64
+	var mu sync.Mutex
+	pids := map[int]int{}
+	var errs []string
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for n := 0; ; n++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				resp, err := pooled.Post(h.base+"/post", "application/json", strings.NewReader(`{"n":1}`))
+				if err == nil {
+					var pid, size int
+					_, err = fmt.Fscan(resp.Body, &pid, &size)
+					resp.Body.Close()
+					mu.Lock()
+					pids[pid]++
+					mu.Unlock()
+				}
+				if err != nil {
+					failed.Add(1)
+					mu.Lock()
+					if len(errs) < 5 {
+						errs = append(errs, err.Error())
+					}
+					mu.Unlock()
+				} else {
+					ok.Add(1)
+				}
+				// Some go straight back, some leave the connection idle a
+				// while: the release has to meet both.
+				time.Sleep(time.Duration((i*7+n)%5) * time.Millisecond)
+			}
+		}()
+	}
+	time.Sleep(300 * time.Millisecond)
+	r := h.handOver()
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+	if failed.Load() > 0 {
+		t.Errorf("%d of %d pooled POSTs failed across the handover, e.g. %v", failed.Load(), failed.Load()+ok.Load(), errs)
+	}
+	if pids[old] == 0 || pids[r.New] == 0 {
+		t.Errorf("answered by %v; want both %d and %d", pids, old, r.New)
+	}
+	t.Logf("%d pooled POSTs, none failed; answered by %v", ok.Load(), pids)
+	tr.CloseIdleConnections()
+	waitGone(t, old, 5*time.Second)
 }
