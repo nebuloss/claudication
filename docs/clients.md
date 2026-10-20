@@ -1,109 +1,155 @@
 # Pointing a client at the gateway
 
-Ready-made configuration lives in [`configs/clients/`](../configs/clients/).
-Each file is complete and commented; change the one address in it and it works.
+A **client** is one tool on one machine, as the gateway knows it: a type, one
+API key, its own model names, its limits and its switches. Make one on the
+**Clients** screen of the admin UI; its page then has everything that tool
+needs — the key, the address, its files and a one-line install command.
 
-| Client | File | `/v1` on the base URL? |
-|---|---|---|
-| Claude Code | [`claude-code.sh`](../configs/clients/claude-code.sh) | no |
-| Codex CLI | [`codex.toml`](../configs/clients/codex.toml) + [`codex-models.json`](../configs/clients/codex-models.json) | yes |
-| opencode | [`opencode.jsonc`](../configs/clients/opencode.jsonc) | yes |
-| crush | [`crush.json`](../configs/clients/crush.json) | no |
+| Type | What the gateway writes | API it is pointed at | `/v1` on the base URL? |
+|---|---|---|---|
+| Claude Code | [`claude-code.sh`](../configs/clients/claude-code.sh) | Anthropic Messages | no |
+| Codex CLI | [`codex.toml`](../configs/clients/codex.toml) + [`codex-models.json`](../configs/clients/codex-models.json) | OpenAI Responses | yes |
+| opencode | [`opencode.jsonc`](../configs/clients/opencode.jsonc) | Responses (default) or Messages | yes |
+| crush | [`crush.json`](../configs/clients/crush.json) | Messages (default) or Responses | no on Messages, yes on Responses |
+| Custom | nothing: the key, both addresses, its names and a snippet per SDK | either | — |
 
-That last column is the thing that trips everyone up: each client has its own
-opinion about whether the base URL carries `/v1`, and none of them says so when
-you get it wrong. You just get 404s.
+The files in `configs/clients/` are each type's starting point, complete and
+commented, with the names a new client of that type is given. A client's page
+writes them with its own names, its own API and its own key. Each type's table
+— its model fields, its default names, which APIs it can use and why — is
+`go doc ./internal/service/clients`, with the source each was read from.
 
-The **Setup** tab in the admin UI offers the same files with your gateway's own
-address already substituted, and a Download button on each — which matters more
-than it sounds, because a browser will not give a page the clipboard over plain
-HTTP, and a gateway on a private network usually is plain HTTP.
+The last column is what trips everyone up: each tool has its own opinion about
+whether the base URL carries `/v1`, and none says so when you get it wrong. You
+just get 404s. The client's page gives the right one.
 
 ## The key
 
-Mint one in **Settings → API keys**, or from a shell:
+Keys look like `clc_…`, one per client. A client's page shows its key until the
+client is **configured** — the first time its install command is run or its key
+is used, refused or not. From then on the page says when, and neither the key
+nor the install command is offered again: a key that is in use has nowhere it
+still needs to go. To set the client up again, regenerate its key on its page;
+the old one stops working at once.
+
+From a shell, for a provisioning script:
 
 ```sh
-claudication keys add -name laptop
+claudication clients add -name laptop               # a custom client, real model ids
+claudication clients add -name laptop -type crush   # a crush client, with crush's names
 ```
 
-Keys look like `clc_…`. A key's overview in the admin UI shows it, and regenerates
-it when one has leaked; its Clients page has every client's config with it
-inside, whenever it is needed again.
-
-**One command instead of files.** The Clients page also makes a command that
-writes the configs into place on the client's machine:
-
-    curl -fsSL '<public url>/install?token=…&shell=sh&client=crush' | sh
-    irm '<public url>/install?token=…&shell=ps1' | iex
-
-`client=` picks one client or a comma-separated few; without it, all of them.
-The token lasts fifteen minutes and works on as many machines as it is run on.
-A client's own config is merged, not replaced: crush gets its `claudication`
-provider and its `large`/`small` picks, opencode its `anthropic` provider and
-default models, Codex its top-level model keys and its `[model_providers.claudication]`
-table, and everything else in the file stays. In Codex's file the gateway's
-part sits between `# >>> claudication` markers, rewritten on each run. JSON on
-Linux and macOS is merged with `python3` or `node`; with neither, the file is
-left as it was and the gateway's version is put beside it as `.claudication`.
-JSON comments in the existing file do not survive a merge. Every file it
-changes is kept beside it as `.bak.<time>`, so a newer command is an update. On Linux and macOS, Claude Code's file is sourced from `~/.bashrc` and
-`~/.zshrc`; on Windows its variables are set for the user.
-
-**One key format, both APIs.** A Codex key is not a different kind of key, and
-nothing has to look like `sk-…`: the same `clc_…` works on `/v1/messages` and
-`/v1/responses` alike. Only the header the client chooses differs, and the
-gateway takes either on either surface —
+**One key format, both APIs.** The same `clc_…` works on `/v1/messages` and
+`/v1/responses`; only the header differs, and the gateway takes either on
+either —
 
 ```
 Authorization: Bearer clc_…     what Codex and the OpenAI SDKs send
 x-api-key: clc_…                what Claude Code and the Anthropic SDKs send
 ```
 
-— so the only thing to get right is that Codex reads its key from the
+— so the one thing to get right is that Codex reads its key from the
 *environment variable* named by `env_key`, never from the config file.
 
-## Which base URL
+## One command instead of files
 
-The admin UI shows it under **Setup**. Two cases:
+A typed client's page makes a command that writes its files into place:
 
-- **One listener** (`admin-listen` empty) — the address your browser is on is
-  also the relay. The UI uses it directly.
-- **Split listeners** — the browser is on the *admin* address and the relay is
-  somewhere else. The gateway cannot learn the hostname clients use, so set
-  `public-url` in the config or the UI will say it is guessing.
+    curl -fsSL '<public url>/install?token=…&shell=sh' | sh       # Linux and macOS
+    irm '<public url>/install?token=…&shell=ps1' | iex            # Windows
 
-## Which models
+A command works **once**, for fifteen minutes. The page shows it waiting with
+its countdown, then when, from which address and on which platform it was run,
+or that it expired; a new one is a click. Running it marks the client
+configured.
 
-Whatever your accounts serve, less what you have switched off. Every model is
-on until an operator turns it off for an account (Accounts → the account's
-Models): a request is relayed by the first account that has its model on, and
-refused as a model this gateway does not serve when none has. `/v1/models` is
-the union of what each account's subscription lists, less those switches, so
-two accounts on different plans offer everything either has. The only other
-model-name logic is the OpenAI surface sending `claude-large` when a caller
-asks for something that is not a Claude model. A model added upstream tomorrow
-works without a gateway change.
+A tool's own config is merged, not replaced: crush gets its `claudication`
+provider and its `large`/`small` picks, opencode its provider and default
+models, Codex its model keys and its `[model_providers.claudication]` table,
+and everything else in the file stays. In Codex's file the gateway's part sits
+between `# >>> claudication` markers. JSON on Linux and macOS is merged with
+`python3` or `node`; with neither, the gateway's version is put beside the file
+as `.claudication`. JSON comments in the existing file do not survive a merge.
+Every file it changes is kept beside it as `.bak.<time>`. On Linux and macOS,
+Claude Code's file is sourced from `~/.bashrc` and `~/.zshrc`; on Windows its
+variables are set for the user.
 
-Ask yours:
+## Model names
 
-```sh
-curl https://claudication.example.com/v1/models -H "x-api-key: clc_…"
-```
+There are no gateway-wide model names. Each client has **slots**: one per model
+setting its tool has, each with a name the tool asks for and a binding the
+gateway resolves it to.
 
-Two clients need models named by hand, and both are the client's doing: crush
-never calls `/v1/models`, and Codex looks names up in a catalog. So the files a
-gateway hands out — the downloads beside a new key, and its Clients page — are
-the committed ones with their models written from that same live list: every
-active model your accounts serve, each with its real context window, output cap
-and effort levels, and the newest Opus and Haiku as the defaults. A model
-Anthropic releases tomorrow is in them the next time the page loads, with no
-gateway change. The rewrite is `web/src/ui/clients/catalog.ts`; when the
-list cannot be read, the committed files are handed out as they stand.
+| Type | Slots, and the name each starts with |
+|---|---|
+| Claude Code | `claude-large` (`ANTHROPIC_MODEL`), `claude-small` (`ANTHROPIC_SMALL_FAST_MODEL`), `claude-opus`, `claude-sonnet`, `claude-haiku`, `claude-fable` (`ANTHROPIC_DEFAULT_*_MODEL`), `claude-auto` (`CLAUDE_CODE_AUTO_MODE_MODEL`) |
+| Codex CLI | `large` (`model`), `review` (`review_model`), `agents` (`agents.default_subagent_model`), `small` (`memories.extract_model`, `memories.consolidation_model`) |
+| opencode | `large` (`model`), `small` (`small_model`) |
+| crush | `large` (`models.large`), `small` (`models.small`) |
+| Custom | `large`, and any more the operator adds |
 
-The files in `configs/clients/` are those same files, written from the list as it
-was on the day they were committed. Download again to pick up a newer model; an
-existing crush or Codex setup does not learn about one on its own.
+A name is the client's own: two clients can both have a `large`, bound to
+different models. It can be renamed on the client's page, within a rule some
+tools impose — Claude Code keeps only model ids containing `claude`, opencode
+streams tool calls over Messages only for such ids, and crush speaks Responses
+only for an id that looks like a GPT one, so its Responses names carry `gpt-5`.
+
+A slot is bound either to a **model** — any model an account serves, Claude or
+GPT — or to a **target it follows**: the newest Opus, Sonnet, Haiku or Fable,
+ChatGPT's first-ranked model or its light one. A new client's slots follow
+targets, so it moves to a new release on its own.
+
+A typed client may ask for its slot names and nothing else: every model it can
+ask for of its own accord has a slot, so a real id typed into its model picker
+is refused, naming its slots. That is what makes moving a client one change on
+its page and nowhere else.
+
+A **custom** client has two modes, and keeps both settings: in **binding** mode
+it names its slots like a typed one; in **direct** mode it names real model ids,
+and a Models page on the client says which it may use. Keys from before clients
+existed became custom clients in direct mode.
+
+### Which API, and what reaches what
+
+Messages reaches Claude only; Responses reaches both, ChatGPT as the request
+came and Claude through the gateway's translation (which does not carry
+extended thinking). A slot bound to a GPT model on a Messages client is
+refused rather than translated, saying which slot to rebind, and the client's
+page warns beside it. See [client-apis.md](client-apis.md).
+
+Changing a client's type, or its API, shows what happens to each slot before
+anything is applied — kept, renamed to fit the new type's rule, added or
+removed — matched by what each slot is for.
+
+### The files carry the models' facts
+
+crush and Codex do not discover a model's limits, and opencode takes them only
+from its config, so a client's files describe each name with the model it
+serves now: its context window, output cap and effort levels. They are written
+when the page or the install command writes them; after rebinding a slot to a
+model with other limits, run the install command again (`make test-web` checks
+every rewrite against the committed files; `web/src/ui/clients/configs.ts`).
+
+## Chats
+
+A client's chats are on its page. The gateway groups requests into chats by the
+session header its type sends (in `internal/service/clients`), and names them
+while the client's **Name chats** switch is on: crush and opencode name their
+own sessions, and the gateway reads that name off the answer — that request is
+counted in the chat's cost but not as one of its turns, and nothing more is
+sent. For the others it asks the chat's own model for a title, under the
+client's key, on the provider that served the chat, and not while the client
+is at a limit.
+
+## Switches and limits
+
+A client can be switched off from its row or its page: its requests are then
+refused `403 this client is disabled`, and recorded as refused. Each has a
+request rate and a rolling 24-hour token budget, set on its Usage page beside
+the figures they bound, with suggestions from its own last 7 or 30 days and a
+preview of what a limit would have refused. Above them all is the **Gateway**
+switch in Settings: off, every client request is refused, and `/health` says
+`"accepting": false`.
 
 ### When crush compacts
 
@@ -142,35 +188,26 @@ anything — which reads like a broken tool bridge. Install `bubblewrap` from
 your package manager, or drop the one from the Codex release next to the binary
 at `codex-resources/bwrap`.
 
-**ChatGPT accounts.** With one connected, a Codex asking for `gpt-large` (or
-a GPT model by name) is served there, its request sent to OpenAI's Codex
-backend as Codex wrote it, and only Codex — or another OpenAI Responses client
-— can be: Claude Code asking for an alias bound to a ChatGPT model is refused,
-naming the alias. Settings › Aliases says so beside any `claude-*` alias bound
-that way. The config file is the same either way; what differs is the alias
-it names.
-
 **The model catalog**, which is what `codex-models.json` is. Codex looks its
-model up in a catalog compiled into its own binary, and a Claude name is not in
-it:
+model up in a catalog compiled into its own binary, and the client's names are
+not in it:
 
 ```
-warning: Model metadata for `claude-sonnet-5` not found. Defaulting to
+warning: Model metadata for `large` not found. Defaulting to
 fallback metadata; this can degrade performance and cause issues.
 ```
 
 The fallback is conservative, so a million-token model gets auto-compacted as
 though it were far smaller and long sessions shed context early.
 `model_context_window` in config.toml does **not** fix it — the lookup is by
-name.
+name. The gateway writes one entry per slot name, at its model's window.
 
-One thing to know about the shipped catalog, measured rather than assumed:
 Codex refuses an entry carrying neither `base_instructions` nor
 `model_messages.instructions_template`, so every catalog must contain a system
 prompt. The one in `codex-models.json` is a short stand-in, because Codex's own
-lives inside its binary and nothing here can read it. Measured on the same
-task, that is 10,148 tokens a turn against 19,346 with Codex's real prompt —
-cheaper, and less good at editing. To use the real one:
+lives inside its binary. Measured on the same task, that is 10,148 tokens a
+turn against 19,346 with Codex's real prompt — cheaper, and less good at
+editing. To use the real one:
 
 ```sh
 scripts/codex-model-catalog.py --codex $(which codex)
@@ -181,7 +218,7 @@ after upgrading Codex.
 
 ## curl, to check the plumbing
 
-Anthropic surface:
+With a custom client's key in direct mode, which names real models:
 
 ```sh
 curl https://claudication.example.com/v1/messages \
@@ -190,11 +227,7 @@ curl https://claudication.example.com/v1/messages \
   -H "content-type: application/json" \
   -d '{"model":"claude-haiku-4-5","max_tokens":64,
        "messages":[{"role":"user","content":"hello"}]}'
-```
 
-OpenAI surface:
-
-```sh
 curl -N https://claudication.example.com/v1/responses \
   -H "authorization: Bearer clc_…" \
   -H "content-type: application/json" \
@@ -203,11 +236,28 @@ curl -N https://claudication.example.com/v1/responses \
                  "content":[{"type":"input_text","text":"say hi"}]}]}'
 ```
 
+With a typed client's key, name one of its slots instead. `/v1/models` lists
+what that key may ask for:
+
+```sh
+curl https://claudication.example.com/v1/models -H "x-api-key: clc_…"
+```
+
 A real Codex request, replayed and judged the way Codex judges it:
 
 ```sh
 scripts/probe-codex.py --key clc_… --url https://claudication.example.com --roundtrip
 ```
+
+## Which base URL
+
+The client's page shows it. Two cases:
+
+- **One listener** (`admin-listen` empty) — the address your browser is on is
+  also the relay, and the UI uses it.
+- **Split listeners** — the browser is on the *admin* address and the relay is
+  somewhere else. The gateway cannot learn the hostname clients use, so set
+  `public-url` in the config or the UI will say it is guessing.
 
 ## From the shell
 
@@ -216,7 +266,8 @@ already the higher privilege, so none of these asks for the admin password.
 
 | Command | What it does |
 |---|---|
-| `claudication keys add -name NAME` | Mint an API key, for a provisioning script. |
+| `claudication clients add -name NAME [-type TYPE]` | Make a client and print its key, for a provisioning script. |
+| `claudication clients list`, `clients delete -id ID` | List clients; delete one and its key. |
 | `claudication passwd` | Reset the admin password. The recovery path when it is lost. |
 | `claudication login-url` | A single-use link that signs a browser in. Spent on first use. |
 | `claudication backup FILE` | A consistent snapshot without stopping the service. Holds the sealing key and every stored token, so it is as sensitive as the state directory. |
@@ -226,12 +277,14 @@ already the higher privilege, so none of these asks for the admin password.
 | What you see | What it usually is |
 |---|---|
 | 404 on every request | The `/v1` question above. Add it or drop it. |
-| 404 saying the API is turned off | That surface is switched off in **Settings → API surfaces**. |
-| 401 | The key is wrong, revoked, or in a header this client does not send. Either header works, on either API. |
+| 404 saying the gateway is switched off | The **Gateway** switch in Settings is off. |
+| 403 "this client is disabled" | The client's own switch is off, on its row or its page. |
+| 400 naming the client's model names | A typed client asked for a name that is none of its slots — usually a model typed into its picker by hand. |
+| 400 saying a slot's model is not on this client's API | A Messages client's slot is bound to a GPT model. Rebind it, or point the client at Responses. |
+| 401 | The key is wrong, regenerated, or in a header this client does not send. Either header works, on either API. |
 | 429 whose message is the single word `Error` | Not a rate limit. The attribution gate — see [refused-requests.md](refused-requests.md). Leave `passthrough.claude-code-attribution` on. |
 | "Third-party apps now draw from your extra usage" | Not a billing message. A content check refused the request; bisect it with `scripts/bisect-refusal.py`. |
 | Only haiku works, opus and sonnet 429 | Same attribution gate, from the other side. |
-| A model works in one client and not another | The gateway does not filter models, so this is the client: crush needs it listed in `crush.json`, Codex in its catalog. The others discover them. |
 | Codex: "stream closed before response.completed" | The gateway sends a terminal event on every path, so this points at something between it and Codex — usually a proxy buffering the stream. |
 
 ## A note on what is verified
@@ -241,4 +294,6 @@ are in use on this network; the Codex one was checked by installing Codex CLI
 0.154.0 and pointing it at the gateway, which held multi-turn sessions with
 real shell tool calls against a live subscription on both Sonnet 5 and Opus 5 —
 with the shipped `codex-models.json` and with a cloned one. Fable was checked
-directly against both APIs.
+directly against both APIs. The per-client names were checked against each
+type's tests and the sources cited in `internal/service/clients`; crush on
+Responses with `gpt-5` names follows from its source and has not been run.

@@ -12,31 +12,32 @@ Two surfaces exist today.
 | Anthropic Messages | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` | Claude Code, and anything written against the Anthropic SDK |
 | OpenAI Responses | `/v1/responses` | Codex CLI |
 
-Each has a switch in **Settings → API surfaces**. Either can be turned off,
-both can be off at once, and a change takes effect on the next request with no
-restart. A switched-off surface answers 404 in its own dialect's error
-envelope, so a client reports it and stops rather than retrying.
+Both are served while the **Gateway** switch in Settings is on, and neither
+is while it is off: one switch, because what an operator turns off when
+something is wrong is the gateway, not one dialect of it. A change takes effect
+on the next request with no restart. Switched off, every client-facing route
+answers 404 in its own dialect's error envelope, so a client reports it and
+stops rather than retrying, and `/health` says `"accepting": false`. Each
+client and each account has a switch of its own besides.
 
-Those switches are the only setting the gateway keeps in the database rather
-than the config file, and they are there because turning an API off is what an
-operator does when something is wrong — "edit a file, restart, drop every
-stream in flight" is not an answer to that. They show up in the configuration
-table with origin `database`, so one screen still tells the whole story of
-where each value came from.
+The switch is kept in the database rather than the config file, because
+"edit a file, restart, drop every stream in flight" is not an answer to
+something going wrong. It shows up in the configuration table with origin
+`database`, so one screen still tells the whole story of where each value came
+from.
 
 ## Models, and which upstream serves a request
 
-A request is routed by the model it names, never by guessing from the name:
+A request is routed by the model it names and the client whose key it
+carries, never by guessing from the name:
 
-1. An alias — `claude-large`, `gpt-small`, a family's, one of the operator's —
-   resolves as it always has: the key's binding, else the client's, else the
-   gateway's, else what the built-in follows (Settings › Aliases).
-2. The real model it resolves to, or the one a client named directly, is
-   served by the provider whose accounts list it.
-3. A name no list knows goes where its dialect has always sent it: a Messages
-   request to Claude unchanged, a Responses request to `claude-large` — which
-   is what keeps a Codex left on its own default model working on a gateway
-   with no ChatGPT account.
+1. A typed client — and a custom one in binding mode — names one of its own
+   slots. The slot resolves through that client's table: the model it is
+   bound to, or what the target it follows points at now. Any other name is
+   refused, listing the client's names.
+2. A custom client in direct mode names real models.
+3. The real model is served by the provider whose accounts list it. A name no
+   list knows goes to Claude unchanged, which says whether it knows it.
 
 Then the dialect and the upstream decide what happens:
 
@@ -45,23 +46,24 @@ Then the dialect and the upstream decide what happens:
 | Messages → Claude | as it came (the passes aside; see [refused-requests.md](refused-requests.md)) |
 | Responses → Claude | translated, in `internal/api/openai` |
 | Responses → ChatGPT | as it came, to `/responses`; only the credential and the workspace are added |
-| Messages → ChatGPT | **refused**, `400 invalid_request_error`, naming the model or alias and what to change |
+| Messages → ChatGPT | **refused**, `400 invalid_request_error`, naming the model or slot and what to change |
 
 The last is refused because translating Messages into Responses is a mapping
 of its own — thinking against encrypted reasoning, tool ids, cache control —
-and not one this gateway has. Settings › Aliases warns when a `claude-*` alias
-is bound to a ChatGPT model, since Claude Code would meet that refusal; and
-the `/v1/models` Claude Code reads leaves out what it could not use.
+and not one this gateway has. A client's page warns beside a slot of a
+Messages client bound to a ChatGPT model, since the client would meet that
+refusal; and the `/v1/models` a Messages client reads leaves out what it could
+not use.
 
-`gpt-large` and `gpt-small` follow the ChatGPT backend's own ranking of the
-models an account lists (the `priority` each carries, which is Codex's picker
-order): large its first choice, small the last of that model's generation —
-`gpt-6.1-sol` and `gpt-6-luna` on 2026-10-19. Any alias may be bound to either
-provider's model.
+Two of the targets a slot can follow are ChatGPT's: its first-ranked model and
+its light one, read from the backend's own ranking of the models an account
+lists (the `priority` each carries, which is Codex's picker order) — the first
+choice, and the last of that model's generation: `gpt-6.1-sol` and
+`gpt-6-luna` on 2026-10-19. Any slot may be bound to either provider's model.
 
 So every model an account serves works on every API that can reach it, and a
-new one works the day it appears. The Setup tab reads the live list through
-`GET /admin/models` and builds each client's configuration from it.
+new one works the day it appears. A client's page reads the live list through
+`GET /admin/models` and writes the client's files from it.
 
 ## Where the code is
 
@@ -70,7 +72,8 @@ internal/api/            the contract, and what every dialect would otherwise re
 internal/api/anthropic/  the Anthropic surface — the identity adapter
 internal/api/openai/     the OpenAI surface: its mapping both ways, and the
                          identity exchange (native.go) for the ChatGPT backend
-internal/service/models  the aliases and the route a model takes (route.go)
+internal/service/clients each client type's model fields, names and session headers
+internal/service/models  the targets a slot follows, and the route a model takes (route.go)
 internal/provider/       the upstreams, one package each
 ```
 
@@ -87,11 +90,13 @@ instead of as a branch every other layer has to remember not to take.
 
 ## Pointing Codex at it
 
-`~/.codex/config.toml`:
+Make a Codex client; its page writes `~/.codex/config.toml` and the model
+catalog, and its install command puts them in place. The gist:
 
 ```toml
 model_provider = "claudication"
-model = "claude-large"
+model = "large"
+review_model = "review"
 
 [model_providers.claudication]
 name = "claudication"
@@ -106,17 +111,11 @@ Then `export CLAUDICATION_API_KEY=clc_…` and run `codex`.
 Codex has. `chat_completions` appears nowhere in its binary, while `/responses`
 appears 41 times.
 
-The `model` line is worth setting. `claude-large` runs Codex on a Claude
-account, translated; `gpt-large` runs it on a ChatGPT account, sent to the
-backend as Codex wrote it, once one is connected. Either alias can be moved to
-any model in Settings › Aliases, for Codex alone if need be, and the configs a
-key's Clients page writes name the one that key is served. A name no account
-lists — Codex's own default `gpt-5-codex` on a gateway with no ChatGPT account
-— is sent as `claude-large`, as it always was.
-
-`gpt-large` is no more in Codex's built-in model catalog than `claude-large`
-is, so Codex falls back to generic metadata for it; the shipped
-`codex-models.json` covers the Claude names only (see
+`large`, `review` and the rest are the client's slots, each bound on its page
+to a Claude model — translated — or a GPT one, sent to the ChatGPT backend as
+Codex wrote it. Moving one is a change on the page and nothing on the machine.
+None of these names is in Codex's built-in catalog, so the client's
+`codex-models.json` has one entry per name at its model's window (see
 [clients.md](clients.md#before-you-run-codex)).
 
 ## What the ChatGPT backend is sent
@@ -125,8 +124,8 @@ The request as Codex wrote it, to `{backend}/responses`, with Codex's own
 `originator`, `User-Agent`, `session-id` and `x-codex-*` headers. The gateway
 adds the account's bearer token and `ChatGPT-Account-ID`, the workspace it
 bills, and an `originator: claudication` only for a client that sent none. It
-never claims to be Codex. A model alias is resolved in the body's `model`
-field and said back in the answer's events and `OpenAI-Model` header.
+never claims to be Codex. A slot name is resolved in the body's `model` field
+and said back in the answer's events and `OpenAI-Model` header.
 
 A conversation stays on the ChatGPT account that served it last: Codex sends
 its earlier reasoning back encrypted, and whether another account can read it

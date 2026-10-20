@@ -30,7 +30,7 @@ real system prompt out of your own binary, which that file cannot carry.
 | [upstream-request-pipeline.md](upstream-request-pipeline.md) | What the official client assembles and sends between a prompt and its POST — system array, messages, cache breakpoints, headers, timeouts, truncation. The reference for judging whether a third-party client's request is unusual. |
 | [reversing.md](reversing.md) | How all of it was obtained, how to check any single claim again, and what could not be determined. |
 | [clients.md](clients.md) | **Setting one up.** Working configuration for Claude Code, opencode, crush and Codex CLI, and what each failure mode actually means. |
-| [client-apis.md](client-apis.md) | The APIs clients speak to the gateway — Anthropic Messages and OpenAI Responses — how the two are switched on and off, and how to add a third. |
+| [client-apis.md](client-apis.md) | The APIs clients speak to the gateway — Anthropic Messages and OpenAI Responses — the Gateway switch, how a request is routed, and how to add a third. |
 
 The same record as `refused-requests.md`, condensed, is in the code:
 `go doc ./internal/relay/passes`. That is the copy a maintainer meets first, so if

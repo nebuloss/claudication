@@ -19,23 +19,24 @@ UI inside it.
     Codex     ──────►  /v1/responses ──┘      your API key └──►  chatgpt.com (Codex backend)
                                                                  your ChatGPT subscription
 
-Which upstream serves a request is decided by the model it names, through the
-gateway's aliases: `claude-large` and `gpt-large` and the rest, each bound in
-Settings › Aliases to a real model, and served by the accounts that list it.
-Codex reaches both; Claude Code reaches Claude accounts only.
+Each tool is a **client** of the gateway: a type, one key, and model names of
+its own — `large`, `small`, `review` — each bound on the client's page to a
+real model or to the newest of a family. Which upstream serves a request is
+decided by the model that name resolves to, served by the accounts that list
+it. Codex reaches both; Claude Code reaches Claude accounts only.
 
-Either API can be switched off from the admin UI, together or separately,
-without a restart.
+The gateway, each client and each account can be switched off from the admin
+UI without a restart.
 
-Ready-made client configuration is in [`configs/clients/`](configs/clients/) —
-change the one address in each and it works:
+Each client type's configuration starts from a file in
+[`configs/clients/`](configs/clients/):
 
 | [`claude-code.sh`](configs/clients/claude-code.sh) | [`codex.toml`](configs/clients/codex.toml) + [`codex-models.json`](configs/clients/codex-models.json) | [`opencode.jsonc`](configs/clients/opencode.jsonc) | [`crush.json`](configs/clients/crush.json) |
 |---|---|---|---|
 
-The admin UI offers the same files under **Setup** with your own address
-already in them. [docs/clients.md](docs/clients.md) explains the parts that
-bite — chiefly that each client disagrees about whether the base URL carries
+A client's page in the admin UI writes them with its own address, key and
+model names, and makes a one-line command that installs them.
+[docs/clients.md](docs/clients.md) explains the parts that bite — chiefly that each client disagrees about whether the base URL carries
 `/v1`, and none of them says so when you get it wrong.
 
 ## Install
@@ -72,11 +73,12 @@ POSIX sh and does not cover them.
 ## Run
 
     claudication passwd                 # set the admin password
-    claudication keys add -name laptop  # a client key, for inference
+    claudication clients add -name laptop  # a client and its key
     claudication serve
 
-Then open **http://127.0.0.1:8317/** and connect a Claude account. Point a client
-at it with the base URL and one of your keys:
+Then open **http://127.0.0.1:8317/** and connect a Claude account. A client made
+from the shell is a custom one naming real models; point a tool at it with the
+base URL and its key:
 
     export ANTHROPIC_BASE_URL=http://your-gateway:8317
     export ANTHROPIC_AUTH_TOKEN=clc_…
@@ -86,27 +88,28 @@ at it with the base URL and one of your keys:
 typing the password — the convenient path behind an SSH tunnel. It is spent the
 first time it is used, so a link left in shell history is a spent link.
 
-Other subcommands: `keys list|delete`, `backup`, `restore`, `vacuum`, `version`.
+Other subcommands: `clients list|delete`, `backup`, `restore`, `vacuum`, `version`.
 
 ## The admin UI
 
-Five tabs, at the gateway's own address. Each lives in the URL fragment, so a
-link to one opens on it.
+Five screens, at the gateway's own address. Each page has a path of its own, so
+a link to one opens on it.
 
-**Overview** — whether the gateway can serve a request, and the base URL plus
-snippets to point Claude Code or curl at it.
+**Overview** — whether the gateway can serve a request, and today's traffic.
 
 **Accounts** — the Claude and ChatGPT accounts the pool draws on, each
 provider's in its own priority order, each showing its 5-hour and 7-day
-subscription usage.
+subscription usage, which clients drew on it, and a switch to pause it.
 
-**API keys** — mint, rename and withdraw the credentials clients present, each
-with an optional request rate limit and daily token budget.
+**Clients** — the tools that use the gateway: each one's key and setup, its
+model names, its usage with its limits beside it, its chats and its requests,
+and a switch to turn it off.
 
-**Usage** — totals, breakdowns by day, model, key and account, and the request
-log with the upstream's own error text, paged back as far as retention keeps it.
+**Activity** — the request log, every client's, with the upstream's own error
+text, paged back as far as retention keeps it.
 
-**Settings** — the admin password, and what this instance is.
+**Settings** — the Gateway switch, the admin password and sessions, image
+fitting, and the configuration as loaded.
 
 ## Claude accounts
 
@@ -156,14 +159,13 @@ Each ChatGPT workspace is an account of its own: a personal one and a Team one
 under the same address are added separately, and each request names the one it
 bills. The account shows the plan the sign-in named.
 
-What a ChatGPT account serves is what Codex sends it, as Codex wrote it — the
-gateway adds the account's credential and nothing that claims to be Codex. A
-Codex asking for `gpt-large` (or a GPT model by name, or an alias bound to one)
-is served there; Claude Code cannot be, since the backend speaks OpenAI's
-Responses API, and is refused an alias bound to a ChatGPT model, saying which
-one to change. Usage comes from the backend's own endpoint and from the headers
-on every answer, in the same 5-hour and 7-day columns. Chats served by a
-ChatGPT account are not titled.
+What a ChatGPT account serves is what a Responses client sends it, as it was
+written — the gateway adds the account's credential and nothing that claims to
+be Codex. A client on the OpenAI Responses API whose slot is bound to a GPT
+model is served there; a client on Anthropic Messages, Claude Code among them,
+cannot be, and is refused such a slot, saying which one to rebind. Usage comes
+from the backend's own endpoint and from the headers on every answer, in the
+same 5-hour and 7-day columns.
 
 The Codex backend is not a public API, and pooling several people's ChatGPT
 subscriptions behind shared keys may breach OpenAI's terms and get accounts
@@ -193,24 +195,31 @@ Quota never reorders the priority list; it only decides whether to skip. If ever
 account looks exhausted the gateway tries anyway — the figures are a poll, and
 being refused by the upstream beats refusing on its behalf.
 
-**Test** sends a real minimal request upstream and reports the model, token
-counts and latency, or the upstream's own error text unmodified, which is the
-only thing that distinguishes an expired token from a plan restriction.
+**Test connection** sends a real minimal request upstream, on the account's own
+credential and no client's key, and reports the model, token counts and
+latency, or the upstream's own error text unmodified, which is the only thing
+that distinguishes an expired token from a plan restriction. The account's
+Models page tests each model the same way, two at a time for **Test all**,
+keeps each one's last result beside its switch, and offers to switch off the
+ones that failed for a reason that lasts — never on its own.
 
 Tokens are sealed with AES-256-GCM before they reach the database. The key lives
 beside it as `secret.key` (0600), or comes from `CLAUDICATION_SECRET_KEY`.
 
-## API keys and limits
+## Clients, keys and limits
 
-A key authenticates by `sha256(key)` and a lookup prefix, and is also kept
-sealed with the same key that seals the account tokens, so its settings page
-can show it — and every client's config with it — again at any time. Keys made
-before that was kept have only the hash; issuing one a new secret once fixes
-that, keeping its name, limits, models and history. A copy of the state
-directory therefore holds working keys as well as working account tokens, which
-it already did.
+Every client holds one key. A key authenticates by `sha256(key)` and a lookup
+prefix, and is also kept sealed with the same key that seals the account
+tokens, so the client's page can show it, and write it into the client's
+files, until the client is configured: the first time its install command runs
+or its key is used. From then on neither the key nor the install command is
+offered; regenerating the key starts over. A copy of the state directory
+therefore holds working keys as well as working account tokens, which it
+already did.
 
-Each key can carry two limits, both off by default:
+Each client can carry two limits, both off by default, set on its Usage page
+beside the figures they bound, with suggestions from its own last 7 or 30 days
+and a preview of what a limit would have refused:
 
 - **A request rate** — a count and the period it is measured over, minute, hour
   or day. The whole allowance is available at once and refills over the period,
@@ -221,40 +230,42 @@ Each key can carry two limits, both off by default:
   calendar-aligned, so it frees up continuously instead of everything becoming
   possible again at midnight. Off means no ceiling.
 
-A key can exceed its budget by one request, necessarily: what a request costs is
+A client can exceed its budget by one request, necessarily: what a request costs is
 only known once it has been served. The refusal carries `Retry-After` computed
 from when the oldest counted request ages out.
 
 ### Per-request history
 
-One row per proxied request: which key, which account, which model, how many
-tokens, how long, and what failed. It survives the key or account it refers to
-being deleted — otherwise the record you go looking for after removing a key is
-precisely the one that disappears.
+One row per proxied request: which client, which of its names, which account,
+which model, how many tokens, how long, and what failed. It survives the client
+or account it refers to being deleted — otherwise the record you go looking for
+after removing a client is precisely the one that disappears.
 
 `usage.retention-days` bounds it (30 by default; 0 records nothing) and a daily
 prune enforces it, returning the freed pages to the filesystem.
 
-## Model aliases
+## Model names
 
-The configs this gateway hands out ask for names of its own instead of real
-models, and the gateway decides which real model answers each. Built in:
+There are no gateway-wide model names. Each client has **slots**, one per model
+setting its tool has, each with a name the tool asks for:
 
-- `claude-large` and `claude-small` — the two slots every client has, the
-  model doing the work and the one for titles and summaries;
-- one per model family your accounts list — `claude-opus`, `claude-haiku`,
-  `claude-fable`, … — found from the model list, so a new family has an alias
-  the day an account lists it.
+| Client | Slots |
+|---|---|
+| Claude Code | `claude-large` (`ANTHROPIC_MODEL`), `claude-small` (`ANTHROPIC_SMALL_FAST_MODEL`), `claude-opus`, `claude-sonnet`, `claude-haiku`, `claude-fable` (the `/model` tiers), `claude-auto` (auto mode's classifier) |
+| Codex | `large` (`model`), `review` (`review_model`), `agents` (sub-agents), `small` (memories) |
+| opencode | `large` (`model`), `small` (`small_model`) |
+| crush | `large` (`models.large`), `small` (`models.small`) |
+| Custom | `large`, and any the operator adds — or real model ids, in direct mode |
 
-| Client | `claude-large` | `claude-small` |
-|---|---|---|
-| Claude Code | `ANTHROPIC_MODEL` — main model, sub-agents | `ANTHROPIC_SMALL_FAST_MODEL` — titles, summaries |
-| Codex | `model` | — |
-| opencode | `model` | `small_model` |
-| crush | `models.large` | `models.small` |
-
-Claude Code's tiers (`/model opus`, a sub-agent's `haiku`) go to the family
-aliases. Every config lists all of them.
+A name is the client's own, so two clients can both have a `large` on different
+models. Each slot is bound to a model — any account's, Claude or GPT — or
+follows a target: the newest Opus, Sonnet, Haiku or Fable by release date, or
+ChatGPT's first-ranked or light model. Moving a client to a new model is one
+change on its page, with no config to edit; the client is answered in its own
+name, and the request log records both. A typed client may ask for its slot
+names and nothing else, which is why every model it can ask for of its own
+accord has one. `go doc ./internal/service/clients` has each type's slots and
+the sources they were read from.
 
 What the gateway knows about models comes from [models.dev](https://models.dev),
 every provider's: names, release dates, context windows, output limits. Its
@@ -262,23 +273,13 @@ model list is that catalogue matched against what the connected accounts list,
 less what each account's switches turn off. A model an account lists that the
 catalogue does not know yet is listed anyway, after the rest. Until an account
 can be asked, the gateway lists the catalogue's Anthropic models as they stand —
-enough to set up the aliases and hand out configs before the first login.
+enough to set up clients and hand out configs before the first login.
 `models-catalog: off` never asks, and the list is then the accounts' own.
 
-On the **Models** tab each built-in alias follows the newest model of its
-family, by release date, until you choose another. Each alias can also be
-bound per client — Codex's `claude-large` on one model while Claude Code's
-stays on another — the client being the one the request log names from its
-User-Agent; and a key can choose differently in its own settings, which wins
-over its client's. Below them you can add custom aliases, each a
-name of your own pointing to one model. Moving every client to a new model is
-then one change here, with no config to edit. The client is answered in the
-alias's name; the request log records both.
-
-Each config also carries what an alias's model can do — Claude Code's
+Each client's files also carry what each name's model can do — Claude Code's
 `behavesAs`, opencode's declared limits, the crush and Codex model lists —
-because a client sizes its requests from those. Pointing an alias at a model
-with a smaller window means downloading that key's configs again.
+because a client sizes its requests from those. Rebinding a slot to a model
+with a smaller window means running the client's install command again.
 
 Rewriting the model is the relay's seventh exception to sending the caller's
 bytes as they are; see `go doc ./internal/relay/passes`.
@@ -428,8 +429,11 @@ the release that introduces it.
 | `POST /admin/accounts/oauth/{start,complete}` | admin | The login flow.                            |
 | `POST /admin/accounts/{id}/{test,refresh}`    | admin | Probe or refresh.                          |
 | `POST /admin/accounts/{id}/disabled`          | admin | Pause or resume.                           |
-| `GET,POST /admin/keys`                        | admin | Client API keys.                           |
-| `PATCH,DELETE /admin/keys/{id}`               | admin | Edit or withdraw one.                      |
+| `GET,POST /admin/clients`                     | admin | Clients, and making one with its key.      |
+| `GET /admin/clients/{id}`, `…/usage`          | admin | One client, and what it used.              |
+| `PUT,DELETE /admin/clients/{id}/slots/{slot}` | admin | Bind, rename or remove a model name.       |
+| `PATCH,DELETE /admin/keys/{id}`               | admin | Edit a client's limits, or delete it.      |
+| `POST /admin/gateway`                         | admin | The Gateway switch.                        |
 | `GET /admin/usage`                            | admin | Totals and breakdowns over a window.       |
 | `GET /admin/requests`                         | admin | The request log, paged.                    |
 

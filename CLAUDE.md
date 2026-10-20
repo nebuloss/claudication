@@ -10,13 +10,19 @@ with an embedded admin UI. Go, no CGO; the UI is built into the binary with
 
 It serves two client-facing APIs — Anthropic Messages and OpenAI Responses,
 which is what Codex CLI speaks — and has two upstreams: Anthropic, and
-ChatGPT's Codex backend. Both APIs can be switched on and off at runtime from
-Settings.
+ChatGPT's Codex backend. One Gateway switch in Settings turns client traffic
+on and off at runtime; each client and each account has its own switch too.
 
-A request goes to the provider whose accounts serve the model it names, after
-its alias is resolved (`go doc ./internal/service/models`, route.go). Responses
-reaches ChatGPT as it came and Claude translated; Messages reaches Claude only,
-and is refused a ChatGPT-served model rather than translated.
+A client is a top-level thing — a type (Claude Code, Codex, opencode, crush,
+custom), one API key, its own model names ("slots"), limits and switches;
+`go doc ./internal/service/clients` holds each type's spec with the sources it
+was read from. There are no gateway-wide aliases: a request's model is one of
+its client's names, bound to a model or to a target that follows the newest
+of a family, or — for a custom client in direct mode — a real model id. It
+then goes to the provider whose accounts serve that model
+(`go doc ./internal/service/models`, route.go). Responses reaches ChatGPT as it
+came and Claude translated; Messages reaches Claude only, and is refused a
+ChatGPT-served model rather than translated.
 
 ## Where code goes
 
@@ -56,7 +62,7 @@ one needs from another.
    what it does with the answer, and the measurement behind each mapping
    decision. Kept in the code so nobody has to reverse Codex twice.
 3. [`docs/client-apis.md`](docs/client-apis.md) — the operator's view: the
-   surfaces, their switches, and how to add another.
+   surfaces, the Gateway switch, and how to add another.
 4. [`configs/clients/`](configs/clients/) — a complete, commented config file
    per client, and the one copy of each: the admin UI imports them as text and
    substitutes the gateway's address, and [`docs/clients.md`](docs/clients.md)
@@ -111,7 +117,7 @@ fills (git holds just a `.gitkeep`); a bare `go build` ships no UI. For UI
 work, `make dev-api` runs the gateway with debug logging and `make dev` runs
 Vite on :5173 proxying the API to it.
 
-The binary's subcommands are `serve`, `keys`, `login-url`, `passwd`,
+The binary's subcommands are `serve`, `clients`, `login-url`, `passwd`,
 `vacuum`, `backup` and `restore` (`cmd/claudication`).
 
 The tests do not need credentials or a network. Anything that probes the real
