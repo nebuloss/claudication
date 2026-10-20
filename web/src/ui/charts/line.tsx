@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { Line, type Paint } from './paint'
 import { edgeAnchor, LinearScale, LogScale } from './scale'
+import { AXIS_TEXT, useChartWidth } from './width'
 
 /** One line: a name, how to paint it, and its value on a given column. */
 export type LineSeries<T> = {
@@ -20,11 +21,9 @@ export type LineSeries<T> = {
  * and a bar per series per day is three pixels wide across a month. A line
  * does not care how many columns there are.
  *
- * The internal coordinate system is fixed and the SVG scales to whatever width
- * it is given, so one chart works in a wide card and on a phone without a
- * measurement pass or a resize observer.
+ * Drawn at the width it is given, measured (useChartWidth), so its text is
+ * the same size in a wide card and on a phone.
  */
-const W = 720
 const PAD = { top: 14, right: 10, bottom: 26, left: 56 }
 
 export function LineChart<T>({
@@ -52,6 +51,7 @@ export function LineChart<T>({
    *  chat compacting — drawn as a guide the full height of the plot. */
   marks?: readonly number[]
 }) {
+  const [ref, W] = useChartWidth<SVGSVGElement>(720)
   const plotH = height - PAD.top - PAD.bottom
   const plotW = W - PAD.left - PAD.right
 
@@ -66,7 +66,9 @@ export function LineChart<T>({
   const x = (i: number) => PAD.left + (data.length > 1 ? i * step : plotW / 2)
   // Vertices stop being helpful once they outnumber the pixels between them.
   const vertices = data.length <= 16
-  const every = Math.max(1, Math.ceil(data.length / 6))
+  // Six dates at most, fewer where they would touch: a label takes about 56px.
+  const most = Math.min(6, Math.max(2, Math.floor(plotW / 56)))
+  const every = Math.max(1, Math.ceil(data.length / most))
 
   const nearest = (clientX: number, box: DOMRect): number => {
     const inPlot = ((clientX - box.left) / box.width) * W
@@ -79,6 +81,7 @@ export function LineChart<T>({
 
   return (
     <svg
+      ref={ref}
       viewBox={`0 0 ${W} ${height}`}
       className="h-auto w-full"
       role="img"
@@ -100,7 +103,7 @@ export function LineChart<T>({
             x={PAD.left - 8}
             y={scale.y(v) + 4}
             textAnchor="end"
-            fontSize={11}
+            fontSize={AXIS_TEXT}
             fill="currentColor"
             className="tabular-nums text-on-surface-variant"
           >
@@ -153,7 +156,7 @@ export function LineChart<T>({
             x={x(i)}
             y={height - 8}
             textAnchor={edgeAnchor(i, data.length)}
-            fontSize={11}
+            fontSize={AXIS_TEXT}
             fill="currentColor"
             className="text-on-surface-variant"
           >

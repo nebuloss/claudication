@@ -2,6 +2,7 @@ import { type ReactNode } from 'react'
 import { defsFor } from './paint'
 import { BandScale, LinearScale } from './scale'
 import { type Stack } from './stack'
+import { AXIS_TEXT, useChartWidth } from './width'
 
 /**
  * A stacked column chart.
@@ -12,11 +13,9 @@ import { type Stack } from './stack'
  * or covers the columns it is describing, and a fixed place above has neither
  * problem.
  *
- * The internal coordinate system is fixed and the SVG scales to whatever width
- * it is given, so the same chart works in a wide card and on a phone without a
- * measurement pass or a resize observer.
+ * Drawn at the width it is given, measured (useChartWidth), so its text is
+ * the same size in a wide card and on a phone.
  */
-const W = 720
 const PAD = { top: 10, right: 6, bottom: 22, left: 46 }
 
 export function ColumnChart<T>({
@@ -39,6 +38,7 @@ export function ColumnChart<T>({
   /** The title text a pointer gets on a column, for the native tooltip. */
   describe?: (datum: T) => string
 }) {
+  const [ref, W] = useChartWidth<SVGSVGElement>(720)
   const plotH = height - PAD.top - PAD.bottom
   const y = new LinearScale(stack.peak, PAD.top + plotH, PAD.top)
   const x = new BandScale(stack.length, PAD.left, W - PAD.right, { maxWidth: 34 })
@@ -46,6 +46,7 @@ export function ColumnChart<T>({
 
   return (
     <svg
+      ref={ref}
       viewBox={`0 0 ${W} ${height}`}
       className="h-auto w-full"
       role="img"
@@ -69,7 +70,7 @@ export function ColumnChart<T>({
             x={PAD.left - 8}
             y={y.y(v) + 4}
             textAnchor="end"
-            fontSize={11}
+            fontSize={AXIS_TEXT}
             fill="currentColor"
             className="tabular-nums text-on-surface-variant"
           >
@@ -119,7 +120,7 @@ export function ColumnChart<T>({
                 x={slot.x + slot.width / 2}
                 y={height - 6}
                 textAnchor="middle"
-                fontSize={11}
+                fontSize={AXIS_TEXT}
                 fill="currentColor"
                 className="text-on-surface-variant"
               >

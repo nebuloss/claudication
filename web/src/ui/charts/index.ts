@@ -22,6 +22,8 @@
  *	                                    a dozen series at once needs
  *	ranked.tsx RankedBars, CompositionBar — a league table, and shares of a whole
  *	strip.tsx  StateStrip             — a period per bar, coloured by its state
+ *	width.ts   useChartWidth          — the width a chart is drawn at, measured,
+ *	                                    so its text is real pixels on a phone
  *
  * Both the Overview and Usage screens are built on these, which is the point:
  * the rule about colour meaning identity, the stable slot per entity, and the
