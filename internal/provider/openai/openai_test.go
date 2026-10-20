@@ -586,3 +586,39 @@ func TestMeterFindsTheUsageInAHugeLine(t *testing.T) {
 		}
 	}
 }
+
+// A real streamed answer, as the backend sent it on 2026-10-20 through the
+// gateway (testdata/live-stream.txt, the safety identifier scrubbed): no
+// Content-Type at all, and response.created carrying tool_usage and the rest
+// of what the fixtures did not. Read by its header it was JSON, and recorded
+// as no tokens; read by its first byte it is the stream it is.
+func TestMeterReadsAStreamThatNamesNoType(t *testing.T) {
+	raw, err := os.ReadFile("testdata/live-stream.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		u         provider.Usage
+		streamErr string
+		first     time.Time
+	)
+	m := Provider{}.Meter("", provider.Reading{Usage: &u, StreamError: &streamErr, FirstContent: &first})
+	for len(raw) > 0 {
+		n := min(512, len(raw))
+		m.Feed(raw[:n])
+		raw = raw[n:]
+	}
+	m.Done()
+	if u.InputTokens != 21 || u.OutputTokens != 5 || streamErr != "" || first.IsZero() {
+		t.Errorf("usage = %+v, stream error %q, first content %v", u, streamErr, first)
+	}
+
+	// And an answer naming no type that is JSON is read as JSON.
+	var j provider.Usage
+	jm := Provider{}.Meter("", provider.Reading{Usage: &j})
+	jm.Feed([]byte(`  {"usage":{"input_tokens":4,"output_tokens":2}}`))
+	jm.Done()
+	if j.InputTokens != 4 || j.OutputTokens != 2 {
+		t.Errorf("json usage = %+v", j)
+	}
+}

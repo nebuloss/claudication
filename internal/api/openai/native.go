@@ -59,4 +59,45 @@ func (e native) Prologue() request.Prologue { return e.prologue }
 // backend it was written for.
 func (native) Headers(http.Header) {}
 
-func (native) Sink(w http.ResponseWriter) api.Sink { return api.Passthrough(w) }
+// Sink relays the answer as it came, saying what it is when the backend did
+// not: a streamed answer comes back from it with no Content-Type at all
+// (measured 2026-10-20, internal/provider/openai/testdata/live-stream.txt),
+// which Go's server would then label text/plain. An OpenAI SDK reading that
+// does not read it as a stream, and nothing below — the alias renamer above
+// all — can tell it is one. So a successful answer to a streaming request
+// that names no type is named text/event-stream, which is what it is. A
+// refusal is left as it came: it is JSON, and says so.
+func (e native) Sink(w http.ResponseWriter) api.Sink {
+	if !e.prologue.Stream {
+		return api.Passthrough(w)
+	}
+	return api.Passthrough(&streamLabel{ResponseWriter: w})
+}
+
+// streamLabel names a streamed answer's type when its upstream did not.
+type streamLabel struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (s *streamLabel) WriteHeader(status int) {
+	if !s.wrote {
+		s.wrote = true
+		ct := strings.ToLower(strings.TrimSpace(s.Header().Get("Content-Type")))
+		// text/plain too: what a server between labels an untyped body.
+		if status == http.StatusOK && (ct == "" || strings.HasPrefix(ct, "text/plain")) {
+			s.Header().Set("Content-Type", "text/event-stream")
+		}
+	}
+	s.ResponseWriter.WriteHeader(status)
+}
+
+func (s *streamLabel) Write(p []byte) (int, error) {
+	if !s.wrote {
+		s.WriteHeader(http.StatusOK)
+	}
+	return s.ResponseWriter.Write(p)
+}
+
+// Unwrap lets http.ResponseController reach the writer beneath, to flush it.
+func (s *streamLabel) Unwrap() http.ResponseWriter { return s.ResponseWriter }

@@ -126,7 +126,10 @@ func twoUpstreams(t *testing.T) (*Server, *store.Store, string, string, *upstrea
 			Model string `json:"model"`
 		}
 		_ = json.Unmarshal(got.body, &body)
-		w.Header().Set("Content-Type", "text/event-stream")
+		// No Content-Type: the real backend sends none on a stream
+		// (measured 2026-10-20), and a stub that did hid two bugs. nil, so
+		// the test server does not sniff one in either.
+		w.Header()["Content-Type"] = nil
 		w.Header().Set("OpenAI-Model", body.Model)
 		w.Header().Set("X-Codex-Primary-Used-Percent", "37")
 		w.Header().Set("X-Codex-Primary-Window-Minutes", "300")
@@ -230,6 +233,10 @@ func TestCodexAliasBoundToGPTReachesChatGPTUnchanged(t *testing.T) {
 	}
 	if got := resp.Header.Get("OpenAI-Model"); got != "claude-large" {
 		t.Errorf("OpenAI-Model = %q, want the alias", got)
+	}
+	// Named for what it is, which the backend did not.
+	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", got)
 	}
 
 	// Recorded as ChatGPT's, its usage normalised and its quota read off the

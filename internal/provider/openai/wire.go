@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -66,11 +67,58 @@ func (Provider) Authorize(out *http.Request, c provider.Credential) {
 // Meter implements provider.Wire. As for Anthropic, the shape of the answer
 // decides, not what was asked: a stream that fails before it starts answers
 // in JSON.
+//
+// The backend names that shape by no header at all. Measured on the live
+// backend, 2026-10-20: a streamed /responses answer comes back with no
+// Content-Type, whether or not the request sent Accept: text/event-stream
+// (testdata/live-stream.txt is one, scrubbed). Read by its header alone it
+// was taken for JSON, and every turn was recorded as costing nothing. So an
+// answer that names no type is read by its first byte: an object is JSON,
+// anything else — event:, data:, a comment — a stream. text/plain is read the
+// same way, being what a proxy or server in between labels an untyped body.
 func (Provider) Meter(contentType string, into provider.Reading) provider.Meter {
-	if strings.Contains(contentType, "text/event-stream") {
+	switch {
+	case strings.Contains(contentType, "text/event-stream"):
 		return newSSEScanner(into)
+	case untyped(contentType):
+		return &sniffMeter{into: into}
 	}
 	return newJSONUsage(into.Usage)
+}
+
+// untyped reports whether a Content-Type says nothing about the body's shape.
+func untyped(contentType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	return ct == "" || strings.HasPrefix(ct, "text/plain")
+}
+
+// sniffMeter is a meter for an answer whose type was not said: it becomes the
+// stream scanner or the JSON reader at the answer's first byte that is not
+// white space.
+type sniffMeter struct {
+	into  provider.Reading
+	inner provider.Meter
+}
+
+func (m *sniffMeter) Feed(chunk []byte) {
+	if m.inner == nil {
+		trimmed := bytes.TrimLeft(chunk, " \t\r\n")
+		if len(trimmed) == 0 {
+			return
+		}
+		if trimmed[0] == '{' || trimmed[0] == '[' {
+			m.inner = newJSONUsage(m.into.Usage)
+		} else {
+			m.inner = newSSEScanner(m.into)
+		}
+	}
+	m.inner.Feed(chunk)
+}
+
+func (m *sniffMeter) Done() {
+	if m.inner != nil {
+		m.inner.Done()
+	}
 }
 
 // The Responses stream's events, as Codex reads them
