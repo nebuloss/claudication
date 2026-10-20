@@ -302,6 +302,8 @@ var ClaudeCode = Type{
 	// REPL sent it in the capture, before the first turn; a --continue of
 	// that session and a claude -p session sent none. So a headless Claude
 	// Code chat is not named — the price of never spending a request on it.
+	// Its User-Agent says it was headless, which is how the chat list tells
+	// it from one still to be named (Surface, surface.go).
 	Sessions:      []string{"X-Claude-Code-Session-Id"},
 	NamesItsChats: true,
 	Dialects:      []Dialect{Messages},

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { millis } from '../../format'
-import { Banner, CopyButton, KeyValue, Modal, Muted, Overline, Stack, Verbatim } from '../../primitives'
+import { Banner, Chip, CopyButton, KeyValue, Modal, Muted, Overline, Stack, Verbatim } from '../../primitives'
 import type { RequestRecord } from './record'
 import { StatusChip } from './row'
 
@@ -63,7 +63,19 @@ export function RequestDetail({ record, onClose }: { record: RequestRecord; onCl
             ['Model', record.modelLabel],
             ['Chat', <Mono>{record.field('conversation_id')}</Mono>],
             ['Client', record.field('key_name')],
-            ['Agent', record.field('client')],
+            // With how it was run beside it, where the User-Agent says:
+            // Claude Code's Interactive, Headless (claude -p), Agent SDK.
+            [
+              'Agent',
+              row.surface ? (
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  {record.field('client')}
+                  <Chip>{row.surface}</Chip>
+                </span>
+              ) : (
+                record.field('client')
+              ),
+            ],
             ['Account', record.accountLabel],
             ['IP', <Mono>{record.field('ip')}</Mono>],
             ['Path', <Mono>{row.path}</Mono>],

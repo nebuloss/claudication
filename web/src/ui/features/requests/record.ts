@@ -151,7 +151,7 @@ export class RequestRecord {
       `model:     ${dash(r.model)}`,
       `chat:      ${dash(r.conversation_id)}`,
       `client:    ${dash(r.key_name)}`,
-      `agent:     ${dash(r.client)}`,
+      `agent:     ${dash(r.client)}${r.surface ? ` (${r.surface})` : ''}`,
       `account:   ${this.accountLabel}`,
       `ip:        ${dash(r.ip)}`,
       `path:      ${r.path}`,

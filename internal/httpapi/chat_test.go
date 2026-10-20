@@ -90,6 +90,8 @@ func TestConversationIDIsRecordedForEveryClient(t *testing.T) {
 		headers map[string]string
 		want    string
 		client  string
+		// How it was run, as stored: only Claude Code's User-Agent says.
+		surface string
 	}{{
 		name: "Claude Code sends its own header",
 		path: "/v1/messages",
@@ -98,8 +100,9 @@ func TestConversationIDIsRecordedForEveryClient(t *testing.T) {
 			"X-Claude-Code-Session-Id": "04c27413-cc40-4b20-be7c-e33c5b61ff3d",
 			"User-Agent":               "claude-cli/2.1.274 (external, sdk-cli)",
 		},
-		want:   "04c27413-cc40-4b20-be7c-e33c5b61ff3d",
-		client: "Claude Code",
+		want:    "04c27413-cc40-4b20-be7c-e33c5b61ff3d",
+		client:  "Claude Code",
+		surface: "sdk-cli",
 	}, {
 		name: "opencode and crush send x-session-id",
 		path: "/v1/messages",
@@ -153,6 +156,9 @@ func TestConversationIDIsRecordedForEveryClient(t *testing.T) {
 			}
 			if got.Client != c.client {
 				t.Errorf("client = %q, want %q", got.Client, c.client)
+			}
+			if got.Surface != c.surface {
+				t.Errorf("surface = %q, want %q", got.Surface, c.surface)
 			}
 		})
 	}

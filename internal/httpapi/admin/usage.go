@@ -11,6 +11,7 @@ import (
 	"claudication/internal/api"
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/memlimit"
+	"claudication/internal/service/clients"
 	"claudication/internal/store"
 	"claudication/internal/version"
 )
@@ -97,6 +98,10 @@ type RequestJSON struct {
 	// actually sent it, which a refused request has too, and which tells a
 	// custom client's several programs apart.
 	Client string `json:"client,omitempty"`
+	// Surface is how it was run, where the User-Agent says — Claude Code's
+	// Interactive, Headless (claude -p), Agent SDK — named on read
+	// (clients.SurfaceTitle) so the words can change without the history.
+	Surface string `json:"surface,omitempty"`
 	// Conversation is the id the client sent for this chat, which is what the
 	// chat filter matches. Shown so a row can be narrowed to its own
 	// conversation without going through the chat table to find the id.
@@ -132,6 +137,7 @@ func (s *Admin) toRequestJSON(e store.UsageEvent) RequestJSON {
 		Rejected:        e.Rejected,
 		IP:              e.IP,
 		Client:          e.Client,
+		Surface:         clients.SurfaceTitle(e.Surface),
 		Conversation:    e.ConversationID,
 	}
 }

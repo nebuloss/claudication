@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { api, type ChatContext, type ChatDetail, type RequestRow } from '../../../api/client'
 import { HoverValues, LineChart, tipPosition, type LineSeries, Line } from '../../charts'
 import { useLoader } from '../../hooks'
-import { ErrorState, Loading, Muted, Stack } from '../../primitives'
+import { Chip, ErrorState, Loading, Muted, Stack } from '../../primitives'
 import { compact, timeOfDay } from '../../format'
 
 /** The request the gateway makes on its own behalf; see store.InternalPath. */
@@ -64,7 +64,7 @@ export default function ChatContextDetail({
 
   return (
     <Stack gap={2}>
-      <Summary ctx={ctx} requests={data.requests.length} />
+      <Summary ctx={ctx} requests={data.requests.length} surface={surface(data.requests)} />
       <div className="relative">
         {shown !== undefined && (
           <HoverValues
@@ -111,9 +111,30 @@ function curve(data: ChatDetail | null): { points: Point[]; marks: number[] } {
   return { points, marks }
 }
 
-function Summary({ ctx, requests }: { ctx: ChatContext; requests: number }) {
+/**
+ * How the chat's client was run, by its latest request that says — the rule
+ * the chat list's rollup follows, so the two cannot name it differently.
+ */
+function surface(rows: RequestRow[]): string {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i]
+    if (r.path !== INTERNAL_PATH && !r.rejected && r.surface) return r.surface
+  }
+  return ''
+}
+
+function Summary({
+  ctx,
+  requests,
+  surface,
+}: {
+  ctx: ChatContext
+  requests: number
+  surface: string
+}) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-on-surface-variant">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-on-surface-variant">
+      {surface !== '' && <Chip>{surface}</Chip>}
       <span>
         <span className="font-medium text-on-surface tabular-nums">{compact(ctx.now)}</span> now
       </span>

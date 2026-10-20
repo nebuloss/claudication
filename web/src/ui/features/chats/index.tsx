@@ -12,6 +12,7 @@ import { requestsHref, type FilterFields } from '../requests/filter'
 import {
   AppLink,
   Card,
+  Chip,
   ContextMenu,
   Empty,
   ErrorBanner,
@@ -110,6 +111,17 @@ function useModelPalette(chats: Chat[]): Palette {
 function shortID(id: string): string {
   if (id.length <= 22) return id
   return `${id.slice(0, 19)}…`
+}
+
+/**
+ * What a chat is called on its row: its title, or, for one with none, how its
+ * client was run. Claude Code never names a claude -p session, so a headless
+ * chat is unnamed for good; "Headless (claude -p) — unnamed" says why, where
+ * a bare "Unnamed" reads as a name still to come.
+ */
+function chatName(c: Chat): string {
+  if (c.title !== '') return c.title
+  return c.surface ? `${c.surface} — unnamed` : 'Unnamed'
 }
 
 /**
@@ -284,27 +296,32 @@ export default function ChatsPanel({
                      chat row is clicked for, and a button says so to a keyboard
                      and a screen reader as well as to a pointer. Right-click (or
                      the keyboard's menu key) is for its name. */
-                  <button
-                    type="button"
-                    aria-expanded={open === c.id}
-                    aria-haspopup="menu"
-                    onClick={() => setOpen(open === c.id ? null : c.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      rename.setError('')
-                      setMenu({ id: c.id, x: e.clientX, y: e.clientY })
-                    }}
-                    className="state-layer flex w-full min-w-0 flex-col rounded-md3-xs text-left"
-                  >
-                    <span className="truncate font-medium text-on-surface" title={c.title}>
-                      {open === c.id ? '▾ ' : '▸ '}
-                      {c.title || 'Unnamed'}
-                    </span>
-                    <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
-                      {shortID(c.id)}
-                      {c.title_manual && ' · named by hand'}
-                    </span>
-                  </button>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <button
+                      type="button"
+                      aria-expanded={open === c.id}
+                      aria-haspopup="menu"
+                      onClick={() => setOpen(open === c.id ? null : c.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        rename.setError('')
+                        setMenu({ id: c.id, x: e.clientX, y: e.clientY })
+                      }}
+                      className="state-layer flex min-w-0 flex-1 flex-col rounded-md3-xs text-left"
+                    >
+                      <span className="truncate font-medium text-on-surface" title={c.title}>
+                        {open === c.id ? '▾ ' : '▸ '}
+                        {chatName(c)}
+                      </span>
+                      <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
+                        {shortID(c.id)}
+                        {c.title_manual && ' · named by hand'}
+                      </span>
+                    </button>
+                    {/* Only beside a name: an unnamed chat already says how
+                        it was run in place of one. */}
+                    {c.title !== '' && c.surface && <Chip>{c.surface}</Chip>}
+                  </div>
                 )}
                 {menu?.id === c.id && (
                   <ContextMenu at={menu} label={`Title of ${c.title || c.id}`} onClose={closeMenu}>

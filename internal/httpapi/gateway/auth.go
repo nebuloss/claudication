@@ -8,6 +8,7 @@ import (
 
 	"claudication/internal/api"
 	"claudication/internal/httpapi/httpx"
+	"claudication/internal/service/clients"
 	"claudication/internal/store"
 )
 
@@ -47,6 +48,7 @@ func rejection(r *http.Request, key store.APIKey, status int, reason string) sto
 		Path:     r.URL.Path,
 		Status:   status,
 		Client:   api.ClientName(r.UserAgent()),
+		Surface:  clients.Surface(r.UserAgent()),
 		IP:       httpx.ClientIP(r.Context()),
 		Rejected: true,
 		Error:    reason,

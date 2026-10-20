@@ -35,8 +35,12 @@ type UsageEvent struct {
 	// it. Both are read from the caller's own headers — never derived from the
 	// messages — which is why a chat can be grouped without the gateway
 	// storing any conversation content.
-	ConversationID   string
-	Client           string
+	ConversationID string
+	Client         string
+	// Surface is how the client was run, where its User-Agent says: Claude
+	// Code's entrypoint, and the Agent SDK's client-app after a slash
+	// (clients.Surface). Empty for every other client.
+	Surface          string
 	Status           int
 	Streaming        bool
 	InputTokens      int
@@ -159,13 +163,13 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO usage_events (at, kind, key_id, account_id, provider, model, alias, path,
-		                           conversation_id, client, ip, status, streaming,
+		                           conversation_id, client, surface, ip, status, streaming,
 		                           input_tokens, output_tokens,
 		                           cache_read_tokens, cache_write_tokens, reasoning_tokens,
 		                           duration_ms, first_token_ms, error_code, error)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ms(e.At), e.kind(), e.KeyID, e.AccountID, e.Provider, e.Model, e.VirtualModel, e.Path,
-		e.ConversationID, e.Client, e.IP, e.Status, e.Streaming,
+		e.ConversationID, e.Client, e.Surface, e.IP, e.Status, e.Streaming,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens, e.ReasoningTokens,
 		e.Duration.Milliseconds(), e.FirstToken.Milliseconds(), e.ErrorCode, e.Error,
 	)
@@ -191,7 +195,7 @@ var usageEventColumns = `id, at, key_id, COALESCE(` + nameOf(nameKey, "usage_eve
 	conversation_id, client,
 	status, streaming, input_tokens, output_tokens,
 	cache_read_tokens, cache_write_tokens, duration_ms, first_token_ms, error,
-	error_code, kind, ip, alias, provider, reasoning_tokens`
+	error_code, kind, ip, alias, provider, reasoning_tokens, surface`
 
 // scanUsageEvent reads one row selected with usageEventColumns.
 func scanUsageEvent(sc scanner) (UsageEvent, error) {
@@ -202,7 +206,7 @@ func scanUsageEvent(sc scanner) (UsageEvent, error) {
 		&e.Model, &e.Path, &e.ConversationID, &e.Client, &e.Status, &e.Streaming,
 		&e.InputTokens, &e.OutputTokens, &e.CacheReadTokens, &e.CacheWriteTokens,
 		&durMS, &firstMS, &e.Error, &e.ErrorCode, &kind, &e.IP, &e.VirtualModel,
-		&e.Provider, &e.ReasoningTokens); err != nil {
+		&e.Provider, &e.ReasoningTokens, &e.Surface); err != nil {
 		return UsageEvent{}, err
 	}
 	e.At = fromMS(at)

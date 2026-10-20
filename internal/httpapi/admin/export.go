@@ -53,7 +53,7 @@ func (s *Admin) handleExportRequests(w http.ResponseWriter, r *http.Request) {
 	defer out.Flush()
 
 	_ = out.Write([]string{
-		"at", "status", "forwarded", "outcome", "model", "chat", "client",
+		"at", "status", "forwarded", "outcome", "model", "chat", "client", "surface",
 		"key", "account", "ip", "path", "streaming",
 		"input_tokens", "output_tokens", "cache_tokens", "duration_ms", "first_token_ms", "error",
 	})
@@ -99,6 +99,9 @@ func exportRow(e store.UsageEvent) []string {
 		e.Model,
 		e.ConversationID,
 		e.Client,
+		// As stored (sdk-cli, sdk-ts/my-app) rather than as titled: a file
+		// is read by scripts, and the stored word is the stable one.
+		e.Surface,
 		e.KeyName,
 		e.AccountEmail,
 		e.IP,

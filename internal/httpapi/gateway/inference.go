@@ -79,12 +79,15 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// serve that model. See modelsvc.Route.
 		//
 		// The product the User-Agent names is recorded beside the key, as it
-		// always was: which tool a client's key was used from.
+		// always was: which tool a client's key was used from. And how it was
+		// run, where it says (Claude Code's entrypoint), since nothing else
+		// tells a headless chat from an interactive one.
 		key, _ := httpx.APIKey(r.Context())
 		// Open until the answer is done, refusals included: what the
 		// client's Limits page shows it doing now.
 		defer s.inflight.Begin(key.ID)()
 		client := api.ClientName(r.UserAgent())
+		surface := clients.Surface(r.UserAgent())
 		dest := s.models.Route(r.Context(), key, requested)
 		model, slot := dest.Model, dest.Slot
 
@@ -265,7 +268,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 				At: started, KeyID: key.ID, KeyName: key.Name,
 				AccountID: res.AccountID, AccountEmail: res.AccountEmail, Provider: res.Provider,
 				Model: model, VirtualModel: slot, Path: route, Status: 0, Streaming: streaming,
-				ConversationID: conversation, Client: client, IP: ip,
+				ConversationID: conversation, Client: client, Surface: surface, IP: ip,
 				Duration: elapsed, Error: res.Err.Error(), Naming: naming,
 			}, key.TokenBudget)
 			s.relayFailure(w, r, p, up, model, res.Err)
@@ -279,6 +282,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			ConversationID:   conversation,
 			Naming:           naming,
 			Client:           client,
+			Surface:          surface,
 			IP:               ip,
 			InputTokens:      res.Usage.InputTokens,
 			OutputTokens:     res.Usage.OutputTokens,

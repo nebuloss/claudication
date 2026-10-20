@@ -246,3 +246,57 @@ func TestChatEventsReturnEveryRecordedField(t *testing.T) {
 		t.Errorf("round trip lost fields:\n got %+v\nwant %+v", got, want)
 	}
 }
+
+// A chat is labelled with how its client was run, from its latest relayed
+// request that said: what tells a headless Claude Code chat, never named, from
+// an interactive one not named yet. The gateway's own titling request says
+// nothing about who was talking, and a request that carried no surface does
+// not blank one that did.
+func TestChatSurfaceIsTheLatestRelayedOne(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+
+	record(t, st, UsageEvent{At: t0, ConversationID: "headless", Client: "Claude Code",
+		Surface: "cli", Model: "claude-opus-5", Status: 200, InputTokens: 10})
+	record(t, st, UsageEvent{At: t0.Add(time.Minute), ConversationID: "headless", Client: "Claude Code",
+		Surface: "sdk-cli", Model: "claude-opus-5", Status: 200, InputTokens: 10})
+	record(t, st, UsageEvent{At: t0.Add(2 * time.Minute), ConversationID: "headless", Client: "Claude Code",
+		Model: "claude-opus-5", Status: 200, InputTokens: 10})
+	record(t, st, UsageEvent{At: t0.Add(3 * time.Minute), ConversationID: "headless", Path: InternalPath,
+		Surface: "sdk-ts/titler", Model: "claude-haiku-5", Status: 200, InputTokens: 1})
+
+	record(t, st, UsageEvent{At: t0, ConversationID: "sdk", Client: "Claude Code",
+		Surface: "sdk-py/nightly", Model: "claude-opus-5", Status: 200, InputTokens: 5})
+	record(t, st, UsageEvent{At: t0, ConversationID: "ses_1", Client: "opencode",
+		Model: "claude-opus-5", Status: 200, InputTokens: 1})
+
+	rep, err := st.Chats(ctx, t0.Add(-time.Hour), 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, c := range rep.Chats {
+		got[c.ID] = c.Surface
+	}
+	want := map[string]string{
+		"headless": "Headless (claude -p)",
+		"sdk":      "Agent SDK (Python) · nightly",
+		"ses_1":    "",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("surfaces = %v, want %v", got, want)
+	}
+	if rep.Unattributed.Surface != "" {
+		t.Errorf("unattributed surface = %q", rep.Unattributed.Surface)
+	}
+
+	// And each request carries its own, as stored.
+	events, err := st.ChatEvents(ctx, "headless", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 4 || events[0].Surface != "cli" || events[1].Surface != "sdk-cli" || events[2].Surface != "" {
+		t.Errorf("events = %+v", events)
+	}
+}

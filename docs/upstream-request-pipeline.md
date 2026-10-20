@@ -140,6 +140,13 @@ So the client's 2 + 2 is exactly the budget.
 `x-client-request-id`, optional `traceparent`, and `anthropic-version`.
 Bodies over 4096 characters may be gzipped. `region_004 @1727215`, `@1749731`.
 
+[client, 2.1.304] The User-Agent's second part is the entrypoint —
+`claude-cli/<v> (external, <entrypoint>[, agent-sdk/<v>][, client-app/<app>][, workload/<w>])`:
+`cli` interactive, `sdk-cli` for `claude -p`, `sdk-ts`/`sdk-py` the Agent SDK,
+`claude-vscode`, `mcp`, `remote_*` and others. The gateway stores it per
+request (`usage_events.surface`) and labels chats with it, because a headless
+session is never named; offsets in `internal/service/clients/surface.go`.
+
 OAuth scope defaults to `["user:inference"]`. An `ANTHROPIC_API_KEY`,
 `ANTHROPIC_AUTH_TOKEN` or `apiKeyHelper` disables the OAuth path entirely;
 `apiKey` and `authToken` are mutually exclusive. `region_001 @838575`.

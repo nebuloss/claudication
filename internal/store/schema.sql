@@ -1,5 +1,5 @@
 -- claudication's schema, whole: what a fresh database is created with, and
--- what migrations/ brings an older one to. Version 32 (schemaVersion in
+-- what migrations/ brings an older one to. Version 33 (schemaVersion in
 -- store.go).
 --
 -- Written as if from scratch. Migrations 001-028 grew it a column at a time;
@@ -299,6 +299,12 @@ CREATE TABLE usage_events (
     -- recovered: the User-Agent is not kept, and x-session-id alone cannot
     -- tell opencode from crush.
     client             TEXT    NOT NULL DEFAULT '',
+    -- How the client was run, where its User-Agent says: for Claude Code the
+    -- entrypoint (cli, sdk-cli, sdk-ts...), then /client-app when the Agent
+    -- SDK names one (internal/service/clients, Surface). Stored for the reason
+    -- client is; it is what tells a headless chat, which Claude Code never
+    -- names, from an interactive one not named yet.
+    surface            TEXT    NOT NULL DEFAULT '',
     -- Which machine. For a refused request the only identity there is; for a
     -- relayed one, where it ran. Only as true as trusted-proxies makes it.
     ip                 TEXT    NOT NULL DEFAULT '',

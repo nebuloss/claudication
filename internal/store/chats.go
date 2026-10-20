@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"claudication/internal/service/clients"
 )
 
 // A chat is a conversation as the client that made it named it.
@@ -44,6 +46,12 @@ type Chat struct {
 	// against automatic renames.
 	TitleManual bool   `json:"title_manual"`
 	Client      string `json:"client"`
+	// Surface is how its client was run, as clients.SurfaceTitle names it —
+	// Interactive, Headless (claude -p), Agent SDK — or empty for a client
+	// whose User-Agent does not say. The latest relayed request's, like the
+	// client. What lets an operator tell a headless Claude Code chat, which
+	// is never named, from an interactive one not named yet.
+	Surface string `json:"surface,omitempty"`
 	// KeyName and AccountEmail are whichever served it most recently. A chat
 	// normally keeps one of each for its whole life; when a key is rotated or
 	// an account rotates under it mid-conversation, the latest is the one an
@@ -146,6 +154,10 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 		                   WHERE e1.conversation_id = e.conversation_id AND e1.kind = 0 AND e1.at >= ?
 		                     AND e1.client <> ''
 		                   ORDER BY e1.at DESC LIMIT 1), ''),
+		        COALESCE((SELECT surface FROM usage_events e5
+		                   WHERE e5.conversation_id = e.conversation_id AND e5.kind = 0 AND e5.at >= ?
+		                     AND e5.surface <> ''
+		                   ORDER BY e5.at DESC LIMIT 1), ''),
 		        COUNT(*), COALESCE(SUM(kind = 0), 0),
 		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0),
@@ -172,7 +184,7 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 		  GROUP BY conversation_id
 		  ORDER BY SUM(`+sqlTokens+`) DESC
 		  LIMIT ?`,
-		append(append([]any{from, from, from, from, from}, scopeArgs...), limit)...)
+		append(append([]any{from, from, from, from, from, from}, scopeArgs...), limit)...)
 	if err != nil {
 		return ChatReport{}, fmt.Errorf("chats: %w", err)
 	}
@@ -220,11 +232,13 @@ func scanChat(r scanner) (Chat, error) {
 		key, account, title *string
 		manual              *int64
 	)
-	if err := r.Scan(&c.ID, &c.Client, &c.Requests, &c.Turns, &c.Errors,
+	var surface string
+	if err := r.Scan(&c.ID, &c.Client, &surface, &c.Requests, &c.Turns, &c.Errors,
 		&c.InputTokens, &c.OutputTokens, &c.CacheTokens,
 		&first, &last, &models, &key, &account, &title, &manual); err != nil {
 		return Chat{}, err
 	}
+	c.Surface = clients.SurfaceTitle(surface)
 	if title != nil {
 		c.Title = *title
 	}
@@ -261,7 +275,7 @@ func (s *Store) unattributed(ctx context.Context, from int64, scope UsageScope) 
 		// No client, and not because it is hard to pick one: these rows have
 		// nothing in common but the absence of a conversation id, so naming any
 		// one of their clients would read as a fact about all of them.
-		`SELECT '', '',
+		`SELECT '', '', '',
 		        COUNT(*), COALESCE(SUM(kind = 0), 0),
 		        COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0),

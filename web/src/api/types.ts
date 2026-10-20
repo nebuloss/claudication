@@ -283,6 +283,13 @@ export interface Chat {
   /** The operator typed it, so the gateway will not rename it on its own. */
   title_manual: boolean
   client: string
+  /**
+   * How its client was run, from its latest request: Interactive, Headless
+   * (claude -p), Agent SDK… Absent when the User-Agent does not say, which is
+   * every client but Claude Code. What tells a headless chat, which Claude
+   * Code never names, from an interactive one not named yet.
+   */
+  surface?: string
   key_name: string
   account_email: string
   /** In first-seen order. A chat that switched model mid-way shows both. */
@@ -398,6 +405,8 @@ export interface RequestRow {
    * minted it.
    */
   client?: string
+  /** How that was run, where its User-Agent says: Claude Code's Interactive, Headless… */
+  surface?: string
   /**
    * The chat this request belongs to, as its client named it. Empty for a
    * client that names none, which is one bucket rather than one chat.

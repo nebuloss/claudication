@@ -262,13 +262,13 @@ func TestExportMatchesTheFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 3 || rows[0][0] != "at" || len(rows[0]) != 18 {
+	if len(rows) != 3 || rows[0][0] != "at" || len(rows[0]) != 19 {
 		t.Fatalf("rows = %v", rows)
 	}
-	if rows[1][4] != "claude-opus-5" || rows[1][2] != "yes" || rows[1][14] != "3" || rows[1][15] != "1500" {
+	if rows[1][4] != "claude-opus-5" || rows[1][2] != "yes" || rows[1][15] != "3" || rows[1][16] != "1500" {
 		t.Errorf("first row = %v", rows[1])
 	}
-	if rows[2][3] != "content_check" || rows[2][17] != refusalText {
+	if rows[2][3] != "content_check" || rows[2][18] != refusalText {
 		t.Errorf("refused row = %v", rows[2])
 	}
 }
