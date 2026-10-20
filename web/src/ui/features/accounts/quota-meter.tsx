@@ -165,12 +165,13 @@ function Window({
         </>
       }
       figure={w.label}
+      // The flag and the reset together: a window flagged as close to its
+      // limit is exactly the one whose reset you want to know, and the flag
+      // used to take the reset's place.
       hint={
-        w.flag !== ''
-          ? w.flag
-          : known && resets !== undefined && resets !== ''
-            ? `resets ${relative(resets)}`
-            : undefined
+        [w.flag, known && resets !== undefined && resets !== '' ? `resets ${relative(resets)}` : '']
+          .filter((s) => s !== '')
+          .join(' · ') || undefined
       }
       alert={w.level === 'critical'}
       active={known && active}

@@ -172,6 +172,7 @@ export function Table({
   children,
   cap = false,
   resizable,
+  stack = false,
 }: {
   /** A plain label, or a column that can be sorted. */
   head: (string | Column)[]

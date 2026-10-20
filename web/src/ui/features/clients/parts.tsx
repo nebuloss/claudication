@@ -78,7 +78,7 @@ export function SubscriptionCard({ share }: { share: SubscriptionShare }) {
       </StatGrid>
       {share.accounts.length > 0 && (
         <div className="mt-4">
-          <Table head={['Account', '5-hour window', '7-day window']}>
+          <Table stack head={['Account', { label: '5-hour window', align: 'end' }, { label: '7-day window', align: 'end' }]}>
             {share.accounts.map((a) => (
               <Tr key={a.account_id}>
                 <Td>
@@ -89,13 +89,13 @@ export function SubscriptionCard({ share }: { share: SubscriptionShare }) {
                     {providerTitle(a.provider)}
                   </Muted>
                 </Td>
-                <Td nums>
+                <Td label="5-hour window" nums align="end">
                   {smallPercent(a.five_hour)}{' '}
                   <Muted as="span" size="xs">
                     ({Math.round(a.five_hour_share * 100)}% of its traffic here)
                   </Muted>
                 </Td>
-                <Td nums>
+                <Td label="7-day window" nums align="end">
                   {smallPercent(a.seven_day)}{' '}
                   <Muted as="span" size="xs">
                     ({Math.round(a.seven_day_share * 100)}% of its traffic here)
