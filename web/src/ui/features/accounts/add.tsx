@@ -12,12 +12,12 @@ import {
   Banner,
   Button,
   ButtonLink,
-  Card,
   CopyButton,
   CopyField,
   ErrorBanner,
   Field,
   InlineLink,
+  Modal,
   Muted,
   Spinner,
   Stack,
@@ -454,8 +454,10 @@ function DeviceFlow({
 }
 
 /**
- * The new-account form at the top of the Accounts page: which provider, then
- * that provider's login.
+ * The new-account dialog on the Accounts page: which provider, then that
+ * provider's login. A dialog, as a new client is, rather than a card pushed
+ * above the list: it is one task with a start and an end, and the list under
+ * it is not what the operator is looking at while they sign in.
  */
 export default function AddAccount({
   onAdded,
@@ -466,15 +468,8 @@ export default function AddAccount({
 }) {
   const [provider, setProvider] = useState(PROVIDERS[0].id)
   return (
-    <Card
-      title="Add an account"
-      aside={
-        <Button variant="text" onClick={onCancel}>
-          Cancel
-        </Button>
-      }
-    >
-      <div role="radiogroup" aria-label="Provider" className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    <Modal title="Add an account" onClose={onCancel} size="lg">
+      <div role="radiogroup" aria-label="Provider" className="mb-5 grid gap-2 sm:grid-cols-2">
         {PROVIDERS.map((p) => {
           const on = p.id === provider
           return (
@@ -497,6 +492,6 @@ export default function AddAccount({
         })}
       </div>
       <ConsentFlow key={provider} provider={provider} onDone={onAdded} onCancel={onCancel} />
-    </Card>
+    </Modal>
   )
 }
