@@ -13,9 +13,10 @@ const TRAFFIC_REFRESH_MS = 60_000
 /**
  * What the gateway has been doing, as one chart over time.
  *
- * Only the chart, above the request log it summarises: Activity is where
- * the gateway's traffic is read, and the Overview keeps to whether it can
- * serve. The breakdowns by account and by client are on their own pages.
+ * Only the chart, on Activity's overview under the last hour: Activity is
+ * where the gateway's traffic is read, and the Overview keeps to whether it
+ * can serve. The tables by model, client and account are Activity's other
+ * pages.
  *
  * Its own loader, so changing the window does not re-fetch the status, and a
  * usage table that is off or empty cannot take the screen down with it.

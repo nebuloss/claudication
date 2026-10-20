@@ -32,6 +32,7 @@ import type {
   SubscriptionShare,
   Chats,
   GatewayConfig,
+  GatewayLive,
   Health,
   InstallFile,
   Model,
@@ -332,6 +333,22 @@ const traffic = {
   /** The usage report, gateway-wide or narrowed to one account or one key. */
   usage: (days?: number, scope: UsageScope = {}, signal?: AbortSignal) =>
     http.get<Usage>(`/admin/usage${scopedQuery(days, scope)}`, signal),
+
+  /**
+   * Every client's traffic by account, model name and model, and each
+   * client's share of the windows: Activity's Models, Clients and Accounts
+   * tables are all folded from these rows.
+   */
+  slots: async (days: number, signal?: AbortSignal) => {
+    const res = await http.get<{ days: number; rows: SlotUse[] | null; shares: Record<string, SubscriptionShare> | null }>(
+      `/admin/usage/slots?days=${String(days)}`,
+      signal,
+    )
+    return { days: res.days, rows: res.rows ?? [], shares: res.shares ?? {} }
+  },
+
+  /** The gateway's requests per minute over the last hour, and what it has open now. */
+  live: (signal?: AbortSignal) => http.get<GatewayLive>('/admin/usage/live', signal),
 
   chats: (days?: number, scope: UsageScope = {}, signal?: AbortSignal) =>
     http.get<Chats>(`/admin/chats${scopedQuery(days, scope)}`, signal),

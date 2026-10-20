@@ -256,7 +256,7 @@ export default function App() {
                 ) : (
                   <ClientPage key={item} id={item} page={pageIdOf(CLIENT_PAGES, page)} config={config.data} />
                 ))}
-              {tab === 'activity' && <Activity page={pageIdOf(ACTIVITY_PAGES, item) || 'requests'} />}
+              {tab === 'activity' && <Activity page={pageIdOf(ACTIVITY_PAGES, item) || ACTIVITY_PAGES[0].id} />}
               {tab === 'settings' && (
                 <Settings
                   session={state.session}

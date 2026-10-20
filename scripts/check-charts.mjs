@@ -213,8 +213,10 @@ check('an account has no chats: a chat is a client\'s', canonical('/accounts/a1/
 check('a client has', canonical('/clients/c1/chats'), '/clients/c1/chats')
 check('and its usage, limits beside it', canonical('/clients/c1/usage'), '/clients/c1/usage')
 check('an unknown page is its overview', canonical('/clients/c1/nonesuch'), '/clients/c1')
-check('activity opens on requests, its only page', canonical('/activity'), '/activity/requests')
-check('chats are not on activity', canonical('/activity/chats'), '/activity/requests')
+check('activity opens on its overview, the load', canonical('/activity'), '/activity/overview')
+check('its tables are pages', canonical('/activity/models'), '/activity/models')
+check('the request log too', canonical('/activity/requests'), '/activity/requests')
+check('chats are not on activity', canonical('/activity/chats'), '/activity/overview')
 // Ids are encoded once, whatever they hold.
 check('an id is kept encoded', canonical('/clients/a%2Fb'), '/clients/a%2Fb')
 check('and decoded when read', segments('/clients/a%2Fb/usage'), ['clients', 'a/b', 'usage'])
@@ -225,7 +227,7 @@ check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts
 check('a client page too', tab('/clients/c1/requests'), 'clients')
 // Round trip: every canonical path is its own canonical form.
 {
-  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/requests', '/settings']
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/overview', '/activity/accounts', '/activity/requests', '/settings']
   check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
 }
 
@@ -240,7 +242,11 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   // The overview is the root itself, reached by the trail's first step.
   check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'Clients', 'Activity', 'Settings'])
   check('a list is on the top level', lvl('/clients').current, '/clients')
-  check('each screen opens on its first page', hrefs(lvl('/'))[2], '/activity/requests')
+  check('each screen opens on its first page', hrefs(lvl('/'))[2], '/activity/overview')
+  check('activity lists its five pages', hrefs(lvl('/activity/clients')), [
+    '/activity/overview', '/activity/models', '/activity/clients', '/activity/accounts', '/activity/requests',
+  ])
+  check('and the page open is current', lvl('/activity/clients').current, '/activity/clients')
   check('an account lists its traffic and its settings', hrefs(lvl('/accounts/a1/usage')), [
     '/accounts/a1/usage', '/accounts/a1/requests',
     '/accounts/a1/models', '/accounts/a1/connection', '/accounts/a1/advanced',
@@ -267,6 +273,8 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('a client is its name, not its name then Overview', trail('/clients/c1'), ['Overview', 'Clients', 'clients:c1'])
   check('a page of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
   check('an activity page', trail('/activity/requests'), ['Overview', 'Activity', 'Requests'])
+  // Its overview is the section's own step, so Overview is not said twice.
+  check('activity\'s overview is Activity alone', trail('/activity'), ['Overview', 'Activity'])
   check('the item step is its overview', trailOf('/clients/c1/usage', name)[2].href, '/clients/c1')
 }
 
@@ -514,6 +522,34 @@ console.log('\n— commitTitle: what Enter in a title being renamed does —')
   check('one over is refused before it is sent', commitTitle('x'.repeat(MAX_NAME + 1), '', client).kind, 'invalid')
   check('counted in characters, as the server counts', commitTitle('🙂'.repeat(MAX_NAME), '', client).kind, 'save')
   check('a pasted newline is refused', commitTitle('two\nlines', '', client).kind, 'invalid')
+}
+
+console.log('\n— rollup: every usage table is the same rows folded —')
+{
+  const { rollup, tokensOf, byTokens, withoutAccount, percentOf } = await import(`${OUT}/features/usage/rollup.js`)
+  const row = (client_id, account_id, slot, model, requests, last, extra = {}) => ({
+    client_id, client: client_id, type: 'crush', account_id, slot, model, provider: 'anthropic',
+    requests, errors: 0, input_tokens: requests * 10, output_tokens: requests, cache_tokens: 0,
+    reasoning_tokens: 0, last, ...extra,
+  })
+  const rows = [
+    row('a', 'acc1', 'large', 'opus', 3, '2026-10-20T10:00:00Z'),
+    row('b', 'acc1', 'large', 'opus', 2, '2026-10-20T11:00:00Z', { errors: 1 }),
+    row('a', 'acc2', 'large', 'opus', 2, '2026-10-20T09:00:00Z'),
+    row('a', 'acc2', 'small', 'haiku', 1, '2026-10-20T12:00:00Z', { reasoning_tokens: 1 }),
+  ]
+  const byClient = rollup(rows, (r) => r.client_id)
+  check('one rollup per client, in first-seen order', byClient.map((u) => [u.id, u.requests]), [['a', 6], ['b', 2]])
+  check('the latest request is kept', byClient[0].last, '2026-10-20T12:00:00Z')
+  check('failures and reasoning add up', [byClient[1].errors, byClient[0].reasoning], [1, 1])
+  check('tokens are in, out and cache', tokensOf(byClient[0]), 66)
+  const byModel = rollup(rows, (r) => r.model).sort(byTokens)
+  check('a model\'s rollup is every client on it', byModel[0].rows.map((r) => r.client_id), ['a', 'b', 'a'])
+  check('the models add up to the clients', byModel.reduce((n, u) => n + u.requests, 0), 8)
+  const merged = withoutAccount(rows.filter((r) => r.client_id === 'a'))
+  check('one client\'s rows lose the account', merged.map((r) => [r.slot, r.requests]), [['large', 5], ['small', 1]])
+  check('and keep the latest of the two', merged[0].last, '2026-10-20T10:00:00Z')
+  check('a share of nothing is nothing', percentOf(3, 0), 0)
 }
 
 console.log('\n— every axis covers its data —')

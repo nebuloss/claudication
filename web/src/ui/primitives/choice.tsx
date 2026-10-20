@@ -75,7 +75,13 @@ export function WindowPicker({
       label={label}
       value={String(value)}
       onChange={(v) => onChange(Number(v))}
-      options={windows.map((d) => ({ id: String(d), label: `${d} days`, content: `${d}d` }))}
+      // One day is the last 24 hours, not the calendar day "1d" reads as:
+      // every window here is rolling back from now.
+      options={windows.map((d) =>
+        d === 1
+          ? { id: '1', label: 'the last 24 hours', content: '24h' }
+          : { id: String(d), label: `${d} days`, content: `${d}d` },
+      )}
     />
   )
 }

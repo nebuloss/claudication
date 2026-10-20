@@ -8,7 +8,9 @@
  *   /accounts/<id>                      one account's overview
  *   /accounts/<id>/<page>               its traffic and its settings, side by side
  *   /clients … the same shape, for clients
- *   /activity/requests                  the request log, every client
+ *   /activity/<page>                    the gateway's traffic: its load, then
+ *                                       by model, by client, by account, and
+ *                                       the request log
  *   /settings                           the gateway switch, the admin account
  *                                       and the configuration, on one page
  *
@@ -100,11 +102,24 @@ export function pagesOf(kind: 'accounts' | 'clients'): readonly ItemPage[] {
 }
 
 /**
- * The gateway-wide traffic: the request log, for debugging, filterable by
- * client, provider, account and outcome. Chats are a client's and are on its
- * page; totals by provider and by client are the Overview's.
+ * The gateway-wide traffic, a page per question. Its load first, the page
+ * /activity opens on: the traffic over time and the last hour live, nothing
+ * else. Then where it went, a table each — by model, by client, by account,
+ * each unfolding to the other side — and the request log, for debugging,
+ * filterable by client, provider, account and outcome. Chats are a client's
+ * and are on its page.
+ *
+ * Its first page is called Overview because that is what it is to the
+ * section, but it is the section's own step in the trail: trailOf ends at
+ * Activity there, rather than say Overview twice.
  */
-export const ACTIVITY_PAGES = [{ id: 'requests', label: 'Requests' }] as const satisfies readonly Section[]
+export const ACTIVITY_PAGES = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'models', label: 'Models' },
+  { id: 'clients', label: 'Clients' },
+  { id: 'accounts', label: 'Accounts' },
+  { id: 'requests', label: 'Requests' },
+] as const satisfies readonly Section[]
 export type ActivityPageId = (typeof ACTIVITY_PAGES)[number]['id']
 
 /** The path's segments, decoded. A malformed escape is kept as it came. */
@@ -249,7 +264,7 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
     return out
   }
   out.push({ href: canonical(pathOf(tab.id)), label: tab.label })
-  if (top === 'activity' && id !== undefined) {
+  if (top === 'activity' && id !== undefined && id !== ACTIVITY_PAGES[0].id) {
     out.push({ href: pathOf(top, id), label: label(ACTIVITY_PAGES, id) })
   }
   return out

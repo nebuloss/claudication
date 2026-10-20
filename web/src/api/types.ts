@@ -709,6 +709,9 @@ export interface ClientLive {
   history_recorded: boolean
 }
 
+/** What the whole gateway is doing now, for Activity's overview: a client's live figures without its limits. */
+export type GatewayLive = Pick<ClientLive, 'per_minute' | 'since' | 'in_flight' | 'history_recorded'>
+
 /** Limits read off a client's own history. */
 export interface LimitSuggestion {
   days: number
@@ -732,6 +735,9 @@ export interface SlotUse {
   client_id: string
   client: string
   type: string
+  /** The account that served it, and what it is called: on the gateway-wide rows only. */
+  account_id?: string
+  account?: string
   slot: string
   model: string
   provider: string
