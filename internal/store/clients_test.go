@@ -102,6 +102,40 @@ func TestClientsOwnTheirNames(t *testing.T) {
 	}
 }
 
+// slotNamed is the id of a client's slot by its name.
+func slotNamed(t *testing.T, c Client, name string) string {
+	t.Helper()
+	for _, s := range c.Slots {
+		if s.Name == name {
+			return s.Slot
+		}
+	}
+	t.Fatalf("no slot named %q in %+v", name, c.Slots)
+	return ""
+}
+
+// A slot's id is not its name: renamed, the name it had is free for another
+// slot of the same client.
+func TestARenamedSlotFreesItsName(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	c := makeClient(t, st, "tool", "custom")
+	if err := st.AddSlot(ctx, c.ID, "fast", Binding{Model: "claude-haiku-5"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.Client(ctx, c.ID)
+	if err := st.SetSlot(ctx, c.ID, slotNamed(t, got, "fast"), "quick", Binding{Model: "claude-haiku-5"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddSlot(ctx, c.ID, "fast", Binding{Model: "claude-sonnet-5"}); err != nil {
+		t.Fatalf("the freed name could not be given again: %v", err)
+	}
+	got, _ = st.Client(ctx, c.ID)
+	if len(got.Slots) != 3 || slotNamed(t, got, "quick") == slotNamed(t, got, "fast") {
+		t.Errorf("slots after the rename and the new one: %+v", got.Slots)
+	}
+}
+
 // A custom client names its own slots and may be switched to direct mode and
 // back, both kept.
 func TestCustomClientModes(t *testing.T) {
@@ -134,7 +168,7 @@ func TestCustomClientModes(t *testing.T) {
 	if len(got.Slots) != 2 || len(got.ModelsOff) != 1 || got.Mode != clients.Binding {
 		t.Errorf("back in binding mode, both kept: %+v", got)
 	}
-	if err := st.RemoveSlot(ctx, c.ID, "small"); err != nil {
+	if err := st.RemoveSlot(ctx, c.ID, slotNamed(t, got, "small")); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetClientMode(ctx, c.ID, "sideways"); !errors.Is(err, ErrInvalidClient) {

@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -352,8 +354,11 @@ func (s *Store) SetSlot(ctx context.Context, keyID, slot, name string, b Binding
 	})
 }
 
-// AddSlot gives a custom client a slot of its own, whose id is the name it
-// is first given.
+// AddSlot gives a custom client a slot of its own.
+//
+// Its id is made up rather than taken from its first name: the name can be
+// changed and the id cannot, so an id that was a name would keep that name
+// from ever being given to another slot of the client once renamed.
 func (s *Store) AddSlot(ctx context.Context, keyID, name string, b Binding) error {
 	name, err := checkSlotName(name)
 	if err != nil {
@@ -371,8 +376,22 @@ func (s *Store) AddSlot(ctx context.Context, keyID, name string, b Binding) erro
 		if t, ok := clients.Find(typ); ok && !t.Custom {
 			return invalidClient(t.Label + "'s slots are its configuration's; only a custom client names its own")
 		}
-		return insertSlot(ctx, tx, keyID, NewSlot{Slot: name, Name: name, Binding: b}, time.Now())
+		id, err := newSlotID()
+		if err != nil {
+			return err
+		}
+		return insertSlot(ctx, tx, keyID, NewSlot{Slot: id, Name: name, Binding: b}, time.Now())
 	})
+}
+
+// newSlotID is an id for an operator's own slot: "s-" and random hex, which no
+// type's slot id has, and a valid custom slot id (clients.ValidName).
+func newSlotID() (string, error) {
+	raw := make([]byte, 6)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("make slot id: %w", err)
+	}
+	return "s-" + hex.EncodeToString(raw), nil
 }
 
 // RemoveSlot takes a custom client's slot away, freeing its name.

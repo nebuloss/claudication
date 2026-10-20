@@ -79,6 +79,11 @@ func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) Cli
 	t := c.Spec()
 	for _, sl := range c.Slots {
 		spec, _ := t.SlotFor(sl.Slot)
+		if _, typed := c.Spec().Slot(sl.Slot); !typed {
+			// An operator's own slot: its id is made up, its name is what
+			// the operator knows it by.
+			spec.Label = sl.Name
+		}
 		j := SlotJSON{Slot: spec, Name: sl.Name, Model: sl.Model, Bound: sl.Follows}
 		j.Serving, j.Problem = s.models.SlotTarget(ctx, sl)
 		if j.Serving != "" {
