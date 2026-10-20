@@ -144,3 +144,52 @@ func TestServeHandsOverOnSIGHUP(t *testing.T) {
 		t.Errorf("workers %v outlived the supervisor", w)
 	}
 }
+
+// A SIGHUP that arrives while serve is still starting — before it has read
+// its config — must not end it: Go's default for SIGHUP is to exit, and a
+// reload sent just after a start used to kill the supervisor. Caught first
+// thing, it is a reload once the supervisor runs.
+func TestServeSurvivesASIGHUPWhileStarting(t *testing.T) {
+	_, cfg := stateDir(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	t.Setenv("CLAUDICATION_LISTEN", addr)
+	t.Setenv("CLAUDICATION_LOG_LEVEL", "error")
+	testHookStarting = func() { _ = syscall.Kill(os.Getpid(), syscall.SIGHUP) }
+	defer func() { testHookStarting = nil }()
+
+	done := make(chan error, 1)
+	go func() { done <- cmdServe([]string{"-config", cfg}) }()
+	client := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		resp, err := client.Get("http://" + addr + "/health")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("serve never answered")
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("serve exited: %v", err)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("serve returned %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("serve did not stop")
+	}
+}

@@ -36,6 +36,19 @@ const handoverReadyTimeout = 45 * time.Second
 // not a flag, is what tells the two apart — so a unit written for a binary
 // from before the handover still starts it, and a rollback to one still runs.
 func cmdServe(args []string) error {
+	// First, before anything that takes time: SIGHUP's default action ends
+	// the process, so a reload sent while the supervisor was still reading
+	// its config killed it, and a worker caught by one died with no drain.
+	// Caught here, a supervisor acts on it once it is running — the binary
+	// at the path may have changed since it started — and a worker never
+	// reads it: SIGHUP is the supervisor's.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	if testHookStarting != nil {
+		testHookStarting()
+	}
+
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to config.yaml (optional)")
 	single := fs.Bool("single", false, "serve in this one process; a reload is then a restart")
@@ -55,23 +68,23 @@ func cmdServe(args []string) error {
 
 	switch {
 	case w != nil:
-		// SIGHUP is the supervisor's. One reaching a worker — a signal to
-		// the process group, a stray kill — would otherwise end it with no
-		// drain at all, which is Go's default for it.
-		signal.Ignore(syscall.SIGHUP)
 		return serveWorker(ctx, w, *configPath)
 	case *single || !handover.Supported:
 		return serveOnce(ctx, *configPath, httpapi.Handoff{}, false)
 	default:
-		return supervise(ctx, args, *configPath)
+		return supervise(ctx, args, *configPath, hup)
 	}
 }
+
+// testHookStarting runs as soon as SIGHUP is caught, for the test that sends
+// one there.
+var testHookStarting func()
 
 // supervise is the process the service manager tracks: it binds, starts the
 // worker, and turns each SIGHUP into a handover. It opens no database and
 // serves no request, so there is next to nothing in it that a release could
 // need to change — it is replaced only by a real restart.
-func supervise(ctx context.Context, args []string, configPath string) error {
+func supervise(ctx context.Context, args []string, configPath string, hup <-chan os.Signal) error {
 	path := resolveConfigPath(configPath)
 	cfg, err := config.Load(path)
 	if err != nil {
@@ -85,9 +98,6 @@ func supervise(ctx context.Context, args []string, configPath string) error {
 	}
 
 	reload := make(chan struct{}, 1)
-	hup := make(chan os.Signal, 1)
-	signal.Notify(hup, syscall.SIGHUP)
-	defer signal.Stop(hup)
 	go func() {
 		for range hup {
 			// One pending is enough: a second SIGHUP during a handover asks
