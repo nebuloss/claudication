@@ -70,7 +70,7 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
   const s = shown(result, last)
   const quarter = last?.uptime['90d'] ?? null
   return (
-    <Card title="Status" fill>
+    <Card title="Status">
       {/* A live region, so a screen reader hears the gateway come back
           without having to go looking for it. */}
       <div aria-live="polite" className={`flex items-center gap-4 rounded-md3-l px-5 py-4 ${toneContainer[s.tone]}`}>
@@ -92,7 +92,7 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
           <span className="text-sm text-on-surface-variant">uptime over 90 days</span>
         </p>
       )}
-      <div className="mt-4 border-t border-outline-variant/40 pt-3">
+      <div className="mt-4 hidden border-t border-outline-variant/40 pt-3 sm:block">
         <Muted size="xs">
           {result.kind !== 'checking' ? `Checked at ${clock.format(result.at)}. ` : ''}
           Checked again every minute while this page is open.
@@ -130,21 +130,21 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
 export default function Welcome() {
   const { result, last } = useStatus()
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4 sm:gap-6">
       <section aria-labelledby="welcome-title" className="flex items-center gap-4">
         <BrandMark />
         <h1
           id="welcome-title"
-          className="text-[clamp(1.75rem,5vh,3rem)] leading-tight font-normal tracking-tight text-on-surface"
+          className="text-[clamp(1.5rem,min(5vh,7vw),3rem)] leading-tight font-normal tracking-tight text-on-surface"
         >
           {COPY.title}
         </h1>
       </section>
-      <div className="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(9rem,1fr)] gap-6 lg:grid-cols-3 lg:grid-rows-[minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(8rem,1fr)] gap-4 sm:gap-6 lg:grid-cols-3 lg:grid-rows-[minmax(0,1fr)]">
         <Now result={result} last={last} />
         {last !== null && (
           <>
-            <Card title="History" fill>
+            <Card title="History">
               <UptimeStrips report={last} />
             </Card>
             <Card title="Recent incidents" fill>
