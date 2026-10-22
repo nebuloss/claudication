@@ -21,7 +21,8 @@ import (
 //
 // Unlike the six in Default it is not a repair of a shape the upstream
 // rejects, and it does not run on every request. It runs only when a request
-// names a role, it changes exactly one value — the model — and the gateway
+// names a role, it changes one value — the model, and the output budget only
+// where the model the role serves now cannot take it (outputcap.go) — and the gateway
 // has decided which real model that is before it runs (the key's binding,
 // else the gateway's, else the newest of the role's family). So it is a
 // function the gateway calls with that decision, not a step in the pipeline.

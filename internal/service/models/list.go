@@ -78,6 +78,10 @@ type Catalog struct {
 	served    map[string]map[string]bool
 	connected map[string]bool
 	unread    map[string]bool
+	// caps is each provider's models' output caps, by store.ModelKey, as its
+	// list says them (the catalogue's limit.output over the account's own):
+	// what a slot's request has its budget fitted to (OutputCap).
+	caps map[string]map[string]int
 	// listed is what the accounts themselves said, the catalogue never:
 	// every model a switched-on account of each provider lists, switches or
 	// not, in the lists' order and by store.ModelKey. Which of them a client
@@ -220,6 +224,7 @@ type remembered struct {
 	families  []string
 	ranked    []string
 	served    map[string]map[string]bool
+	caps      map[string]map[string]int
 	connected map[string]bool
 	unread    map[string]bool
 	listed    map[string][]listedModel
@@ -280,6 +285,7 @@ func (m *remembered) rememberProvider(providerID string, list []byte) {
 			CreatedAt string `json:"created_at"`
 			Virtual   bool   `json:"virtual"`
 			Priority  *int   `json:"priority"`
+			MaxTokens int    `json:"max_tokens"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(list, &l) != nil {
@@ -288,13 +294,21 @@ func (m *remembered) rememberProvider(providerID string, list []byte) {
 	if m.served == nil {
 		m.served = map[string]map[string]bool{}
 	}
+	if m.caps == nil {
+		m.caps = map[string]map[string]int{}
+	}
 	ids := map[string]bool{}
+	caps := map[string]int{}
 	for _, e := range l.Data {
 		if !e.Virtual && e.ID != "" {
 			ids[store.ModelKey(e.ID)] = true
+			if e.MaxTokens > 0 {
+				caps[store.ModelKey(e.ID)] = e.MaxTokens
+			}
 		}
 	}
 	m.served[providerID] = ids
+	m.caps[providerID] = caps
 
 	if providerID == clients.FollowFirst.Provider() {
 		// By the priority each entry carries, not the list's order, which
@@ -393,6 +407,12 @@ func (s *Catalog) remember(m remembered, read bool) {
 			}
 			m.served[p] = old
 		}
+		if old, ok := s.caps[p]; ok {
+			if m.caps == nil {
+				m.caps = map[string]map[string]int{}
+			}
+			m.caps[p] = old
+		}
 		if old, ok := s.listed[p]; ok {
 			if m.listed == nil {
 				m.listed = map[string][]listedModel{}
@@ -407,6 +427,7 @@ func (s *Catalog) remember(m remembered, read bool) {
 		}
 	}
 	s.newest, s.families, s.ranked, s.served = m.newest, m.families, m.ranked, m.served
+	s.caps = m.caps
 	s.listed = m.listed
 	s.newestAt = time.Now()
 }
@@ -420,6 +441,29 @@ func (s *Catalog) refreshFamilies(ctx context.Context) {
 		return
 	}
 	_, _ = s.List(ctx)
+}
+
+// OutputCap is the most a model of a provider can write in one answer, as
+// the model list last said it, and 0 when it did not say: what a request
+// naming a slot has its output budget fitted to (internal/relay/passes,
+// FitMaxTokens).
+//
+// Read from what the lists last said, stale or not, and not refreshed for
+// it: a model's cap changes with a release, every few months, and a request
+// for a Claude model must not wait on a round of model lists to learn it
+// (ProviderOf says the same). Only a gateway that has read no list since it
+// started reads them now, once, so its first request after a restart is
+// fitted like the rest.
+func (s *Catalog) OutputCap(ctx context.Context, provider, model string) int {
+	s.rolesMu.Lock()
+	never := s.newestAt.IsZero()
+	s.rolesMu.Unlock()
+	if never {
+		s.refreshFamilies(ctx)
+	}
+	s.rolesMu.Lock()
+	defer s.rolesMu.Unlock()
+	return s.caps[provider][store.ModelKey(model)]
 }
 
 // newestOf is the newest model of a family.

@@ -34,6 +34,7 @@ exists because without it the request cannot succeed.
 | `NormaliseSystem` | `Is directory a git repo:` in `system`; empty text blocks | [measured] 400, the misleading billing message |
 | `DropEmptyMessageText` | empty text blocks in `messages` | [measured] 400 `text content blocks must be non-empty` |
 | `RewriteRefusedToolNames` | tool name matching `^mcp_[^_]`, or exactly `todowrite` | [measured] 400, the misleading billing message |
+| `FitMaxTokens` | a request naming a slot, with `max_tokens` over the cap of the model the slot serves now (or `thinking.budget_tokens` not below the lowered one) | [documented] 400 `invalid_request_error`, "max_tokens: N > M, which is the maximum allowed number of output tokens for …"; not measured here. Part of the model-name rewrite: the client sized it for what the name used to serve |
 | `decodeBody` | `Content-Encoding: gzip` | [measured] every pass above silently no-ops on bytes it cannot parse |
 
 The last one is the trap worth remembering: a gzipped body is not a parse
@@ -186,6 +187,7 @@ account, one thing varied at a time. The scrubbed records are
 |---|---|---|
 | a lone `\ud800` in the input text | [measured] 400 `{"detail":"Bad Request"}` | `FixLoneSurrogates` runs on this wire too |
 | `max_output_tokens: 256` | [measured] 200 | not stripped. crush strips it as refused (`internal/oauth/openai/transport.go`); that did not reproduce |
+| `max_output_tokens` over the model's cap | not measured | lowered to the cap the model list gives (`FitMaxOutputTokens`), on a request naming a slot, as on Anthropic's wire; with no cap listed it passes through |
 | no `originator` header | [measured] 200 | the gateway adds `originator: claudication` only when a client sent none, and never Codex's own `codex_cli_rs` |
 | `instructions` as a developer message rather than the top-level field | [measured] 200 | neither form is required; the body is left as the client wrote it |
 | an encrypted reasoning item replayed on the account that made it | [measured] 200, right answer | — |

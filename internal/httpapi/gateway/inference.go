@@ -178,6 +178,8 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 
 		outbound := ex.Request()
 		rewrote := false
+		// The output cap the request's budget was lowered to, when it was.
+		fitted := 0
 		if slot != "" {
 			replaced, ok := passes.SetModel(outbound, model)
 			if !ok {
@@ -187,6 +189,19 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			outbound, rewrote = replaced, true
 			s.log.Debug("client model name", "slot", slot, "serving", model, "provider", dest.Provider,
 				"client", key.Name, "request_id", httpx.RequestID(r.Context()))
+			// The budget the client sized for what the name used to serve,
+			// fitted to what it serves now: crush pins max_tokens when a
+			// model is picked, and a slot rebound to a model with a smaller
+			// cap would be refused on every request after. Only here, where
+			// the gateway chose the model; see internal/relay/passes,
+			// outputcap.go.
+			if up.FitOutput != nil {
+				if limit := s.models.OutputCap(r.Context(), dest.Provider, model); limit > 0 {
+					if out, ok := up.FitOutput(outbound, limit); ok {
+						outbound, fitted = out, limit
+					}
+				}
+			}
 		} else if up.Native != p.ID() {
 			// Translated with no slot: the dialect chose the model it sends,
 			// and that is the one served and recorded.
@@ -357,6 +372,9 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// so without debug logging. See internal/relay/passes.
 		if len(res.Rewrites) > 0 {
 			attrs = append(attrs, "rewrites", strings.Join(res.Rewrites, ","))
+		}
+		if fitted > 0 {
+			attrs = append(attrs, "output_fitted_to", fitted)
 		}
 		if res.Usage.InputTokens > 0 || res.Usage.OutputTokens > 0 {
 			attrs = append(attrs,

@@ -400,7 +400,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 func (s *Server) upstreams() map[string]gateway.Upstream {
 	return map[string]gateway.Upstream{
 		anthropic.ID: {
-			Relay: s.relays[anthropic.ID], Title: "Claude", Native: anthropicapi.ID,
+			Relay: s.relays[anthropic.ID], Title: "Claude", Native: anthropicapi.ID, FitOutput: passes.FitMaxTokens,
 			Paths: map[string]string{
 				"/v1/messages":              "/v1/messages?beta=true",
 				"/v1/messages/count_tokens": "/v1/messages/count_tokens?beta=true",
@@ -408,7 +408,7 @@ func (s *Server) upstreams() map[string]gateway.Upstream {
 			},
 		},
 		chatgpt.ID: {
-			Relay: s.relays[chatgpt.ID], Title: "ChatGPT", Native: openai.ID,
+			Relay: s.relays[chatgpt.ID], Title: "ChatGPT", Native: openai.ID, FitOutput: passes.FitMaxOutputTokens,
 			Paths: map[string]string{
 				"/v1/messages":  "/responses",
 				"/v1/responses": "/responses",

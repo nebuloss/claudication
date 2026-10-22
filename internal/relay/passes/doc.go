@@ -27,6 +27,14 @@
 // which real model the name is bound to on this client — and it runs only
 // when one is named. See model.go.
 //
+// Its other half is [FitMaxTokens] ([FitMaxOutputTokens] on the Responses
+// wire): the output budget a client sized for what its name used to serve,
+// lowered to the cap of the model it serves now. Part of the seventh rather
+// than an eighth, because it is the same decision — the gateway changed what
+// the name means, so the gateway makes the request fit it — runs at the same
+// point, and only then. The upstream refuses a budget over the cap; see
+// outputcap.go for the record and what was and was not measured.
+//
 // # The OpenAI wire
 //
 // A request the gateway relays to a ChatGPT account is an OpenAI Responses
@@ -44,7 +52,8 @@
 //
 // SetModel and ModelRenamer apply as on any wire: both work on the top-level
 // model field, which a Responses body and its events have where a Messages
-// one does.
+// one does. The budget is the wire's own field: max_output_tokens here,
+// max_tokens on Anthropic's.
 //
 // The sixth is Default's only optional pass, and its only one off by default.
 // The other five repair an envelope the upstream rejects over its shape, and

@@ -99,6 +99,10 @@ type Upstream struct {
 	// cannot reach it: a request routed to it from there is refused, saying
 	// which name to rebind, rather than sent somewhere that cannot answer.
 	Paths map[string]string
+	// FitOutput lowers a body's output budget, in this upstream's own field,
+	// to limit; ok is false when it did not need to. Run on a request that
+	// named a slot (internal/relay/passes, FitMaxTokens); nil fits nothing.
+	FitOutput func(body []byte, limit int) (out []byte, ok bool)
 }
 
 // New builds a Gateway.
