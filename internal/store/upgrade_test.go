@@ -739,7 +739,7 @@ func TestUpgradeDropsTheClientsAPI(t *testing.T) {
 	}
 	if c.Type != "crush" || c.Mode != "binding" || c.DisabledAt == nil || c.ConfiguredAt == nil || c.NameChats ||
 		len(c.Slots) != 2 || c.Slots[0].Name != "gpt-5-large" || c.Slots[0].Follows != "claude:opus" ||
-		c.Slots[1].Model != "gpt-6-luna" {
+		c.Slots[1].Follows != "openai:luna" { // 040 binds the version to its family
 		t.Errorf("client after 035 = %+v", c)
 	}
 	// opencode on Messages needs "claude" in a name; crush's names are left.
@@ -760,5 +760,68 @@ func TestUpgradeDropsTheClientsAPI(t *testing.T) {
 	}
 	if err := st.db.QueryRow(`SELECT COUNT(*) FROM client_slots WHERE key_id = ?`, f.keyKept).Scan(&n); err != nil || n != 0 {
 		t.Errorf("%d slots outlived their client, %v", n, err)
+	}
+}
+
+// 040 moves a slot on ChatGPT's ranking onto the line of the model it served
+// — first onto sol, light onto luna — and a slot bound to a version onto its
+// family, unless its provider offers every model; an id of no family is left.
+func TestUpgradeBindsFamilies(t *testing.T) {
+	ctx := context.Background()
+	p := filepath.Join(t.TempDir(), "v39.db")
+	db := buildOld(t, dsn(p), 28)
+	f := fillV28(t, db)
+	steps, err := upgradeSteps(28)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range steps {
+		if s.version > 39 {
+			break
+		}
+		if err := applyStep(ctx, db, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`UPDATE clients SET type = 'crush', mode = 'binding' WHERE key_id = ?`, f.keyKept); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM client_slots WHERE key_id = ?`, f.keyKept); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO client_slots VALUES (?, 'large', 'large', '', 'openai:first', 1, 2),
+	                                                    (?, 'small', 'small', '', 'openai:light', 3, 4),
+	                                                    (?, 'x-1', 'opus', '', 'claude:opus', 5, 6),
+	                                                    (?, 'x-2', 'astra', 'gpt-6-astra', '', 7, 8),
+	                                                    (?, 'x-3', 'sol', 'gpt-6.1-sol', '', 9, 10),
+	                                                    (?, 'x-4', 'sonnet', 'claude-sonnet-5', '', 11, 12),
+	                                                    (?, 'x-5', 'odd', 'gpt-reserve', '', 13, 14)`,
+		f.keyKept, f.keyKept, f.keyKept, f.keyKept, f.keyKept, f.keyKept, f.keyKept); err != nil {
+		t.Fatal(err)
+	}
+	// Claude offering every model: its versions stay versions.
+	if _, err := db.Exec(`INSERT INTO settings VALUES ('models.anthropic.families', 'false', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	st, err := Open(ctx, p, testSealer(t))
+	if err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	defer st.Close()
+	c, err := st.Client(ctx, f.keyKept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, sl := range c.Slots {
+		got[sl.Name] = sl.Model + string(sl.Follows)
+	}
+	want := map[string]string{"large": "openai:sol", "small": "openai:luna", "opus": "claude:opus",
+		"astra": "openai:astra", "sol": "openai:sol", "sonnet": "claude-sonnet-5", "odd": "gpt-reserve"}
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s after 040 = %q, want %q", name, got[name], w)
+		}
 	}
 }

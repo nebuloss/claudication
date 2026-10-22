@@ -74,6 +74,10 @@ var (
 type Lease struct {
 	Account     store.Account
 	AccessToken string
+	// Model is the version this account serves, for a request any of
+	// several could (WithVersions): its newest of them. "" otherwise, the
+	// request's own model being the one.
+	Model string
 	// release takes this request off the account's in-flight count. Nil on
 	// a lease the pool did not hand out, which a test's fake pool returns.
 	release func()
@@ -297,11 +301,17 @@ func (p *Pool) Offers(ctx context.Context, provider, model string) bool {
 	if err != nil {
 		return false
 	}
+	if v, ok := versionsOf(ctx); ok {
+		c, _ := byVersion(candidatesFor(accounts, provider, "", nil, p.now()), v)
+		return len(c) > 0
+	}
 	return len(candidatesFor(accounts, provider, model, nil, p.now())) > 0
 }
 
 // Acquire picks an account that has model on, refreshing its token first if
-// it has expired. An empty model is served by any account.
+// it has expired. An empty model is served by any account. A request marked
+// WithVersions is served by an account that has any of them, the lease saying
+// which (Lease.Model), and model is not read.
 //
 // exclude lets a retry skip accounts that already failed for this request.
 func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[string]bool) (Lease, error) {
@@ -311,7 +321,11 @@ func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[
 	}
 
 	now := p.now()
+	var best map[string]string
 	candidates := candidatesFor(accounts, provider, model, exclude, now)
+	if v, ok := versionsOf(ctx); ok {
+		candidates, best = byVersion(candidatesFor(accounts, provider, "", exclude, now), v)
+	}
 	if len(candidates) == 0 {
 		switch {
 		case len(exclude) > 0:
@@ -348,7 +362,7 @@ func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[
 	if err != nil {
 		return Lease{}, err
 	}
-	return Lease{Account: chosen, AccessToken: tokens.AccessToken, release: p.hold(chosen.ID)}, nil
+	return Lease{Account: chosen, AccessToken: tokens.AccessToken, Model: best[chosen.ID], release: p.hold(chosen.ID)}, nil
 }
 
 // hold counts one more request open on an account, and returns what takes it
@@ -731,7 +745,11 @@ func (p *Pool) RetryAfter(ctx context.Context, provider, model string) time.Dura
 	if err != nil {
 		return 0
 	}
-	return p.soonest(candidatesFor(accounts, provider, model, nil, p.now()))
+	candidates := candidatesFor(accounts, provider, model, nil, p.now())
+	if v, ok := versionsOf(ctx); ok {
+		candidates, _ = byVersion(candidatesFor(accounts, provider, "", nil, p.now()), v)
+	}
+	return p.soonest(candidates)
 }
 
 // soonest is how long until the first of candidates is out of its cooldown,

@@ -13,8 +13,8 @@
 // "large"), which its configuration asks for and which means something only
 // for that client's key: two clients may both have a "large", bound to
 // different models. A slot is bound to a real model of any provider, or
-// follows a moving target (the newest Claude Opus, ChatGPT's first-ranked
-// model), so moving a client from Claude to GPT is a choice on its page and
+// follows a family (Claude Opus, GPT Sol: the newest version the serving
+// account has), so moving a client from Claude to GPT is a choice on its page and
 // not a round of every configuration. No model name is shared between
 // clients, and there is none a request can name that is not some client's
 // own — or, for a custom client in direct mode, a real model's id.
@@ -113,44 +113,78 @@ const (
 	RolePicker Role = "picker"
 )
 
-// Follow is a moving target a slot can be bound to instead of a fixed model:
-// what the gateway's built-in aliases used to follow, kept as a binding
-// rather than as a name any request could ask for.
+// Follow is a model family a slot can be bound to instead of one fixed
+// version: what the gateway's built-in aliases used to follow, kept as a
+// binding rather than as a name any request could ask for.
 //
-//	claude:<family>  the newest Claude model of a family the accounts list
-//	openai:first     the ChatGPT backend's first-ranked model
-//	openai:light     the last-ranked model of that one's generation
+//	claude:<family>  a Claude line: opus, sonnet, haiku, fable
+//	openai:<line>    a ChatGPT line: sol, astra, luna, terra
 //
-// internal/service/models resolves them, from the providers' own lists.
+// A family is served by the newest of its versions that the serving account
+// lists and has on, resolved per account at request time
+// (internal/service/models), so an account on a plan without the newest Opus
+// still serves Opus, with the newest one it has.
+//
+// ChatGPT's lines are the slug's last word (gpt-6.1-sol is sol), because that
+// is what the backend itself treats as one model across releases. Its own
+// descriptions, 2026-10-19 (internal/provider/openai/testdata/models.json):
+// gpt-6.1-sol "Latest workhorse model", gpt-6-sol "Previous generation
+// workhorse model", gpt-5.6-sol "Older generation workhorse model";
+// gpt-6-luna "Fast and affordable", gpt-5.6-luna "Older fast and efficient";
+// gpt-6-astra "Frontier intelligence"; gpt-5.6-terra "Older balanced". A plan
+// without gpt-6.1-sol falls back to the previous workhorse, which is the
+// substitute that means something. Grouping by generation (GPT-6.1, GPT-6,
+// GPT-5.6), as the model tree folds a list, would make one choice of three
+// unlike models; the ranking targets openai:first and openai:light, which
+// slots followed until schema 040, said nothing about what to fall back to
+// on an account whose ranking differs.
 type Follow string
 
-// The follow targets the types' slots start on.
+// The families the types' slots start on, and ChatGPT's two that 040 moved
+// the ranking targets onto.
 const (
 	FollowOpus   Follow = "claude:opus"
 	FollowSonnet Follow = "claude:sonnet"
 	FollowHaiku  Follow = "claude:haiku"
 	FollowFable  Follow = "claude:fable"
-	FollowFirst  Follow = "openai:first"
-	FollowLight  Follow = "openai:light"
+	FollowSol    Follow = "openai:sol"
+	FollowLuna   Follow = "openai:luna"
 )
 
 var familyName = regexp.MustCompile(`^[a-z]+$`)
 
-// ClaudeFollow is the target following a Claude family.
+// familyPrefixes are each provider's prefix in a Follow, and in the model id
+// a direct-mode client names the family by (Follow.ModelID).
+var familyPrefixes = []struct{ provider, follow, id string }{
+	{"anthropic", "claude:", "claude-"},
+	{"openai", "openai:", "gpt-"},
+}
+
+// ClaudeFollow is the family of a Claude line.
 func ClaudeFollow(family string) Follow { return Follow("claude:" + family) }
 
-// Family is the Claude family a claude: target follows, or "".
-func (f Follow) Family() string {
-	if fam, ok := strings.CutPrefix(string(f), "claude:"); ok && familyName.MatchString(fam) {
-		return fam
+// FamilyFollow is a provider's family, "" for a provider that has none.
+func FamilyFollow(provider, family string) Follow {
+	for _, p := range familyPrefixes {
+		if p.provider == provider {
+			return Follow(p.follow + family)
+		}
 	}
 	return ""
 }
 
-// Valid reports whether f is a target the gateway can follow.
-func (f Follow) Valid() bool {
-	return f.Family() != "" || f == FollowFirst || f == FollowLight
+// Family is the line f follows, or "".
+func (f Follow) Family() string {
+	for _, p := range familyPrefixes {
+		if fam, ok := strings.CutPrefix(string(f), p.follow); ok && familyName.MatchString(fam) {
+			return fam
+		}
+	}
+	return ""
 }
+
+// Valid reports whether f is a family the gateway can follow.
+func (f Follow) Valid() bool { return f.Family() != "" }
 
 // ProviderTitle is how a screen, or a refusal, names a provider's accounts.
 func ProviderTitle(provider string) string {
@@ -165,24 +199,51 @@ func ProviderTitle(provider string) string {
 
 // Provider is whose models f follows: anthropic or openai.
 func (f Follow) Provider() string {
-	if f == FollowFirst || f == FollowLight {
-		return "openai"
+	for _, p := range familyPrefixes {
+		if strings.HasPrefix(string(f), p.follow) {
+			return p.provider
+		}
 	}
 	return "anthropic"
 }
 
-// Title is how the UI names a target.
-func (f Follow) Title() string {
-	switch {
-	case f == FollowFirst:
-		return "ChatGPT's first-ranked model"
-	case f == FollowLight:
-		return "ChatGPT's light model"
-	case f.Family() != "":
-		fam := f.Family()
-		return "Newest Claude " + strings.ToUpper(fam[:1]) + fam[1:]
+// ModelID is the model id a direct-mode client names the family by:
+// claude-opus, gpt-sol. No real model is named so — a real one carries its
+// version — so the id cannot mean two things; it is also the key a client's
+// switch over the family is stored under (store.APIKey.ModelsOff).
+func (f Follow) ModelID() string {
+	fam := f.Family()
+	for _, p := range familyPrefixes {
+		if fam != "" && strings.HasPrefix(string(f), p.follow) {
+			return p.id + fam
+		}
 	}
-	return string(f)
+	return ""
+}
+
+// FollowOf is the family a direct-mode model id names (claude-opus is
+// claude:opus), or "" for an id that names a real model, or nothing.
+func FollowOf(id string) Follow {
+	id = strings.ToLower(strings.TrimSpace(id))
+	for _, p := range familyPrefixes {
+		if fam, ok := strings.CutPrefix(id, p.id); ok && familyName.MatchString(fam) {
+			return Follow(p.follow + fam)
+		}
+	}
+	return ""
+}
+
+// Title is how the UI names a family: Claude Opus, GPT Sol.
+func (f Follow) Title() string {
+	fam := f.Family()
+	if fam == "" {
+		return string(f)
+	}
+	word := strings.ToUpper(fam[:1]) + fam[1:]
+	if f.Provider() == "openai" {
+		return "GPT " + word
+	}
+	return "Claude " + word
 }
 
 // Slot is one model field of a client's configuration.
@@ -198,8 +259,8 @@ type Slot struct {
 	// Name is the model name a new slot is given (Type.Name): short, plain,
 	// read in the client's own model picker, and never a real model's id.
 	Name string `json:"name"`
-	// Follows is the moving target a new slot is bound to, so a client set
-	// up today goes on serving the newest model of its kind.
+	// Follows is the family a new slot is bound to, so a client set up
+	// today goes on serving the newest model of its kind.
 	Follows Follow `json:"follows"`
 	// Hint says what the client uses the slot for.
 	Hint string `json:"hint"`

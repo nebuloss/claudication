@@ -16,6 +16,7 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/provider"
 	accountsvc "claudication/internal/service/accounts"
+	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
@@ -33,6 +34,7 @@ type Admin struct {
 	pending        *oauth.Pending
 	poller         *accountsvc.Poller
 	serving        *settings.Switch
+	mcp            *settings.Switch
 	inflight       *limits.InFlight
 	protocols      api.Registry
 	httpClient     *http.Client
@@ -57,6 +59,8 @@ type Deps struct {
 	Poller  *accountsvc.Poller
 	// Serving is the gateway switch.
 	Serving *settings.Switch
+	// MCP is the MCP server's switch.
+	MCP *settings.Switch
 	// InFlight counts each key's open requests.
 	InFlight   *limits.InFlight
 	Protocols  api.Registry
@@ -88,11 +92,22 @@ type Models interface {
 	// Choices are what a client's slot can be bound to now, and nothing that
 	// is not available — to that client: off is what it is not allowed.
 	Choices(ctx context.Context, off modelsvc.Off) []modelsvc.Choice
-	// Available are the real models a client can be served now.
+	// Available are what a direct-mode client can name now.
 	Available(ctx context.Context, off modelsvc.Off) []modelsvc.Choice
+	// Offered is the list a direct-mode client is offered, families in it.
+	Offered(ctx context.Context, off modelsvc.Off) ([]byte, error)
+	// Report is each provider's families, its mode, and which version each
+	// account would serve.
+	Report(ctx context.Context) ([]modelsvc.FamilyReport, error)
+	// Modes are each provider's families switch.
+	Modes() map[string]*settings.Switch
 	// Resolve is what a binding serves now, and why it is unavailable when it
 	// is.
 	Resolve(ctx context.Context, off modelsvc.Off, b store.Binding) (modelsvc.Choice, string)
+	// Bindable is Resolve for a binding being made now: one of the Choices.
+	Bindable(ctx context.Context, off modelsvc.Off, b store.Binding) (modelsvc.Choice, string)
+	// SetPin sets the one version a family serves, "" for the latest.
+	SetPin(ctx context.Context, f clients.Follow, model string) error
 	// NewSlot is the binding a name added to a client starts on, and why it
 	// cannot be made.
 	NewSlot(ctx context.Context, off modelsvc.Off, b store.Binding) (store.Binding, modelsvc.Choice, string)
@@ -103,7 +118,7 @@ func New(d Deps) *Admin {
 	return &Admin{
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
 		pending: d.Pending, poller: d.Poller,
-		serving: d.Serving, inflight: d.InFlight, protocols: d.Protocols,
+		serving: d.Serving, mcp: d.MCP, inflight: d.InFlight, protocols: d.Protocols,
 		httpClient: d.HTTPClient, providers: d.Providers, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
@@ -177,6 +192,12 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/config", admin(s.handleConfig))
 	mux.Handle("GET /admin/models", admin(s.handleAdminModels))
 	mux.Handle("POST /admin/gateway", admin(s.switchHandler(s.serving, "gateway", "gateway_enabled")))
+	mux.Handle("POST /admin/mcp", admin(s.switchHandler(s.mcp, "mcp server", "mcp_enabled")))
+	mux.Handle("GET /admin/model-families", admin(s.handleModelFamilies))
+	mux.Handle("POST /admin/model-families/version", admin(s.handleFamilyVersion))
+	for p, sw := range s.models.Modes() {
+		mux.Handle("POST /admin/model-families/"+p+"/mode", admin(s.switchHandler(sw, p+" models by family", "by_family")))
+	}
 
 	mux.Handle("GET /admin/overview", admin(s.handleOverview))
 	mux.Handle("GET /admin/usage", admin(s.handleUsage))

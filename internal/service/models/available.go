@@ -2,7 +2,6 @@ package models
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	"claudication/internal/service/clients"
@@ -35,10 +34,10 @@ import (
 // is the same whichever it speaks. It was a third rule while Messages reached
 // Claude alone.
 //
-// A target a slot follows is available when what it points at now is —
-// allowed included, so a target is offered only while it resolves to a model
-// the client is allowed, and stops serving it the release it moves onto one
-// that is not. A
+// A family is available when some account would serve it a version the
+// client is allowed (family.go) — the family itself allowed too, its switch
+// being its id's (claude-opus) — so it is offered while any account can
+// serve it, whichever version that is, and refused only when none can. A
 // binding made before something became unavailable is kept, and said: the
 // operator sees what it was and why, and replaces it with something
 // available; the gateway's own refusal of such a request is unchanged.
@@ -64,80 +63,85 @@ func (o Off) allows(model string) bool {
 	return store.APIKey{ModelsOff: o}.Allows(model)
 }
 
-// Choice is one thing a slot can be bound to: a real model, or a target to
-// follow, with what it serves now.
+// Choice is one thing a slot can be bound to: a family, or one real model,
+// with what it serves now.
 type Choice struct {
 	Model   string         `json:"model,omitempty"`
 	Follows clients.Follow `json:"follows,omitempty"`
 	// Title is how a menu names it: the model's display name, or the
-	// target's.
+	// family's.
 	Title string `json:"title"`
-	// Serving is the real model it serves now — the model itself, or what
-	// the target resolves to — and Provider whose accounts serve it.
+	// Serving is the real model it serves now — the model itself, or the
+	// newest version of the family an account would serve it with — and
+	// Provider whose accounts serve it.
 	Serving  string `json:"serving"`
 	Provider string `json:"provider"`
-	// FollowedBy are the targets that resolve to this model now, in
-	// Choices only. A target is not a choice of its own beside the model
-	// it serves: the owner (2026-10-22) found the menu listing "Newest
-	// Claude Opus — now claude-opus-5-5" and claude-opus-5-5 as one model
-	// twice. Following is a property of picking the model instead — a
-	// slot bound to one of these serves the same model today, and moves on
-	// with the next release.
-	FollowedBy []Target `json:"followed_by,omitempty"`
+	// Versions, for a family, are the versions some account would serve it
+	// with now, newest first: which one a request gets is the serving
+	// account's (family.go), or the one the family is set to. One, when every
+	// account has the same.
+	Versions []string `json:"versions,omitempty"`
 }
 
-// Target is a follow target, as a model it resolves to carries it.
-type Target struct {
-	Follows clients.Follow `json:"follows"`
-	Title   string         `json:"title"`
-}
-
-// Choices are everything a slot can be bound to now: each available model,
-// provider by provider in the gateway's order, once, with the targets that
-// resolve to it. Nothing unavailable is in it.
-//
-// A target that resolves is always on a model here: it resolves only to a
-// model an account lists and can serve (Resolve), which is what Available
-// lists — so no target is left without a model to ride on.
+// Choices are everything a slot can be bound to now, provider by provider in
+// the gateway's order: what Available offers a direct-mode client, a family
+// being bound as the family rather than named by its id. So a provider
+// offered by family lists each family it can serve and any model no family
+// takes, and one offering every model lists each model, and no family: which
+// version a family serves is the gateway's choice (Settings › Models), never
+// a name's. Nothing unavailable is in it.
 func (s *Catalog) Choices(ctx context.Context, off Off) []Choice {
 	out := s.Available(ctx, off)
-	var targets []clients.Follow
-	for _, f := range s.Families(ctx) {
-		targets = append(targets, clients.ClaudeFollow(f))
+	for i := range out {
+		if out[i].Follows != "" {
+			out[i].Model = ""
+		}
 	}
-	targets = append(targets, clients.FollowFirst, clients.FollowLight)
-	for _, f := range targets {
-		c, why := s.Resolve(ctx, off, store.Binding{Follows: f})
-		if why != "" {
+	return out
+}
+
+// Available are what a custom client in direct mode can name now, each as a
+// Choice whose Model is the id it asks for: in a provider offered by family,
+// each family under its id (claude-opus) and any model no family takes; in
+// one offering every model, each model. A version stays nameable in either —
+// a request for one is served as asked — and is only not listed.
+func (s *Catalog) Available(ctx context.Context, off Off) []Choice {
+	out := []Choice{}
+	for _, r := range s.relays {
+		p := r.Wire.ID()
+		models := s.availableModels(ctx, off, p)
+		if !s.ByFamily(p) {
+			out = append(out, models...)
 			continue
 		}
-		for i := range out {
-			if out[i].Provider == c.Provider && store.ModelKey(out[i].Model) == store.ModelKey(c.Serving) {
-				out[i].FollowedBy = append(out[i].FollowedBy, Target{Follows: f, Title: c.Title})
-				break
+		for _, f := range s.families(ctx, p) {
+			if c, why := s.Resolve(ctx, off, store.Binding{Follows: f.Follows}); why == "" {
+				c.Model = f.Follows.ModelID()
+				out = append(out, c)
+			}
+		}
+		for _, m := range models {
+			if FamilyOf(p, m.Model) == "" {
+				out = append(out, m)
 			}
 		}
 	}
 	return out
 }
 
-// Available are the real models a client can be served now, each as a
-// Choice: what a custom client in direct mode may name.
-func (s *Catalog) Available(ctx context.Context, off Off) []Choice {
+// availableModels are a provider's real models a client can be served now.
+func (s *Catalog) availableModels(ctx context.Context, off Off, p string) []Choice {
 	s.refreshFamilies(ctx)
-	out := []Choice{}
-	for _, r := range s.relays {
-		p := r.Wire.ID()
-		s.rolesMu.Lock()
-		models := append([]listedModel(nil), s.listed[p]...)
-		s.rolesMu.Unlock()
-		for _, m := range models {
-			if c, why := s.Resolve(ctx, off, store.Binding{Model: m.ID}); why == "" && c.Provider == p {
-				if m.Name != "" {
-					c.Title = m.Name
-				}
-				out = append(out, c)
+	s.rolesMu.Lock()
+	models := append([]listedModel(nil), s.listed[p]...)
+	s.rolesMu.Unlock()
+	var out []Choice
+	for _, m := range models {
+		if c, why := s.Resolve(ctx, off, store.Binding{Model: m.ID}); why == "" && c.Provider == p {
+			if m.Name != "" {
+				c.Title = m.Name
 			}
+			out = append(out, c)
 		}
 	}
 	return out
@@ -145,17 +149,27 @@ func (s *Catalog) Available(ctx context.Context, off Off) []Choice {
 
 // Resolve is what binding b serves now, and why it cannot when it cannot: ""
 // for a binding a client can be offered. The Choice is filled either way, so
-// a binding that has become unavailable is still shown as what it is.
+// a binding that has become unavailable is still shown as what it is. A
+// model naming a family (claude-opus, as a direct-mode client does) is that
+// family.
 func (s *Catalog) Resolve(ctx context.Context, off Off, b store.Binding) (Choice, string) {
 	c := Choice{Model: b.Model, Follows: b.Follows, Title: b.Model, Serving: b.Model}
-	if b.Model == "" {
-		c.Title = b.Follows.Title()
-		target, why := s.FollowTarget(ctx, b.Follows)
-		if why != "" {
-			c.Provider = b.Follows.Provider()
-			return c, why
+	f := b.Follows
+	if b.Model != "" {
+		f = clients.FollowOf(b.Model)
+		if f != "" {
+			c.Follows = f
 		}
-		c.Serving = target
+	}
+	if f != "" {
+		c.Title, c.Provider = f.Title(), f.Provider()
+		r, why := s.resolveFamily(ctx, off, f)
+		if len(r.serving) > 0 {
+			c.Serving, c.Versions = r.serving[0], r.serving
+		} else if len(r.allowed) > 0 {
+			c.Serving = r.allowed[0]
+		}
+		return c, why
 	}
 	c.Provider = s.ServingProvider(ctx, c.Serving)
 	// The operator's decision for this client first: it holds whatever the
@@ -168,13 +182,13 @@ func (s *Catalog) Resolve(ctx context.Context, off Off, b store.Binding) (Choice
 
 // NewSlot is the binding a name added to a client starts on, what it serves,
 // and why it cannot be made, "" when it can: one rule for the admin page's
-// Add and the MCP server's add_model. None given follows the newest Claude
-// Opus, as every type's main name starts on, and is made whether or not an
-// account serves it yet — the page then shows it unavailable, as a new
-// client's own names are until an account is connected. One given has to be
-// available now, as a rebinding has to.
+// Add and the MCP server's add_model. None given follows Claude Opus, as
+// every type's main name starts on, and is made whether or not an account
+// serves it yet — the page then shows it unavailable, as a new client's own
+// names are until an account is connected. One given has to be available
+// now, as a rebinding has to. A model naming a family is bound to the family.
 func (s *Catalog) NewSlot(ctx context.Context, off Off, b store.Binding) (store.Binding, Choice, string) {
-	b.Model = strings.TrimSpace(b.Model)
+	b = Normal(b)
 	if b.Model == "" && b.Follows == "" {
 		b.Follows = clients.FollowOpus
 		c, _ := s.Resolve(ctx, off, b)
@@ -184,8 +198,42 @@ func (s *Catalog) NewSlot(ctx context.Context, off Off, b store.Binding) (store.
 		// The store says what is wrong with it.
 		return b, Choice{Follows: b.Follows, Title: string(b.Follows)}, ""
 	}
-	c, why := s.Resolve(ctx, off, b)
+	c, why := s.Bindable(ctx, off, b)
 	return b, c, why
+}
+
+// Bindable is Resolve for a binding being made now: it has to be one of the
+// client's Choices, so a family where its provider is offered by family and
+// a model where every model is — the page's one menu, the agent's
+// list_models, and the API alike. A binding made before the mode changed is
+// kept, and goes on serving (Resolve); it is only not made anew.
+func (s *Catalog) Bindable(ctx context.Context, off Off, b store.Binding) (Choice, string) {
+	c, why := s.Resolve(ctx, off, b)
+	if why != "" {
+		return c, why
+	}
+	title := clients.ProviderTitle(c.Provider)
+	switch {
+	case c.Follows != "" && !s.ByFamily(c.Provider):
+		return c, "Settings › Models offers every " + title + " model, so a name is bound to one of them"
+	case c.Follows == "" && s.ByFamily(c.Provider):
+		if f := FamilyOf(c.Provider, c.Serving); f != "" {
+			return c, "Settings › Models offers " + title + " models by family, so a name is bound to " + f.Title() +
+				", and which version it serves is set there"
+		}
+	}
+	return c, ""
+}
+
+// Normal is a binding as it is stored: trimmed, and a model naming a family
+// (claude-opus) bound to the family, so a slot follows it rather than keeping
+// an id that only a direct-mode request would read.
+func Normal(b store.Binding) store.Binding {
+	b.Model = strings.TrimSpace(b.Model)
+	if f := clients.FollowOf(b.Model); f != "" && b.Follows == "" {
+		return store.Binding{Follows: f}
+	}
+	return b
 }
 
 // unavailable is why a real model cannot serve a client now, or "".
@@ -226,24 +274,4 @@ func (s *Catalog) unavailable(ctx context.Context, provider, model string) strin
 		return whyOff
 	}
 	return whyNoAccount
-}
-
-// onlyAvailable is a model list less what a client cannot be served now,
-// what it is not allowed included. A list it cannot read is returned with
-// nothing in it: what it would have offered could not be checked.
-func (s *Catalog) onlyAvailable(ctx context.Context, off Off, body []byte) []byte {
-	keep := map[string]bool{}
-	var l struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	_ = json.Unmarshal(body, &l)
-	for _, e := range l.Data {
-		if _, why := s.Resolve(ctx, off, store.Binding{Model: e.ID}); why == "" {
-
-			keep[e.ID] = true
-		}
-	}
-	return onlyModels(body, keep)
 }

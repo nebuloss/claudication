@@ -194,8 +194,9 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			// model is picked, and a slot rebound to a model with a smaller
 			// cap would be refused on every request after. Only here, where
 			// the gateway chose the model; see internal/relay/passes,
-			// outputcap.go.
-			if up.FitOutput != nil {
+			// outputcap.go. A family is fitted per attempt instead, to the
+			// cap of the version the account leased serves (below).
+			if up.FitOutput != nil && len(dest.Versions.Models) == 0 {
 				if limit := s.models.OutputCap(r.Context(), dest.Provider, model); limit > 0 {
 					if out, ok := up.FitOutput(outbound, limit); ok {
 						outbound, fitted = out, limit
@@ -224,6 +225,29 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// The client's own image-fitting switch, for the passes. Read with the
 		// key, like its other switches; the Anthropic pipeline alone acts on it.
 		ctx = passes.WithFitImages(ctx, key.FitImages)
+		// A family is served by the version the account leased has, which
+		// only the pool knows, per attempt: the pool is handed the versions,
+		// and the relay this, to name that version in the body and fit the
+		// budget to its cap (internal/service/models, family.go).
+		if len(dest.Versions.Models) > 0 {
+			ctx = pool.WithVersions(ctx, dest.Versions)
+			provider := dest.Provider
+			ctx = relay.WithRebind(ctx, func(b []byte, m string) []byte {
+				out, ok := passes.SetModel(b, m)
+				if !ok {
+					return b
+				}
+				fitted = 0
+				if up.FitOutput != nil {
+					if limit := s.models.OutputCap(ctx, provider, m); limit > 0 {
+						if fit, ok := up.FitOutput(out, limit); ok {
+							out, fitted = fit, limit
+						}
+					}
+				}
+				return out
+			})
+		}
 		// Cloned rather than re-contexted, because the protocol is about to
 		// edit the headers and they must not be the caller's own map.
 		r = r.Clone(ctx)
@@ -289,6 +313,11 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		started := time.Now()
 		res := up.Relay.Do(sink, r, upstreamPath, outbound, prologue)
 		elapsed := time.Since(started)
+		// The version that served a family, as the account leased had it:
+		// what was spent, so what the log, the usage and the title record.
+		if res.Model != "" {
+			model = res.Model
+		}
 
 		// The protocol's last word, before anything else answers. A dialect
 		// whose stream must end in a terminal event gets to send one here even

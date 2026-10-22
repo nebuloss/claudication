@@ -271,7 +271,7 @@ func (s *Admin) handleSetSlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slot := r.PathValue("slot")
-	b := store.Binding{Model: body.Model, Follows: body.Follows}
+	b := modelsvc.Normal(store.Binding{Model: body.Model, Follows: body.Follows})
 	// A binding the slot already has may stay, available or not — a rename
 	// sends it back unchanged — but a new one has to be available to the
 	// client, as its page offers: the API is held to what the page shows.
@@ -330,7 +330,7 @@ func (s *Admin) available(w http.ResponseWriter, r *http.Request, c store.Client
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	choice, why := s.models.Resolve(ctx, c.ModelsOff, store.Binding{
+	choice, why := s.models.Bindable(ctx, c.ModelsOff, store.Binding{
 		Model: strings.TrimSpace(b.Model), Follows: b.Follows})
 	if why == "" {
 		return true

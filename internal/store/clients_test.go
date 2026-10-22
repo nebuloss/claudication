@@ -67,10 +67,10 @@ func TestClientsOwnTheirNames(t *testing.T) {
 			t.Errorf("SetSlot(%q, %+v) = %v", c.name, c.b, err)
 		}
 	}
-	if err := st.SetSlot(ctx, a.ID, "large", "big", Binding{Follows: clients.FollowFirst}); err != nil {
+	if err := st.SetSlot(ctx, a.ID, "large", "big", Binding{Follows: clients.FollowSol}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.Client(ctx, a.ID); got.Slots[0].Name != "big" || got.Slots[0].Follows != clients.FollowFirst {
+	if got, _ := st.Client(ctx, a.ID); got.Slots[0].Name != "big" || got.Slots[0].Follows != clients.FollowSol {
 		t.Errorf("renamed slot %+v", got.Slots[0])
 	}
 	// crush takes names of the operator's own, for its picker, beside its

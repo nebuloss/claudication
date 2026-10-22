@@ -106,6 +106,8 @@ type Server struct {
 	providers provider.Registry
 	// serving is the gateway switch: off, no client-facing route answers.
 	serving *settings.Switch
+	// mcp is the MCP server's switch: off, /mcp answers 404 to every client.
+	mcp *settings.Switch
 
 	// uptime samples the gateway's own state once a minute, for the status
 	// page and the Overview. See internal/service/uptime.
@@ -195,6 +197,14 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store) (*Server, error) 
 	s.loadSwitches(loadCtx)
 	titler := s.buildServices(loadCtx)
 	s.buildHandlers(titler)
+	// Each provider's mode, which the model list makes: read with the rest,
+	// after it, and on (by family) when it cannot be read, the default.
+	if err := settings.Load(loadCtx, s.store, modeSwitches(s.models)...); err != nil {
+		s.log.Warn("could not read the model modes; offering models by family", "err", err)
+	}
+	if err := s.models.LoadPins(loadCtx); err != nil {
+		s.log.Warn("could not read the families' versions; each follows the latest", "err", err)
+	}
 	s.buildListeners()
 	return s, nil
 }
@@ -213,8 +223,11 @@ func (s *Server) loadSwitches(ctx context.Context) {
 	// leaves the gateway serving, which is the state it was in before there
 	// was one.
 	s.serving = settings.NewSwitch(s.store, gateway.Setting, true)
-	if err := settings.Load(ctx, s.store, s.serving); err != nil {
-		s.log.Warn("could not read the gateway switch; serving", "err", err)
+	// On unless switched off, as it was before there was a switch; each
+	// client's "Agent may manage" still decides what its agent may change.
+	s.mcp = settings.NewSwitch(s.store, agent.Setting, true)
+	if err := settings.Load(ctx, s.store, s.serving, s.mcp); err != nil {
+		s.log.Warn("could not read the gateway and MCP switches; serving both", "err", err)
 	}
 }
 
@@ -363,7 +376,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	// to another machine, short enough that one never run is soon gone.
 	installs := install.New(15 * time.Minute)
 	s.models = modelsvc.New(modelsvc.Deps{
-		Config: cfg, Log: log, Store: st, Pool: s.pool,
+		Config: cfg, Log: log, Store: st, Settings: st, Pool: s.pool,
 		Relays:     []*relay.Relay{s.relays[anthropic.ID], s.relays[chatgpt.ID]},
 		HTTPClient: s.httpClient,
 	})
@@ -377,7 +390,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	s.admin = admin.New(admin.Deps{
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
-		Serving: s.serving, InFlight: s.inflight,
+		Serving: s.serving, MCP: s.mcp, InFlight: s.inflight,
 		Protocols: s.protocols, HTTPClient: s.httpClient, Providers: s.providers,
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
@@ -389,7 +402,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	// functions, since no surface imports another.
 	s.agent = agent.New(agent.Deps{
 		Config: cfg, Log: log, Store: st, Models: s.models, Install: installs,
-		Budgets: s.budgets, InFlight: s.inflight, Enabled: s.serving,
+		Budgets: s.budgets, InFlight: s.inflight, Enabled: s.serving, On: s.mcp,
 		Record: func(e store.UsageEvent) { s.recorder.Record(e, 0) },
 		Guard:  s.gateway.Guard,
 		// A custom client's chat, read as each dialect reads an unknown
@@ -928,4 +941,15 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 	}
 	s.log.Info("shutdown complete")
 	return nil
+}
+
+// modeSwitches are the model list's mode switches, in its providers' order.
+func modeSwitches(m *modelsvc.Catalog) []*settings.Switch {
+	var out []*settings.Switch
+	for _, p := range []string{anthropic.ID, chatgpt.ID} {
+		if sw := m.Modes()[p]; sw != nil {
+			out = append(out, sw)
+		}
+	}
+	return out
 }

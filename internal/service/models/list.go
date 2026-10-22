@@ -5,11 +5,11 @@
 //
 // It owns the four things that answer is made of: the upstream lists, asked
 // of each account of each provider (list.go); the public catalogue those
-// lists are matched against (catalog.go); the moving targets a client's
-// slots can follow — the newest model of each Claude family, the ChatGPT
-// backend's ranking; and the route a requested name takes (route.go). From
-// them it says what each client may be offered (available.go), the one rule
-// for every surface that offers a model.
+// lists are matched against (catalog.go); the families a client's slots can
+// follow — Claude's and ChatGPT's lines, each served per account by the
+// newest version that account has (family.go); and the route a requested
+// name takes (route.go). From them it says what each client may be offered
+// (available.go), the one rule for every surface that offers a model.
 //
 // A service of its own because two surfaces read it and neither owns it. It
 // lived in the gateway, which handed it to the admin API as five separate
@@ -23,8 +23,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"regexp"
-	"sort"
 	"sync"
 	"time"
 
@@ -33,6 +31,7 @@ import (
 	"claudication/internal/provider"
 	"claudication/internal/relay"
 	"claudication/internal/service/clients"
+	"claudication/internal/service/settings"
 	"claudication/internal/store"
 )
 
@@ -46,13 +45,16 @@ type Store interface {
 }
 
 // Pool is what the catalogue asks of the account pool: a token to read an
-// account's list with, and whether any account serves a model now.
+// account's list with, whether any account serves a model now, and the
+// accounts that could take a request, for which version of a family each
+// would serve (family.go).
 type Pool interface {
 	AccessToken(ctx context.Context, id string) (string, error)
 	Offers(ctx context.Context, provider, model string) bool
+	Candidates(ctx context.Context, provider string) ([]store.Account, error)
 }
 
-// Catalog is the model list and the moving targets over it.
+// Catalog is the model list and the families over it.
 type Catalog struct {
 	cfg        *config.Config
 	log        *slog.Logger
@@ -60,17 +62,23 @@ type Catalog struct {
 	pool       Pool
 	relays     []*relay.Relay
 	httpClient *http.Client
+	// modes are each provider's families switch (family.go, Modes), and
+	// settings where they and each family's version are kept.
+	modes    map[string]*settings.Switch
+	settings settings.Store
+	// pins are the families set to one version (family.go, Pinned).
+	pinMu sync.Mutex
+	pins  map[clients.Follow]string
 
-	// What the accounts' lists last said, for the follow targets and the routes;
+	// What the accounts' lists last said, for the families and the routes;
 	// see remember.
 	rolesMu sync.Mutex
-	// newest is the newest model of each Claude family, and families the
-	// families newest release first, for the claude:<family> targets.
-	newest   map[string]string
-	families []string
-	// ranked is the ChatGPT backend's models in its own ranking, for
-	// gpt-large and gpt-small.
-	ranked []string
+	// fams are each provider's families, newest first, each with its
+	// versions newest first (family.go).
+	fams map[string][]family
+	// accountLists are the models each account's own list names, by
+	// store.ModelKey: which version of a family it serves (Lists).
+	accountLists map[string]map[string]bool
 	// served is which provider's lists name each model, by store.ModelKey:
 	// the route a real model takes. connected are the providers with an
 	// account switched on, and unread those of them none of whose lists
@@ -78,10 +86,12 @@ type Catalog struct {
 	served    map[string]map[string]bool
 	connected map[string]bool
 	unread    map[string]bool
-	// caps is each provider's models' output caps, by store.ModelKey, as its
-	// list says them (the catalogue's limit.output over the account's own):
-	// what a slot's request has its budget fitted to (OutputCap).
-	caps map[string]map[string]int
+	// caps and windows are each provider's models' output caps and context
+	// windows, by store.ModelKey, as its list says them (the catalogue's
+	// limits over the account's own): what a slot's request has its budget
+	// fitted to (OutputCap), and what a family's facts are the smallest of.
+	caps    map[string]map[string]int
+	windows map[string]map[string]int
 	// listed is what the accounts themselves said, the catalogue never:
 	// every model a switched-on account of each provider lists, switches or
 	// not, in the lists' order and by store.ModelKey. Which of them a client
@@ -101,7 +111,10 @@ type Deps struct {
 	Config *config.Config
 	Log    *slog.Logger
 	Store  Store
-	Pool   Pool
+	// Settings keeps each provider's mode (Modes) and each family's version
+	// (Pinned).
+	Settings settings.Store
+	Pool     Pool
 	// Relays are the providers, one relay each, the first the gateway's
 	// default: whose wire an account's list is read over, so each
 	// provider's address, headers and list shape stay in its own package.
@@ -110,11 +123,16 @@ type Deps struct {
 	HTTPClient *http.Client
 }
 
-// New builds a Catalog. Nothing is read until it is asked.
+// New builds a Catalog. Nothing is read until it is asked; the modes hold
+// their default until loaded (settings.Load over Modes).
 func New(d Deps) *Catalog {
+	modes := map[string]*settings.Switch{}
+	for _, r := range d.Relays {
+		modes[r.Wire.ID()] = settings.NewSwitch(d.Settings, ModeSetting(r.Wire.ID()), true)
+	}
 	return &Catalog{
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
-		relays: d.Relays, httpClient: d.HTTPClient,
+		relays: d.Relays, httpClient: d.HTTPClient, modes: modes, settings: d.Settings,
 	}
 }
 
@@ -142,29 +160,28 @@ func (s *Catalog) defaultProvider() string {
 // disagree.
 //
 // A client that names its own slots is offered those and nothing else, each
-// carrying the facts of the model it serves now: a model on its menu that is
-// refused when picked is worse than one not offered. A custom client in
-// direct mode is offered the real models, less what it may not use. Either
-// way only what is available to the client now (available.go): a slot whose
-// binding has become unavailable is left out until it is rebound, and before
-// the first sign-in a client is offered nothing.
+// carrying the facts of the model it serves now — for a family, its versions'
+// smallest window and output limit, since any of them may serve a request: a
+// model on its menu that is refused when picked is worse than one not
+// offered. A custom client in direct mode is offered what Offered says.
+// Either way only what is available to the client now (available.go): a slot
+// whose binding has become unavailable is left out until it is rebound, and
+// before the first sign-in a client is offered nothing.
 //
 // Every provider's models are in it, and every client-facing API reaches
 // every provider; a ChatGPT one carries "provider": "openai", and so does a
 // slot serving one, which is how a reader tells them apart.
 func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
+	if !key.NamesSlots() && key.ClientType != "" {
+		return s.Offered(ctx, key.ModelsOff)
+	}
 	body, err := s.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if !key.NamesSlots() {
 		// The gateway's own key is no client: it is offered the list as it
-		// stands, and the request says what it gets.
-		if key.ClientType != "" {
-			return s.onlyAvailable(ctx, key.ModelsOff, body), nil
-		}
-		// Less what the key may not use, for the reason the switched-off
-		// models are left out.
+		// stands, less what it may not use, and the request says what it gets.
 		if len(key.ModelsOff) > 0 {
 			body = modelsAllowedFor(body, key)
 		}
@@ -178,21 +195,57 @@ func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
 	own := map[string]bool{}
 	for _, sl := range slots {
 		c, why := s.Resolve(ctx, key.ModelsOff, store.Binding{Model: sl.Model, Follows: sl.Follows})
-
 		if why != "" {
 			continue
 		}
-		entries = append(entries, virtualEntry{
-			ID: sl.Name, DisplayName: sl.Name,
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			Serving:   c.Serving, Slot: sl.Slot,
-		})
+		entries = append(entries, s.virtual(sl.Name, sl.Name, c, sl.Slot))
 		own[sl.Name] = true
 	}
 	if len(entries) > 0 {
 		body = withVirtual(body, entries)
 	}
 	return onlyModels(body, own), nil
+}
+
+// Offered is the model list a custom client in direct mode is offered, the
+// ids it may name: what is available to it (Available) — each family as one
+// entry under its id (claude-opus), with its versions' smallest limits, in
+// a provider offered by family; each model otherwise.
+func (s *Catalog) Offered(ctx context.Context, off Off) ([]byte, error) {
+	body, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	keep := map[string]bool{}
+	var entries []virtualEntry
+	for _, c := range s.Available(ctx, off) {
+		keep[c.Model] = true
+		if c.Follows != "" {
+			entries = append(entries, s.virtual(c.Model, c.Title, c, ""))
+		}
+	}
+	if len(entries) > 0 {
+		body = withVirtual(body, entries)
+	}
+	return onlyModels(body, keep), nil
+}
+
+// virtual is a name serving c, as a model list shows it: the facts of the
+// model it serves, and for a family its versions' smallest limits.
+func (s *Catalog) virtual(id, title string, c Choice, slot string) virtualEntry {
+	e := virtualEntry{ID: id, DisplayName: title, Serving: c.Serving, Slot: slot, Follows: c.Follows}
+	// A client's own name is new today; a family offered as one is as old
+	// as the version it serves, which its entry keeps.
+	if slot != "" || c.Follows == "" {
+		e.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	if len(c.Versions) > 1 {
+		s.rolesMu.Lock()
+		e.Window = smallest(s.windows[c.Provider], c.Versions)
+		e.Output = smallest(s.caps[c.Provider], c.Versions)
+		s.rolesMu.Unlock()
+	}
+	return e
 }
 
 // virtualEntry is a client's model name as a model list shows it. The entry
@@ -207,51 +260,82 @@ type virtualEntry struct {
 	Serving     string
 	// Slot is the slot it fills, for the config writer.
 	Slot string
+	// Follows is the family it serves, when it serves one.
+	Follows clients.Follow
+	// Window and Output replace the serving model's limits when set: a
+	// family's smallest, over the versions that may serve it.
+	Window, Output int
 }
 
-// newestTTL is how long the families, the ranking and who serves what are
-// remembered. The lists come from the upstreams, once per account, and a
-// model is released every few months; a request should not wait on them.
+// newestTTL is how long the families and who serves what are remembered.
+// The lists come from the upstreams, once per account, and a model is
+// released every few months; a request should not wait on them.
 const newestTTL = 10 * time.Minute
-
-// familyOf is a real model's family, from its id: claude-opus-5-5 is opus.
-var familyOf = regexp.MustCompile(`^claude-([a-z]+)-`)
 
 // remembered is what one read of every provider's list found, for remember
 // to keep.
 type remembered struct {
-	newest    map[string]string
-	families  []string
-	ranked    []string
-	served    map[string]map[string]bool
-	caps      map[string]map[string]int
-	connected map[string]bool
-	unread    map[string]bool
-	listed    map[string][]listedModel
+	fams         map[string][]family
+	accountLists map[string]map[string]bool
+	served       map[string]map[string]bool
+	caps         map[string]map[string]int
+	windows      map[string]map[string]int
+	connected    map[string]bool
+	unread       map[string]bool
+	listed       map[string][]listedModel
 }
 
 // listedModel is one model an account offers, as a binding menu names it.
 type listedModel struct {
 	ID, Name string
+	// What orders a family's versions (family.go, newer).
+	at       string
+	priority *int
 }
 
 // rememberAccounts notes what one provider's accounts said themselves: every
-// model any of them lists, switches or not, first account first.
-func (m *remembered) rememberAccounts(providerID string, lists [][]byte) {
+// model any of them lists, switches or not, first account first; which
+// account lists which; and the families over them.
+//
+// The families are read here, off the accounts' own lists, and not off the
+// gateway's merged list: that one leaves out what is switched off on every
+// account, and before any account is connected it is the public catalogue.
+// A family is what some connected account lists, and which version of it an
+// account serves is its switches' to say (pool.Best), at request time.
+func (m *remembered) rememberAccounts(providerID string, lists [][]byte, accounts []store.Account) {
 	if m.listed == nil {
 		m.listed = map[string][]listedModel{}
 	}
+	if m.accountLists == nil {
+		m.accountLists = map[string]map[string]bool{}
+	}
+	if m.fams == nil {
+		m.fams = map[string][]family{}
+	}
 	seen := map[string]bool{}
 	var out []listedModel
-	for _, l := range lists {
+	for i, l := range lists {
+		own := map[string]bool{}
 		for _, e := range listEntries(l) {
-			if k := store.ModelKey(e.ID); !seen[k] {
+			k := store.ModelKey(e.ID)
+			own[k] = true
+			if !seen[k] {
 				seen[k] = true
 				out = append(out, e)
 			}
 		}
+		m.accountLists[accounts[i].ID] = own
 	}
 	m.listed[providerID] = out
+	entries := make([]versioned, 0, len(out))
+	for i, e := range out {
+		v := versioned{id: e.ID, at: e.at, version: versionOf(e.ID), seen: i}
+		if e.priority != nil {
+			v.priority, v.ranked = *e.priority, true
+		}
+		entries = append(entries, v)
+	}
+	m.fams[providerID] = familiesOf(providerID, entries)
 }
 
 // listEntries are a model list's real models, as listed.
@@ -260,6 +344,8 @@ func listEntries(list []byte) []listedModel {
 		Data []struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"display_name"`
+			CreatedAt   string `json:"created_at"`
+			Priority    *int   `json:"priority"`
 			Virtual     bool   `json:"virtual"`
 		} `json:"data"`
 	}
@@ -269,23 +355,21 @@ func listEntries(list []byte) []listedModel {
 	out := make([]listedModel, 0, len(l.Data))
 	for _, e := range l.Data {
 		if e.ID != "" && !e.Virtual {
-			out = append(out, listedModel{ID: e.ID, Name: e.DisplayName})
+			out = append(out, listedModel{ID: e.ID, Name: e.DisplayName, at: e.CreatedAt, priority: e.Priority})
 		}
 	}
 	return out
 }
 
 // rememberProvider notes what one provider's list says: which models it
-// serves, and, for the providers whose targets follow it, the newest of each
-// Claude family or the ChatGPT ranking.
+// serves, and each one's limits.
 func (m *remembered) rememberProvider(providerID string, list []byte) {
 	var l struct {
 		Data []struct {
 			ID        string `json:"id"`
-			CreatedAt string `json:"created_at"`
 			Virtual   bool   `json:"virtual"`
-			Priority  *int   `json:"priority"`
 			MaxTokens int    `json:"max_tokens"`
+			MaxInput  int    `json:"max_input_tokens"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(list, &l) != nil {
@@ -293,95 +377,28 @@ func (m *remembered) rememberProvider(providerID string, list []byte) {
 	}
 	if m.served == nil {
 		m.served = map[string]map[string]bool{}
-	}
-	if m.caps == nil {
 		m.caps = map[string]map[string]int{}
+		m.windows = map[string]map[string]int{}
 	}
 	ids := map[string]bool{}
 	caps := map[string]int{}
+	windows := map[string]int{}
 	for _, e := range l.Data {
-		if !e.Virtual && e.ID != "" {
-			ids[store.ModelKey(e.ID)] = true
-			if e.MaxTokens > 0 {
-				caps[store.ModelKey(e.ID)] = e.MaxTokens
-			}
+		if e.Virtual || e.ID == "" {
+			continue
+		}
+		k := store.ModelKey(e.ID)
+		ids[k] = true
+		if e.MaxTokens > 0 {
+			caps[k] = e.MaxTokens
+		}
+		if e.MaxInput > 0 {
+			windows[k] = e.MaxInput
 		}
 	}
 	m.served[providerID] = ids
 	m.caps[providerID] = caps
-
-	if providerID == clients.FollowFirst.Provider() {
-		// By the priority each entry carries, not the list's order, which
-		// the catalogue may have changed; unranked ones after, as listed.
-		type rank struct {
-			id       string
-			priority int
-			known    bool
-		}
-		var rs []rank
-		for _, e := range l.Data {
-			if e.Virtual || e.ID == "" {
-				continue
-			}
-			r := rank{id: e.ID}
-			if e.Priority != nil {
-				r.priority, r.known = *e.Priority, true
-			}
-			rs = append(rs, r)
-		}
-		sort.SliceStable(rs, func(i, j int) bool {
-			if rs[i].known != rs[j].known {
-				return rs[i].known
-			}
-			return rs[i].priority < rs[j].priority
-		})
-		for _, r := range rs {
-			m.ranked = append(m.ranked, r.id)
-		}
-		return
-	}
-	if providerID != clients.FollowOpus.Provider() {
-		return
-	}
-	// The newest model of each family, by release date — not by the list's
-	// order, and not from a list of families written down here: a family
-	// Anthropic adds is found the day an account lists it. Families are kept
-	// newest release first.
-	type pick struct {
-		id, at string
-		seen   int // where the family first appears, for ties
-	}
-	newest := map[string]pick{}
-	for i, e := range l.Data {
-		match := familyOf.FindStringSubmatch(e.ID)
-		if e.Virtual || match == nil {
-			continue
-		}
-		// RFC 3339 times in one zone order as strings do. A later entry
-		// wins only when strictly newer, so a list that already runs newest
-		// first keeps its first.
-		have, ok := newest[match[1]]
-		if !ok {
-			newest[match[1]] = pick{e.ID, e.CreatedAt, i}
-		} else if e.CreatedAt > have.at {
-			newest[match[1]] = pick{e.ID, e.CreatedAt, have.seen}
-		}
-	}
-	families := make([]string, 0, len(newest))
-	byFamily := make(map[string]string, len(newest))
-	for f, p := range newest {
-		families = append(families, f)
-		byFamily[f] = p.id
-	}
-	sort.Slice(families, func(i, j int) bool {
-		a, b := newest[families[i]].at, newest[families[j]].at
-		if a != b {
-			return a > b
-		}
-		// Undated, or released together: the accounts' own order, newest first.
-		return newest[families[i]].seen < newest[families[j]].seen
-	})
-	m.newest, m.families = byFamily, families
+	m.windows[providerID] = windows
 }
 
 // remember keeps what a read of the lists found. A read that found no list at
@@ -396,7 +413,15 @@ func (s *Catalog) remember(m remembered, read bool) {
 		return
 	}
 	// A provider that could not be read this time keeps what it last said,
-	// so one upstream's bad minute does not empty its targets.
+	// so one upstream's bad minute does not empty its families.
+	keep := func(dst *map[string]map[string]int, old map[string]map[string]int, p string) {
+		if v, ok := old[p]; ok {
+			if *dst == nil {
+				*dst = map[string]map[string]int{}
+			}
+			(*dst)[p] = v
+		}
+	}
 	for p, unread := range m.unread {
 		if !unread {
 			continue
@@ -407,27 +432,33 @@ func (s *Catalog) remember(m remembered, read bool) {
 			}
 			m.served[p] = old
 		}
-		if old, ok := s.caps[p]; ok {
-			if m.caps == nil {
-				m.caps = map[string]map[string]int{}
-			}
-			m.caps[p] = old
-		}
+		keep(&m.caps, s.caps, p)
+		keep(&m.windows, s.windows, p)
 		if old, ok := s.listed[p]; ok {
 			if m.listed == nil {
 				m.listed = map[string][]listedModel{}
 			}
 			m.listed[p] = old
 		}
-		if p == clients.FollowFirst.Provider() && len(m.ranked) == 0 {
-			m.ranked = s.ranked
-		}
-		if p == clients.FollowOpus.Provider() && m.newest == nil {
-			m.newest, m.families = s.newest, s.families
+		if old, ok := s.fams[p]; ok {
+			if m.fams == nil {
+				m.fams = map[string][]family{}
+			}
+			m.fams[p] = old
 		}
 	}
-	s.newest, s.families, s.ranked, s.served = m.newest, m.families, m.ranked, m.served
-	s.caps = m.caps
+	// So does an account whose own list could not be read this time, for
+	// which version of a family it serves.
+	for id, l := range s.accountLists {
+		if _, ok := m.accountLists[id]; !ok {
+			if m.accountLists == nil {
+				m.accountLists = map[string]map[string]bool{}
+			}
+			m.accountLists[id] = l
+		}
+	}
+	s.fams, s.served, s.accountLists = m.fams, m.served, m.accountLists
+	s.caps, s.windows = m.caps, m.windows
 	s.listed = m.listed
 	s.newestAt = time.Now()
 }
@@ -446,7 +477,7 @@ func (s *Catalog) refreshFamilies(ctx context.Context) {
 // OutputCap is the most a model of a provider can write in one answer, as
 // the model list last said it, and 0 when it did not say: what a request
 // naming a slot has its output budget fitted to (internal/relay/passes,
-// FitMaxTokens).
+// FitMaxTokens) — for a family, per attempt, the version the account serves.
 //
 // Read from what the lists last said, stale or not, and not refreshed for
 // it: a model's cap changes with a release, every few months, and a request
@@ -466,110 +497,16 @@ func (s *Catalog) OutputCap(ctx context.Context, provider, model string) int {
 	return s.caps[provider][store.ModelKey(model)]
 }
 
-// newestOf is the newest model of a family.
-func (s *Catalog) newestOf(ctx context.Context, family string) string {
-	s.refreshFamilies(ctx)
-	s.rolesMu.Lock()
-	defer s.rolesMu.Unlock()
-	return s.newest[family]
-}
-
-// generation is a GPT model's major version, from its id: gpt-6.1-sol is 6.
-var generation = regexp.MustCompile(`^gpt-(\d+)`)
-
-// Families are the Claude families the accounts list, newest release first:
-// the claude:<family> targets a slot can follow.
-func (s *Catalog) Families(ctx context.Context) []string {
-	s.refreshFamilies(ctx)
-	s.rolesMu.Lock()
-	defer s.rolesMu.Unlock()
-	return append([]string(nil), s.families...)
-}
-
-// gptRanked is what the openai: targets follow, from the backend's own
-// ranking of the models a ChatGPT account lists (the priority each entry
-// carries, which is the order Codex's model picker shows them in):
-//
-//   - openai:first is the first-ranked: the backend's own first choice.
-//     2026-10-19: gpt-6.1-sol, "Latest workhorse model for coding and
-//     everyday work", priority 1.
-//   - openai:light is the last-ranked model of the first-ranked one's
-//     generation — the run of models at the top of the ranking sharing its
-//     major version, and the last of them. The backend ranks its smaller
-//     models of a generation below its larger ones and the previous
-//     generation below both, so this is the current generation's light
-//     model rather than an old one. 2026-10-19: gpt-6-luna, "Fast and
-//     affordable model for easier tasks", priority 5 — the same model the
-//     backend itself named, in x-codex-safety-buffering-faster-model, as its
-//     faster one.
-//
-// When the first-ranked id carries no version to compare, light is the
-// last-ranked model of all.
-func (s *Catalog) gptRanked(ctx context.Context, first bool) string {
-	s.refreshFamilies(ctx)
-	s.rolesMu.Lock()
-	ranked := append([]string(nil), s.ranked...)
-	s.rolesMu.Unlock()
-	if len(ranked) == 0 {
-		return ""
-	}
-	if first {
-		return ranked[0]
-	}
-	top := generation.FindStringSubmatch(ranked[0])
-	if top == nil {
-		return ranked[len(ranked)-1]
-	}
-	light := ranked[0]
-	for _, id := range ranked[1:] {
-		g := generation.FindStringSubmatch(id)
-		if g == nil || g[1] != top[1] {
-			break
+// smallest is the least of a provider's limit over models, 0 when none says
+// one: a family's facts, which every version that may serve it must fit.
+func smallest(limits map[string]int, models []string) int {
+	least := 0
+	for _, m := range models {
+		if v := limits[store.ModelKey(m)]; v > 0 && (least == 0 || v < least) {
+			least = v
 		}
-		light = id
 	}
-	return light
-}
-
-// FollowTarget is the real model a moving target points at now, from its
-// provider's list; why says so when the list names none.
-func (s *Catalog) FollowTarget(ctx context.Context, f clients.Follow) (target, why string) {
-	switch {
-	case f.Family() != "":
-		if target = s.newestOf(ctx, f.Family()); target == "" {
-			return "", "no account lists a Claude " + f.Family() + " model"
-		}
-	case f == clients.FollowFirst || f == clients.FollowLight:
-		if target = s.gptRanked(ctx, f == clients.FollowFirst); target == "" {
-			return "", "no ChatGPT account lists a model"
-		}
-	default:
-		return "", "there is no target " + string(f) + " to follow"
-	}
-	return target, ""
-}
-
-// SlotTarget is the real model one of a client's slots serves now: the model
-// it is bound to, or what the target it follows points at. why is non-empty
-// when it cannot serve, naming the slot, the model and what chose it — a
-// model the client is not allowed (off) included, by the rule its menus are
-// offered by (available.go).
-func (s *Catalog) SlotTarget(ctx context.Context, off Off, sl store.ClientSlot) (target, why string) {
-	target, chose := sl.Model, ""
-	if target == "" {
-		if target, why = s.FollowTarget(ctx, sl.Follows); why != "" {
-			return "", sl.Name + " follows " + sl.Follows.Title() + ", and " + why
-		}
-		chose = " (" + sl.Follows.Title() + ")"
-	}
-	if !off.allows(target) {
-		return target, sl.Name + " is " + target + chose + ", which is " + whyNotAllowed +
-			"; an administrator allows it, or binds the name to another, on the client's Models page"
-	}
-	if !s.pool.Offers(ctx, s.ServingProvider(ctx, target), target) {
-		return target, sl.Name + " is " + target + chose + ", which no connected account has on"
-	}
-	return target, ""
+	return least
 }
 
 // withVirtual puts the virtual models at the top of a model list, dropping a
@@ -602,10 +539,23 @@ func withVirtual(body []byte, entries []virtualEntry) []byte {
 		}
 		fields["id"] = e.ID
 		fields["display_name"] = e.DisplayName
-		fields["created_at"] = e.CreatedAt
+		if e.CreatedAt != "" {
+			fields["created_at"] = e.CreatedAt
+		}
 		fields["virtual"] = true
 		fields["serving"] = e.Serving
-		fields["slot"] = e.Slot
+		if e.Slot != "" {
+			fields["slot"] = e.Slot
+		}
+		if e.Follows != "" {
+			fields["follows"] = e.Follows
+		}
+		if e.Window > 0 {
+			fields["max_input_tokens"] = e.Window
+		}
+		if e.Output > 0 {
+			fields["max_tokens"] = e.Output
+		}
 		raw, err := json.Marshal(fields)
 		if err != nil {
 			return body
@@ -773,7 +723,7 @@ func (s *Catalog) List(ctx context.Context) ([]byte, error) {
 			// Matched again over the union: each account's list was matched
 			// on its own, and the union runs first account first.
 			part = s.matchCatalog(ctx, providerID, mergeModels(lists, serving))
-			seen.rememberAccounts(providerID, lists)
+			seen.rememberAccounts(providerID, lists, serving)
 		case providerID == s.defaultProvider():
 			// No account to ask: the public catalogue, so the admin screens
 			// have models to show before one is connected. Nothing can be

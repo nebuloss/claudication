@@ -18,6 +18,9 @@ import (
 // switch it to. The switches themselves still list it, to be switched back.
 func TestAllowedModelsBoundEveryPath(t *testing.T) {
 	srv, st, url := mcpServer(t)
+	// Per model: a version's switch is read where every model is offered;
+	// TestFamiliesBoundEveryPath has the family's.
+	everyModel(t, srv)
 	ctx := context.Background()
 	abase, ck := adminAPI(t, srv)
 	c, plain := newClient(t, st, "box", "crush", map[string]store.Binding{"large": {Model: "claude-sonnet-5"}})

@@ -1,5 +1,5 @@
 -- claudication's schema, whole: what a fresh database is created with, and
--- what migrations/ brings an older one to. Version 36 (schemaVersion in
+-- what migrations/ brings an older one to. Version 40 (schemaVersion in
 -- store.go).
 --
 -- Written as if from scratch. Migrations 001-028 grew it a column at a time;
@@ -134,10 +134,11 @@ CREATE TABLE api_key_models_off (
 -- place for every client meant moving one client moved them all.
 --
 -- A slot is bound to exactly one of: model, a real model of any provider; or
--- follows, a moving target -- claude:<family>, the newest of a Claude family;
--- openai:first and openai:light, the ChatGPT backend's ranking -- which is
--- what the built-in aliases used to follow (internal/service/clients,
--- Follow). Deleting the client deletes its slots, by the cascade.
+-- follows, a family -- claude:<line>, openai:<line> (040 moved the ChatGPT
+-- ranking targets onto lines), served by the newest version the serving
+-- account has -- which is what the built-in aliases used to follow
+-- (internal/service/clients, Follow). Deleting the client deletes its slots,
+-- by the cascade.
 CREATE TABLE client_slots (
     key_id     TEXT    NOT NULL REFERENCES clients (key_id) ON DELETE CASCADE,
     slot       TEXT    NOT NULL,

@@ -88,11 +88,12 @@ table, each line with its measurement):
 - **count_tokens** is answered by the gateway with an estimate, marked by an
   `X-Claudication-Token-Estimate` header: the backend counts nothing.
 
-Two of the targets a slot can follow are ChatGPT's: its first-ranked model and
-its light one, read from the backend's own ranking of the models an account
-lists (the `priority` each carries, which is Codex's picker order) — the first
-choice, and the last of that model's generation: `gpt-6.1-sol` and
-`gpt-6-luna` on 2026-10-19. Any slot may be bound to either provider's model.
+ChatGPT's families are its lines, the slug's last word — `sol`, `astra`,
+`luna`, `terra` — because the backend describes them so across releases
+(`gpt-6.1-sol` "Latest workhorse", `gpt-6-sol` "Previous generation
+workhorse", on 2026-10-19). A slot following one is served the newest version
+of it, by version, that the account a request lands on has. Any slot may
+follow, or be pinned to, either provider's model.
 
 So every model an account serves works on every API that can reach it, and a
 new one works the day it appears. A client's page reads the live list through

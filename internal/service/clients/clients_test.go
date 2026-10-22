@@ -73,23 +73,35 @@ func TestTypesAreWellFormed(t *testing.T) {
 
 func TestFollow(t *testing.T) {
 	for f, want := range map[Follow]struct {
-		family, provider string
-		valid            bool
+		family, provider, id string
+		valid                bool
 	}{
-		FollowOpus:      {"opus", "anthropic", true},
-		"claude:mythos": {"mythos", "anthropic", true},
-		FollowFirst:     {"", "openai", true},
-		FollowLight:     {"", "openai", true},
-		"claude:":       {"", "anthropic", false},
-		"claude:Opus 5": {"", "anthropic", false},
-		"openai:other":  {"", "anthropic", false},
+		FollowOpus:      {"opus", "anthropic", "claude-opus", true},
+		"claude:mythos": {"mythos", "anthropic", "claude-mythos", true},
+		FollowSol:       {"sol", "openai", "gpt-sol", true},
+		"openai:astra":  {"astra", "openai", "gpt-astra", true},
+		"claude:":       {"", "anthropic", "", false},
+		"claude:Opus 5": {"", "anthropic", "", false},
+		"openai:":       {"", "openai", "", false},
+		"other:x":       {"", "anthropic", "", false},
 	} {
-		if f.Family() != want.family || f.Provider() != want.provider || f.Valid() != want.valid {
-			t.Errorf("%s: family %q provider %q valid %v", f, f.Family(), f.Provider(), f.Valid())
+		if f.Family() != want.family || f.Provider() != want.provider || f.Valid() != want.valid ||
+			f.ModelID() != want.id {
+			t.Errorf("%s: family %q provider %q id %q valid %v", f, f.Family(), f.Provider(), f.ModelID(), f.Valid())
+		}
+		if want.valid && FollowOf(want.id) != f {
+			t.Errorf("FollowOf(%q) = %q, want %q", want.id, FollowOf(want.id), f)
 		}
 	}
-	if FollowOpus.Title() != "Newest Claude Opus" || ClaudeFollow("haiku") != FollowHaiku {
-		t.Errorf("titles: %q", FollowOpus.Title())
+	// A real model's id names no family: it carries its version.
+	for _, id := range []string{"claude-opus-5-5", "gpt-6.1-sol", "gpt-6-luna", "o3", ""} {
+		if f := FollowOf(id); f != "" {
+			t.Errorf("FollowOf(%q) = %q, want none", id, f)
+		}
+	}
+	if FollowOpus.Title() != "Claude Opus" || FollowSol.Title() != "GPT Sol" || ClaudeFollow("haiku") != FollowHaiku ||
+		FamilyFollow("openai", "luna") != FollowLuna {
+		t.Errorf("titles: %q %q", FollowOpus.Title(), FollowSol.Title())
 	}
 }
 

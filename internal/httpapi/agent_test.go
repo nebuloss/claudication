@@ -7,10 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"claudication/internal/service/clients"
 	"claudication/internal/store"
 )
 
@@ -93,7 +95,7 @@ func mcpServer(t *testing.T) (*Server, *store.Store, string) {
 // initialize, initialized, tools/list and a tools/call, with the client's
 // key as Authorization: Bearer — and as x-api-key, as /v1 takes it.
 func TestMCPHandshakeAndTools(t *testing.T) {
-	_, st, url := mcpServer(t)
+	srv, st, url := mcpServer(t)
 	c, plain := newClient(t, st, "laptop", "claude-code", nil)
 	for _, cl := range []mcpClient{
 		{t: t, url: url, header: "Authorization", value: "Bearer " + plain},
@@ -139,15 +141,32 @@ func TestMCPHandshakeAndTools(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if !strings.Contains(text, `"model": "gpt-6.1-sol"`) || strings.Contains(text, "claude:opus") {
-		t.Errorf("list_models is not the client's choices:\n%s", text)
-	}
-	// Each model once, a target only under the model it serves now.
-	if sc["follow_targets"] != nil {
-		t.Errorf("list_models still lists the targets apart: %v", sc)
+	// By family, the default: each family once, no version, and none no
+	// account serves.
+	if !strings.Contains(text, `"follows": "openai:sol"`) || strings.Contains(text, "claude:opus") ||
+		strings.Contains(text, `"model": "gpt-6.1-sol"`) {
+		t.Errorf("list_models is not the client's families:\n%s", text)
 	}
 	listed := map[string]bool{}
-	var sonnet map[string]any
+	for _, e := range sc["models"].([]any) {
+		m := e.(map[string]any)
+		id, _ := m["follows"].(string)
+		if id == "" || listed[id] {
+			t.Errorf("list_models: a family twice, or an entry with none: %v", m)
+		}
+		listed[id] = true
+		if id == "claude:sonnet" && m["serving"] != "claude-sonnet-5" {
+			t.Errorf("claude:sonnet in list_models: %v, want serving claude-sonnet-5", m)
+		}
+	}
+
+	// Every model: each model once, and no family.
+	everyModel(t, srv)
+	sc, text, isErr = cl.tool("list_models", `{}`)
+	if isErr || !strings.Contains(text, `"model": "gpt-6.1-sol"`) || strings.Contains(text, `"follows":`) {
+		t.Errorf("list_models offering every model:\n%s", text)
+	}
+	listed = map[string]bool{}
 	for _, e := range sc["models"].([]any) {
 		m := e.(map[string]any)
 		id, _ := m["model"].(string)
@@ -155,12 +174,6 @@ func TestMCPHandshakeAndTools(t *testing.T) {
 			t.Errorf("list_models: a model twice, or an entry with none: %v", m)
 		}
 		listed[id] = true
-		if id == "claude-sonnet-5" {
-			sonnet = m
-		}
-	}
-	if f, _ := sonnet["follow"].([]any); len(f) != 1 || f[0] != "claude:sonnet" {
-		t.Errorf("claude-sonnet-5 in list_models: %v, want follow [claude:sonnet]", sonnet)
 	}
 	sc, text, isErr = cl.tool("status", `{}`)
 	if isErr || sc["gateway"].(map[string]any)["accepting"] != true || sc["limits"] == nil {
@@ -199,6 +212,32 @@ func TestMCPRefusesAsV1Does(t *testing.T) {
 	}
 	if status, _ := (mcpClient{t: t, url: url, header: "Authorization", value: "Bearer " + plain}).post(init); status != http.StatusOK {
 		t.Errorf("back on: %d", status)
+	}
+
+	// The MCP server's own switch: off, 404 for every client, its agent
+	// allowed to manage it or not, saying where to turn it on; a request
+	// with no key is still 401, and /v1 is untouched.
+	if err := st.SetClientAgentManage(context.Background(), c.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.mcp.Set(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	cl := mcpClient{t: t, url: url, header: "Authorization", value: "Bearer " + plain}
+	expect("the MCP server off", cl, http.StatusNotFound)
+	if _, out := cl.post(init); !strings.Contains(fmt.Sprint(out["error"]), "Settings › MCP") {
+		t.Errorf("the MCP server off says %v", out["error"])
+	}
+	expect("the MCP server off, no key", mcpClient{t: t, url: url}, http.StatusUnauthorized)
+	if resp, body := send(t, url+"/v1/messages", plain, "Charm Crush/0.9",
+		`{"model":"small","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("/v1 with the MCP server off: %d %s", resp.StatusCode, body)
+	}
+	if err := srv.mcp.Set(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := cl.post(init); status != http.StatusOK {
+		t.Errorf("the MCP server back on: %d", status)
 	}
 }
 
@@ -260,11 +299,17 @@ func TestMCPManageTier(t *testing.T) {
 	if _, text, isErr := cl.tool("bind_model", `{"name":"large","model":"x","follows":"claude:sonnet"}`); !isErr || !strings.Contains(text, "not both") {
 		t.Errorf("both: %v %s", isErr, text)
 	}
-	sc, text, isErr := cl.tool("bind_model", `{"name":"large","model":"gpt-6.1-sol"}`)
+	// By family, the default: a version is not a name's to pick; the family
+	// is, and which version it serves is the gateway's.
+	if _, text, isErr := cl.tool("bind_model", `{"name":"large","model":"gpt-6.1-sol"}`); !isErr ||
+		!strings.Contains(text, "bound to GPT Sol") {
+		t.Errorf("a version where the provider is offered by family: %v %s", isErr, text)
+	}
+	sc, text, isErr := cl.tool("bind_model", `{"name":"large","follows":"openai:sol"}`)
 	if isErr || sc["serving"] != "gpt-6.1-sol" {
 		t.Fatalf("bind_model: %s", text)
 	}
-	if got, _ := st.Client(ctx, c.ID); got.Slots[0].Model != "gpt-6.1-sol" || got.Slots[0].Name != "large" {
+	if got, _ := st.Client(ctx, c.ID); got.Slots[0].Follows != clients.FollowSol || got.Slots[0].Name != "large" {
 		t.Errorf("after bind_model: %+v", got.Slots[0])
 	}
 
@@ -276,7 +321,10 @@ func TestMCPManageTier(t *testing.T) {
 	if _, text, isErr := cl.tool("add_model", `{"name":"later"}`); isErr {
 		t.Errorf("add_model with no binding: %s", text)
 	}
-	if got, _ := st.Client(ctx, c.ID); len(got.Slots) != 4 || got.Slots[3].Follows != "claude:opus" {
+	// Found by name: two added in the same millisecond are ordered by their
+	// made-up slot ids, which are random.
+	if got, _ := st.Client(ctx, c.ID); len(got.Slots) != 4 ||
+		got.Slots[slices.IndexFunc(got.Slots, func(s store.ClientSlot) bool { return s.Name == "later" })].Follows != "claude:opus" {
 		t.Errorf("the default binding: %+v", got.Slots)
 	}
 	if _, text, isErr := cl.tool("add_model", `{"name":"nowhere","model":"claude-opus-4"}`); !isErr || !strings.Contains(text, "not available") {
@@ -344,8 +392,8 @@ func TestMCPManageTier(t *testing.T) {
 	}
 
 	got := audit()
-	if len(got) != 16 || got[len(got)-1] != "/mcp/update_config OK 3" || got[1] != "/mcp/bind_model Bad Request 1" ||
-		got[5] != "/mcp/bind_model OK 3" {
+	if len(got) != 17 || got[len(got)-1] != "/mcp/update_config OK 3" || got[1] != "/mcp/bind_model Bad Request 1" ||
+		got[6] != "/mcp/bind_model OK 3" {
 		t.Errorf("the audit: %v", got)
 	}
 	// None of it is a request: the client's traffic counts none, and the
@@ -353,7 +401,7 @@ func TestMCPManageTier(t *testing.T) {
 	if use, err := st.KeyUsageOf(ctx, c.ID, time.Now().Add(-time.Hour)); err != nil || use[c.ID].Requests != 0 {
 		t.Errorf("the changes counted as requests: %+v %v", use, err)
 	}
-	for kind, want := range map[string]int{"change": 7, "rejected": 9, "relayed": 0} {
+	for kind, want := range map[string]int{"change": 7, "rejected": 10, "relayed": 0} {
 		rows, _, err := st.RecentUsage(ctx, 100, store.UsageCursor{}, store.RequestFilter{KeyIDs: []string{c.ID}, Kinds: []string{kind}})
 		if err != nil || len(rows) != want {
 			t.Errorf("filter %s: %d rows, want %d (%v)", kind, len(rows), want, err)

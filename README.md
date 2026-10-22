@@ -118,8 +118,11 @@ each with its traffic over days above its table; and the requests: the last
 hour live, the outcomes over days, and the request log, every client's, with
 the upstream's own error text, paged back as far as retention keeps it.
 
-**Settings** — one page: the Gateway switch, the admin password and sessions,
-and the configuration as loaded.
+**Settings** — a page each: **General**, the Gateway switch and the admin
+password and sessions; **Models**, how each provider's models are offered (by
+family, the default, or every model), which version each family serves (the
+latest, per account, or one for the gateway) and which account serves which; **MCP**, the MCP server's switch and address;
+**Configuration**, the configuration as loaded.
 
 ## Claude accounts
 
@@ -269,9 +272,14 @@ setting its tool has, each with a name the tool asks for:
 | Custom | `large`, and any the operator adds — or real model ids, in direct mode |
 
 A name is the client's own, so two clients can both have a `large` on different
-models. Each slot is bound to a model — any account's, Claude or GPT — or
-follows a target: the newest Opus, Sonnet, Haiku or Fable by release date, or
-ChatGPT's first-ranked or light model. Moving a client to a new model is one
+models. Each slot is bound to a family — Claude Opus, Sonnet, Haiku or Fable,
+GPT Sol, Astra, Luna or Terra — or, where a provider offers every model, to
+one model. Settings › Models sets which version each family serves: the
+latest, each account serving the newest it has — so an account on a plan
+without the latest Opus still serves Opus with the one it has, and accounts
+with the newest are preferred while one can take the request — or one version
+for the whole gateway; and, per provider, whether clients are offered each
+family once (the default) or every version. Moving a client to a new model is one
 change on its page, with no config to edit; the client is answered in its own
 name, and the request log records both. A typed client may ask for its slot
 names and nothing else, which is why every model it can ask for of its own

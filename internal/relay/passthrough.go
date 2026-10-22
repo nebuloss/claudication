@@ -99,6 +99,9 @@ type Result struct {
 	AccountEmail string
 	// Provider is whose account AccountID is: the wire's, set with it.
 	Provider string
+	// Model is the version AccountID served, for a request any of several
+	// could (pool.WithVersions); "" when the request's own model was sent.
+	Model    string
 	Attempts int
 	BytesOut int64
 	Usage    provider.Usage
@@ -258,9 +261,10 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		res.AccountID = lease.Account.ID
 		res.AccountEmail = lease.Account.Email
 		res.Provider = r.Wire.ID()
+		res.Model = lease.Model
 
 		cred := provider.Credential{Token: lease.AccessToken, AccountID: lease.Account.AccountUUID}
-		upstreamReq, err := r.build(req, base+upstreamPath, body, cred)
+		upstreamReq, err := r.build(req, base+upstreamPath, forAttempt(req.Context(), body, lease.Model), cred)
 		if err != nil {
 			res.Err = err
 			return res

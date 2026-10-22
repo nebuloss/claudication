@@ -98,7 +98,19 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	body, err := s.models.List(ctx)
+	// For a client, what a direct-mode client is offered, read as if
+	// everything were allowed: these are the switches that say what is, and
+	// a model switched off has to stay here to be switched back on. In a
+	// provider offered by family that is its families (claude-opus), the
+	// switch being the family's: what the client's names may follow, and
+	// what it may name.
+	client := key.ClientType != ""
+	var body []byte
+	if client {
+		body, err = s.models.Offered(ctx, nil)
+	} else {
+		body, err = s.models.List(ctx)
+	}
 	if err != nil {
 		s.log.Warn("could not read the gateway's models", "err", err)
 		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,
@@ -113,21 +125,11 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read as if everything were allowed: these are the switches that say
-	// what is, and a model switched off has to stay here to be switched
-	// back on.
-	var available map[string]bool
-	if key.ClientType != "" {
-		available = map[string]bool{}
-		for _, c := range s.models.Available(ctx, nil) {
-			available[c.Model] = true
-		}
-	}
 	listed := map[string]bool{}
 	models := make([]map[string]any, 0, len(list.Data)+len(key.ModelsOff))
 	for _, m := range list.Data {
 		mid, _ := m["id"].(string)
-		if mid == "" || available != nil && !available[mid] {
+		if mid == "" {
 			continue
 		}
 		listed[store.ModelKey(mid)] = true
@@ -138,7 +140,7 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 	// A client's switch over a model it is not offered would switch nothing
 	// it can name; it comes back, as it was, when the model does.
 	for _, off := range key.ModelsOff {
-		if available == nil && !listed[store.ModelKey(off)] {
+		if !client && !listed[store.ModelKey(off)] {
 			models = append(models, map[string]any{"id": off, "enabled": false, "listed": false})
 		}
 	}

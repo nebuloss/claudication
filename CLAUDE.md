@@ -17,10 +17,14 @@ A client is a top-level thing — a type (Claude Code, Codex, opencode, crush,
 custom), one API key, its own model names ("slots"), limits and switches;
 `go doc ./internal/service/clients` holds each type's spec with the sources it
 was read from. There are no gateway-wide aliases: a request's model is one of
-its client's names, bound to a model or to a target that follows the newest
-of a family, or — for a custom client in direct mode — a real model id. It
-then goes to the provider whose accounts serve that model
-(`go doc ./internal/service/models`, route.go). Responses reaches ChatGPT as it
+its client's names, bound to a model or to a family (claude:opus,
+openai:sol), or — for a custom client in direct mode — a real model id or a
+family's (claude-opus). It then goes to the provider whose accounts serve that
+model (`go doc ./internal/service/models`, route.go); a family is resolved
+per account at request time, each account serving the newest version of it
+that it has, or the one version Settings › Models set the family to
+(family.go, pool.Versions, relay.Rebind); Settings › Models also chooses per
+provider whether clients are offered families or every version. Responses reaches ChatGPT as it
 came and Claude translated; Messages reaches Claude as it came and ChatGPT
 translated (`go doc ./internal/api/anthropic`). Every model is reachable from
 either API.

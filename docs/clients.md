@@ -137,10 +137,26 @@ Claude Code and opencode names used to carry `claude` for the first two rows.
 Clients made then keep their names, which go on working; running the install
 command again writes the settings above for them too.
 
-A slot is bound either to a **model** — any model an account serves, Claude or
-GPT — or to a **target it follows**: the newest Opus, Sonnet, Haiku or Fable,
-ChatGPT's first-ranked model or its light one. A new client's slots follow
-targets, so it moves to a new release on its own.
+A slot is bound to a **family** — Claude Opus, Sonnet, Haiku or Fable; GPT
+Sol, Astra, Luna or Terra — or, where a provider offers every model, to one
+**model**. Which version a family serves is the gateway's, set once per family
+in **Settings › Models**: **Follow the latest** (the default), each account
+serving the newest version of it that it lists and has on — so a plan that
+never gets the latest still serves the family, with the version it has, and
+accounts with the newest are tried first — or one version for every client,
+served by the accounts that have it, an account without it serving no
+request for the family. A new client's slots follow families, so it moves to
+a new release on its own.
+
+How clients are offered models is also chosen there, per provider:
+**Families** (the default) lists each family once — in a name's menu, a
+client's Allowed models, a direct-mode client's list (`claude-opus`,
+`gpt-sol`) and the MCP server's `list_models`; **Every model** lists each
+version and no family. A binding made in the other mode keeps serving, and
+its menu shows it as bound now. Where a list or a written config
+needs one context window and one output limit for a family, it is the
+smallest among the versions that may serve it: a client sized for the newest
+would be refused by an account serving an older one with less room.
 
 A typed client may ask for its slot names and nothing else: every model it can
 ask for of its own accord has a slot, so a real id typed into its model picker
@@ -307,6 +323,11 @@ count against the client's rate limit.
 | `bind_model` | manage | Binds one of its names to a model or target `list_models` offers; nothing else is accepted |
 | `add_model`, `remove_model` | manage | A name of its own for its picker, on a type that takes them; the type's own names stay |
 | `update_config` | manage | The client's **Update config** command (`unix` or `windows`), made as the page makes it: once, fifteen minutes, no key in it, for the address the client's machine was set up with. The agent runs it with its own shell |
+
+The whole server is switched in **Settings › MCP**: off, `/mcp` answers every
+client 404 (a JSON-RPC error saying where to turn it on), as a switched-off
+gateway does, whatever the client's own switch says; clients keep the server
+in their files, so turning it back on needs nothing reinstalled.
 
 The **manage** tools work only while the client's **Agent may manage this
 client** switch (its Settings card) is on, and it is off for every client

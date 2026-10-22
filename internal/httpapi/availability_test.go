@@ -31,8 +31,8 @@ func accountOf(t *testing.T, st *store.Store, provider string) string {
 	return ""
 }
 
-// choiceValues is a menu as values: model:<id> for each model, then
-// follow:<target>=<id> for each target riding on it.
+// choiceValues is a menu as values: model:<id> for each model,
+// follow:<family>=<serving> for each family.
 func choiceValues(cs []modelsvc.Choice) []string {
 	out := make([]string, 0, len(cs))
 	for _, c := range cs {
@@ -41,45 +41,55 @@ func choiceValues(cs []modelsvc.Choice) []string {
 		} else {
 			out = append(out, "follow:"+string(c.Follows)+"="+c.Serving)
 		}
-		for _, f := range c.FollowedBy {
-			out = append(out, "follow:"+string(f.Follows)+"="+c.Model)
-		}
 	}
 	return out
 }
 
+// everyModel puts both providers on offering every model, as the gateway
+// did before families: what the tests of each model's availability read.
+func everyModel(t *testing.T, srv *Server) {
+	t.Helper()
+	for _, sw := range srv.models.Modes() {
+		if err := sw.Set(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // What a client may be offered: a model a connected account lists and has
-// on, of either provider, whichever API the client speaks; a target only
-// while it resolves to one. The Claude stub lists claude-sonnet-5 and
-// claude-haiku-5, so nothing resolves the newest Opus.
+// on, of either provider, whichever API the client speaks; a family only
+// while some account serves it. The Claude stub lists claude-sonnet-5 and
+// claude-haiku-5, so no account serves Opus.
 func TestAvailability(t *testing.T) {
 	srv, st, _, _, _, _ := twoUpstreams(t)
+	everyModel(t, srv)
 	ctx := context.Background()
 	m := srv.models
 
-	// Each model once, and no target a choice of its own: a target rides on
-	// the model it serves now, so the menu does not name that model twice.
+	// Every model: each model once, and no family a choice.
 	all := m.Choices(ctx, nil)
 	seen := map[string]bool{}
 	for _, c := range all {
 		if c.Model == "" || seen[c.Model] {
-			t.Errorf("a choice that is a target, or a model twice: %+v", c)
+			t.Errorf("a choice that is a family, or a model twice: %+v", c)
 		}
 		seen[c.Model] = true
 	}
 	choices := choiceValues(all)
-	if !slices.Equal(choices[:4], []string{"model:claude-sonnet-5", "follow:claude:sonnet=claude-sonnet-5",
-		"model:claude-haiku-5", "follow:claude:haiku=claude-haiku-5"}) {
-		t.Errorf("choices = %v, want the Claude models first, each with its target", choices)
+	if !slices.Equal(choices[:2], []string{"model:claude-sonnet-5", "model:claude-haiku-5"}) {
+		t.Errorf("choices = %v, want the Claude models first", choices)
 	}
-	if sol := all[slices.IndexFunc(all, func(c modelsvc.Choice) bool { return c.Model == "gpt-6.1-sol" })]; len(sol.FollowedBy) != 1 ||
-		sol.FollowedBy[0] != (modelsvc.Target{Follows: clients.FollowFirst, Title: "ChatGPT's first-ranked model"}) {
-		t.Errorf("gpt-6.1-sol is followed by %+v, want openai:first alone", sol.FollowedBy)
-	}
-	for _, v := range []string{"follow:openai:first=gpt-6.1-sol", "follow:openai:light=gpt-6-luna",
-		"model:claude-sonnet-5", "model:claude-haiku-5", "model:gpt-6.1-sol"} {
+	for _, v := range []string{"model:claude-sonnet-5", "model:claude-haiku-5", "model:gpt-6.1-sol", "model:gpt-5.6-luna"} {
 		if !slices.Contains(choices, v) {
 			t.Errorf("choices %v lack %s", choices, v)
+		}
+	}
+	// A family still resolves, in either mode: luna's newest by version, the
+	// backend dating nothing.
+	for f, want := range map[clients.Follow]string{clients.FollowSol: "gpt-6.1-sol", clients.FollowLuna: "gpt-6-luna",
+		"openai:astra": "gpt-6-astra", clients.FollowSonnet: "claude-sonnet-5"} {
+		if c, why := m.Resolve(ctx, nil, store.Binding{Follows: f}); why != "" || c.Serving != want {
+			t.Errorf("%s serves %q (%q), want %s", f, c.Serving, why, want)
 		}
 	}
 	if slices.ContainsFunc(choices, func(s string) bool { return strings.HasPrefix(s, "follow:claude:opus") }) {
@@ -97,8 +107,8 @@ func TestAvailability(t *testing.T) {
 	if w := why(store.Binding{Model: "claude-opus-4"}); w != "no connected account lists it" {
 		t.Errorf("an unlisted model: %q", w)
 	}
-	if w := why(store.Binding{Follows: clients.FollowOpus}); !strings.Contains(w, "no account lists a Claude opus") {
-		t.Errorf("an unresolved target: %q", w)
+	if w := why(store.Binding{Follows: clients.FollowOpus}); !strings.Contains(w, "no account lists a Claude Opus model") {
+		t.Errorf("an unresolved family: %q", w)
 	}
 
 	// Switched off on its only account: neither the model nor the target
@@ -139,6 +149,7 @@ func TestAvailability(t *testing.T) {
 // but cannot be given a new one that is not available.
 func TestAdminOffersOnlyAvailableBindings(t *testing.T) {
 	srv, st, _, _, _, _ := twoUpstreams(t)
+	everyModel(t, srv)
 	abase, ck := adminAPI(t, srv)
 	c, _ := newClient(t, st, "box", "crush", nil)
 	get := func() admin.ClientJSON {
@@ -156,8 +167,8 @@ func TestAdminOffersOnlyAvailableBindings(t *testing.T) {
 		t.Errorf("a crush's choices = %v, want both providers' models", v)
 	}
 	large, small := got.Slots[0], got.Slots[1]
-	if large.Bound != clients.FollowOpus || !strings.Contains(large.Unavailable, "no account lists a Claude opus") ||
-		large.Title != "Newest Claude Opus" {
+	if large.Bound != clients.FollowOpus || !strings.Contains(large.Unavailable, "no account lists a Claude Opus model") ||
+		large.Title != "Claude Opus" {
 		t.Errorf("large, following an unresolved Opus: %+v", large)
 	}
 	if small.Unavailable != "" || small.Serving != "claude-haiku-5" || small.Provider != "anthropic" {
@@ -196,6 +207,7 @@ func TestAdminOffersOnlyAvailableBindings(t *testing.T) {
 // can be served now, and a direct-mode client's list only available models.
 func TestModelListsOfferOnlyAvailable(t *testing.T) {
 	srv, st, base, _, _, _ := twoUpstreams(t)
+	everyModel(t, srv)
 	abase, ck := adminAPI(t, srv)
 	ctx := context.Background()
 	_, key := newClient(t, st, "box", "crush", nil)

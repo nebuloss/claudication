@@ -130,5 +130,6 @@
 // Measured: nine models, gpt-6.1-sol first at priority 1 with a 500k
 // context, then gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, -terra and
 // -luna; gpt-reserve and codex-auto-review hidden. Only the listed ones are
-// served, ranked by priority, which is what gpt-large and gpt-small follow.
+// served, ranked by priority, which orders the ChatGPT families
+// (internal/service/models, family.go).
 package openai

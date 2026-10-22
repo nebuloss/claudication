@@ -6,7 +6,8 @@
 // It is served at /mcp on the relay's listener, behind the client's own key,
 // checked exactly as /v1 checks it (gateway.Guard, handed across by the
 // composition root): a missing or unknown key is 401, a switched-off client
-// 403, a switched-off gateway 404, and the key's rate limit counts these
+// 403, a switched-off gateway 404 — and so is the server itself while its own
+// switch, Settings › MCP, is off (Setting) — and the key's rate limit counts these
 // calls as it counts any other. The relay rather than the admin listener,
 // because the agent runs where the client does, which reaches the relay and
 // may never reach the admin address; and the client's key rather than an
@@ -82,6 +83,7 @@ type Models interface {
 	Choices(ctx context.Context, off modelsvc.Off) []modelsvc.Choice
 	Available(ctx context.Context, off modelsvc.Off) []modelsvc.Choice
 	Resolve(ctx context.Context, off modelsvc.Off, b store.Binding) (modelsvc.Choice, string)
+	Bindable(ctx context.Context, off modelsvc.Off, b store.Binding) (modelsvc.Choice, string)
 	NewSlot(ctx context.Context, off modelsvc.Off, b store.Binding) (store.Binding, modelsvc.Choice, string)
 }
 
@@ -97,6 +99,9 @@ type Deps struct {
 	InFlight *limits.InFlight
 	// Enabled is the gateway switch, which status reports.
 	Enabled *settings.Switch
+	// On is the MCP server's own switch (Setting): off, /mcp answers 404 to
+	// every client, whatever its "Agent may manage" switch says.
+	On *settings.Switch
 	// Record files a row in the request log: a manage call's audit.
 	Record func(store.UsageEvent)
 	// Guard fronts the server with the gateway's own key check
@@ -171,9 +176,42 @@ func New(d Deps) *Agent {
 // Path is where the server is on the relay.
 const Path = clientconfig.MCPPath
 
+// Setting is the settings row holding the MCP server's switch (Deps.On).
+const Setting = "mcp.enabled"
+
 // Routes registers the server on the relay's mux.
 func (a *Agent) Routes(mux *http.ServeMux) {
-	mux.Handle(Path, a.d.Guard(a, http.HandlerFunc(a.serve)))
+	mux.Handle(Path, a.d.Guard(a, a.switchedOn(http.HandlerFunc(a.serve))))
+}
+
+// switchedOn answers for the whole server while its switch is off: 404, as a
+// switched-off gateway answers, in JSON-RPC's shape, for every client.
+//
+// 404 and not an empty tools list, or a 503. By the Streamable HTTP
+// transport (MCP 2025-06-18), a 404 to initialize is an endpoint that is not
+// there, which a client reports as a server that failed to connect and goes
+// on without; a 404 to a request carrying a session id is a session gone,
+// which a client re-initializes once and is told the same. A 503 says try
+// again, and a client may, for as long as the switch stays off — the reason
+// the gateway switch answers 404 too. Not measured per client: what is
+// relied on is the transport's rule, which each implements. An empty tools list
+// would be a healthy server with nothing on it, and since this server sends
+// no list_changed, a client would keep that empty list after the switch is
+// back on. Behind the key check and the gateway's switch, so a caller
+// without a key is still 401 and a gateway switched off still says so.
+//
+// The clients' files keep their MCP entry either way (clientconfig): turning
+// the server back on needs nothing reinstalled, only a client's reconnect —
+// a new session, or /mcp in Claude Code.
+func (a *Agent) switchedOn(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a.d.On != nil && !a.d.On.On() {
+			mcp.WriteError(w, http.StatusNotFound,
+				"this gateway's MCP server is switched off; an administrator turns it on under Settings › MCP")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // WriteError answers a refusal of the gateway's own — no key, a switched-off

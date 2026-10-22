@@ -312,14 +312,15 @@ func TestCodexSlotBoundToGPTReachesChatGPTUnchanged(t *testing.T) {
 	}
 }
 
-// A slot following ChatGPT's ranking serves the backend's first-ranked model,
-// or its light one; a newest-Claude target the newest of its family; and a
-// direct-mode client naming a listed model by its id reaches it the same way.
+// A slot following a ChatGPT line serves its newest version (by version: the
+// backend dates nothing), a Claude family the newest of its line; a
+// direct-mode client naming a listed model by its id reaches it the same way,
+// and one naming a family by its id (gpt-luna) is served its newest.
 func TestFollowTargets(t *testing.T) {
 	_, st, base, _, claude, chatgpt := twoUpstreams(t)
 	ctx := context.Background()
 	c, key := newClient(t, st, "tool", "custom", nil)
-	for name, f := range map[string]clients.Follow{"first": clients.FollowFirst, "light": clients.FollowLight,
+	for name, f := range map[string]clients.Follow{"first": clients.FollowSol, "light": clients.FollowLuna,
 		"sonnet": clients.FollowSonnet} {
 		if err := st.AddSlot(ctx, c.ID, name, store.Binding{Follows: f}); err != nil {
 			t.Fatal(err)
@@ -331,6 +332,7 @@ func TestFollowTargets(t *testing.T) {
 	}
 	for _, tc := range []struct{ key, asked, want string }{
 		{key, "first", "gpt-6.1-sol"}, {key, "light", "gpt-6-luna"}, {direct, "gpt-6-astra", "gpt-6-astra"},
+		{direct, "gpt-luna", "gpt-6-luna"},
 	} {
 		resp, body := send(t, base+"/v1/responses", tc.key, codexUA, codexTurn(tc.asked), nil)
 		if resp.StatusCode != http.StatusOK {

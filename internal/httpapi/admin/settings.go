@@ -2,10 +2,13 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
 	"claudication/internal/httpapi/httpx"
+	"claudication/internal/service/clients"
+	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/settings"
 )
 
@@ -26,7 +29,53 @@ func (s *Admin) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		// about together with the rest, and separating them is how a switch
 		// gets flipped and then lost.
 		"gateway_enabled": s.serving.On(),
+		"mcp_enabled":     s.mcp.On(),
 	})
+}
+
+// handleModelFamilies is each provider's families: its mode, every family
+// with its versions and the accounts listing each, and which version of each
+// family every account would serve — the Models settings page, and an
+// account's own page, which reads its row.
+func (s *Admin) handleModelFamilies(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	rep, err := s.models.Report(ctx)
+	if err != nil {
+		httpx.Internal(w, s.log, "read the model families", err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"providers": rep})
+}
+
+// handleFamilyVersion sets which version a family serves, for the whole
+// gateway: one the connected accounts list, or "" to follow the latest each
+// account has. Answered with the report, as the page shows it after.
+func (s *Admin) handleFamilyVersion(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Family clients.Follow `json:"family"`
+		Model  *string        `json:"model"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	if body.Model == nil || !body.Family.Valid() {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
+			`expected {"family": "claude:opus", "model": "<a version>" or "" for the latest}`)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	switch err := s.models.SetPin(ctx, body.Family, *body.Model); {
+	case errors.Is(err, modelsvc.ErrNotAVersion):
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
+		return
+	case err != nil:
+		httpx.Internal(w, s.log, "store the family's version", err)
+		return
+	}
+	s.log.Warn("family version set", "family", body.Family, "model", *body.Model, "ip", httpx.ClientIP(r.Context()))
+	s.handleModelFamilies(w, r)
 }
 
 // handleAdminModels lists the models the connected accounts can actually serve.
