@@ -197,6 +197,7 @@ function FittedIncidents({ report, limit }: { report: StatusReport; limit: numbe
     return () => ro.disconnect()
   }, [report])
   const shown = report.incidents.slice(0, limit)
+  const latest = report.incidents[0]
   return (
     <div ref={box} className="relative min-h-0 flex-1 overflow-hidden">
       <ul className="divide-y divide-outline-variant/40">
@@ -205,9 +206,9 @@ function FittedIncidents({ report, limit }: { report: StatusReport; limit: numbe
         ))}
       </ul>
       {/* Not one row fits: a line of text does, so the card is not empty. */}
-      {fits === 0 && (
+      {fits === 0 && latest !== undefined && (
         <p className="absolute inset-x-0 top-0 truncate text-sm text-on-surface-variant">
-          {report.incidents.length} in 90 days, the latest {whenFormat.format(report.incidents[0].start)} UTC
+          {report.incidents.length} in 90 days, the latest {whenFormat.format(latest.start)} UTC
         </p>
       )}
     </div>
