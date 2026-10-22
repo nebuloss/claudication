@@ -51,18 +51,27 @@ export function Card({
   title,
   aside,
   info,
+  fill = false,
 }: {
   children: ReactNode
   title?: ReactNode
   aside?: ReactNode
   /** What the card is for, as bullets. */
   info?: ReactNode
+  /**
+   * Takes the height its grid cell or flex row gives it, its content a
+   * column that can shrink: the welcome page's cards, which fill the window
+   * rather than set its height.
+   */
+  fill?: boolean
 }) {
   return (
     // p-4 on a phone: 24px a side inside a page that already keeps 16px is
     // an eighth of a 400px screen spent on margins, and it was the width a
     // table's last columns went missing in.
-    <section className="rounded-md3-xl bg-surface-container p-4 sm:p-6 [&_p]:max-w-[80ch]">
+    <section
+      className={`rounded-md3-xl bg-surface-container p-4 sm:p-6 [&_p]:max-w-[80ch] ${fill ? 'flex min-h-0 flex-col' : ''}`}
+    >
       {title !== undefined ? (
         <CardTitle aside={aside} info={info}>
           {title}

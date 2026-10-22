@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Solid, type Paint } from '../../charts/paint'
 import { StateStrip } from '../../charts/strip'
 import { Card, Chip, Muted, Stat, StatGrid, type Tone } from '../../primitives'
@@ -140,11 +140,14 @@ export function UptimeStrips({ report }: { report: StatusReport }) {
   )
 }
 
-function IncidentRow({ incident, now }: { incident: Incident; now: number }) {
+function IncidentRow({ incident, now, cut = false }: { incident: Incident; now: number; cut?: boolean }) {
   const s = STATES[incident.state]
   const end = incident.end ?? now
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 first:pt-0 last:pb-0">
+    <li
+      aria-hidden={cut || undefined}
+      className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-3 first:pt-0 last:pb-0 ${cut ? 'invisible' : ''}`}
+    >
       <Chip tone={s.tone}>{s.label}</Chip>
       <span className="text-sm text-on-surface tabular-nums">{whenFormat.format(incident.start)} UTC</span>
       <span className="text-sm text-on-surface-variant">
@@ -154,17 +157,54 @@ function IncidentRow({ incident, now }: { incident: Incident; now: number }) {
   )
 }
 
-/** The recent stretches that were degraded or down, newest first. */
-export function IncidentList({ report, limit = 8 }: { report: StatusReport; limit?: number }) {
+/**
+ * The recent stretches that were degraded or down, newest first.
+ *
+ * `fit` lists as many as the height it is given holds, whole rows only: the
+ * welcome page fills the window, so how many incidents it can show is the
+ * window's to say. The rows past the last that fits stay laid out and are
+ * made invisible, so each resize measures every row again rather than only
+ * the ones still shown.
+ */
+export function IncidentList({ report, limit = 8, fit = false }: { report: StatusReport; limit?: number; fit?: boolean }) {
   if (report.incidents.length === 0) {
     return <Muted>No incidents in the last 90 days.</Muted>
   }
+  if (fit) return <FittedIncidents report={report} limit={limit} />
   return (
     <ul className="divide-y divide-outline-variant/40">
       {report.incidents.slice(0, limit).map((i) => (
         <IncidentRow key={i.start} incident={i} now={report.generated} />
       ))}
     </ul>
+  )
+}
+
+function FittedIncidents({ report, limit }: { report: StatusReport; limit: number }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [fits, setFits] = useState(limit)
+  useLayoutEffect(() => {
+    const el = box.current
+    if (el === null) return
+    const measure = () => {
+      const rows = Array.from(el.querySelectorAll('li'))
+      const n = rows.findIndex((r) => r.offsetTop + r.offsetHeight > el.clientHeight)
+      setFits(n === -1 ? rows.length : n)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [report])
+  const shown = report.incidents.slice(0, limit)
+  return (
+    <div ref={box} className="relative min-h-0 flex-1 overflow-hidden">
+      <ul className="divide-y divide-outline-variant/40">
+        {shown.map((i, n) => (
+          <IncidentRow key={i.start} incident={i} now={report.generated} cut={n >= fits} />
+        ))}
+      </ul>
+    </div>
   )
 }
 

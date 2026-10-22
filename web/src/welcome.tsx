@@ -25,7 +25,7 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
-    <div className="relative isolate flex min-h-dvh flex-col overflow-hidden">
+    <div className="relative isolate flex h-dvh flex-col overflow-x-hidden overflow-y-auto">
       <div
         aria-hidden
         className="pointer-events-none absolute -top-48 left-1/2 -z-10 size-[48rem] -translate-x-1/2 rounded-full bg-primary-container opacity-40 blur-3xl lg:left-1/4"
@@ -34,7 +34,7 @@ createRoot(root).render(
         <span className="text-sm font-medium tracking-wide text-on-surface-variant">claudication</span>
         <ThemeToggle />
       </header>
-      <main className="mx-auto flex w-full max-w-6xl flex-1 items-center px-4 py-6 sm:px-8">
+      <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4 py-6 sm:px-8">
         <Welcome />
       </main>
     </div>

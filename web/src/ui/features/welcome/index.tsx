@@ -70,7 +70,7 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
   const s = shown(result, last)
   const quarter = last?.uptime['90d'] ?? null
   return (
-    <Card title="Status">
+    <Card title="Status" fill>
       {/* A live region, so a screen reader hears the gateway come back
           without having to go looking for it. */}
       <div aria-live="polite" className={`flex items-center gap-4 rounded-md3-l px-5 py-4 ${toneContainer[s.tone]}`}>
@@ -119,31 +119,36 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
  * paragraphs that explained the address and told visitors what to do said
  * nothing a person with a key needs, or anyone else can act on, and went.
  *
- * One screen, no scrollbar, on a desktop as small as 1280×720 (the owner's
- * ask): the title is one line over three cards side by side — the status,
- * the history, the last few incidents. A hero on the left with the history
- * under it ran to 979px; a page about whether something is up should be
- * read at a glance. On a phone they stack.
+ * One screen, no scrollbar, whatever the window (the owner's ask): the
+ * page is the window's height, the title one line over the cards, and the
+ * cards take what is left — side by side on a desktop, stacked on a phone
+ * with the incidents last — the incidents listing as many as that leaves
+ * room for. Only a window too short for the status and history together
+ * scrolls. A hero on the left with the history under it ran to 979px; a page
+ * about whether something is up should be read at a glance.
  */
 export default function Welcome() {
   const { result, last } = useStatus()
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-6">
       <section aria-labelledby="welcome-title" className="flex items-center gap-4">
         <BrandMark />
-        <h1 id="welcome-title" className="text-3xl leading-tight font-normal tracking-tight text-on-surface sm:text-4xl">
+        <h1
+          id="welcome-title"
+          className="text-[clamp(1.75rem,5vh,3rem)] leading-tight font-normal tracking-tight text-on-surface"
+        >
           {COPY.title}
         </h1>
       </section>
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(9rem,1fr)] gap-6 lg:grid-cols-3 lg:grid-rows-[minmax(0,1fr)]">
         <Now result={result} last={last} />
         {last !== null && (
           <>
-            <Card title="History">
+            <Card title="History" fill>
               <UptimeStrips report={last} />
             </Card>
-            <Card title="Recent incidents">
-              <IncidentList report={last} limit={4} />
+            <Card title="Recent incidents" fill>
+              <IncidentList report={last} limit={30} fit />
             </Card>
           </>
         )}
