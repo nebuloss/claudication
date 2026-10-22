@@ -147,7 +147,7 @@ test-web:
 	@cd web && npx tsc --target es2022 --module esnext --moduleResolution bundler \
 	  --jsx react-jsx --rootDir src --outDir .charts-check \
 	  src/ui/charts/scale.ts src/ui/charts/stack.ts src/ui/charts/paint.tsx \
-	  src/ui/route.ts src/ui/clients/specs.ts src/ui/domain/model-tests.ts \
+	  src/ui/route.ts src/ui/clients/specs.ts src/ui/domain/model-tests.ts src/ui/domain/model-tree.ts \
 	  src/ui/features/requests/filter.ts src/ui/features/requests/pager.ts src/ui/primitives/title-edit.ts \
 	  src/ui/features/usage/rollup.ts
 	@node scripts/check-charts.mjs

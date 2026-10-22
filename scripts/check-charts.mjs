@@ -331,6 +331,45 @@ console.log('\n— client specs: a slot\'s binding is one menu value —')
   check('shown as the model it serves, the box checked', [fresh.value, fresh.follow?.checked], ['model:claude-opus-5-5', true])
 }
 
+console.log('\n— model tree: provider, family, model, newest first —')
+{
+  const { modelTree, familyOf, groupState, openByDefault } = await import(`${OUT}/domain/model-tree.js`)
+  // The ChatGPT backend's list as measured (2026-10-19), in its own ranking,
+  // undated; Anthropic's dated, one by its line and the rest by id.
+  const gpt = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']
+    .map((id, i) => ({ id, provider: 'openai', priority: i + 1 }))
+  const claude = [
+    { id: 'claude-haiku-4-5-20251001', created_at: '2025-10-01T00:00:00Z' },
+    { id: 'claude-opus-5', created_at: '2026-03-01T00:00:00Z' },
+    { id: 'claude-opus-5-5', created_at: '2026-09-01T00:00:00Z', line: 'Claude Opus' },
+    { id: 'claude-sonnet-5', created_at: '2026-06-01T00:00:00Z' },
+    { id: 'claude-fable-1', created_at: '2026-10-01T00:00:00Z' },
+  ]
+  const tree = modelTree([...gpt, ...claude])
+  check('Claude first, then ChatGPT', tree.map((p) => [p.key, p.title]), [['anthropic', 'Claude'], ['openai', 'ChatGPT']])
+  check('Claude by line, the family with the newest release first',
+    tree[0].families.map((f) => [f.title, f.models.map((m) => m.id)]), [
+      ['Fable', ['claude-fable-1']],
+      ['Opus', ['claude-opus-5-5', 'claude-opus-5']],
+      ['Sonnet', ['claude-sonnet-5']],
+      ['Haiku', ['claude-haiku-4-5-20251001']],
+    ])
+  check('ChatGPT by generation, newest first, each in the backend\'s ranking',
+    tree[1].families.map((f) => [f.title, f.models.map((m) => m.id)]), [
+      ['GPT-6.1', ['gpt-6.1-sol']],
+      ['GPT-6', ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna']],
+      ['GPT-5.6', ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']],
+    ])
+  check('an id with no family is Other, and last', modelTree([{ id: 'codex-auto' , provider: 'openai' }, gpt[0]])[0].families.map((f) => f.title),
+    ['GPT-6.1', 'Other'])
+  check('a line wins over the id', familyOf({ id: 'claude-x-1', line: 'opus' }).key, 'opus')
+  check('undated, a later version is newer', modelTree([{ id: 'claude-opus-5' }, { id: 'claude-opus-5-5' }])[0].families[0].models.map((m) => m.id),
+    ['claude-opus-5-5', 'claude-opus-5'])
+  check('a group is on, off or mixed', [groupState([true, true]), groupState([false]), groupState([true, false])], ['on', 'off', 'mixed'])
+  check('open at first: each provider and its newest family', [...openByDefault(tree)],
+    ['anthropic', 'anthropic/fable', 'openai', 'openai/gpt-6.1'])
+}
+
 console.log('\n— model tests: a few at a time, each result as it lands —')
 {
   const { eachBounded, explain, failing } = await import(`${OUT}/domain/model-tests.js`)

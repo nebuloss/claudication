@@ -233,6 +233,7 @@ export function Switch({
   disabled,
   info,
   quiet = false,
+  mixed = false,
 }: {
   checked: boolean
   onChange: (v: boolean) => void
@@ -240,6 +241,13 @@ export function Switch({
   disabled?: boolean
   /** What the switch does, as bullets under it, in line with its label. */
   info?: ReactNode
+  /**
+   * Neither on nor off: a group's switch over items some of which are on.
+   * Drawn with the thumb in the middle, and turned on by a click — the
+   * checkbox's indeterminate rule, since "on" is what the operator most
+   * likely reached for.
+   */
+  mixed?: boolean
   /**
    * The label spoken but not shown: an item's on/off switch in a list row or
    * a page's header, where the row or the title already says what it is.
@@ -250,7 +258,7 @@ export function Switch({
   if (info !== undefined) {
     return (
       <div className="flex flex-col gap-2">
-        <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} quiet={quiet} />
+        <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} quiet={quiet} mixed={mixed} />
         <Help plain className="sm:ml-16">
           {info}
         </Help>
@@ -262,19 +270,25 @@ export function Switch({
       <button
         type="button"
         role="switch"
-        aria-checked={checked}
+        aria-checked={mixed ? 'mixed' : checked}
         aria-label={label}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
+        onClick={() => onChange(mixed ? true : !checked)}
         className={`relative inline-flex h-8 w-13 shrink-0 items-center rounded-md3-full border-2 transition-colors disabled:pointer-events-none disabled:opacity-40 ${
-          checked ? 'border-primary bg-primary' : 'border-outline bg-surface-high'
+          mixed
+            ? 'border-primary bg-primary-container'
+            : checked
+              ? 'border-primary bg-primary'
+              : 'border-outline bg-surface-high'
         }`}
       >
         <span
           className={`absolute rounded-md3-full transition-all ${
-            checked
-              ? 'left-[calc(100%-1.75rem)] size-6 bg-on-primary'
-              : 'left-1 size-4 bg-outline'
+            mixed
+              ? 'left-[calc(50%-0.625rem)] size-5 bg-primary'
+              : checked
+                ? 'left-[calc(100%-1.75rem)] size-6 bg-on-primary'
+                : 'left-1 size-4 bg-outline'
           }`}
         />
       </button>

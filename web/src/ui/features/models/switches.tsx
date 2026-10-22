@@ -1,9 +1,23 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { api, type Account, type AccountModel, type ApiKey, type ModelTest, type ProbeResult } from '../../../api/client'
 import { useAction, useLoader } from '../../hooks'
-import { Actions, Button, Chip, ErrorBanner, ErrorState, Loading, Stack, Switch, tile, useConfirm } from '../../primitives'
+import {
+  Actions,
+  Button,
+  Chip,
+  ErrorBanner,
+  ErrorState,
+  Loading,
+  Stack,
+  Switch,
+  TreeGroup,
+  tile,
+  useConfirm,
+  useFolds,
+} from '../../primitives'
 import { compact, monthYear, timeOfDay } from '../../format'
 import { eachBounded, explain, failing, testOf } from '../../domain/model-tests'
+import { groupState, modelTree, openByDefault } from '../../domain/model-tree'
 
 /** How many model tests run at once: quick for a dozen models, and no burst. */
 const TESTS_AT_ONCE = 2
@@ -22,6 +36,12 @@ const TESTS_AT_ONCE = 2
  *
  * A switch moves at once, then the server is told; on a failure it moves back
  * and says why.
+ *
+ * Folded into provider › family › model (domain/model-tree), each group with
+ * a switch over all of it: a list that gains a model per release reads as
+ * the few families it is, with the older ones folded out of the way, and a
+ * whole family is one switch rather than one per model. Folds are remembered
+ * per list (`folds`) in this browser.
  */
 function ModelSwitches({
   load,
@@ -31,6 +51,7 @@ function ModelSwitches({
   explain: say,
   onChanged,
   deps,
+  folds,
 }: {
   load: (signal: AbortSignal) => Promise<{ models: AccountModel[] }>
   set: (model: string, enabled: boolean) => Promise<unknown>
@@ -39,8 +60,13 @@ function ModelSwitches({
   explain: (on: number, total: number) => ReactNode
   onChanged: () => void
   deps: unknown[]
+  /** Which list this is, for remembering its folds. */
+  folds: string
 }) {
   const { data, error, loading, reload } = useLoader(load, { deps })
+  const tree = useMemo(() => modelTree(data?.models ?? []), [data])
+  const defaults = useMemo(() => openByDefault(tree), [tree])
+  const fold = useFolds(folds, defaults)
   // What was switched or tested here since the list was read, so the row
   // moves at once rather than after a round trip and a re-read.
   const [flipped, setFlipped] = useState<Record<string, boolean>>({})
@@ -70,13 +96,16 @@ function ModelSwitches({
     if (!ok) setFlipped((f) => ({ ...f, [m.id]: !enabled }))
   }
 
-  // Every model at once, one switch at a time: the API takes one model per
-  // call, and the list is a dozen at most.
-  const all = async (enabled: boolean) => {
-    for (const m of data.models) {
+  // Every model of a list at once, one switch at a time: the API takes one
+  // model per call, and the list is a dozen at most. All on and All off are
+  // this over every model; a group's switch over its own.
+  const all = async (enabled: boolean, models: readonly AccountModel[] = data.models) => {
+    for (const m of models) {
       if (on(m) !== enabled) await toggle(m, enabled)
     }
   }
+  const counted = (models: readonly AccountModel[]) => `${models.filter(on).length} of ${models.length} on`
+  const switching = busy !== '' && busy !== 'test-all'
 
   const testOne = async (id: string): Promise<void> => {
     if (test === undefined) return
@@ -146,36 +175,51 @@ function ModelSwitches({
           page that grows with them puts All on and All off a long scroll above
           the switch being looked for. */}
       <ul
-        className={`${tile} m-0 flex max-h-[min(32rem,65vh)] list-none flex-col divide-y divide-outline-variant overflow-y-auto overscroll-contain px-4 py-1`}
+        className={`${tile} m-0 flex max-h-[min(32rem,65vh)] list-none flex-col divide-y divide-outline-variant overflow-y-auto overscroll-contain px-2 py-1`}
       >
-        {data.models.map((m) => {
-          const t = lastTest(m)
+        {tree.map((p) => {
+          const models = p.families.flatMap((f) => f.models)
           return (
-            <li key={m.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
-              <Switch checked={on(m)} onChange={(v) => void toggle(m, v)} label={m.display_name ?? m.id}
-                disabled={busy !== '' && busy !== 'test-all'} />
-              <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-on-surface-variant">
-                <code>{m.id}</code>
-                {m.max_input_tokens !== undefined && (
-                  <span className="tabular-nums">
-                    {compact(m.max_input_tokens)} context
-                    {m.max_tokens !== undefined && ` · ${compact(m.max_tokens)} out`}
-                  </span>
-                )}
-                {monthYear(m.created_at) !== '' && <span>{monthYear(m.created_at)}</span>}
-                {!m.listed && <span className="text-warning">no longer listed upstream</span>}
-                {t !== undefined && (
-                  <span title={t.error ?? ''} className="inline-flex items-center gap-2">
-                    <Chip tone={t.ok ? 'ok' : 'error'}>{explain(t)}</Chip> {timeOfDay(t.at)}
-                  </span>
-                )}
-                {test !== undefined && m.listed && (
-                  <Button variant="text" size="sm" busy={testing[m.id] === true} onClick={() => void testOne(m.id)}>
-                    Test
-                  </Button>
-                )}
-              </span>
-            </li>
+            <TreeGroup key={p.key} title={p.title} count={counted(models)} open={fold.isOpen(p.key)}
+              onToggle={() => fold.toggle(p.key)} state={groupState(models.map(on))}
+              onSwitch={(v) => void all(v, models)} disabled={switching}>
+              {p.families.map((f) => (
+                <TreeGroup key={f.key} level={1} title={f.title} count={counted(f.models)} open={fold.isOpen(f.key)}
+                  onToggle={() => fold.toggle(f.key)} state={groupState(f.models.map(on))}
+                  onSwitch={(v) => void all(v, f.models)} disabled={switching}>
+                  {f.models.map((m) => {
+                    const t = lastTest(m)
+                    return (
+                      <li key={m.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 pr-2">
+                        <Switch checked={on(m)} onChange={(v) => void toggle(m, v)} label={m.display_name ?? m.id}
+                          disabled={switching} />
+                        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-on-surface-variant">
+                          <code>{m.id}</code>
+                          {m.max_input_tokens !== undefined && (
+                            <span className="tabular-nums">
+                              {compact(m.max_input_tokens)} context
+                              {m.max_tokens !== undefined && ` · ${compact(m.max_tokens)} out`}
+                            </span>
+                          )}
+                          {monthYear(m.created_at) !== '' && <span>{monthYear(m.created_at)}</span>}
+                          {!m.listed && <span className="text-warning">no longer listed upstream</span>}
+                          {t !== undefined && (
+                            <span title={t.error ?? ''} className="inline-flex items-center gap-2">
+                              <Chip tone={t.ok ? 'ok' : 'error'}>{explain(t)}</Chip> {timeOfDay(t.at)}
+                            </span>
+                          )}
+                          {test !== undefined && m.listed && (
+                            <Button variant="text" size="sm" busy={testing[m.id] === true} onClick={() => void testOne(m.id)}>
+                              Test
+                            </Button>
+                          )}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </TreeGroup>
+              ))}
+            </TreeGroup>
           )
         })}
       </ul>
@@ -212,6 +256,7 @@ export default function AccountModels({
       }
       onChanged={onChanged}
       deps={[account.id]}
+      folds="accounts/models"
     />
   )
 }
@@ -229,11 +274,10 @@ export function KeyModels({ apiKey, onChanged }: { apiKey: ApiKey; onChanged: ()
       load={(signal) => api.clients.models(apiKey.id, signal)}
       set={(model, enabled) => api.clients.setModel(apiKey.id, model, enabled)}
       loadingText="Reading the models this gateway serves…"
-      explain={(on, total) =>
-        `${on} of ${total} allowed. New models arrive allowed.'
-      }
+      explain={(on, total) => `${on} of ${total} allowed. New models arrive allowed.`}
       onChanged={onChanged}
       deps={[apiKey.id]}
+      folds="clients/models"
     />
   )
 }

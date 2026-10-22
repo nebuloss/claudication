@@ -163,7 +163,7 @@ function SettingsCard({ client: c, onChanged }: { client: Client; onChanged: () 
           onChange={(v) => void switchAgent(v)}
           disabled={busy !== ''}
           label="Agent may manage this client — lets its agent switch its models and update its config through the gateway's MCP server"
-          info="The agent inside this client reaches the gateway's MCP server with the client's own key. Without this it can read what the client serves, its limits and its chats, and name its chats. With it, it can also bind this client's model names to any model the client may be offered, add and remove names of its own, and make the client's keyless update command. Never its limits, its key, its switches, the accounts or another client. Every change it makes is in the request log, under this client."
+          info="The agent inside this client reaches the gateway's MCP server with the client's own key. Without this it can read what the client serves, its limits and its chats, and name its chats. With it, it can also bind this client's model names to any model it is allowed on its Models page, add and remove names of its own, and make the client's keyless update command. Never its limits, its key, its switches, the accounts or another client. Every change it makes is in the request log, under this client."
         />
         <ErrorBanner error={error} />
       </Stack>
