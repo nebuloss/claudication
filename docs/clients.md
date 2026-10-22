@@ -324,7 +324,7 @@ count against the client's rate limit.
 | `add_model`, `remove_model` | manage | A name of its own for its picker, on a type that takes them; the type's own names stay |
 | `update_config` | manage | The client's **Update config** command (`unix` or `windows`), made as the page makes it: once, fifteen minutes, no key in it, for the address the client's machine was set up with. The agent runs it with its own shell |
 
-The whole server is switched in **Settings › MCP**: off, `/mcp` answers every
+The whole server is switched in **Settings**: off, `/mcp` answers every
 client 404 (a JSON-RPC error saying where to turn it on), as a switched-off
 gateway does, whatever the client's own switch says; clients keep the server
 in their files, so turning it back on needs nothing reinstalled.

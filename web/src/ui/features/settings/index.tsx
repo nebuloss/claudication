@@ -8,11 +8,11 @@ import { type SettingsPageId } from '../../route'
 import { Card, Empty, Loading, Page } from '../../primitives'
 
 /**
- * Settings: the gateway's own, a page each (route.ts, SETTINGS_PAGES).
+ * Settings: the gateway's own (route.ts, SETTINGS_PAGES).
  *
- *   General        whether the gateway serves, and the admin account
+ *   /settings      whether the gateway serves, the MCP server's switch and
+ *                  address, and the admin account
  *   Models         each provider's mode, its families and who serves which
- *   MCP            the MCP server's switch and address
  *   Configuration  the configuration as loaded, read-only
  *
  * The configuration is loaded by the shell, because the same request carries
@@ -25,7 +25,7 @@ export default function Settings({
   config,
   onConfigChanged,
 }: {
-  page: SettingsPageId
+  page: SettingsPageId | ''
   session: Session
   onSessionChanged: () => void
   /**
@@ -58,17 +58,18 @@ export default function Settings({
 
   return (
     <Page>
-      {page === 'general' && (
+      {page === '' && (
         <>
           {configured('Gateway', (d) => (
             <GatewaySwitch enabled={d.gateway_enabled} onChanged={() => void onConfigChanged()} />
+          ))}
+          {configured('MCP server', (d) => (
+            <McpSettings config={d} onChanged={() => void onConfigChanged()} />
           ))}
           <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
         </>
       )}
       {page === 'models' && <ModelSettings />}
-      {page === 'mcp' &&
-        configured('MCP server', (d) => <McpSettings config={d} onChanged={() => void onConfigChanged()} />)}
       {page === 'configuration' && configured('Configuration', (d) => <ConfigTable config={d} />)}
     </Page>
   )

@@ -130,10 +130,11 @@ export type ActivityPageId = (typeof ACTIVITY_PAGES)[number]['id']
  * owner asked for the navigation back (2026-10-22). Configuration last: it
  * is long, read-only, and read least.
  */
+// Settings' own path is its general view — the gateway's switch, the MCP
+// server's, the admin account — as Activity's is its load: a page named
+// General under it was the trail saying Settings twice.
 export const SETTINGS_PAGES = [
-  { id: 'general', label: 'General' },
   { id: 'models', label: 'Models' },
-  { id: 'mcp', label: 'MCP' },
   { id: 'configuration', label: 'Configuration' },
 ] as const satisfies readonly Section[]
 export type SettingsPageId = (typeof SETTINGS_PAGES)[number]['id']
@@ -191,7 +192,7 @@ export function canonical(pathname: string): string {
     // A page each; /settings itself, and any page it does not have, open
     // on General.
     case 'settings':
-      return pathOf('settings', known(SETTINGS_PAGES, a) ? a! : SETTINGS_PAGES[0].id)
+      return known(SETTINGS_PAGES, a) ? pathOf('settings', a!) : pathOf('settings')
   }
   return '/'
 }
@@ -258,7 +259,7 @@ export function navLevel(pathname: string): NavLevel {
     return {
       back: HOME,
       items: links('/settings', SETTINGS_PAGES),
-      current: pathOf(top, id ?? SETTINGS_PAGES[0].id),
+      current: id === undefined ? pathOf(top) : pathOf(top, id),
     }
   }
   // The root's own level: the screens, each opening on its first page.

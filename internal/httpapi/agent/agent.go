@@ -7,7 +7,7 @@
 // checked exactly as /v1 checks it (gateway.Guard, handed across by the
 // composition root): a missing or unknown key is 401, a switched-off client
 // 403, a switched-off gateway 404 — and so is the server itself while its own
-// switch, Settings › MCP, is off (Setting) — and the key's rate limit counts these
+// switch, Settings, is off (Setting) — and the key's rate limit counts these
 // calls as it counts any other. The relay rather than the admin listener,
 // because the agent runs where the client does, which reaches the relay and
 // may never reach the admin address; and the client's key rather than an
@@ -207,7 +207,7 @@ func (a *Agent) switchedOn(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if a.d.On != nil && !a.d.On.On() {
 			mcp.WriteError(w, http.StatusNotFound,
-				"this gateway's MCP server is switched off; an administrator turns it on under Settings › MCP")
+				"this gateway's MCP server is switched off; an administrator turns it on under Settings")
 			return
 		}
 		next.ServeHTTP(w, r)

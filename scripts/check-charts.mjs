@@ -193,17 +193,19 @@ check('the overview lives at the root, not at its own name', canonical('/overvie
 // A URL is something people type, edit and truncate.
 check('a trailing slash is the same page', canonical('/accounts/'), '/accounts')
 check('a doubled slash is forgiven', canonical('//clients'), '/clients')
-check('settings opens on General', canonical('/settings'), '/settings/general')
-check('its pages are pages', ['models', 'mcp', 'configuration'].map((p) => canonical(`/settings/${p}`)),
-  ['/settings/models', '/settings/mcp', '/settings/configuration'])
-check('a setting it does not have lands on General', canonical('/settings/images'), '/settings/general')
+check('settings is its own general view', canonical('/settings'), '/settings')
+check('its pages are pages', ['models', 'configuration'].map((p) => canonical(`/settings/${p}`)),
+  ['/settings/models', '/settings/configuration'])
+check('general and MCP are not pages: they are Settings itself', ['general', 'mcp'].map((p) => canonical(`/settings/${p}`)),
+  ['/settings', '/settings'])
+check('a setting it does not have lands on Settings', canonical('/settings/images'), '/settings')
 check('an unknown screen falls back', canonical('/nonesuch'), '/')
 // Screens that went away are not redirected: their bookmarks land on the
 // overview, rather than on a page that only looks like the one they named.
 check('the old key list is not a screen', canonical('/keys'), '/')
 check('nor is a key', canonical('/keys/k1/usage'), '/')
-check('the APIs section went with the per-API switches', canonical('/settings/apis'), '/settings/general')
-check('and the aliases with the global names', canonical('/settings/aliases'), '/settings/general')
+check('the APIs section went with the per-API switches', canonical('/settings/apis'), '/settings')
+check('and the aliases with the global names', canonical('/settings/aliases'), '/settings')
 
 // An item is its own overview, with its traffic and its settings as pages
 // under it: two levels, never a third.
@@ -230,7 +232,7 @@ check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts
 check('a client page too', tab('/clients/c1/requests'), 'clients')
 // Round trip: every canonical path is its own canonical form.
 {
-  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/models', '/activity/accounts', '/activity/requests', '/settings/general', '/settings/mcp']
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/models', '/activity/accounts', '/activity/requests', '/settings', '/settings/models']
   check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
 }
 
@@ -261,19 +263,18 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')
   check('and goes back to the list', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients' })
   // Settings lists its pages, as Activity does, with the way back.
-  check('settings opens on General from the top level', hrefs(lvl('/'))[3], '/settings/general')
-  check('settings lists its pages', hrefs(lvl('/settings/mcp')), [
-    '/settings/general', '/settings/models', '/settings/mcp', '/settings/configuration',
-  ])
-  check('the page open is current', lvl('/settings/mcp').current, '/settings/mcp')
+  check('settings opens on its general view from the top level', hrefs(lvl('/'))[3], '/settings')
+  check('settings lists its pages', hrefs(lvl('/settings/models')), ['/settings/models', '/settings/configuration'])
+  check('the page open is current', lvl('/settings/models').current, '/settings/models')
+  check('nothing is current on its general view', lvl('/settings').current, '/settings')
   check('and goes back to the main menu', lvl('/settings/models').back?.href, '/')
 
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
   // Every trail starts at the root, and no level is named twice.
   check('the overview is the root alone', trail('/'), ['Overview'])
   check('a list', trail('/clients'), ['Overview', 'Clients'])
-  check('a settings page', trail('/settings'), ['Overview', 'Settings', 'General'])
-  check('the MCP page', trail('/settings/mcp'), ['Overview', 'Settings', 'MCP'])
+  check('settings is its own step', trail('/settings'), ['Overview', 'Settings'])
+  check('a settings page', trail('/settings/models'), ['Overview', 'Settings', 'Models'])
   check('a client is its name, not its name then Overview', trail('/clients/c1'), ['Overview', 'Clients', 'clients:c1'])
   check('a page of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
   check('an activity page', trail('/activity/requests'), ['Overview', 'Activity', 'Requests'])

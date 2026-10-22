@@ -260,7 +260,7 @@ export default function App() {
               {tab === 'activity' && <Activity page={pageIdOf(ACTIVITY_PAGES, item)} />}
               {tab === 'settings' && (
                 <Settings
-                  page={pageIdOf(SETTINGS_PAGES, item) || 'general'}
+                  page={pageIdOf(SETTINGS_PAGES, item)}
                   session={state.session}
                   onSessionChanged={() => void probe()}
                   config={config}

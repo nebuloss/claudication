@@ -225,7 +225,7 @@ func TestMCPRefusesAsV1Does(t *testing.T) {
 	}
 	cl := mcpClient{t: t, url: url, header: "Authorization", value: "Bearer " + plain}
 	expect("the MCP server off", cl, http.StatusNotFound)
-	if _, out := cl.post(init); !strings.Contains(fmt.Sprint(out["error"]), "Settings › MCP") {
+	if _, out := cl.post(init); !strings.Contains(fmt.Sprint(out["error"]), "under Settings") {
 		t.Errorf("the MCP server off says %v", out["error"])
 	}
 	expect("the MCP server off, no key", mcpClient{t: t, url: url}, http.StatusUnauthorized)
