@@ -4,6 +4,7 @@ import { accountHref } from '../../route'
 import {
   BindingRow,
   Card,
+  Checkbox,
   Chip,
   ErrorBanner,
   ErrorState,
@@ -102,12 +103,12 @@ function ProviderCard({ report: p, onChanged }: { report: FamilyReport; onChange
 }
 
 /**
- * One family, drawn as a client's model name is: what it is, and one menu of
- * what it serves — Latest, each account its own newest version, so a plan
- * without the newest still serves the family; or one version for the whole
- * gateway. One menu, as a client's name has, rather than a checkbox that
- * greyed a menu out and a list of every version under it: the versions are in
- * the menu, and an account's own Models page is where they are switched.
+ * One family, drawn as a client's model name is — its name and a menu of what
+ * it serves — with a Latest checkbox between: checked, each account serves its
+ * own newest version, so a plan without the newest still serves the family,
+ * and the greyed menu says what that is now; unchecked, the menu pins one
+ * version for the whole gateway. The versions are in the menu, not listed
+ * under it: an account's own Models page is where they are switched.
  */
 function FamilyBinding({
   family: f,
@@ -128,20 +129,23 @@ function FamilyBinding({
       await api.models.setVersion(f.follows, model)
       onChanged()
     })
-  const options = [
-    { value: '', label: 'Latest', hint: 'each account its newest' },
-    // Only what some switched-on account serves: a version switched off on
-    // every account leaves the menu, and comes back when one switches it on
-    // — the page reads the accounts afresh each time it opens. A pinned one
-    // stays while pinned, marked, so the choice in force is never hidden.
-    ...f.versions
-      .filter((v) => v.on.length > 0 || v.model === pinned)
-      .map((v) => ({
+  const latest = pinned === ''
+  // Only what some switched-on account serves: a version switched off on
+  // every account leaves the menu, and comes back when one switches it on
+  // — the page reads the accounts afresh each time it opens. A pinned one
+  // stays while pinned, marked, so the choice in force is never hidden.
+  const served = f.versions.filter((v) => v.on.length > 0 || v.model === pinned)
+  // Following the latest, the menu is greyed and says what that is now;
+  // pinned, it offers the versions. Unchecking pins what is served now, so
+  // the switch changes nothing until another version is chosen.
+  const options = latest
+    ? [{ value: '', label: f.serving || 'no account serves it' }]
+    : served.map((v) => ({
         value: v.model,
         label: v.title || v.model,
         hint: v.on.length > 0 ? v.model : 'no account serves it',
-      })),
-  ]
+      }))
+  const follow = (on: boolean) => set(on ? '' : f.serving || (served[0]?.model ?? ''))
   const pinnedVersion = f.versions.find((v) => v.model === pinned)
   const lacking = pinned !== '' ? connected.filter((id) => !(pinnedVersion?.on ?? []).includes(id)) : []
 
@@ -168,7 +172,14 @@ function FamilyBinding({
       error={error}
     >
       <Field label="Model name" value={f.id} mono readOnly />
-      <Select label="Serves" value={pinned} options={options} disabled={busy !== ''} onChange={(v) => void set(v)} />
+      <Checkbox
+        label="Latest"
+        title="Serve each account's newest version of the family"
+        checked={latest}
+        disabled={busy !== '' || (latest && served.length === 0)}
+        onChange={(on) => void follow(on)}
+      />
+      <Select label="Serves" disabled={latest || busy !== ''} value={pinned} options={options} onChange={(v) => void set(v)} />
     </BindingRow>
   )
 }
