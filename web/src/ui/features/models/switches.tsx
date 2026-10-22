@@ -8,42 +8,67 @@ import {
   ErrorBanner,
   ErrorState,
   Loading,
+  SearchField,
   Stack,
-  Switch,
+  Tree,
   TreeGroup,
-  tile,
+  TreeItem,
   useConfirm,
   useFolds,
 } from '../../primitives'
 import { compact, monthYear, timeOfDay } from '../../format'
-import { eachBounded, explain, failing, testOf } from '../../domain/model-tests'
-import { groupState, modelTree, openByDefault } from '../../domain/model-tree'
+import { brief, eachBounded, explain, failing, testOf } from '../../domain/model-tests'
+import {
+  changes,
+  filterTree,
+  groupState,
+  modelTree,
+  modelsOf,
+  newestOnly,
+  openByDefault,
+} from '../../domain/model-tree'
 
 /** How many model tests run at once: quick for a dozen models, and no burst. */
 const TESTS_AT_ONCE = 2
 
 /**
- * A list of models, each with a switch: what an account may serve, or what a
- * client in direct mode may ask for. One component for both, because the rule
- * is one rule — kept as what is off, matched by store.ModelKey so a dated id
- * and its short form are one switch, and new models arrive on.
+ * The facts' columns on a wide list — id, size, release. Fixed, because each
+ * row is its own grid and only fixed widths line up down the list; sized for
+ * the longest of each the providers list (claude-sonnet-4-5-20250929,
+ * "1.0M in · 128k out", "Sep 2026").
+ */
+const COLUMNS = '11.5rem 7rem 4rem'
+
+/** One write of a batch: this model in or out. */
+type Change = { model: AccountModel; enabled: boolean }
+
+/**
+ * A checklist of models: what an account may serve, or what a client may be
+ * bound to (in direct mode, may name). One component for both, because the
+ * rule is one rule — kept as what is off, matched by store.ModelKey so a
+ * dated id and its short form are one box, and new models arrive on — and
+ * the account's list is the same widget over that account's models alone.
  *
  * With `test`, each model can be tried on the spot — one tiny turn on the
  * account's own credential, no client's key, nothing in the request log — and
- * its last result, kept by the gateway, stays beside its switch. A model that
- * failed for a reason that lasts can be switched off from here in one go; never
- * automatically, because a test is one answer and an operator decides.
+ * its last result, kept by the gateway, stays at the end of its row. A model
+ * that failed for a reason that lasts can be switched off from here in one
+ * go; never automatically, because a test is one answer and an operator
+ * decides.
  *
- * A switch moves at once, then the server is told; on a failure it moves back
- * and says why.
+ * Folded into provider › family › model (domain/model-tree), so a list that
+ * gains a model per release reads as the few families it is, with the older
+ * ones folded out of the way; folds are remembered per list (`folds`) in this
+ * browser. Above it, the quick ways through a long list: a search, All and
+ * None, and Newest only.
  *
- * Folded into provider › family › model (domain/model-tree), each group with
- * a switch over all of it: a list that gains a model per release reads as
- * the few families it is, with the older ones folded out of the way, and a
- * whole family is one switch rather than one per model. Folds are remembered
- * per list (`folds`) in this browser.
+ * A box moves at once, then the server is told; on a failure it moves back
+ * and says why. Anything that sets several models — a folded group's box, a
+ * preset — is the same per-model call, one after another under one busy
+ * state: the API takes a model per call, the list is a dozen or two, and a
+ * failure stops the rest and puts their boxes back.
  */
-function ModelSwitches({
+function ModelChecklist({
   load,
   set,
   test,
@@ -67,6 +92,8 @@ function ModelSwitches({
   const tree = useMemo(() => modelTree(data?.models ?? []), [data])
   const defaults = useMemo(() => openByDefault(tree), [tree])
   const fold = useFolds(folds, defaults)
+  const [query, setQuery] = useState('')
+  const shown = useMemo(() => filterTree(tree, query), [tree, query])
   // What was switched or tested here since the list was read, so the row
   // moves at once rather than after a round trip and a re-read.
   const [flipped, setFlipped] = useState<Record<string, boolean>>({})
@@ -86,26 +113,34 @@ function ModelSwitches({
   const lastTest = (m: AccountModel) => tested[m.id] ?? m.test
   const count = data.models.filter(on).length
   const failed = failing(data.models.map((m) => ({ id: m.id, enabled: on(m), test: lastTest(m) })))
+  const filtering = query.trim() !== ''
+  const visible = modelsOf(shown)
+  // Writing anything holds every box still, so two batches never interleave;
+  // a test running does not, since it changes nothing.
+  const writing = busy !== '' && busy !== 'test-all'
 
-  const toggle = async (m: AccountModel, enabled: boolean) => {
-    setFlipped((f) => ({ ...f, [m.id]: enabled }))
-    const ok = await run(m.id, async () => {
-      await set(m.id, enabled)
-      onChanged()
+  const apply = (key: string, batch: readonly Change[]) =>
+    run(key, async () => {
+      setFlipped((f) => ({ ...f, ...Object.fromEntries(batch.map((c) => [c.model.id, c.enabled])) }))
+      let done = 0
+      try {
+        for (const c of batch) {
+          await set(c.model.id, c.enabled)
+          done++
+        }
+      } catch (err) {
+        // What was not written goes back to where it was; what was, stays.
+        setFlipped((f) => ({ ...f, ...Object.fromEntries(batch.slice(done).map((c) => [c.model.id, !c.enabled])) }))
+        throw err
+      } finally {
+        if (done > 0) onChanged()
+      }
     })
-    if (!ok) setFlipped((f) => ({ ...f, [m.id]: !enabled }))
-  }
-
-  // Every model of a list at once, one switch at a time: the API takes one
-  // model per call, and the list is a dozen at most. All on and All off are
-  // this over every model; a group's switch over its own.
-  const all = async (enabled: boolean, models: readonly AccountModel[] = data.models) => {
-    for (const m of models) {
-      if (on(m) !== enabled) await toggle(m, enabled)
-    }
-  }
-  const counted = (models: readonly AccountModel[]) => `${models.filter(on).length} of ${models.length} on`
-  const switching = busy !== '' && busy !== 'test-all'
+  const setAll = (key: string, models: readonly AccountModel[], enabled: boolean) =>
+    void apply(key, changes(models, on, () => enabled))
+  const newest = newestOnly(tree)
+  const toNewest = changes(data.models, on, (m) => newest.get(m.id))
+  const counted = (models: readonly AccountModel[]) => `${models.filter(on).length} of ${models.length}`
 
   const testOne = async (id: string): Promise<void> => {
     if (test === undefined) return
@@ -136,102 +171,131 @@ function ModelSwitches({
       title: `Switch off ${failed.length} failing model${failed.length === 1 ? '' : 's'}?`,
       body: `Their last test failed: ${failed.join(', ')}. Another account with them on serves them instead.`,
       confirmLabel: 'Switch off',
-      action: async () => {
-        for (const id of failed) {
-          const m = data.models.find((x) => x.id === id)
-          if (m !== undefined) await toggle(m, false)
-        }
-      },
+      action: () => apply('failing', changes(data.models, on, (m) => (failed.includes(m.id) ? false : undefined))),
     })
+
+  const row = (m: AccountModel) => {
+    const t = lastTest(m)
+    const name = m.display_name ?? m.id
+    return (
+      <TreeItem
+        key={m.id}
+        level={2}
+        label={name}
+        name={
+          <>
+            {name}
+            {!m.listed && <span className="ml-2 text-xs text-warning">no longer listed upstream</span>}
+          </>
+        }
+        checked={on(m)}
+        onChange={(v) => void apply(m.id, [{ model: m, enabled: v }])}
+        disabled={writing}
+        columns={COLUMNS}
+        facts={[
+          <code key="id" title={m.id}>
+            {m.id}
+          </code>,
+          m.max_input_tokens !== undefined ? (
+            <span key="size" className="tabular-nums">
+              {compact(m.max_input_tokens)} in{m.max_tokens !== undefined && ` · ${compact(m.max_tokens)} out`}
+            </span>
+          ) : null,
+          monthYear(m.created_at) !== '' ? <span key="date">{monthYear(m.created_at)}</span> : null,
+        ]}
+        end={
+          test === undefined ? undefined : (
+            <>
+              {t !== undefined && (
+                <span
+                  className="min-w-0 truncate"
+                  title={`${explain(t)}${t.error !== undefined && t.error !== explain(t) ? `\n${t.error}` : ''}\nTested at ${timeOfDay(t.at)}`}
+                >
+                  <Chip tone={t.ok ? 'ok' : 'error'}>{brief(t)}</Chip>
+                </span>
+              )}
+              {m.listed && (
+                <Button variant="text" size="sm" busy={testing[m.id] === true} onClick={() => void testOne(m.id)}>
+                  Test
+                </Button>
+              )}
+            </>
+          )
+        }
+      />
+    )
+  }
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="max-w-[80ch] text-sm text-on-surface">{say(count, data.models.length)}</p>
+      <p className="max-w-[80ch] text-sm text-on-surface">{say(count, data.models.length)}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchField value={query} onChange={setQuery} label="Find a model" />
         <Actions>
-          {test !== undefined && (
+          {/* Over what the search shows while there is one, so "find the
+              Haikus, None" is two steps; and said so on the button. */}
+          <Button variant="outlined" size="sm" busy={busy === 'all'} disabled={busy !== '' || visible.every(on)}
+            onClick={() => setAll('all', visible, true)}>
+            {filtering ? 'All shown' : 'All'}
+          </Button>
+          <Button variant="outlined" size="sm" busy={busy === 'none'} disabled={busy !== '' || !visible.some(on)}
+            onClick={() => setAll('none', visible, false)}>
+            {filtering ? 'None shown' : 'None'}
+          </Button>
+          {!filtering && (
+            <Button variant="outlined" size="sm" busy={busy === 'newest'} disabled={busy !== '' || toNewest.length === 0}
+              title="The newest model of each family on, every older one off"
+              onClick={() => void apply('newest', toNewest)}>
+              Newest only
+            </Button>
+          )}
+        </Actions>
+        {test !== undefined && (
+          <Actions>
             <Button variant="tonal" size="sm" onClick={() => void testAll()} busy={busy === 'test-all'}
               disabled={busy !== ''}>
               Test all
             </Button>
-          )}
-          {failed.length > 0 && (
-            <Button variant="outlined" size="sm" tone="error" onClick={() => void switchOffFailing()}
-              disabled={busy !== ''}>
-              Switch off failing models
-            </Button>
-          )}
-          <Button variant="outlined" size="sm" onClick={() => void all(true)}
-            disabled={busy !== '' || count === data.models.length}>
-            All on
-          </Button>
-          <Button variant="outlined" size="sm" onClick={() => void all(false)} disabled={busy !== '' || count === 0}>
-            All off
-          </Button>
-        </Actions>
+            {failed.length > 0 && (
+              <Button variant="outlined" size="sm" tone="error" busy={busy === 'failing'}
+                onClick={() => void switchOffFailing()} disabled={busy !== ''}>
+                Switch off failing
+              </Button>
+            )}
+          </Actions>
+        )}
       </div>
       <ErrorBanner error={failure} />
-      {/* Scrolls in its own box: an account lists a model per release, and a
-          page that grows with them puts All on and All off a long scroll above
-          the switch being looked for. */}
-      <ul
-        className={`${tile} m-0 flex max-h-[min(32rem,65vh)] list-none flex-col divide-y divide-outline-variant overflow-y-auto overscroll-contain px-2 py-1`}
-      >
-        {tree.map((p) => {
-          const models = p.families.flatMap((f) => f.models)
-          return (
-            <TreeGroup key={p.key} title={p.title} count={counted(models)} open={fold.isOpen(p.key)}
-              onToggle={() => fold.toggle(p.key)} state={groupState(models.map(on))}
-              onSwitch={(v) => void all(v, models)} disabled={switching}>
-              {p.families.map((f) => (
-                <TreeGroup key={f.key} level={1} title={f.title} count={counted(f.models)} open={fold.isOpen(f.key)}
-                  onToggle={() => fold.toggle(f.key)} state={groupState(f.models.map(on))}
-                  onSwitch={(v) => void all(v, f.models)} disabled={switching}>
-                  {f.models.map((m) => {
-                    const t = lastTest(m)
-                    return (
-                      <li key={m.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 pr-2">
-                        <Switch checked={on(m)} onChange={(v) => void toggle(m, v)} label={m.display_name ?? m.id}
-                          disabled={switching} />
-                        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-on-surface-variant">
-                          <code>{m.id}</code>
-                          {m.max_input_tokens !== undefined && (
-                            <span className="tabular-nums">
-                              {compact(m.max_input_tokens)} context
-                              {m.max_tokens !== undefined && ` · ${compact(m.max_tokens)} out`}
-                            </span>
-                          )}
-                          {monthYear(m.created_at) !== '' && <span>{monthYear(m.created_at)}</span>}
-                          {!m.listed && <span className="text-warning">no longer listed upstream</span>}
-                          {t !== undefined && (
-                            <span title={t.error ?? ''} className="inline-flex items-center gap-2">
-                              <Chip tone={t.ok ? 'ok' : 'error'}>{explain(t)}</Chip> {timeOfDay(t.at)}
-                            </span>
-                          )}
-                          {test !== undefined && m.listed && (
-                            <Button variant="text" size="sm" busy={testing[m.id] === true} onClick={() => void testOne(m.id)}>
-                              Test
-                            </Button>
-                          )}
-                        </span>
-                      </li>
-                    )
-                  })}
-                </TreeGroup>
-              ))}
-            </TreeGroup>
-          )
-        })}
-      </ul>
+      <Tree label="Models">
+        {shown.length === 0 && (
+          <li className="list-none px-3 py-6 text-sm text-on-surface-variant">No model matches “{query.trim()}”.</li>
+        )}
+        {shown.map((p) => (
+          // Open while searching, every group: a match folded away is a
+          // match not found.
+          <TreeGroup key={p.key} title={p.title} count={counted(modelsOf([p]))}
+            open={filtering || fold.isOpen(p.key)} onToggle={filtering ? undefined : () => fold.toggle(p.key)}
+            state={groupState(modelsOf([p]).map(on))} onSet={(v) => setAll(p.key, modelsOf([p]), v)}
+            disabled={writing}>
+            {p.families.map((f) => (
+              <TreeGroup key={f.key} level={1} title={f.title} count={counted(f.models)}
+                open={filtering || fold.isOpen(f.key)} onToggle={filtering ? undefined : () => fold.toggle(f.key)}
+                state={groupState(f.models.map(on))} onSet={(v) => setAll(f.key, f.models, v)} disabled={writing}>
+                {f.models.map(row)}
+              </TreeGroup>
+            ))}
+          </TreeGroup>
+        ))}
+      </Tree>
     </Stack>
   )
 }
 
 /**
- * The models one account serves, each with a switch and a test.
+ * The models one account serves, each with a box and a test.
  *
  * Read from its provider with this account's own token, because subscriptions
- * differ in what they serve and a switch only means something over a model the
+ * differ in what they serve and a box only means something over a model the
  * account has. Off takes the model out of this account's rotation on the next
  * request: another account with it on serves instead, and with it off on every
  * account, clients are told the gateway does not serve it — and it leaves the
@@ -245,7 +309,7 @@ export default function AccountModels({
   onChanged: () => void
 }) {
   return (
-    <ModelSwitches
+    <ModelChecklist
       load={(signal) => api.accounts.models(account.id, signal)}
       set={(model, enabled) => api.accounts.setModel(account.id, model, enabled)}
       test={(model) => api.accounts.test(account.id, model)}
@@ -263,14 +327,14 @@ export default function AccountModels({
 
 /**
  * The models a client is allowed: every model available to it, each with a
- * switch. Off is what its names may not be bound to — by the operator, or by
- * its agent through the MCP server — and, in a custom client's direct mode,
- * what it may not name; refused for this client alone, before anything
+ * box. Unchecked is what its names may not be bound to — by the operator, or
+ * by its agent through the MCP server — and, in a custom client's direct
+ * mode, what it may not name; refused for this client alone, before anything
  * reaches an account, and left out of every list it is given.
  */
 export function KeyModels({ apiKey, onChanged }: { apiKey: ApiKey; onChanged: () => void }) {
   return (
-    <ModelSwitches
+    <ModelChecklist
       load={(signal) => api.clients.models(apiKey.id, signal)}
       set={(model, enabled) => api.clients.setModel(apiKey.id, model, enabled)}
       loadingText="Reading the models this gateway serves…"

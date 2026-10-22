@@ -72,7 +72,7 @@ export function ClientPage({
         <SlotsCard client={client} onChanged={changed} />
         <Card title="Allowed models">
           <Note className="mb-4">
-            The agent can only switch to allowed models. A model switched off here is out of this client&rsquo;s
+            The agent can only switch to allowed models. A model unchecked here is out of this client&rsquo;s
             menus above, out of what its agent sees through the gateway&rsquo;s MCP server and may bind, and
             refused for it{client.type.custom ? ', named directly or through a name' : ''}; a name bound to it
             shows as unavailable until it is allowed again or rebound. Every other client is unaffected.

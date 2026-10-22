@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Help } from './info'
 import { Overline } from './data'
 import { Popover, menuItem, useAnchoredPanel } from './popover'
@@ -233,7 +233,6 @@ export function Switch({
   disabled,
   info,
   quiet = false,
-  mixed = false,
 }: {
   checked: boolean
   onChange: (v: boolean) => void
@@ -241,13 +240,6 @@ export function Switch({
   disabled?: boolean
   /** What the switch does, as bullets under it, in line with its label. */
   info?: ReactNode
-  /**
-   * Neither on nor off: a group's switch over items some of which are on.
-   * Drawn with the thumb in the middle, and turned on by a click — the
-   * checkbox's indeterminate rule, since "on" is what the operator most
-   * likely reached for.
-   */
-  mixed?: boolean
   /**
    * The label spoken but not shown: an item's on/off switch in a list row or
    * a page's header, where the row or the title already says what it is.
@@ -258,7 +250,7 @@ export function Switch({
   if (info !== undefined) {
     return (
       <div className="flex flex-col gap-2">
-        <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} quiet={quiet} mixed={mixed} />
+        <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} quiet={quiet} />
         <Help plain className="sm:ml-16">
           {info}
         </Help>
@@ -270,25 +262,17 @@ export function Switch({
       <button
         type="button"
         role="switch"
-        aria-checked={mixed ? 'mixed' : checked}
+        aria-checked={checked}
         aria-label={label}
         disabled={disabled}
-        onClick={() => onChange(mixed ? true : !checked)}
+        onClick={() => onChange(!checked)}
         className={`relative inline-flex h-8 w-13 shrink-0 items-center rounded-md3-full border-2 transition-colors disabled:pointer-events-none disabled:opacity-40 ${
-          mixed
-            ? 'border-primary bg-primary-container'
-            : checked
-              ? 'border-primary bg-primary'
-              : 'border-outline bg-surface-high'
+          checked ? 'border-primary bg-primary' : 'border-outline bg-surface-high'
         }`}
       >
         <span
           className={`absolute rounded-md3-full transition-all ${
-            mixed
-              ? 'left-[calc(50%-0.625rem)] size-5 bg-primary'
-              : checked
-                ? 'left-[calc(100%-1.75rem)] size-6 bg-on-primary'
-                : 'left-1 size-4 bg-outline'
+            checked ? 'left-[calc(100%-1.75rem)] size-6 bg-on-primary' : 'left-1 size-4 bg-outline'
           }`}
         />
       </button>
@@ -304,7 +288,14 @@ export function Switch({
  *
  * A real input, drawn over: the keyboard, the label's click and a screen
  * reader's checkbox come with it. The 40px round state layer is MD3's touch
- * target, so the 18px box is not the only thing a pointer can hit.
+ * target, so the 18px box is not the only thing a pointer can hit; `dense`
+ * takes it to 32px for a row of a checklist, where the whole row is the
+ * label and so the target.
+ *
+ * Also the checklist's box: `indeterminate` is the native property, set on
+ * the element (React has no attribute for it), so a screen reader says
+ * "mixed" and a click does what a browser's mixed checkbox does — checks it,
+ * which over a group means every model in it on.
  */
 export function Checkbox({
   checked,
@@ -312,6 +303,10 @@ export function Checkbox({
   label,
   disabled,
   title,
+  indeterminate = false,
+  quiet = false,
+  dense = false,
+  children,
 }: {
   checked: boolean
   onChange: (v: boolean) => void
@@ -319,21 +314,36 @@ export function Checkbox({
   disabled?: boolean
   /** Said on hover: what checking it does, where the label has no room. */
   title?: string
+  /** Neither: a group's box over items only some of which are checked. */
+  indeterminate?: boolean
+  /** The label spoken but not shown, where the row beside it already says it. */
+  quiet?: boolean
+  dense?: boolean
+  /** Shown in place of the label: a name with something muted beside it. */
+  children?: ReactNode
 }) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (ref.current !== null) ref.current.indeterminate = indeterminate
+  }, [indeterminate])
   return (
     <label
       title={title}
-      className={`inline-flex items-center gap-1 pr-2 text-sm text-on-surface select-none ${
+      className={`inline-flex min-w-0 items-center gap-1 text-sm text-on-surface select-none ${quiet ? '' : 'pr-2'} ${
         disabled === true ? 'cursor-default opacity-40' : 'cursor-pointer'
       }`}
     >
-      <span className="state-layer relative grid size-10 shrink-0 place-items-center rounded-md3-full">
+      <span
+        className={`state-layer relative grid shrink-0 place-items-center rounded-md3-full ${dense ? 'size-8' : 'size-10'}`}
+      >
         <input
+          ref={ref}
           type="checkbox"
-          checked={checked}
+          checked={checked && !indeterminate}
           disabled={disabled}
+          aria-label={quiet || children !== undefined ? label : undefined}
           onChange={(e) => onChange(e.target.checked)}
-          className="peer size-[18px] cursor-[inherit] appearance-none rounded-[2px] border-2 border-on-surface-variant transition-colors checked:border-primary checked:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          className="peer size-[18px] cursor-[inherit] appearance-none rounded-[2px] border-2 border-on-surface-variant transition-colors checked:border-primary checked:bg-primary indeterminate:border-primary indeterminate:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         />
         <svg
           viewBox="0 0 24 24"
@@ -342,8 +352,73 @@ export function Checkbox({
         >
           <path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
         </svg>
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden
+          className="pointer-events-none absolute hidden size-[14px] fill-on-primary peer-indeterminate:block"
+        >
+          <path d="M5 11h14v2H5z" />
+        </svg>
       </span>
-      {label}
+      {quiet ? null : (children ?? label)}
+    </label>
+  )
+}
+
+/**
+ * A search box for narrowing a list in place: the compact outlined field,
+ * with a magnifier where the label would ride, and a clear button once
+ * something is typed. Escape clears it too, so a filter is never more than
+ * a key from the whole list.
+ */
+export function SearchField({
+  value,
+  onChange,
+  label,
+}: {
+  value: string
+  onChange: (v: string) => void
+  /** Its placeholder and its accessible name: "Find a model". */
+  label: string
+}) {
+  return (
+    <label className="relative block min-w-0 flex-1 basis-56">
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 fill-on-surface-variant"
+      >
+        <path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14" />
+      </svg>
+      <input
+        type="search"
+        value={value}
+        placeholder={label}
+        aria-label={label}
+        spellCheck={false}
+        autoComplete="off"
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && value !== '') {
+            e.preventDefault()
+            onChange('')
+          }
+        }}
+        className={`${outlinedField(false, 'none')} h-10! px-10! focus:px-[39px]! focus-visible:px-[39px]! text-sm placeholder:text-on-surface-variant [&::-webkit-search-cancel-button]:hidden`}
+      />
+      {value !== '' && (
+        <button
+          type="button"
+          aria-label="Clear"
+          title="Clear"
+          onClick={() => onChange('')}
+          className="state-layer absolute top-1/2 right-1 grid size-8 -translate-y-1/2 place-items-center rounded-md3-full text-on-surface-variant"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
+            <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+          </svg>
+        </button>
+      )}
     </label>
   )
 }
