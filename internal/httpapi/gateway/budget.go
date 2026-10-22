@@ -20,7 +20,7 @@ import (
 // A key can overshoot its budget by one request, necessarily: what a request
 // will cost is only known once it has been served. The budget is a ceiling on
 // what has already been spent, not a reservation against what is about to be.
-func (s *Gateway) withinBudget(w http.ResponseWriter, r *http.Request, p api.Protocol, key store.APIKey) bool {
+func (s *Gateway) withinBudget(w http.ResponseWriter, r *http.Request, p api.ErrorWriter, key store.APIKey) bool {
 	if key.TokenBudget <= 0 || !s.cfg.Usage.Enabled() {
 		// No budget, or no usage history to measure one against — enforcing a
 		// budget with retention off would refuse everything the moment the

@@ -96,7 +96,12 @@ CREATE TABLE clients (
     -- capped at 2000 px, which Claude refuses it over otherwise
     -- (internal/relay/passes, ShrinkImages). Off unless switched on: it
     -- re-encodes the client's own pictures.
-    fit_images    INTEGER NOT NULL DEFAULT 0
+    fit_images    INTEGER NOT NULL DEFAULT 0,
+    -- Whether the client's own agent may change it through the gateway's MCP
+    -- server (internal/httpapi/agent): rebind its model names, add and
+    -- remove its own, and make its update command. Off unless switched on:
+    -- it hands a model the operator's choice of what the client runs.
+    agent_manage  INTEGER NOT NULL DEFAULT 0
 ) WITHOUT ROWID;
 
 -- A direct-mode client's models switched off. Kept as what is off, so a model

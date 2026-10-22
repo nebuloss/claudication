@@ -2,6 +2,14 @@ package api
 
 import "net/http"
 
+// ErrorWriter answers a refusal in a surface's own envelope. Every Protocol is
+// one; so is the MCP server (internal/httpapi/agent), which the gateway's key
+// check fronts as it fronts /v1 and whose refusals have to be in a shape an
+// MCP client reads.
+type ErrorWriter interface {
+	WriteError(w http.ResponseWriter, status int, kind ErrorKind, message string)
+}
+
 // Protocol is one client-facing dialect.
 //
 // Implementations are stateless and shared across requests; per-request state

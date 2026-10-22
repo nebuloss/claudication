@@ -62,7 +62,7 @@ func rejection(r *http.Request, key store.APIKey, status int, reason string) sto
 // path is: a client can only act on an error it can parse, and Codex reads
 // error.code where Claude Code reads error.type. The kinds are Anthropic's,
 // which every dialect maps — authentication_error, rate_limit_error, api_error.
-func (s *Gateway) requireAPIKey(p api.Protocol, next http.Handler) http.Handler {
+func (s *Gateway) requireAPIKey(p api.ErrorWriter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := httpx.ClientIP(r.Context())
 

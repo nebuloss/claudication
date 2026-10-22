@@ -67,6 +67,22 @@ type accountWindows struct {
 	weight5, weight7 map[string]float64
 }
 
+// ShareOf is one client's estimated share of the subscriptions now, as its
+// page shows it, for the MCP server's status tool (internal/httpapi/agent),
+// to which the composition root hands it: the surfaces do not import one
+// another. ok is false when there is no usage history to estimate from.
+func (s *Admin) ShareOf(ctx context.Context, keyID string) (SubscriptionShare, bool) {
+	if !s.cfg.Usage.Enabled() {
+		return SubscriptionShare{}, false
+	}
+	windows, err := s.subscriptionWindows(ctx)
+	if err != nil {
+		s.log.Warn("subscription shares unavailable", "err", err)
+		return SubscriptionShare{}, false
+	}
+	return shareOf(keyID, windows), true
+}
+
 // shareOf is the arithmetic, apart from the store so it can be checked
 // against numbers worked by hand.
 func shareOf(keyID string, accounts []accountWindows) SubscriptionShare {

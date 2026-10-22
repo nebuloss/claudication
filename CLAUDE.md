@@ -34,9 +34,18 @@ map, so place a new package there when you add it.
 
 The HTTP surface is `internal/httpapi`, which only puts things together, with
 one package per surface below it: `httpx` (shared plumbing), `gateway` (the
-client-facing APIs), `admin` (the admin API) and `web` (the embedded UI, and
-the welcome page at the root of a relay-only listener). They do not import one another; the root hands across what
-one needs from another.
+client-facing APIs), `admin` (the admin API), `web` (the embedded UI, and
+the welcome page at the root of a relay-only listener) and `agent` (the MCP
+server at `/mcp` on the relay: a client's own agent's tools about its client,
+behind its key, the manage tools only while its "Agent may manage this
+client" switch is on; `go doc ./internal/httpapi/agent`, the wire in
+`internal/mcp`). They do not import one another; the root hands across what
+one needs from another — the gateway's key check in front of `/mcp`, for one.
+
+A typed client's files are written by the gateway alone
+(`internal/service/clientconfig`, from `configs/clients/*`, embedded by the
+`configs` package): the admin page shows what it returns, and the install and
+update commands and the MCP server's `update_config` carry it.
 
 ## Read these before changing the relay
 
@@ -65,8 +74,9 @@ one needs from another.
 3. [`docs/client-apis.md`](docs/client-apis.md) — the operator's view: the
    surfaces, the Gateway switch, and how to add another.
 4. [`configs/clients/`](configs/clients/) — a complete, commented config file
-   per client, and the one copy of each: the admin UI imports them as text and
-   substitutes the gateway's address, and [`docs/clients.md`](docs/clients.md)
+   per client, and the one copy of each: the binary embeds them (package
+   `configs`) and `internal/service/clientconfig` writes each client's from
+   them, and [`docs/clients.md`](docs/clients.md)
    links to them rather than repeating them. Change a stanza there, nowhere
    else.
 5. `scripts/probe-codex.py` replays a real Codex request against a live gateway

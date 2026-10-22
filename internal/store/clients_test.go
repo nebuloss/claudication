@@ -298,6 +298,32 @@ func TestClientSwitchesAndConfigured(t *testing.T) {
 	}
 }
 
+// An agent may manage its client only once the operator says so, and the key
+// the MCP server authenticates with carries the switch.
+func TestClientAgentManageSwitch(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	c := makeClient(t, st, "box", "claude-code")
+	if k, _ := st.Key(ctx, c.ID); k.AgentManage {
+		t.Fatal("a new client lets its agent manage it")
+	}
+	if err := st.SetClientAgentManage(ctx, c.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := st.Key(ctx, c.ID); !k.AgentManage {
+		t.Error("switched on, the key does not say so")
+	}
+	if err := st.SetClientAgentManage(ctx, c.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := st.Key(ctx, c.ID); k.AgentManage {
+		t.Error("switched off, still on")
+	}
+	if err := st.SetClientAgentManage(ctx, "nope", true); !errors.Is(err, ErrClientNotFound) {
+		t.Errorf("an unknown client: %v", err)
+	}
+}
+
 // One client's or one account's traffic, by model name and the model that
 // served it, inside the window only; KeyRequests is every request a key sent,
 // refusals included, the gateway's own left out.

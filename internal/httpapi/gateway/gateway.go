@@ -153,6 +153,17 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 		s.serving(responses, s.requireAPIKey(responses, s.inference(responses, "/v1/responses"))))
 }
 
+// Guard is what fronts every client-facing route, for one outside this
+// package: the gateway switch, then the key — authenticated, held to its rate
+// limit and budget, its client refused when switched off — exactly as on /v1,
+// each refusal in p's envelope. The MCP server (internal/httpapi/agent) is
+// such a route: the client's own key reaches it, and a key /v1 would refuse
+// is refused there too. Handed across by the composition root, since the
+// surfaces do not import one another.
+func (s *Gateway) Guard(p api.ErrorWriter, next http.Handler) http.Handler {
+	return s.serving(p, s.requireAPIKey(p, next))
+}
+
 // handleModels answers the discovery request by relaying Anthropic's own model
 // list, so it stays correct as models come and go.
 //
@@ -214,7 +225,7 @@ const Setting = "gateway.enabled"
 // The check is per request and reads an atomic, so the switch takes effect on
 // the next request with no restart and no lock on the hot path. The admin UI
 // is not behind it, which is how it gets switched back on.
-func (s *Gateway) serving(p api.Protocol, next http.Handler) http.Handler {
+func (s *Gateway) serving(p api.ErrorWriter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.enabled.On() {
 			p.WriteError(w, http.StatusNotFound, api.KindNotFound,

@@ -152,6 +152,8 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/clients/{id}/disabled", admin(s.handleSetClientDisabled))
 	mux.Handle("POST /admin/clients/{id}/name-chats", admin(s.handleSetClientNameChats))
 	mux.Handle("POST /admin/clients/{id}/fit-images", admin(s.handleSetClientFitImages))
+	mux.Handle("POST /admin/clients/{id}/agent-manage", admin(s.handleSetClientAgentManage))
+	mux.Handle("GET /admin/clients/{id}/files", admin(s.handleClientFiles))
 	mux.Handle("POST /admin/clients/{id}/slots", admin(s.handleAddSlot))
 	mux.Handle("PUT /admin/clients/{id}/slots/{slot}", admin(s.handleSetSlot))
 	mux.Handle("DELETE /admin/clients/{id}/slots/{slot}", admin(s.handleRemoveSlot))
@@ -168,7 +170,6 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/keys/{id}/secret", admin(s.handleKeySecret))
 	mux.Handle("GET /admin/keys/{id}/models", admin(s.handleKeyModels))
 	mux.Handle("POST /admin/keys/{id}/models", admin(s.handleSetKeyModel))
-	mux.Handle("GET /admin/keys/{id}/offered-models", admin(s.handleKeyOfferedModels))
 
 	mux.Handle("GET /admin/config", admin(s.handleConfig))
 	mux.Handle("GET /admin/models", admin(s.handleAdminModels))

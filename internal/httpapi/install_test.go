@@ -10,8 +10,9 @@ import (
 	"claudication/internal/store"
 )
 
-// The installer end to end over HTTP: the admin API keeps a client's files,
-// the install address serves them as a script once, the client's page sees
+// The installer end to end over HTTP: the admin API writes a client's files,
+// key and all, for the address the page gives, the install address serves
+// them as a script once, the client's page sees
 // the link waiting and then used, and from then on neither the key nor a new
 // link is offered — until the key is regenerated. Every way of asking wrongly
 // is a status a pipe can refuse on, with a script that says why.
@@ -20,8 +21,7 @@ func TestInstallAddress(t *testing.T) {
 	c, _ := newClient(t, st, "laptop", "crush", nil)
 	base, ck := adminAPI(t, srv)
 
-	files := `{"files":[
-		{"client_id":"crush","client":"crush","path":".config/crush/crush.json","windows_path":"AppData/Local/crush/crush.json","body":"{}\n"}]}`
+	files := `{"base":"https://gw.example"}`
 	link := func() string {
 		t.Helper()
 		status, body := call(t, base, http.MethodPost, "/admin/keys/"+c.ID+"/install", files, ck)
@@ -83,7 +83,7 @@ func TestInstallAddress(t *testing.T) {
 		}
 	}
 	if status, script := get("token=" + token + "&shell=ps1"); status != http.StatusOK ||
-		!strings.Contains(script, `AppData\Local\crush\crush.json`) {
+		!strings.Contains(script, `AppData\Local\crush\crush.json`) || !strings.Contains(script, `.config\crush\crush.json`) {
 		t.Fatalf("ps1: %d\n%s", status, script)
 	}
 	// Single use: the second fetch is told so, and the page sees it used.
@@ -114,17 +114,27 @@ func TestInstallAddress(t *testing.T) {
 	if status, _ := call(t, base, http.MethodGet, "/admin/keys/"+c.ID+"/secret", "", ck); status != http.StatusOK {
 		t.Errorf("the new key is not offered: %d", status)
 	}
-	if status, script := get("token=" + link() + "&shell=sh"); status != http.StatusOK || !strings.Contains(script, ".config/crush/crush.json") {
-		t.Errorf("sh after a new key: %d\n%s", status, script)
+	_, secret := call(t, base, http.MethodGet, "/admin/keys/"+c.ID+"/secret", "", ck)
+	plain := decode[struct{ Plaintext string }](t, secret).Plaintext
+	if status, script := get("token=" + link() + "&shell=sh"); status != http.StatusOK || !strings.Contains(script, ".config/crush/crush.json") ||
+		!strings.Contains(script, `"api_key": "`+plain+`"`) || !strings.Contains(script, `"url": "https://gw.example/mcp"`) {
+		t.Errorf("sh after a new key, its key and the MCP server in it: %d\n%s", status, script)
 	}
 
-	// Files that would land outside the home directory are refused at once.
+	// An address that is no address, or would be read as more than text in a
+	// shell or a file, is refused at once.
 	if status, body := call(t, base, http.MethodPost, "/admin/keys/"+c.ID+"/rotate", "", ck); status != http.StatusOK {
 		t.Fatalf("rotate: %d %s", status, body)
 	}
-	bad := `{"files":[{"client_id":"x","client":"x","path":"../etc/passwd","body":"x"}]}`
-	if status, body := call(t, base, http.MethodPost, "/admin/keys/"+c.ID+"/install", bad, ck); status != http.StatusBadRequest {
-		t.Errorf("a path out of home: %d %s", status, body)
+	for _, bad := range []string{`{"base":"gw.example"}`, `{"base":"https://gw.example/'$(id)"}`, `{}`} {
+		if status, body := call(t, base, http.MethodPost, "/admin/keys/"+c.ID+"/install", bad, ck); status != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", bad, status, body)
+		}
+	}
+	// A custom client has no files.
+	custom, _ := newClient(t, st, "sdk", "custom", nil)
+	if status, _ := call(t, base, http.MethodPost, "/admin/keys/"+custom.ID+"/install", files, ck); status != http.StatusBadRequest {
+		t.Errorf("a custom client's install: %d", status)
 	}
 	if status, _ := call(t, base, http.MethodPost, "/admin/keys/nope/install", files, ck); status != http.StatusNotFound {
 		t.Errorf("an unknown key: %d", status)
@@ -132,8 +142,8 @@ func TestInstallAddress(t *testing.T) {
 }
 
 // The update command end to end: offered only for a client already set up,
-// refused when its files carry the key — the secret, or only its prefix —
-// served once as a script that holds neither, and recorded as the update's
+// written by the gateway without the key, served once as a script that holds
+// neither the secret nor its prefix, and recorded as the update's
 // own use, leaving the install's record and the configured date as they
 // were. A new key forgets it, since what it keeps on disk would be the old.
 func TestUpdateAddress(t *testing.T) {
@@ -146,16 +156,7 @@ func TestUpdateAddress(t *testing.T) {
 	}
 	prefix := store.KeyPrefix + key.Prefix
 
-	bundle := func(body string) string {
-		t.Helper()
-		files := []map[string]any{{
-			"client_id": "claude-code", "client": "Claude Code", "path": ".config/claudication/claude-code.sh",
-			"env": true, "body": body, "merge": map[string]any{"format": "env", "keep": []string{"ANTHROPIC_AUTH_TOKEN"}},
-		}}
-		b, _ := json.Marshal(map[string]any{"files": files})
-		return string(b)
-	}
-	keyless := bundle("export ANTHROPIC_AUTH_TOKEN=clc_...\nexport ANTHROPIC_MODEL=large\n")
+	keyless := `{"base":"https://gw.example"}`
 	type state struct {
 		Client struct {
 			ConfiguredAt string `json:"configured_at"`
@@ -195,8 +196,7 @@ func TestUpdateAddress(t *testing.T) {
 		t.Errorf("an update for a client not set up: %d %s", status, body)
 	}
 	// Set it up with its install command.
-	status, body := call(t, base, http.MethodPost, "/admin/keys/"+c.ID+"/install",
-		`{"files":[{"client_id":"claude-code","client":"Claude Code","path":".config/claudication/claude-code.sh","env":true,"body":"export ANTHROPIC_AUTH_TOKEN=`+plain+`\n"}]}`, ck)
+	status, body := call(t, base, http.MethodPost, "/admin/keys/"+c.ID+"/install", keyless, ck)
 	if status != http.StatusOK {
 		t.Fatalf("install link: %d %s", status, body)
 	}
@@ -208,16 +208,8 @@ func TestUpdateAddress(t *testing.T) {
 		t.Fatal("not configured by its install")
 	}
 
-	// The key in an update is refused, whole or by its prefix alone.
-	for _, leak := range []string{plain, prefix + "xxxx"} {
-		if status, body := call(t, base, http.MethodPost, "/admin/keys/"+c.ID+"/update",
-			bundle("export ANTHROPIC_AUTH_TOKEN="+leak+"\n"), ck); status != http.StatusBadRequest ||
-			!strings.Contains(string(body), "carries the client's key") {
-			t.Errorf("an update carrying %q: %d %s", leak, status, body)
-		}
-	}
 	if s := page().Client.Update.State; s != "none" {
-		t.Errorf("a refused update made a link: %q", s)
+		t.Errorf("an update link before one was asked for: %q", s)
 	}
 
 	status, body = call(t, base, http.MethodPost, "/admin/keys/"+c.ID+"/update", keyless, ck)

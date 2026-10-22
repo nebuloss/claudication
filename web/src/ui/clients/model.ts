@@ -1,15 +1,9 @@
 import { type ReactNode } from 'react'
-import { type InstallFile, type InstallMerge, type InstallStale } from '../../api/client'
-import { type Lang } from '../primitives/code'
-import { forUpdate, type Setup, type UpdateRule } from './configs'
+import { type ClientFile } from '../../api/client'
 
 /**
- * The example address inside configs/clients/*.
- *
- * Those are plain, complete, committed files — readable in the repository,
- * linked from the README, and usable as they stand after one edit. Swapping
- * this for a gateway's own address is a string replace rather than a template
- * language with a renderer at each end.
+ * The example address inside configs/clients/*, which a page shows when it
+ * cannot tell the relay's own (relayAddress).
  */
 export const EXAMPLE_BASE = 'https://claudication.example.com'
 
@@ -19,59 +13,10 @@ export const EXAMPLE_BASE = 'https://claudication.example.com'
  */
 export const EXAMPLE_KEY = 'clc_...'
 
-/** One file a client is configured with. */
-export type ConfigFile = {
-  /** Where it goes, as a reader would write the path. */
-  label: string
-  /** What it is called when downloaded. */
-  filename: string
-  lang: Lang
-  /** The committed file, imported as text. */
-  body: string
-  /**
-   * Writes the file for one client: its names in every model field. `base`
-   * is the example address, which the caller swaps for the gateway's
-   * afterwards. See configs.ts.
-   */
-  write: (body: string, setup: Setup, base: string) => string
-  /** Where the one-line installer puts it. */
-  install: InstallTarget
-}
+/** Where the gateway's MCP server is on the relay. */
+export const MCP_PATH = '/mcp'
 
-/**
- * Where a file goes on a client's machine, relative to the home directory, as
- * the installer (internal/service/install) writes it.
- */
-export type InstallTarget = {
-  path: string
-  /** Where it goes on Windows, when that is somewhere else. */
-  windowsPath?: string
-  /**
-   * A file of shell exports meant to be in every shell: sourced from the
-   * profile on Linux and macOS, set as user variables on Windows.
-   */
-  env?: boolean
-  /**
-   * Set on a client's own config, which holds more than the gateway's
-   * settings: the installer then rewrites only what the gateway owns and
-   * keeps the rest. Absent on a file that is the gateway's alone.
-   */
-  merge?: InstallMerge
-  /**
-   * Where an earlier install wrote it on Windows by mistake, and what it put
-   * there: the installer takes those keys back out of that file.
-   */
-  stale?: InstallStale
-  /**
-   * How the update command writes it once the client is set up, carrying no
-   * key: the paths or variables that hold the key, kept as they are on disk
-   * (configs.ts, UpdateRule). Absent on a file that holds no key, which an
-   * update writes as an install does.
-   */
-  update?: UpdateRule
-}
-
-/** What a client type's files need, before any of it is resolved. */
+/** What a client type's page says around its files. */
 export type RecipeData = {
   /** The client type's id (internal/service/clients). */
   id: string
@@ -84,18 +29,16 @@ export type RecipeData = {
    */
   versioned: boolean
   lead: ReactNode
-  files: ConfigFile[]
   notes?: ReactNode[]
 }
 
 /**
- * One client type's recipe: its files and how each is written for a client.
- *
- * A class rather than a bag of fields and helpers beside it, because every
- * question a page asks — what address to give it, which files with which
- * contents, what the installer is handed — is a question about *that* type
- * with an answer that depends on its own data. The view asks; a new type is
- * a new entry rather than a new branch.
+ * One client type's recipe: the words around its files and the address it
+ * wants. The files themselves are the gateway's to write
+ * (internal/service/clientconfig, GET /admin/clients/{id}/files), from the
+ * committed ones under configs/clients — one writer, which the install and
+ * update commands and the MCP server's update_config all use, so what the
+ * page shows is what they install.
  */
 export class ClientRecipe {
   constructor(private readonly data: RecipeData) {}
@@ -116,55 +59,9 @@ export class ClientRecipe {
   baseURL(gateway: string): string {
     return this.data.versioned ? `${gateway}/v1` : gateway
   }
+}
 
-  /**
-   * Its files: as committed (no setup), or written for one
-   * client from its setup; then the example address replaced by the
-   * gateway's, and the example key by the client's own when there is one to
-   * give.
-   */
-  files(gateway: string, key = '', setup?: Setup): ConfigFile[] {
-    return this.data.files.map((f) => {
-      let body = f.body
-      if (setup !== undefined) {
-        try {
-          body = f.write(body, setup, EXAMPLE_BASE)
-        } catch {
-          // A committed file the rewrite cannot read is still a working file
-          // for the type's default names: hand it out rather than nothing.
-          body = f.body
-        }
-      }
-      body = body.split(EXAMPLE_BASE).join(gateway)
-      if (key !== '') body = body.split(EXAMPLE_KEY).join(key)
-      return { ...f, body }
-    })
-  }
-
-  /** The files as the one-line installer takes them. */
-  installFiles(label: string, gateway: string, key: string, setup: Setup): InstallFile[] {
-    return this.files(gateway, key, setup).map((f) => this.installFile(label, f))
-  }
-
-  /**
-   * The files as the update command takes them: written without the key —
-   * the example's stands where it would go — and each file that holds the
-   * key told to keep the one on disk, so the key goes nowhere.
-   */
-  updateFiles(label: string, gateway: string, setup: Setup): InstallFile[] {
-    return this.files(gateway, '', setup).map((f) => forUpdate(this.installFile(label, f), f.install.update))
-  }
-
-  private installFile(label: string, f: ConfigFile): InstallFile {
-    return {
-      client_id: this.data.id,
-      client: label,
-      path: f.install.path,
-      windows_path: f.install.windowsPath,
-      env: f.install.env,
-      merge: f.install.merge,
-      stale: f.install.stale && { windows_path: f.install.stale.windowsPath, owns: f.install.stale.owns },
-      body: f.body,
-    }
-  }
+/** A file with the client's key put where the example's is, while it is offered. */
+export function withKey(f: ClientFile, key: string): ClientFile {
+  return key === '' ? f : { ...f, body: f.body.split(EXAMPLE_KEY).join(key) }
 }

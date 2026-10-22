@@ -30,9 +30,22 @@ export CLAUDE_CODE_AUTO_MODE_MODEL=auto
 # command) again. The auto-mode classifier's name is not listed: nobody
 # picks it. A name added on the client's page has a row and no variable:
 # /model <name> switches a session to it.
+#
+# The gateway's MCP server goes in beside it, as "claudication": tools for
+# Claude Code's own agent about this client (mcp__claudication__list_models
+# and the rest; see docs/clients.md, "Agent tools (MCP)"). --mcp-config adds
+# it to whatever servers you have, it replaces none. Written with = because
+# the flag takes several values: spaced, it would swallow the prompt after it.
+# The header names a variable rather than the key, so the key is in this file
+# once; and not ANTHROPIC_AUTH_TOKEN, which Claude Code never expands toward
+# a remote server, so the function hands it over under a name of its own, to
+# this one command.
+#
 # A function rather than a command, so sourcing this file — from a shell
 # profile, as the one-line installer does — sets things up rather than
 # starting Claude Code.
 claude() {
-  command claude --settings '{"modelPicker":{"options":[{"model":"large","behavesAs":"claude-opus-5-5"},{"model":"small","behavesAs":"claude-haiku-5-5"},{"model":"opus","behavesAs":"claude-opus-5-5"},{"model":"sonnet","behavesAs":"claude-sonnet-5-5"},{"model":"haiku","behavesAs":"claude-haiku-5-5"},{"model":"fable","behavesAs":"claude-fable-5-1"}]}}' "$@"
+  CLAUDICATION_MCP_KEY="$ANTHROPIC_AUTH_TOKEN" command claude --settings '{"modelPicker":{"options":[{"model":"large","behavesAs":"claude-opus-5-5"},{"model":"small","behavesAs":"claude-haiku-5-5"},{"model":"opus","behavesAs":"claude-opus-5-5"},{"model":"sonnet","behavesAs":"claude-sonnet-5-5"},{"model":"haiku","behavesAs":"claude-haiku-5-5"},{"model":"fable","behavesAs":"claude-fable-5-1"}]}}' \
+    '--mcp-config={"mcpServers":{"claudication":{"type":"http","url":"https://claudication.example.com/mcp","headers":{"Authorization":"Bearer ${CLAUDICATION_MCP_KEY}"}}}}' \
+    "$@"
 }

@@ -573,30 +573,20 @@ export interface MemorySnapshot {
   gc_cycles: number
 }
 
-/** One file the installer writes; see internal/service/install. */
-export interface InstallFile {
-  client_id: string
-  client: string
-  path: string
-  windows_path?: string
-  env?: boolean
-  body: string
-  merge?: InstallMerge
-  stale?: { windows_path: string; owns: string[] }
-  /** An update's file whose key stays as it is on disk: it must be there already. */
-  existing?: boolean
-}
-
-/** A wrong place an earlier install wrote to on Windows, as a recipe names it. */
-export type InstallStale = { windowsPath: string; owns: string[] }
-
 /**
- * Folds a file into the client's own config instead of replacing it: JSON
- * names the dotted paths the gateway owns; TOML owns what its file defines;
- * an env file keeps the named variables' lines from the one on disk, the key
- * an update does not carry.
+ * One of a typed client's files as its page shows it, written by the gateway
+ * (internal/service/clientconfig) with its names and what each serves, for
+ * the address the page asked for. The key is the example's, clc_..., which
+ * the page swaps for the client's own while it is offered.
  */
-export type InstallMerge = { format: 'json'; owns: string[] } | { format: 'toml' } | { format: 'env'; keep: string[] }
+export interface ClientFile {
+  /** Where it goes, as a reader writes the path. */
+  label: string
+  /** What it is called when downloaded. */
+  filename: string
+  lang: 'json' | 'jsonc' | 'toml' | 'sh'
+  body: string
+}
 
 export interface SetupStatus {
   needs_setup: boolean
@@ -705,6 +695,12 @@ export interface ClientWire extends ApiKey {
    * is shown rather than the shape of the request, so it is off until asked for.
    */
   fit_images: boolean
+  /**
+   * Whether its own agent may change it through the gateway's MCP server:
+   * rebind its names, add and remove its own, make its update command. Off
+   * until switched on; the read tools need nothing.
+   */
+  agent_manage: boolean
   configured_at?: string
   install: InstallState
   /** Its update link's state: the keyless command a configured client's page offers. */

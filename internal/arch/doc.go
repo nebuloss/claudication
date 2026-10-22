@@ -5,17 +5,17 @@
 // Lowest first:
 //
 //	0  leaves         version logging memlimit secret oauth request anthropicwire
-//	                  api service/limits service/settings service/install
-//	                  service/clients
+//	                  api mcp service/limits service/settings service/install
+//	                  service/clients configs
 //	                  testenv handover
 //	1  records        store config provider relay/passes api/anthropic
 //	                  api/openai
 //	2  accounts       pool provider/anthropic provider/openai service/accounts
-//	                  service/usage service/uptime
+//	                  service/usage service/uptime service/clientconfig
 //	3  relay          relay
 //	4  services       service/titles service/models
 //	5  HTTP plumbing  httpapi/httpx
-//	6  HTTP surfaces  httpapi/gateway httpapi/admin httpapi/web
+//	6  HTTP surfaces  httpapi/gateway httpapi/admin httpapi/web httpapi/agent
 //	7  composition    httpapi
 //	8  binary         cmd/claudication
 //
@@ -24,12 +24,21 @@
 // gateway passes a request to the relay, which leases an account from the pool
 // and speaks to the upstream through a provider.Wire.
 //
+// configs is the one package outside internal/ and cmd/: the committed client
+// files, embedded from where they sit (go:embed reaches only below the file
+// naming it). mcp is the Model Context Protocol's wire, which knows nothing of
+// the gateway; httpapi/agent is the gateway's MCP server built on it, and
+// service/clientconfig writes a client's files from the committed ones, for
+// the admin page and the agent alike.
+//
 // Layering alone does not say three things worth saying, so they are rules of
 // their own:
 //
-//   - The three HTTP surfaces do not import one another. What one needs from
-//     another — the model list, the sign-in link at the root — is handed
-//     across by the composition root, as a function.
+//   - The four HTTP surfaces do not import one another. What one needs from
+//     another — the model list, the sign-in link at the root, the gateway's
+//     key check in front of the MCP server, a client's share of the
+//     subscriptions — is handed across by the composition root, as a
+//     function.
 //   - An upstream is known only to the composition root, which builds it.
 //     The relay speaks to one through provider.Wire; the pool, the usage
 //     poller, the recorder and the admin API through provider.Accounts, the

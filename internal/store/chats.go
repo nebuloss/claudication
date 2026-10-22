@@ -432,6 +432,28 @@ func (s *Store) RetitleChat(ctx context.Context, id, title, model string, basis 
 	return nil
 }
 
+// ChatOfKey reports whether a conversation is one a key took part in: a
+// request of its, relayed or the client's own naming, filed under the chat.
+// What lets a client's agent name a chat of its own client and no other's
+// (internal/httpapi/agent). Refusals are no part of it: a refused request
+// names whatever chat its sender likes, and proves nothing.
+func (s *Store) ChatOfKey(ctx context.Context, id, keyID string) (bool, error) {
+	if id == "" || keyID == "" {
+		return false, nil
+	}
+	var one int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT 1 FROM usage_events
+		  WHERE conversation_id = ? AND key_id = ? AND `+sqlCounted+` LIMIT 1`, id, keyID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("chat of key: %w", err)
+	}
+	return true, nil
+}
+
 // SetManualTitle stores a title an operator typed, replacing any there was.
 // The titler never renames a manual title, so it stays until the operator
 // types another. No model wrote it, so none is recorded.

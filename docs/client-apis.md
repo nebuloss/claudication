@@ -13,6 +13,16 @@ the type; a custom client's key works on both.
 | Anthropic Messages | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` | Claude Code, opencode and crush, and anything written against the Anthropic SDK |
 | OpenAI Responses | `/v1/responses` | Codex CLI |
 
+Beside them, on the same listener and behind the same key check, is the
+gateway's **MCP server** at `/mcp`: no dialect and no upstream, but tools a
+client's own agent calls about its client — what its names serve, the models
+it may switch them to, its limits, its chats, and, with the client's **Agent
+may manage this client** switch on, rebinding its names and making its update
+command. Every typed client's files register it. What it serves and what
+each client writes is in [clients.md](clients.md#agent-tools-mcp); the
+protocol is `go doc ./internal/mcp` and the tools `go doc
+./internal/httpapi/agent`.
+
 Both are served while the **Gateway** switch in Settings is on, and neither
 is while it is off: one switch, because what an operator turns off when
 something is wrong is the gateway, not one dialect of it. A change takes effect
@@ -99,6 +109,10 @@ internal/api/openai/     the OpenAI surface: its mapping both ways, and the
 internal/service/clients each client type's model fields, names and session headers
 internal/service/models  the targets a slot follows, and the route a model takes (route.go)
 internal/provider/       the upstreams, one package each
+internal/mcp             the MCP wire (Streamable HTTP, JSON-RPC), knowing nothing of the gateway
+internal/httpapi/agent   the MCP server at /mcp: a client's agent's tools
+internal/service/clientconfig
+                         every typed client's files, written from configs/clients
 ```
 
 `go doc ./internal/api` is the short version: `Protocol` is a dialect,

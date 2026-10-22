@@ -34,7 +34,7 @@ import type {
   GatewayConfig,
   GatewayLive,
   Health,
-  InstallFile,
+  ClientFile,
   Model,
   OAuthResult,
   OAuthStart,
@@ -272,16 +272,24 @@ const clients = {
   /** A new key: the old one stops at once, and the client is to set up again. */
   rotate: (id: string) => http.post<{ key: ApiKey; plaintext: string }>(path`/admin/keys/${id}/rotate`),
 
-  /** Keeps the client's files for one install command; the token fetches them once. */
-  createInstall: (id: string, files: InstallFile[]) =>
-    http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/install`, { files }),
-
   /**
-   * Keeps a configured client's update files, which carry no key, for one
-   * command; refused if the key is in them after all.
+   * A typed client's files, written by the gateway for the address it is to
+   * point at, with the example's key where its own goes.
    */
-  createUpdate: (id: string, files: InstallFile[]) =>
-    http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/update`, { files }),
+  files: async (id: string, base: string, signal?: AbortSignal): Promise<ClientFile[]> =>
+    (await http.get<{ files: ClientFile[] | null }>(path`/admin/clients/${id}/files?base=${base}`, signal)).files ?? [],
+
+  /** The client's files, key and all, for one install command; the token fetches them once. */
+  createInstall: (id: string, base: string) =>
+    http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/install`, { base }),
+
+  /** A configured client's update files, which carry no key, for one command. */
+  createUpdate: (id: string, base: string) =>
+    http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/update`, { base }),
+
+  /** Whether its own agent may change it through the gateway's MCP server. */
+  setAgentManage: async (id: string, enabled: boolean): Promise<ClientWire> =>
+    (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/agent-manage`, { enabled })).client,
 
   /** Every model the gateway serves, each with whether a direct-mode client may ask for it. */
   models: async (id: string, signal?: AbortSignal): Promise<ModelSwitches> => {
@@ -291,10 +299,6 @@ const clients = {
 
   setModel: (id: string, model: string, enabled: boolean) =>
     http.send('POST', path`/admin/keys/${id}/models`, { body: { model, enabled } }),
-
-  /** /v1/models as this client sees it: its slots, each with its model's facts. */
-  offeredModels: async (id: string, signal?: AbortSignal): Promise<Model[]> =>
-    (await http.get<{ data: Model[] | null }>(path`/admin/keys/${id}/offered-models`, signal)).data ?? [],
 
   usage: (id: string, days: number, signal?: AbortSignal) =>
     http.get<{ days: number; rows: SlotUse[] | null; share?: SubscriptionShare }>(

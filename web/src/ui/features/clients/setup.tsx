@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { api, type GatewayConfig, type InstallFile, type InstallState } from '../../../api/client'
+import { useState } from 'react'
+import { api, type ClientFile, type GatewayConfig, type InstallState } from '../../../api/client'
 import { useAction, useLoader, useNow } from '../../hooks'
 import {
   Button,
@@ -18,8 +18,7 @@ import {
 import { countdown, dateTime } from '../../format'
 import { relayAddress } from '../../clients/address'
 import { ClientBody } from '../../clients/client-body'
-import type { Setup } from '../../clients/configs'
-import { EXAMPLE_BASE } from '../../clients/model'
+import { EXAMPLE_BASE, MCP_PATH } from '../../clients/model'
 import { recipeFor } from '../../clients/recipes'
 import type { Client, ClientTypes } from '../../clients/specs'
 
@@ -132,22 +131,15 @@ function useSecret(c: Client): string {
 }
 
 /**
- * What a client's files are written from: its names, each with the facts of
- * the model it serves now — /v1/models as this client sees it.
+ * A client's files as the gateway writes them for this address: its names,
+ * each described as the model it serves now. Read again when a name or what
+ * it serves changes.
  */
-function useSetup(c: Client): Setup {
-  const offered = useLoader((signal) => api.clients.offeredModels(c.id, signal), {
-    deps: [c.id, c.slots.map((s) => `${s.name}=${s.serving}`).join()],
+function useFiles(c: Client, gateway: string): { files: ClientFile[] | null; error: string } {
+  const files = useLoader((signal) => api.clients.files(c.id, gateway, signal), {
+    deps: [c.id, gateway, c.slots.map((s) => `${s.name}=${s.serving}`).join()],
   })
-  return useMemo<Setup>(
-    () => ({
-      slots: c.slots.map((s) => ({
-        id: s.id, role: s.role, field: s.field, name: s.name,
-        served: offered.data?.find((m) => m.id === s.name),
-      })),
-    }),
-    [c, offered.data],
-  )
+  return { files: files.data, error: files.error }
 }
 
 /**
@@ -157,20 +149,26 @@ function useSetup(c: Client): Setup {
 function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway: string; onChanged: () => void }) {
   const recipe = recipeFor(c.type.id)
   const secret = useSecret(c)
-  const setup = useSetup(c)
+  const { files, error } = useFiles(c, gateway)
   if (recipe === undefined) return null
-  if (secret === '') return <Loading>Reading the key…</Loading>
+  if (error !== '') return <ErrorBanner error={error} />
+  if (secret === '' || files === null) return <Loading>Reading the key…</Loading>
   return (
     <>
-      <InstallCommand client={c} gateway={gateway} state={c.wire.install} onChanged={onChanged}
-        files={() => recipe.installFiles(c.type.label, gateway, secret, setup)} />
+      <InstallCommand client={c} gateway={gateway} state={c.wire.install} onChanged={onChanged} />
       <Note>
         Each file carries this client&rsquo;s key and its model names, each described as the model it serves
         now. Switching a name to a model with other limits — a smaller window, other effort levels — means
         running the install command again, or once the client is set up, its update command, which carries no
         key.
       </Note>
-      <ClientBody recipe={recipe} gateway={gateway} secret={secret} setup={setup} />
+      <Note>
+        Each also registers the gateway&rsquo;s MCP server, <code>{gateway + MCP_PATH}</code>, under the name{' '}
+        <code>claudication</code> and with this client&rsquo;s key: tools for its own agent to read what it
+        serves and its limits — and, with <em>Agent may manage this client</em> on, to switch its names and make
+        its update command. Your other MCP servers stay as they are.
+      </Note>
+      <ClientBody recipe={recipe} gateway={gateway} secret={secret} files={files} />
     </>
   )
 }
@@ -186,15 +184,13 @@ function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway
  */
 function UpdateConfig({ client: c, gateway, onChanged }: { client: Client; gateway: string; onChanged: () => void }) {
   const recipe = recipeFor(c.type.id)
-  const setup = useSetup(c)
   if (recipe === undefined) return null
   const used = c.wire.update.used
   return (
     <Section title="Update config">
       <Stack gap={3}>
         <Muted>Updates the model names and what they serve on a machine already set up; the key stays as it is.</Muted>
-        <InstallCommand client={c} gateway={gateway} state={c.wire.update} onChanged={onChanged} kind="update"
-          files={() => recipe.updateFiles(c.type.label, gateway, setup)} />
+        <InstallCommand client={c} gateway={gateway} state={c.wire.update} onChanged={onChanged} kind="update" />
         {used !== undefined && (
           <KeyValue items={[['Last update', `${dateTime(used.at)} from ${used.ip || 'an unknown address'} (${platformName(used.shell)})`]]} />
         )}
@@ -217,14 +213,12 @@ function InstallCommand({
   client: c,
   gateway,
   state,
-  files,
   onChanged,
   kind = 'install',
 }: {
   client: Client
   gateway: string
   state: InstallState
-  files: () => InstallFile[]
   onChanged: () => void
   kind?: 'install' | 'update'
 }) {
@@ -234,7 +228,7 @@ function InstallCommand({
 
   const create = () =>
     run('create', async () => {
-      await (kind === 'update' ? api.clients.createUpdate : api.clients.createInstall)(c.id, files())
+      await (kind === 'update' ? api.clients.createUpdate : api.clients.createInstall)(c.id, gateway)
       onChanged()
     })
 
@@ -314,6 +308,7 @@ function CustomSetup({ client: c, types, gateway }: { client: Client; types: Cli
           [types.dialectTitle('anthropic'), `${gateway} for SDKs that add /v1 themselves (Anthropic's), ${gateway}/v1 for the rest — x-api-key or Authorization: Bearer`],
           [types.dialectTitle('openai'), `${gateway}/v1 — Authorization: Bearer`],
           ['Models', c.namesSlots ? c.slots.map((s) => s.name).join(', ') || 'none yet' : 'real model ids, less the ones switched off'],
+          ['MCP server', `${gateway}${MCP_PATH} — Streamable HTTP, Authorization: Bearer with the same key`],
         ]}
       />
       <Note>
@@ -323,6 +318,13 @@ function CustomSetup({ client: c, types, gateway }: { client: Client; types: Cli
       <CopyField label="SDK environment" value={env} />
       <CopyField label="curl, Anthropic Messages" value={curlMessages} />
       <CopyField label="curl, OpenAI Responses" value={curlResponses} />
+      <Note>
+        The gateway&rsquo;s MCP server gives an agent tools about this client: what its names serve, the models
+        it may use, its limits and usage, its chats — and, with <em>Agent may manage this client</em> on, switching
+        its names. Point an MCP client at it with the key as a bearer token.
+      </Note>
+      <CopyField label="MCP server (Streamable HTTP)" value={`${gateway}${MCP_PATH}`} />
+      <CopyField label="MCP header" value="Authorization: Bearer clc_…" />
     </Stack>
   )
 }

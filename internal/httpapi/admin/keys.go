@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"claudication/internal/httpapi/httpx"
+	"claudication/internal/service/clientconfig"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	"claudication/internal/store"
@@ -304,33 +305,67 @@ func (s *Admin) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// handleKeyInstall keeps a key's client files for the install address, and
-// answers the token that fetches them and when it stops working.
+// linkBody is what the install and update commands are asked with: the
+// address the client is to be pointed at, which the page knows and the
+// gateway may not (internal/service/clientconfig, Base).
+type linkBody struct {
+	Base string `json:"base"`
+}
+
+// typedClient reads the client a key path names, for its install or update
+// command, and the address its files are written for; it answers itself when
+// it cannot. A custom client has no files, and no command.
+func (s *Admin) typedClient(w http.ResponseWriter, r *http.Request) (store.Client, string, bool) {
+	var body linkBody
+	if !httpx.DecodeJSON(w, r, &body) {
+		return store.Client{}, "", false
+	}
+	base, err := clientconfig.Base(body.Base)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
+		return store.Client{}, "", false
+	}
+	c, ok := s.loadClient(w, r)
+	if !ok {
+		return store.Client{}, "", false
+	}
+	if !clientconfig.Writes(c.Type) {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
+			"a custom client has no files to install; it is pointed at the gateway by hand")
+		return store.Client{}, "", false
+	}
+	return c, base, true
+}
+
+// handleKeyInstall writes a client's files for the install address, key and
+// all, keeps them under a token, and answers the token that fetches them and
+// when it stops working.
 //
-// The files are the ones the Clients page built — the key, the address and
-// the models already in them — so nothing here writes a configuration; it
-// only checks the key is real and the paths stay under a home directory.
+// The files are the gateway's own (internal/service/clientconfig): the
+// client's names, each with what it serves now, and the key read from the
+// store — which is why a key whose secret was not kept cannot be installed
+// this way, and the page offers a new secret instead.
 func (s *Admin) handleKeyInstall(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	key, err := s.store.Key(r.Context(), id)
-	if errors.Is(err, store.ErrKeyNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
-		return
-	}
-	if err != nil {
-		httpx.Internal(w, s.log, "read the key", err)
-		return
-	}
 	if s.refuseConfigured(w, r, id) {
 		return
 	}
-	var body struct {
-		Files []install.File `json:"files"`
-	}
-	if !httpx.DecodeJSON(w, r, &body) {
+	c, base, ok := s.typedClient(w, r)
+	if !ok {
 		return
 	}
-	token, expires, err := s.install.Create(install.Bundle{ClientID: key.ID, Key: key.Name, Files: body.Files})
+	plaintext, err := s.store.KeySecret(r.Context(), id)
+	switch {
+	case errors.Is(err, store.ErrSecretNotKept):
+		httpx.WriteError(w, http.StatusConflict, "secret_not_kept", err.Error())
+		return
+	case err != nil:
+		httpx.Internal(w, s.log, "read the key's secret", err)
+		return
+	}
+	setup := s.setupOf(r, c)
+	files := clientconfig.Install(c.Type, c.Spec().Label, setup, base, plaintext)
+	token, expires, err := s.install.Create(install.Bundle{ClientID: c.ID, Key: c.Name, Files: files})
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -341,30 +376,19 @@ func (s *Admin) handleKeyInstall(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleKeyUpdate keeps a configured client's update files, which carry no
-// key, and answers the token that fetches them, as handleKeyInstall does.
+// handleKeyUpdate writes a configured client's update files, which carry no
+// key, keeps them under a token, and answers the token that fetches them, as
+// handleKeyInstall does.
 //
 // Once a client is set up its key is never shown again, and its model names
 // and what they serve go on changing; an update is how its machines catch up
-// without the key going anywhere. The page builds the files with the key left
-// out and its paths left unowned (internal/service/install, Bundle.Update);
-// here they are refused if the key is in them all the same — the secret
-// itself, or its prefix, which is enough of it to know it by — so a page that
-// got it wrong cannot put the key on a screen or into a pasted command.
+// without the key going anywhere. The files are written with the key left
+// out and its paths left unowned (internal/service/clientconfig, Update), and
+// the MCP server's update_config makes the same command for the client's own
+// agent (internal/httpapi/agent): one writer, so the two cannot differ.
 func (s *Admin) handleKeyUpdate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	key, err := s.store.Key(r.Context(), id)
-	if errors.Is(err, store.ErrKeyNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
-		return
-	}
-	if err != nil {
-		httpx.Internal(w, s.log, "read the key", err)
-		return
-	}
-	c, err := s.store.Client(r.Context(), id)
-	if err != nil {
-		httpx.Internal(w, s.log, "read the client", err)
+	c, base, ok := s.typedClient(w, r)
+	if !ok {
 		return
 	}
 	if c.ConfiguredAt == nil {
@@ -372,35 +396,13 @@ func (s *Admin) handleKeyUpdate(w http.ResponseWriter, r *http.Request) {
 			"this client is not set up yet; its install command sets it up, key and all")
 		return
 	}
-	var body struct {
-		Files []install.File `json:"files"`
-	}
-	if !httpx.DecodeJSON(w, r, &body) {
-		return
-	}
-	marks := []string{store.KeyPrefix + key.Prefix}
-	switch plaintext, err := s.store.KeySecret(r.Context(), id); {
-	case err == nil:
-		marks = append(marks, plaintext)
-	case !errors.Is(err, store.ErrSecretNotKept):
-		httpx.Internal(w, s.log, "read the key's secret", err)
-		return
-	}
-	for _, f := range body.Files {
-		for _, m := range marks {
-			if strings.Contains(f.Body, m) {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid_request_error",
-					f.Path+" carries the client's key; an update carries none, and keeps the one on disk")
-				return
-			}
-		}
-	}
-	token, expires, err := s.install.Create(install.Bundle{ClientID: key.ID, Key: key.Name, Files: body.Files, Update: true})
+	setup := s.setupOf(r, c)
+	token, expires, err := clientconfig.MakeUpdate(r.Context(), s.store, s.install, c, setup, base)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	s.log.Info("client update command made", "id", id, "ip", httpx.ClientIP(r.Context()))
+	s.log.Info("client update command made", "id", c.ID, "ip", httpx.ClientIP(r.Context()))
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"token":      token,
 		"expires_at": expires.UTC().Format(time.RFC3339),

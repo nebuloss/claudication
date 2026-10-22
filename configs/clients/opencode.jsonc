@@ -1,6 +1,7 @@
 {
   // opencode, pointed at a claudication gateway.
-  // Copy to ~/.config/opencode/opencode.jsonc and change baseURL.
+  // Copy to ~/.config/opencode/opencode.jsonc and change baseURL, the MCP
+  // server's url and the key in both.
   //
   // WITH /v1. This overrides opencode's built-in Anthropic provider, which
   // speaks the Anthropic Messages API — and that reaches both of the gateway's
@@ -135,5 +136,20 @@
     }
   },
   "model": "anthropic/large",
-  "small_model": "anthropic/small"
+  "small_model": "anthropic/small",
+  // The gateway's MCP server: tools for opencode's own agent about this
+  // client (see docs/clients.md, "Agent tools (MCP)"). oauth false, because
+  // opencode otherwise tries an OAuth sign-in on any refusal; the key is the
+  // header, the same one the provider carries.
+  "mcp": {
+    "claudication": {
+      "type": "remote",
+      "url": "https://claudication.example.com/mcp",
+      "enabled": true,
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer clc_..."
+      }
+    }
+  }
 }

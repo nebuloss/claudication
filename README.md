@@ -29,6 +29,13 @@ crush and opencode Anthropic Messages, and the gateway translates either way.
 The gateway, each client and each account can be switched off from the admin
 UI without a restart.
 
+Each client's own agent can ask the gateway about its client too: an **MCP
+server** at `/mcp`, behind the client's key, tells it what its names serve,
+what it may switch them to, its limits, usage and chats — and, once the
+operator turns on the client's **Agent may manage this client**, lets it
+rebind its names and make its own update command. Every client's files
+register it ([docs/clients.md](docs/clients.md#agent-tools-mcp)).
+
 Each client type's configuration starts from a file in
 [`configs/clients/`](configs/clients/):
 
@@ -431,6 +438,9 @@ the release that introduces it.
 | `GET /v1/models`                              | key   | Discovery, proxied from the upstream.      |
 | `POST /v1/messages`                           | key   | The relay, streaming and not.              |
 | `POST /v1/messages/count_tokens`              | key   | So counting does not spend inference.      |
+| `POST /v1/responses`                          | key   | The OpenAI Responses surface, for Codex.   |
+| `POST /mcp`                                   | key   | The MCP server: the client's agent's tools.|
+| `GET /install?token=`                         | link  | One install or update command's script.    |
 | `GET /`                                       | —     | Admin UI. `?token=` spends a sign-in link. |
 | `GET,POST /admin/setup`                       | —     | Fresh install, and claiming it.            |
 | `POST /admin/session`                         | —     | Password for a session cookie.             |
@@ -444,6 +454,9 @@ the release that introduces it.
 | `GET,POST /admin/clients`                     | admin | Clients, and making one with its key.      |
 | `GET /admin/clients/{id}`, `…/usage`          | admin | One client, and what it used.              |
 | `PUT,DELETE /admin/clients/{id}/slots/{slot}` | admin | Bind, rename or remove a model name.       |
+| `GET /admin/clients/{id}/files?base=`         | admin | Its files, as the gateway writes them.     |
+| `POST /admin/clients/{id}/agent-manage`       | admin | Whether its agent may change it over MCP.  |
+| `POST /admin/keys/{id}/{install,update}`      | admin | One install or update command.             |
 | `PATCH,DELETE /admin/keys/{id}`               | admin | Edit a client's limits, or delete it.      |
 | `POST /admin/gateway`                         | admin | The Gateway switch.                        |
 | `GET /admin/usage`                            | admin | Totals and breakdowns over a window.       |

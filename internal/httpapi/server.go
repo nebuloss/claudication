@@ -8,6 +8,8 @@
 //	gateway  the client-facing APIs, behind an API key
 //	admin    the admin API, behind a session
 //	web      the embedded UI, and the welcome page at a relay's root
+//	agent    the MCP server at /mcp, a client's own agent's tools, behind
+//	         the client's key
 //
 // None of them imports another. What one needs from another — the model list,
 // the sign-in link at the root — is handed across here, as a function.
@@ -35,6 +37,7 @@ import (
 	"claudication/internal/config"
 	"claudication/internal/handover"
 	"claudication/internal/httpapi/admin"
+	"claudication/internal/httpapi/agent"
 	"claudication/internal/httpapi/gateway"
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/httpapi/web"
@@ -115,6 +118,7 @@ type Server struct {
 	gateway *gateway.Gateway
 	admin   *admin.Admin
 	web     *web.Site
+	agent   *agent.Agent
 
 	// listeners are the addresses served, the relay's first; adminListener is
 	// the admin's own, when admin-listen gives it one.
@@ -380,6 +384,23 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Models: s.models, Install: installs,
 	})
 	s.web = web.New(web.Deps{Log: log, Files: webdist})
+	// The MCP server, behind the gateway's own key check and answering with
+	// the admin page's share of the subscriptions: both cross here, as
+	// functions, since no surface imports another.
+	s.agent = agent.New(agent.Deps{
+		Config: cfg, Log: log, Store: st, Models: s.models, Install: installs,
+		Budgets: s.budgets, InFlight: s.inflight, Enabled: s.serving,
+		Record: func(e store.UsageEvent) { s.recorder.Record(e, 0) },
+		Guard:  s.gateway.Guard,
+		// Per provider and in all, never per account: which accounts the
+		// gateway pools, and their addresses, are the operator's to know.
+		Share: func(ctx context.Context, keyID string) (any, bool) {
+			share, ok := s.admin.ShareOf(ctx, keyID)
+			return map[string]any{
+				"five_hour": share.FiveHour, "seven_day": share.SevenDay, "providers": share.Providers,
+			}, ok
+		},
+	})
 }
 
 // upstreams are the providers as the gateway reaches them: which client
@@ -524,6 +545,9 @@ func (s *Server) routes(r0 role) http.Handler {
 
 	if r0.gateway {
 		s.gateway.Routes(mux)
+		// On the relay, beside /v1: the agent runs where its client does,
+		// which reaches this listener and may never reach the admin one.
+		s.agent.Routes(mux)
 	}
 	if r0.admin {
 		s.admin.Routes(mux)

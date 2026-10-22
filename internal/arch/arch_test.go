@@ -29,6 +29,8 @@ var layers = map[string]int{
 	"internal/arch":             0,
 	"internal/anthropicwire":    0,
 	"internal/handover":         0,
+	"internal/mcp":              0,
+	"configs":                   0, // the committed client files, embedded
 
 	"internal/store":         1,
 	"internal/config":        1,
@@ -37,12 +39,13 @@ var layers = map[string]int{
 	"internal/api/anthropic": 1,
 	"internal/api/openai":    1,
 
-	"internal/pool":               2,
-	"internal/provider/anthropic": 2,
-	"internal/provider/openai":    2,
-	"internal/service/accounts":   2,
-	"internal/service/usage":      2,
-	"internal/service/uptime":     2,
+	"internal/pool":                 2,
+	"internal/provider/anthropic":   2,
+	"internal/provider/openai":      2,
+	"internal/service/accounts":     2,
+	"internal/service/usage":        2,
+	"internal/service/uptime":       2,
+	"internal/service/clientconfig": 2,
 
 	"internal/relay": 3,
 
@@ -54,6 +57,7 @@ var layers = map[string]int{
 	"internal/httpapi/gateway": 6,
 	"internal/httpapi/admin":   6,
 	"internal/httpapi/web":     6,
+	"internal/httpapi/agent":   6,
 
 	"internal/httpapi": 7,
 
@@ -139,14 +143,14 @@ func moduleRoot(t *testing.T) (dir, module string) {
 	}
 }
 
-// moduleImports reads, for every package under internal/ and cmd/, which of
+// moduleImports reads, for every package under internal/, cmd/ and configs/, which of
 // the module's own packages its non-test files import. Test files are free to
 // reach further: a test of the composed server is not a dependency of it.
 func moduleImports(t *testing.T, root, module string) map[string][]string {
 	t.Helper()
 	out := map[string][]string{}
 	fset := token.NewFileSet()
-	for _, top := range []string{"internal", "cmd"} {
+	for _, top := range []string{"internal", "cmd", "configs"} {
 		err := filepath.WalkDir(filepath.Join(root, top), func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err

@@ -618,6 +618,31 @@ func TestUpgradeCarriesTheImageFitSwitch(t *testing.T) {
 	}
 }
 
+// Every client comes out of 039 with its agent unable to manage it, whatever
+// else it had: the switch is the operator's to turn on.
+func TestUpgradeLeavesAgentManagementOff(t *testing.T) {
+	ctx := context.Background()
+	p := filepath.Join(t.TempDir(), "v28.db")
+	db := buildOld(t, dsn(p), 28)
+	f := fillV28(t, db)
+	db.Close()
+	st, err := Open(ctx, p, testSealer(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	k, err := st.Key(ctx, f.keyKept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k.AgentManage || k.ClientType == "" {
+		t.Errorf("the migrated client: agent_manage %v, type %q", k.AgentManage, k.ClientType)
+	}
+	if err := st.SetClientAgentManage(ctx, f.keyKept, true); err != nil {
+		t.Errorf("the migrated client cannot be switched: %v", err)
+	}
+}
+
 // A database the upgrade cannot start from is refused, with the reason, and
 // left as it was.
 func TestUpgradeRefusesWhatItCannotRead(t *testing.T) {

@@ -66,6 +66,11 @@ function SettingsCard({ client: c, onChanged }: { client: Client; onChanged: () 
       await api.clients.setFitImages(c.id, on)
       onChanged()
     })
+  const switchAgent = (on: boolean) =>
+    run('agent', async () => {
+      await api.clients.setAgentManage(c.id, on)
+      onChanged()
+    })
   const setMode = (mode: 'binding' | 'direct') =>
     run('mode', async () => {
       await api.clients.setMode(c.id, mode)
@@ -113,6 +118,17 @@ function SettingsCard({ client: c, onChanged }: { client: Client; onChanged: () 
           disabled={busy !== ''}
           label="Shrink images when a request carries more than 20 — Claude refuses images over 2000 px then"
           info="Only on a request Claude serves, and only the images over the limit; everything else goes up byte for byte. Images from earlier turns count, so a long conversation crosses the line on its own. It is the one change the gateway makes to what the model is shown, which is why it is off until switched on. The cost is bounded: Claude already downscales to 2576 px on 4.7 and later, and to 1568 px before."
+        />
+
+        {/* Off until the operator says so: with it, a model decides what this
+            client runs. The read tools need nothing, and nothing here reaches
+            its limits, its key, its type or any other client. */}
+        <SettingSwitch
+          checked={k.agent_manage}
+          onChange={(v) => void switchAgent(v)}
+          disabled={busy !== ''}
+          label="Agent may manage this client — lets its agent switch its models and update its config through the gateway's MCP server"
+          info="The agent inside this client reaches the gateway's MCP server with the client's own key. Without this it can read what the client serves, its limits and its chats, and name its chats. With it, it can also bind this client's model names to any model the client may be offered, add and remove names of its own, and make the client's keyless update command. Never its limits, its key, its switches, the accounts or another client. Every change it makes is in the request log, under this client."
         />
         <ErrorBanner error={error} />
       </Stack>

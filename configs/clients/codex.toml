@@ -1,5 +1,6 @@
 # Codex CLI, pointed at a claudication gateway.
-# Copy to ~/.codex/config.toml and change base_url to your own.
+# Copy to ~/.codex/config.toml and change base_url, and the MCP server's url,
+# to your own.
 #
 #   export CLAUDICATION_API_KEY=clc_...
 #   codex
@@ -29,6 +30,15 @@ name = "claudication"
 base_url = "https://claudication.example.com/v1"
 env_key = "CLAUDICATION_API_KEY"
 wire_api = "responses"
+
+# The gateway's MCP server: tools for Codex's own agent about this client
+# (mcp__claudication__list_models and the rest; see docs/clients.md, "Agent
+# tools (MCP)"). The token is the same key, from the same variable: Codex
+# takes an HTTP server's bearer token only from one, and refuses it inline.
+# The install command owns this table and no other [mcp_servers.*].
+[mcp_servers.claudication]
+url = "https://claudication.example.com/mcp"
+bearer_token_env_var = "CLAUDICATION_API_KEY"
 
 [agents]
 default_subagent_model = "agents"

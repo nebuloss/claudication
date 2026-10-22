@@ -118,10 +118,10 @@ typecheck:
 
 ## fmt: format the Go sources in place
 fmt:
-	gofmt -w cmd internal
+	gofmt -w cmd internal configs
 
 fmt-check:
-	@test -z "$$(gofmt -l cmd internal)" || { gofmt -l cmd internal; echo 'run make fmt'; exit 1; }
+	@test -z "$$(gofmt -l cmd internal configs)" || { gofmt -l cmd internal configs; echo 'run make fmt'; exit 1; }
 
 vet:
 	go vet ./...
@@ -147,7 +147,7 @@ test-web:
 	@cd web && npx tsc --target es2022 --module esnext --moduleResolution bundler \
 	  --jsx react-jsx --rootDir src --outDir .charts-check \
 	  src/ui/charts/scale.ts src/ui/charts/stack.ts src/ui/charts/paint.tsx \
-	  src/ui/route.ts src/ui/clients/configs.ts src/ui/clients/specs.ts src/ui/domain/model-tests.ts \
+	  src/ui/route.ts src/ui/clients/specs.ts src/ui/domain/model-tests.ts \
 	  src/ui/features/requests/filter.ts src/ui/features/requests/pager.ts src/ui/primitives/title-edit.ts \
 	  src/ui/features/usage/rollup.ts
 	@node scripts/check-charts.mjs

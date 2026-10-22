@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
+import type { ClientFile } from '../../api/client'
 import { CodeViewer, CopyField, Stack } from '../primitives'
-import type { Setup } from './configs'
-import type { ClientRecipe } from './model'
+import { type ClientRecipe, withKey } from './model'
 
 /** Body prose, at the measure and rhythm of a client's setup. */
 export function Prose({ children }: { children: ReactNode }) {
@@ -10,22 +10,22 @@ export function Prose({ children }: { children: ReactNode }) {
 
 /**
  * One client's setup: the address it wants, what is peculiar to its type, its
- * files, and the type's notes — what goes wrong with it that no file can fix.
+ * files as the gateway wrote them for it, and the type's notes — what goes
+ * wrong with it that no file can fix.
  *
  * `secret` is the key to write into the files, shown as dots; '' leaves the
- * committed placeholder, once the key is no longer offered. `setup` writes the
- * files with the client's names; without it they are as committed.
+ * committed placeholder, once the key is no longer offered.
  */
 export function ClientBody({
   recipe,
   gateway,
+  files,
   secret = '',
-  setup,
 }: {
   recipe: ClientRecipe
   gateway: string
+  files: ClientFile[]
   secret?: string
-  setup?: Setup
 }) {
   return (
     <>
@@ -35,7 +35,7 @@ export function ClientBody({
       <Prose>{recipe.lead}</Prose>
       <div className="mt-5">
         <Stack>
-          {recipe.files(gateway, secret, setup).map((f) => (
+          {files.map((f) => withKey(f, secret)).map((f) => (
             <CodeViewer
               key={f.filename}
               label={f.label}

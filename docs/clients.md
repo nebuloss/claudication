@@ -16,8 +16,10 @@ needs — the key, the address, its files and a one-line install command.
 Each type speaks its own API, fixed by the type: there is no choice to make,
 because both APIs reach every model (see [client-apis.md](client-apis.md)).
 The files in `configs/clients/` are each type's starting point, complete and
-commented, with the names a new client of that type is given. A client's page
-writes them with its own names and its own key. Each type's table — its model
+commented, with the names a new client of that type is given, and each
+registers the gateway's MCP server ([Agent tools](#agent-tools-mcp)). The
+gateway writes them for a client with its own names and its own key, and its
+page shows them. Each type's table — its model
 fields, its default names, its API — is `go doc ./internal/service/clients`,
 with the source each was read from.
 
@@ -87,7 +89,9 @@ configured.
 A tool's own config is merged, not replaced: crush gets its `claudication`
 provider and its `large`/`small` picks, opencode its provider and default
 models, Codex its model keys and its `[model_providers.claudication]` table,
-and everything else in the file stays. In Codex's file the gateway's part sits
+each the gateway's MCP server under `claudication` and no other entry of its
+MCP servers (see [Agent tools (MCP)](#agent-tools-mcp)), and everything else
+in the file stays. In Codex's file the gateway's part sits
 between `# >>> claudication` markers. JSON on Linux and macOS is merged with
 `python3` or `node`; with neither, the gateway's version is put beside the file
 as `.claudication`. JSON comments in the existing file do not survive a merge.
@@ -178,8 +182,10 @@ from its config, so a client's files describe each name with the model it
 serves now: its context window, output cap and effort levels. They are written
 when the page or the install command writes them; after rebinding a slot to a
 model with other limits, run the install command again — or, once the client
-is set up, its **Update config** command (`make test-web` checks
-every rewrite against the committed files; `web/src/ui/clients/configs.ts`).
+is set up, its **Update config** command. The gateway writes them, from the
+committed files embedded in the binary, for the page, both commands and the
+MCP server alike (`go doc ./internal/service/clientconfig`, whose tests check
+every rewrite against the committed files).
 
 ## Chats
 
@@ -278,6 +284,85 @@ sessions whole and stops the longest ones well short of the edge.
 The number only moves crush's compaction point and its context gauge; nothing
 is sent upstream, and the window Anthropic allows stays 1M. Raise or lower it
 in your own copy to taste — 800k compacts rarely, 400k often.
+
+## Agent tools (MCP)
+
+The gateway serves an MCP server at `<public url>/mcp`, on the relay's
+listener beside `/v1`: tools the agent inside a client calls about **that
+client** — what its names serve, what it may switch them to, its limits and
+usage, its chats. It speaks the Streamable HTTP transport (MCP 2025-11-25,
+2025-06-18 and 2025-03-26: JSON-RPC over POST, answered as plain JSON, no
+session, `GET` 405) and takes the client's own key exactly as `/v1` does —
+`Authorization: Bearer clc_…` or `x-api-key` — so a missing or wrong key is
+401, a switched-off client 403 and a switched-off gateway 404, and its calls
+count against the client's rate limit.
+
+| Tool | Tier | What it does |
+|---|---|---|
+| `status` | read | The gateway switch, this client's limits and what it used of them, its open requests, its share of each provider's 5-hour and 7-day windows |
+| `list_models` | read | What its names may be bound to now — each follow target with what it serves, each model with its window, output cap, effort levels — from the same rule as the page's menu |
+| `client` | read | Its type, API and mode, each name with its binding and what serves it now (or why nothing can), whether it takes names of its own |
+| `chats` | read | Its chats of the last week, most recent first: id, title, last activity |
+| `name_chat` | read | Sets a chat's title, as an operator's rename does (below) |
+| `bind_model` | manage | Binds one of its names to a model or target `list_models` offers; nothing else is accepted |
+| `add_model`, `remove_model` | manage | A name of its own for its picker, on a type that takes them; the type's own names stay |
+| `update_config` | manage | The client's **Update config** command (`unix` or `windows`), made as the page makes it: once, fifteen minutes, no key in it. The agent runs it with its own shell |
+
+The **manage** tools work only while the client's **Agent may manage this
+client** switch (its Settings card) is on, and it is off for every client
+until the operator turns it on. They are listed either way — a client keeps
+its tool list, and this server tells it nothing later — and refuse, saying
+who can turn the switch on. Nothing here reaches a client's limits, key, type
+or enable switch, the accounts, another client or the gateway's settings.
+Every manage call, allowed or refused, is logged at warn level and filed in
+the **request log** under the client, path `/mcp/<tool>`, status 200 or the
+refusal's (403 with the switch off, 400 otherwise) and the name and model it
+touched in the model column; like a refusal it reached no upstream, so it is
+in no chart or total.
+
+A name is the client's, for every chat it has, so the tools say so: to switch
+only the chat in hand the agent uses its client's own picker — `/model` in
+Claude Code and Codex, `ctrl+l` in crush, `/models` in opencode.
+
+`name_chat` stores the title as a manual one, so neither the gateway's titler
+nor the client's own naming request (Claude Code, crush and opencode name
+their chats) replaces it; it renames the chat in the gateway, not inside the
+client. Only a chat with requests from this client's key can be named. With
+no `chat_id` it names the chat the call comes from when the client says which:
+Codex puts its `sessionId` in each call's `_meta`; Claude Code, crush and
+opencode send nothing that ties an MCP call to a chat (measured: Claude Code
+2.1.308 sends its session header on model requests only), so their agent gives
+the id, from `chats`.
+
+What each typed client's files write — every one under the name
+`claudication`, and each merge owning only that entry, so your other MCP
+servers stay:
+
+| Client | Where | How the key gets there |
+|---|---|---|
+| Claude Code | `--mcp-config=` in the `claude` function, beside `--settings`; it adds to your servers, it replaces none | `Authorization: Bearer ${CLAUDICATION_MCP_KEY}`, which the function sets from `ANTHROPIC_AUTH_TOKEN` for that one command — Claude Code never expands `ANTHROPIC_AUTH_TOKEN` toward a remote server, and the `=` keeps the flag, which takes several values, from swallowing a prompt |
+| Codex | `[mcp_servers.claudication]` with `url` and `bearer_token_env_var = "CLAUDICATION_API_KEY"`, the variable its provider reads — Codex refuses an inline token for an HTTP server | from the variable |
+| crush | `mcp.claudication`: `type: "http"`, `url`, `headers` | the key, as its provider's `api_key` holds it |
+| opencode | `mcp.claudication`: `type: "remote"`, `url`, `oauth: false` (or it tries an OAuth sign-in on any refusal), `headers` | the key, as its provider's `apiKey` holds it |
+
+An update writes Claude Code's and Codex's entries again, since they hold no
+key; crush's and opencode's hold the key, so an update leaves the MCP servers
+of those files as they are on disk. A crush or opencode machine set up before
+the MCP server existed gets it by being set up again (regenerate the key).
+Claude Code on Windows has no `claude` function, so no MCP server either: add
+it with `claude mcp add --transport http claudication <url>/mcp --header
+"Authorization: Bearer clc_…"`. A custom client's page gives the address and
+the header. Claude Code 2.1.308 caches a 401 or 403 from a server as "needs
+authentication" and may skip it on later starts ("cached needs-auth"); after
+switching a client back on, reconnect it from `/mcp`.
+
+Checked live on 2026-10-22 against a throwaway gateway: Claude Code 2.1.308
+(the installed file, its model API a stub) listed the nine tools as
+`mcp__claudication__*` and called `list_models` through the gateway, and
+`claude mcp list` showed it connected, and refused a wrong key with the 401;
+crush (v0.97.2) listed them as `mcp_claudication_*` and called the same tool.
+The manage tier refused `update_config` with the switch off, and with it on
+handed back a command that, run, rewrote Claude Code's file keeping its key.
 
 ## Before you run Codex
 

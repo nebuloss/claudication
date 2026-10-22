@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"claudication/internal/httpapi/httpx"
+	"claudication/internal/service/clientconfig"
 	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
@@ -38,6 +39,9 @@ type ClientJSON struct {
 	// carrying more than 20 images has each capped at 2000 px when Claude
 	// serves it (internal/relay/passes, ShrinkImages).
 	FitImages bool `json:"fit_images"`
+	// AgentManage is its "Agent may manage this client" switch: whether its
+	// own agent may change it through the MCP server (internal/httpapi/agent).
+	AgentManage bool `json:"agent_manage"`
 	// DisabledAt is when it was switched off, when it is.
 	DisabledAt string `json:"disabled_at,omitempty"`
 	// ConfiguredAt is when it was first set up with its key; from then on
@@ -87,8 +91,8 @@ type SlotJSON struct {
 func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) ClientJSON {
 	out := ClientJSON{KeyJSON: key, Type: c.Type, Mode: c.Mode, Disabled: c.DisabledAt != nil,
 		NameChats: c.NameChats || c.Spec().NamesItsChats,
-		FitImages: c.FitImages,
-		Slots:     make([]SlotJSON, 0, len(c.Slots))}
+		FitImages: c.FitImages, AgentManage: c.AgentManage,
+		Slots: make([]SlotJSON, 0, len(c.Slots))}
 	if c.DisabledAt != nil {
 		out.DisabledAt = c.DisabledAt.UTC().Format(time.RFC3339)
 	}
@@ -440,6 +444,73 @@ func (s *Admin) handleSetClientFitImages(w http.ResponseWriter, r *http.Request)
 	s.writeClient(w, r, c.ID, nil)
 }
 
+// handleSetClientAgentManage switches whether a client's own agent may change
+// it through the MCP server, from its next call: the key is read afresh on
+// every one. A warning, as switching a client off is: it hands a model the
+// operator's choice of what the client runs.
+func (s *Admin) handleSetClientAgentManage(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.loadClient(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	if body.Enabled == nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, switchUsage)
+		return
+	}
+	if s.clientError(w, s.store.SetClientAgentManage(r.Context(), c.ID, *body.Enabled), "switch agent management") {
+		return
+	}
+	s.log.Warn("client agent management switched", "id", c.ID, "name", c.Name, "enabled", *body.Enabled,
+		"ip", httpx.ClientIP(r.Context()))
+	s.writeClient(w, r, c.ID, nil)
+}
+
+// handleClientFiles is a typed client's files as its page shows them: written
+// by the gateway (internal/service/clientconfig) with its names and the facts
+// of what each serves now, for the address the page gives (?base=), with the
+// example's key where the key goes. The page swaps that for the key while it
+// is offered; the install command's files are built with the key itself
+// (handleKeyInstall).
+func (s *Admin) handleClientFiles(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.loadClient(w, r)
+	if !ok {
+		return
+	}
+	base, err := clientconfig.Base(r.URL.Query().Get("base"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
+		return
+	}
+	setup := s.setupOf(r, c)
+	files := clientconfig.Files(c.Type, setup, base)
+	if files == nil {
+		files = []clientconfig.File{}
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"files": files})
+}
+
+// setupOf is what a client's files are written from: its names, each with the
+// facts of the model it serves now, read off the list its key is offered. A
+// list that cannot be read — no account connected yet, an upstream down —
+// still gives files: each name with the defaults a file gives a model it
+// knows nothing of, which is a working setup to update later rather than no
+// setup at all.
+func (s *Admin) setupOf(r *http.Request, c store.Client) clientconfig.Setup {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	list, err := s.models.For(ctx, c.APIKey)
+	if err != nil {
+		s.log.Warn("could not read a client's model list; writing its files without the models' facts", "id", c.ID, "err", err)
+	}
+	return clientconfig.For(c, list)
+}
+
 // liveMinutes is how far back the Limits page's live chart reaches.
 const liveMinutes = 60
 
@@ -621,29 +692,4 @@ func (s *Admin) handleAccountClients(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"days": days, "rows": rows, "shares": shares})
-}
-
-// handleKeyOfferedModels is the model list one key is offered — /v1/models
-// as that key sees it, its client's slots and nothing else for a client that
-// names them — for writing its client's configs with each slot's facts.
-func (s *Admin) handleKeyOfferedModels(w http.ResponseWriter, r *http.Request) {
-	key, err := s.store.Key(r.Context(), r.PathValue("id"))
-	if errors.Is(err, store.ErrKeyNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
-		return
-	}
-	if err != nil {
-		httpx.Internal(w, s.log, "read the key", err)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	body, err := s.models.For(ctx, key)
-	if err != nil {
-		s.log.Warn("could not read a key's model list", "err", err)
-		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream, "could not reach the upstream model list")
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(body)
 }

@@ -32,7 +32,7 @@
 // The slots are the ones each client's own configuration takes, read from the
 // client's source or documentation rather than guessed; each Type says where.
 // Labels, roles, names and defaults live here once: the store keeps slot rows
-// by these ids, the admin API serves this table to the UI, and the UI writes
+// by these ids, the admin API serves this table to the UI, and the gateway writes
 // each type's files from it.
 //
 // A leaf: it imports nothing of the gateway's, so the store, the model service
@@ -86,7 +86,7 @@ const (
 func (m Mode) Valid() bool { return m == Binding || m == Direct }
 
 // Role is what a slot is for, in words the types share — crush's large and
-// opencode's main are both the main model — so the UI writing a type's files
+// opencode's main are both the main model — so the writer of a type's files
 // finds the slot a field takes by what it is for rather than by its id.
 type Role string
 

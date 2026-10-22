@@ -1,12 +1,11 @@
 // Package install serves one-time setup scripts: a client's configuration,
 // written to the right places by one pasted command.
 //
-// The admin UI already has the client's files, with its key and the
-// gateway's address inside and each slot's model facts tailored to what it
-// serves — it is what the client's page shows. Rather than build them a
-// second time here, the page hands them over, and this keeps them under a
-// random token for a few minutes. One address then serves them, the query
-// saying which shell:
+// The files are written elsewhere (internal/service/clientconfig), with the
+// client's key and the gateway's address inside and each slot's model facts
+// tailored to what it serves — what the client's page shows. This keeps them
+// under a random token for a few minutes. One address then serves them, the
+// query saying which shell:
 //
 //	curl -fsSL 'https://gateway/install?token=<t>&shell=sh' | sh
 //	irm 'https://gateway/install?token=<t>&shell=ps1' | iex
@@ -190,7 +189,31 @@ type Bundle struct {
 	Update bool
 }
 
-// Limits on what the admin UI may hand over: enough for every client there is
+// Carrying is the first file whose body holds any of marks — a key's secret,
+// or its prefix, which is enough of it to know it by — or "" for none. An
+// update is refused when it says a path: whatever built the files got it
+// wrong, and an update command is one a page shows and an agent is handed.
+func Carrying(files []File, marks ...string) string {
+	for _, f := range files {
+		for _, m := range marks {
+			if m != "" && strings.Contains(f.Body, m) {
+				return f.Path
+			}
+		}
+	}
+	return ""
+}
+
+// Command is the line that runs a link's script: curl into sh on Linux and
+// macOS, irm into iex on Windows, as the client's page shows it.
+func Command(base, token string, windows bool) string {
+	if windows {
+		return "irm '" + base + "/install?token=" + token + "&shell=ps1' | iex"
+	}
+	return "curl -fsSL '" + base + "/install?token=" + token + "&shell=sh' | sh"
+}
+
+// Limits on what a bundle may hold: enough for every client there is
 // with room to spare, and a ceiling on what a link can hold in memory.
 const (
 	maxFiles = 16

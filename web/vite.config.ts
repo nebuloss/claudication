@@ -13,13 +13,6 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       '@': resolve(import.meta.dirname, './src'),
-      // The example client configs are plain files under configs/clients,
-      // linked from the README and readable on their own. The UI imports them
-      // as text at build time so there is one copy rather than a second set
-      // pasted into a component. The fs.allow below is what lets it: Vite
-      // treats web/ as the workspace root because the lockfile is here, and
-      // would otherwise refuse to serve a file from outside it in dev.
-      '#configs': resolve(import.meta.dirname, '../configs'),
     },
   },
   build: {
@@ -52,7 +45,6 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     port: 5173,
-    fs: { allow: [resolve(import.meta.dirname, '..')] },
     // `npm run dev` serves the UI while the gateway runs separately. The proxy
     // keeps both on one origin so the admin session cookie is sent.
     proxy: {

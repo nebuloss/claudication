@@ -63,5 +63,14 @@
       "provider": "claudication",
       "model": "small"
     }
+  },
+  "mcp": {
+    "claudication": {
+      "type": "http",
+      "url": "https://claudication.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer clc_..."
+      }
+    }
   }
 }
