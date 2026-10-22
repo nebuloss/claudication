@@ -1,11 +1,9 @@
 import { api, type GatewayConfig } from '../../../api/client'
 import { useAction } from '../../hooks'
-import { clientHref, navigate } from '../../route'
+import { navigate } from '../../route'
 import {
-  AppLink,
   Button,
   Card,
-  Chip,
   DangerZone,
   ErrorBanner,
   Note,
@@ -13,15 +11,15 @@ import {
   Stack,
   useConfirm,
 } from '../../primitives'
-import { providerTitle, type Client, type ClientTypes } from '../../clients/specs'
+import type { Client, ClientTypes } from '../../clients/specs'
 import { SetupCard } from './setup'
 
 /**
- * A client at a glance, on its own path: how to set it up (or that it is), its
- * model names and what each serves, its switches, and deleting it. Its name,
- * type and API are the page's header, where it is renamed. Its usage and
- * limits, chats and requests are a page away, and so is changing what its
- * names serve: the Models page, beside the models it is allowed.
+ * A client at a glance, on its own path: how to set it up (or that it is),
+ * its switches, and deleting it. Its name, type and API are the page's
+ * header, where it is renamed. Its usage and limits, model names, chats and
+ * requests are a page away each: its names are on Models alone, as the
+ * owner asked, rather than copied here read-only.
  */
 export function ClientOverview({
   client,
@@ -37,68 +35,9 @@ export function ClientOverview({
   return (
     <>
       <SetupCard client={client} types={types} config={config} onChanged={onChanged} />
-      <NamesSummary client={client} />
       <SettingsCard client={client} onChanged={onChanged} />
       <DeleteCard client={client} />
     </>
-  )
-}
-
-/**
- * What each of the client's names serves now, read-only: the editor is on its
- * Models page, beside the switches that bound what the names may serve, and
- * a second copy of it here would be two places to change one thing.
- *
- * One row per name, in columns: the name the client asks for and what it is
- * for, the model it reaches and on which provider, and how it is bound —
- * following a family's releases, pinned, or unavailable and why. It was a
- * wrapped line of "name → id" pairs, which read as one run-on sentence once a
- * client had more than three names.
- */
-function NamesSummary({ client: c }: { client: Client }) {
-  const href = `${clientHref(c.id)}/models`
-  return (
-    <Card title="Model names" aside={<AppLink href={href}>Change on Models</AppLink>}>
-      {!c.namesSlots ? (
-        <p className="text-sm text-on-surface-variant">
-          In direct mode: it names real models, the ones it is allowed on its <AppLink href={href}>Models</AppLink>{' '}
-          page.
-        </p>
-      ) : c.slots.length === 0 ? (
-        <p className="text-sm text-on-surface-variant">No model names yet.</p>
-      ) : (
-        <ul className="m-0 flex list-none flex-col divide-y divide-outline-variant p-0">
-          {c.slots.map((s) => {
-            const unavailable = s.unavailable ?? ''
-            const follows = s.bound ?? ''
-            return (
-              <li
-                key={s.id}
-                className="grid grid-cols-1 gap-x-4 gap-y-1 py-2.5 text-sm sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto] sm:items-center"
-              >
-                <span className="flex min-w-0 flex-col">
-                  <code className="truncate font-medium text-on-surface">{s.name}</code>
-                  <span className="truncate text-xs text-on-surface-variant">{s.label}</span>
-                </span>
-                <span className="flex min-w-0 items-center gap-2">
-                  <code className="truncate text-on-surface">{s.serving || '—'}</code>
-                  {s.provider !== undefined && <Chip>{providerTitle(s.provider)}</Chip>}
-                </span>
-                <span className="text-xs text-on-surface-variant sm:text-right">
-                  {unavailable !== '' ? (
-                    <Chip tone="error">{unavailable}</Chip>
-                  ) : follows !== '' ? (
-                    s.title
-                  ) : (
-                    'one model'
-                  )}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </Card>
   )
 }
 

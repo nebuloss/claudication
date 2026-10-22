@@ -55,8 +55,9 @@ export type Tab = (typeof TABS)[number]['id']
 export const ACCOUNT_PAGES = [
   // Which clients drew on it. No chats: a chat is a client's.
   { id: 'usage', label: 'Usage', kind: 'traffic' },
-  { id: 'requests', label: 'Requests', kind: 'traffic' },
+  // Models after Usage and Requests last of the traffic, as on a client.
   { id: 'models', label: 'Models', kind: 'settings' },
+  { id: 'requests', label: 'Requests', kind: 'traffic' },
   { id: 'connection', label: 'Connection', kind: 'settings' },
   // Pausing and removing: the two ways out of use.
   { id: 'advanced', label: 'Advanced', kind: 'settings' },
