@@ -18,14 +18,20 @@ import { tile } from './surface'
  * column and made a group's state something to work out rather than see.
  *
  * The geometry is a step of 1.5rem per level: a group's chevron sits in the
- * step, its box in the 2rem after it, its name after that. An
- * item one level down puts its box in that same 2rem, so a family's
- * box and its models' boxes share a column, and a model's name starts where
- * its family's does: the hierarchy is told by the outdented chevron and the
- * heading's weight, not by more controls.
+ * step, its box in the 2rem after it, its name after that. An item sits one
+ * level deeper than its group: its box goes where its group's name starts
+ * (the step and the group's box column further in), so a model is visibly
+ * inside its family the way a family is inside its provider, rather than
+ * sharing the family's box column and reading as its sibling.
  */
 
 const STEP = 1.5 // rem per level
+
+/**
+ * How much further in an item starts than the step alone puts it: its
+ * group's box column, so the item's box lands under its group's name.
+ */
+const ITEM_SHIFT = 2 // rem
 
 function indent(level: number): CSSProperties {
   return { paddingLeft: `${level * STEP}rem` }
@@ -170,7 +176,7 @@ export function TreeItem({
       // The name's column is capped, so the facts stay beside the name they
       // describe rather than across a wide list from it; the room left over
       // goes to `end`, set against the right edge.
-      style={{ ...indent(level), '--cols': `minmax(8rem,14rem) ${columns} minmax(0,1fr)` } as CSSProperties}
+      style={{ paddingLeft: `${level * STEP + ITEM_SHIFT}rem`, '--cols': `minmax(8rem,14rem) ${columns} minmax(0,1fr)` } as CSSProperties}
     >
       <Checkbox dense label={label} checked={checked} onChange={onChange} disabled={disabled}>
         {/* An item that is out reads quieter, so what is in stands out on a
