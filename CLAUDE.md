@@ -21,8 +21,9 @@ its client's names, bound to a model or to a target that follows the newest
 of a family, or — for a custom client in direct mode — a real model id. It
 then goes to the provider whose accounts serve that model
 (`go doc ./internal/service/models`, route.go). Responses reaches ChatGPT as it
-came and Claude translated; Messages reaches Claude only, and is refused a
-ChatGPT-served model rather than translated.
+came and Claude translated; Messages reaches Claude as it came and ChatGPT
+translated (`go doc ./internal/api/anthropic`). Every model is reachable from
+either API.
 
 ## Where code goes
 
