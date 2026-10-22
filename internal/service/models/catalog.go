@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -174,7 +175,7 @@ func parseCatalog(r io.Reader) (map[string][]catalogModel, error) {
 				created = t.UTC().Format(time.RFC3339)
 			}
 			models = append(models, catalogModel{
-				ID: m.ID, DisplayName: m.Name, CreatedAt: created,
+				ID: m.ID, DisplayName: shownName(m.Name), CreatedAt: created,
 				MaxInput: m.Limit.Context, MaxOutput: m.Limit.Output,
 			})
 		}
@@ -190,6 +191,19 @@ func parseCatalog(r io.Reader) (map[string][]catalogModel, error) {
 		return nil, fmt.Errorf("catalogue lists no Anthropic models")
 	}
 	return out, nil
+}
+
+// shownName is a catalogue name as the gateway shows it. The catalogue names
+// a dated snapshot "Claude Opus 4.5 (latest)" — the latest snapshot of 4.5 —
+// and that name replaces the upstream's own, so every menu and config said
+// "latest" beside Opus 5.5, which reads as the newest model when it is three
+// releases old. The suffix says nothing the id and the date do not.
+func shownName(name string) string {
+	name = strings.TrimSpace(name)
+	if i := strings.LastIndex(strings.ToLower(name), "(latest)"); i >= 0 && strings.TrimSpace(name[i+len("(latest)"):]) == "" {
+		return strings.TrimSpace(name[:i])
+	}
+	return name
 }
 
 // catalogList is a provider's catalogue as a model list, unmatched — what is
