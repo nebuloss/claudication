@@ -14,6 +14,7 @@ import {
   ACCOUNT_PAGES,
   ACTIVITY_PAGES,
   CLIENT_PAGES,
+  SETTINGS_PAGES,
   navLevel,
   pageIdOf,
   pathOf,
@@ -259,6 +260,7 @@ export default function App() {
               {tab === 'activity' && <Activity page={pageIdOf(ACTIVITY_PAGES, item)} />}
               {tab === 'settings' && (
                 <Settings
+                  page={pageIdOf(SETTINGS_PAGES, item) || 'general'}
                   session={state.session}
                   onSessionChanged={() => void probe()}
                   config={config}

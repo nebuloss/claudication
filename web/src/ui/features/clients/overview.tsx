@@ -13,7 +13,7 @@ import {
   Stack,
   useConfirm,
 } from '../../primitives'
-import { followLabel, providerTitle, type Client, type ClientTypes } from '../../clients/specs'
+import { providerTitle, type Client, type ClientTypes } from '../../clients/specs'
 import { SetupCard } from './setup'
 
 /**
@@ -88,9 +88,9 @@ function NamesSummary({ client: c }: { client: Client }) {
                   {unavailable !== '' ? (
                     <Chip tone="error">{unavailable}</Chip>
                   ) : follows !== '' ? (
-                    followLabel(follows, s.title).replace(/^Follow/, 'Follows')
+                    s.title
                   ) : (
-                    'Pinned'
+                    'one model'
                   )}
                 </span>
               </li>

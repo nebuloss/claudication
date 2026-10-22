@@ -193,16 +193,17 @@ check('the overview lives at the root, not at its own name', canonical('/overvie
 // A URL is something people type, edit and truncate.
 check('a trailing slash is the same page', canonical('/accounts/'), '/accounts')
 check('a doubled slash is forgiven', canonical('//clients'), '/clients')
-check('settings is its own page', canonical('/settings'), '/settings')
-check('it has no pages under it', canonical('/settings/configuration'), '/settings')
-check('nor any setting of its own', canonical('/settings/images'), '/settings')
+check('settings opens on General', canonical('/settings'), '/settings/general')
+check('its pages are pages', ['models', 'mcp', 'configuration'].map((p) => canonical(`/settings/${p}`)),
+  ['/settings/models', '/settings/mcp', '/settings/configuration'])
+check('a setting it does not have lands on General', canonical('/settings/images'), '/settings/general')
 check('an unknown screen falls back', canonical('/nonesuch'), '/')
 // Screens that went away are not redirected: their bookmarks land on the
 // overview, rather than on a page that only looks like the one they named.
 check('the old key list is not a screen', canonical('/keys'), '/')
 check('nor is a key', canonical('/keys/k1/usage'), '/')
-check('the APIs section went with the per-API switches', canonical('/settings/apis'), '/settings')
-check('and the aliases with the global names', canonical('/settings/aliases'), '/settings')
+check('the APIs section went with the per-API switches', canonical('/settings/apis'), '/settings/general')
+check('and the aliases with the global names', canonical('/settings/aliases'), '/settings/general')
 
 // An item is its own overview, with its traffic and its settings as pages
 // under it: two levels, never a third.
@@ -229,7 +230,7 @@ check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts
 check('a client page too', tab('/clients/c1/requests'), 'clients')
 // Round trip: every canonical path is its own canonical form.
 {
-  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/models', '/activity/accounts', '/activity/requests', '/settings']
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/models', '/activity/accounts', '/activity/requests', '/settings/general', '/settings/mcp']
   check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
 }
 
@@ -259,15 +260,20 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
   check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')
   check('and goes back to the list', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients' })
-  // Settings is one page on the top level, so the rail stays on the screens.
-  check('settings is on the top level', lvl('/settings').back, undefined)
-  check('and is current there', lvl('/settings').current, '/settings')
+  // Settings lists its pages, as Activity does, with the way back.
+  check('settings opens on General from the top level', hrefs(lvl('/'))[3], '/settings/general')
+  check('settings lists its pages', hrefs(lvl('/settings/mcp')), [
+    '/settings/general', '/settings/models', '/settings/mcp', '/settings/configuration',
+  ])
+  check('the page open is current', lvl('/settings/mcp').current, '/settings/mcp')
+  check('and goes back to the main menu', lvl('/settings/models').back?.href, '/')
 
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
   // Every trail starts at the root, and no level is named twice.
   check('the overview is the root alone', trail('/'), ['Overview'])
   check('a list', trail('/clients'), ['Overview', 'Clients'])
-  check('the settings page', trail('/settings'), ['Overview', 'Settings'])
+  check('a settings page', trail('/settings'), ['Overview', 'Settings', 'General'])
+  check('the MCP page', trail('/settings/mcp'), ['Overview', 'Settings', 'MCP'])
   check('a client is its name, not its name then Overview', trail('/clients/c1'), ['Overview', 'Clients', 'clients:c1'])
   check('a page of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
   check('an activity page', trail('/activity/requests'), ['Overview', 'Activity', 'Requests'])
@@ -279,58 +285,50 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
 
 console.log('\n— client specs: a slot\'s binding is one menu value —')
 {
-  const { Binding, BindingMenu, followLabel } = await import(`${OUT}/clients/specs.js`)
+  const { Binding, BindingMenu } = await import(`${OUT}/clients/specs.js`)
   check('a model round-trips', Binding.parse(Binding.model('claude-opus-5-5').value).body, { model: 'claude-opus-5-5' })
-  check('a target too', Binding.parse(Binding.follow('claude:opus').value).body, { follows: 'claude:opus' })
+  check('a family too', Binding.parse(Binding.follow('claude:opus').value).body, { follows: 'claude:opus' })
   check('a model id with a colon survives', Binding.parse('model:a:b').model, 'a:b')
-  check('a slot reads as its binding', Binding.of({ model: '', bound: 'openai:first' }).value, 'follow:openai:first')
-  const opus = { follows: 'claude:opus', title: 'Newest Claude Opus' }
-  const choices = [
-    { model: 'claude-opus-5-5', title: 'Claude Opus 5.5', serving: 'claude-opus-5-5', provider: 'anthropic', followed_by: [opus] },
-    { model: 'claude-opus-5', title: 'Claude Opus 5', serving: 'claude-opus-5', provider: 'anthropic' },
-    { model: 'gpt-5.5', title: 'GPT-5.5', serving: 'gpt-5.5', provider: 'openai',
-      followed_by: [{ follows: 'openai:first', title: 'ChatGPT\'s first-ranked model' }] },
+  check('a slot reads as its binding', Binding.of({ model: '', bound: 'openai:sol' }).value, 'follow:openai:sol')
+
+  // By family: the menu is the families, and a model no family takes.
+  const byFamily = [
+    { follows: 'claude:opus', title: 'Claude Opus', serving: 'claude-opus-5-5', provider: 'anthropic',
+      versions: ['claude-opus-5-5', 'claude-opus-5'] },
+    { follows: 'openai:sol', title: 'GPT Sol', serving: 'gpt-6.1-sol', provider: 'openai', versions: ['gpt-6.1-sol'] },
+    { model: 'codex-x', title: 'Codex X', serving: 'codex-x', provider: 'openai' },
   ]
-  const at = (b, slot) => new BindingMenu(choices, b, slot)
-  const plain = at(Binding.model('claude-opus-5'))
-  check('each model once, by provider, by name with its id as the hint', plain.options.map((o) => [o.group, o.value, o.label, o.hint]), [
-    ['Claude', 'model:claude-opus-5-5', 'Claude Opus 5.5', 'claude-opus-5-5'],
-    ['Claude', 'model:claude-opus-5', 'Claude Opus 5', 'claude-opus-5'],
-    ['ChatGPT', 'model:gpt-5.5', 'GPT-5.5', 'gpt-5.5'],
+  const fam = new BindingMenu(byFamily, Binding.follow('claude:opus'), { title: 'Claude Opus', serving: 'claude-opus-5-5' })
+  check('each choice once, by provider, nothing else', fam.options.map((o) => [o.group, o.value, o.label]), [
+    ['Claude', 'follow:claude:opus', 'Claude Opus'], ['ChatGPT', 'follow:openai:sol', 'GPT Sol'], ['ChatGPT', 'model:codex-x', 'Codex X'],
   ])
-  check('no target is an entry of its own', plain.options.some((o) => o.value.startsWith('follow:')), false)
-  check('a model no target serves has no checkbox', plain.follow, undefined)
+  check('a family says what serves it, and what an account without it gets', fam.options[0].hint,
+    'now claude-opus-5-5, or claude-opus-5 on an account without it')
+  check('the binding is the value', fam.value, 'follow:claude:opus')
+  check('picking binds what was picked', fam.pick('follow:openai:sol').body, { follows: 'openai:sol' })
+  check('a new name starts on the Opus family', BindingMenu.initial(byFamily).body, { follows: 'claude:opus' })
+  check('or on the first choice there is', BindingMenu.initial(byFamily.slice(1)).body, { follows: 'openai:sol' })
+  check('or a model', BindingMenu.initial(byFamily.slice(2)).body, { model: 'codex-x' })
 
-  const following = at(Binding.follow('claude:opus'), { title: 'Newest Claude Opus', serving: 'claude-opus-5-5' })
-  check('a slot following shows the model it resolves to, the box checked', [following.value, following.follow?.checked, following.follow?.follows],
-    ['model:claude-opus-5-5', true, 'claude:opus'])
-  check('and the menu still lists each model once', following.options.length, 3)
-  check('unchecking binds the model it serves now', following.setFollow(false).body, { model: 'claude-opus-5-5' })
-  const fixed = at(Binding.model('claude-opus-5-5'))
-  check('the same model bound as itself: the box offered, unchecked', [fixed.value, fixed.follow?.checked, fixed.follow?.label],
-    ['model:claude-opus-5-5', false, 'Follow new Opus releases'])
-  check('checking binds the target', fixed.setFollow(true).body, { follows: 'claude:opus' })
-  check('picking another model while following follows its target', following.pick('model:gpt-5.5').body, { follows: 'openai:first' })
-  check('or binds it as itself when no target serves it', following.pick('model:claude-opus-5').body, { model: 'claude-opus-5' })
-  check('picking while not following binds the model', fixed.pick('model:gpt-5.5').body, { model: 'gpt-5.5' })
-  check('ChatGPT\'s targets are worded by what they follow', [followLabel('openai:first'), followLabel('openai:light')],
-    ["Follow ChatGPT's top model", "Follow ChatGPT's light model"])
+  // Every model: the menu is the models.
+  const every = [
+    { model: 'claude-opus-5-5', title: 'Claude Opus 5.5', serving: 'claude-opus-5-5', provider: 'anthropic' },
+    { model: 'gpt-6.1-sol', title: 'GPT-6.1-Sol', serving: 'gpt-6.1-sol', provider: 'openai' },
+  ]
+  const plain = new BindingMenu(every, Binding.model('gpt-6.1-sol'))
+  check('every model: each model, by name with its id as the hint', plain.options.map((o) => [o.group, o.value, o.hint]), [
+    ['Claude', 'model:claude-opus-5-5', 'claude-opus-5-5'], ['ChatGPT', 'model:gpt-6.1-sol', 'gpt-6.1-sol'],
+  ])
 
-  const kept = at(Binding.model('claude-haiku-4-5'), { title: 'claude-haiku-4-5', serving: 'claude-haiku-4-5', unavailable: 'no connected account lists it' })
-  check('an unavailable binding stays visible, first, marked and not choosable, with no checkbox',
-    [kept.options.length, kept.value, kept.options[0].value, kept.options[0].disabled, kept.options[0].hint, kept.follow],
-    [4, 'model:claude-haiku-4-5', 'model:claude-haiku-4-5', true, 'unavailable: no connected account lists it', undefined])
-  const lost = at(Binding.follow('claude:sonnet'), { title: 'Newest Claude Sonnet', serving: 'claude:sonnet', unavailable: 'no account lists a Claude sonnet' })
-  check('an unresolved target too', [lost.value, lost.options[0].label, lost.options[0].disabled, lost.follow],
-    ['follow:claude:sonnet', 'Newest Claude Sonnet', true, undefined])
-
-  check('a new name follows the newest Opus', BindingMenu.initial(choices).body, { follows: 'claude:opus' })
-  check('or the first target there is', BindingMenu.initial(choices.slice(1)).body, { follows: 'openai:first' })
-  check('or the first model', BindingMenu.initial([choices[1]]).body, { model: 'claude-opus-5' })
-  const fresh = at(BindingMenu.initial(choices))
-  check('shown as the model it serves, the box checked', [fresh.value, fresh.follow?.checked], ['model:claude-opus-5-5', true])
+  // A binding the menu does not offer stays visible, first, not choosable.
+  const other = new BindingMenu(every, Binding.follow('claude:opus'), { title: 'Claude Opus', serving: 'claude-opus-5-5' })
+  check('a family bound before every model was offered: shown, marked',
+    [other.value, other.options[0].value, other.options[0].group, other.options[0].disabled, other.options.length],
+    ['follow:claude:opus', 'follow:claude:opus', 'Bound now', true, 3])
+  const kept = new BindingMenu(byFamily, Binding.model('claude-haiku-4-5'), { title: 'claude-haiku-4-5', serving: 'claude-haiku-4-5', unavailable: 'no connected account lists it' })
+  check('an unavailable binding says why', [kept.options[0].hint, kept.options[0].disabled],
+    ['unavailable: no connected account lists it', true])
 }
-
 console.log('\n— model tree: provider, family, model, newest first —')
 {
   const { modelTree, familyOf, modelNodes, newestOnly, changes } = await import(`${OUT}/domain/model-tree.js`)
@@ -388,6 +386,12 @@ console.log('\n— model tree: provider, family, model, newest first —')
     changes(modelsOf(tree), (m) => now.has(m.id), (m) => want.get(m.id)).map((c) => `${c.model.id}=${c.enabled}`),
     ['claude-fable-1=true', 'claude-opus-5=false', 'claude-sonnet-5=true', 'claude-haiku-4-5-20251001=true',
       'gpt-6.1-sol=true', 'gpt-6-astra=true', 'gpt-6-sol=false', 'gpt-5.6-sol=true'])
+  const offered = modelTree([{ id: 'claude-opus', follows: 'claude:opus' }, { id: 'claude-haiku', follows: 'claude:haiku' },
+    { id: 'gpt-sol', follows: 'openai:sol', provider: 'openai' }, { id: 'codex-x', provider: 'openai' }])
+  check('families offered as one are rows of their own under their provider, in the server\'s order',
+    nodesOf(offered).map((p) => [p.label, p.children.map((c) => c.children === undefined ? c.key : [c.label, c.children.map((m) => m.key)])]),
+    [['Claude', ['claude-opus', 'claude-haiku']], ['ChatGPT', ['gpt-sol', ['Other', ['codex-x']]]]])
+  check('and newest only leaves them be', [...newestOnly(offered).keys()], ['codex-x'])
   check('a model the preset does not name is left alone',
     changes([{ id: 'a' }, { id: 'b' }], () => false, (m) => (m.id === 'a' ? true : undefined)).map((c) => c.model.id), ['a'])
 }

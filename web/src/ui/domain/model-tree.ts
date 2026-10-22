@@ -35,6 +35,13 @@ export interface TreeModel {
   line?: string
   provider?: string
   priority?: number
+  /**
+   * The family an entry stands for, when it is a family offered as one
+   * (internal/service/models, Offered): drawn as a row of its own under its
+   * provider, since a family of one row folded under its own name is a
+   * level for nothing.
+   */
+  follows?: string
 }
 
 export interface ModelFamily<T> {
@@ -53,6 +60,9 @@ export interface ModelProvider<T> {
 }
 
 const OTHER = 'other'
+
+/** The family key the families offered as one are kept under, and drawn flat. */
+const OFFERED = ':families'
 
 /** The numbers in a version, for comparing: "6.1" is [6, 1]. */
 function version(s: string): number[] {
@@ -116,7 +126,7 @@ export function modelTree<T extends TreeModel>(models: readonly T[]): ModelProvi
   const byProvider = new Map<string, Map<string, ModelFamily<T>>>()
   for (const m of models) {
     const p = m.provider ?? 'anthropic'
-    const f = familyOf(m)
+    const f = (m.follows ?? '') !== '' ? { key: OFFERED, title: '' } : familyOf(m)
     const families = byProvider.get(p) ?? new Map<string, ModelFamily<T>>()
     byProvider.set(p, families)
     const key = `${p}/${f.key}`
@@ -133,9 +143,16 @@ export function modelTree<T extends TreeModel>(models: readonly T[]): ModelProvi
     .map(([key, families]) => ({
       key,
       title: providerTitle(key),
+      // The families offered as one keep the server's order, which is
+      // newest release first already, and come before any model of no
+      // family beside them.
       families: [...families.values()]
-        .map((f) => ({ ...f, models: [...f.models].sort((a, b) => compareModels(b, a)) }))
-        .sort((a, b) => compareFamilies(b, a)),
+        .map((f) => (f.key.endsWith(`/${OFFERED}`) ? f : { ...f, models: [...f.models].sort((a, b) => compareModels(b, a)) }))
+        .sort((a, b) => {
+          const ao = a.key.endsWith(`/${OFFERED}`)
+          const bo = b.key.endsWith(`/${OFFERED}`)
+          return ao !== bo ? (ao ? -1 : 1) : compareFamilies(b, a)
+        }),
     }))
 }
 
@@ -149,7 +166,11 @@ export function modelTree<T extends TreeModel>(models: readonly T[]): ModelProvi
 export function newestOnly<T extends TreeModel>(tree: readonly ModelProvider<T>[]): Map<string, boolean> {
   const want = new Map<string, boolean>()
   for (const p of tree) {
-    for (const f of p.families) f.models.forEach((m, i) => want.set(m.id, i === 0))
+    for (const f of p.families) {
+      // A family offered as one is each its own newest: left as it is.
+      if (f.key.endsWith(`/${OFFERED}`)) continue
+      f.models.forEach((m, i) => want.set(m.id, i === 0))
+    }
   }
   return want
 }
@@ -188,11 +209,17 @@ export interface ModelGroup<C> {
  * family alone — the one a model is likely being looked for in; the older
  * ones are a click away rather than a scroll past.
  */
-export function modelNodes<T, L>(tree: readonly ModelProvider<T>[], leaf: (m: T) => L): ModelGroup<ModelGroup<L>>[] {
+export function modelNodes<T, L>(tree: readonly ModelProvider<T>[], leaf: (m: T) => L): ModelGroup<ModelGroup<L> | L>[] {
   return tree.map((p) => ({
     key: p.key,
     label: p.title,
     defaultOpen: true,
-    children: p.families.map((f, i) => ({ key: f.key, label: f.title, defaultOpen: i === 0, children: f.models.map(leaf) })),
+    // Families offered as one are rows of their own, straight under the
+    // provider.
+    children: p.families.flatMap((f, i): (ModelGroup<L> | L)[] =>
+      f.key.endsWith(`/${OFFERED}`)
+        ? f.models.map(leaf)
+        : [{ key: f.key, label: f.title, defaultOpen: i === 0, children: f.models.map(leaf) }],
+    ),
   }))
 }

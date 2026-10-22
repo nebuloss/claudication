@@ -12,8 +12,9 @@
  *                                       its requests by outcome over days
  *   /activity/<page>                    its traffic by model, by client, by
  *                                       account, and the request log
- *   /settings                           the gateway switch, the admin account
- *                                       and the configuration, on one page
+ *   /settings/<page>                    the gateway's own settings: General
+ *                                       (the gateway switch, the admin
+ *                                       account), Models, MCP, Configuration
  *
  * So a link, a bookmark and Back all land on a page, never on "whatever
  * sub-tab was open last". Each level's overview is the level itself — the
@@ -121,6 +122,22 @@ export const ACTIVITY_PAGES = [
 ] as const satisfies readonly Section[]
 export type ActivityPageId = (typeof ACTIVITY_PAGES)[number]['id']
 
+/**
+ * The gateway's own settings, a page each, General first and where
+ * /settings opens. They were one page while all that was left was a switch,
+ * an account and a table; with the models' modes and the MCP server's switch
+ * beside them it was a scroll past the configuration to find either, and the
+ * owner asked for the navigation back (2026-10-22). Configuration last: it
+ * is long, read-only, and read least.
+ */
+export const SETTINGS_PAGES = [
+  { id: 'general', label: 'General' },
+  { id: 'models', label: 'Models' },
+  { id: 'mcp', label: 'MCP' },
+  { id: 'configuration', label: 'Configuration' },
+] as const satisfies readonly Section[]
+export type SettingsPageId = (typeof SETTINGS_PAGES)[number]['id']
+
 /** The path's segments, decoded. A malformed escape is kept as it came. */
 export function segments(pathname: string): string[] {
   return pathname
@@ -171,11 +188,10 @@ export function canonical(pathname: string): string {
     // Its overview is its own path; a page it does not have lands there.
     case 'activity':
       return known(ACTIVITY_PAGES, a) ? pathOf('activity', a!) : pathOf('activity')
-    // One page, with nothing under it: what is left of the gateway's own
-    // settings — its switch, the admin account, the configuration as loaded —
-    // reads in one screen, and a sub-page each was a click apiece for it.
+    // A page each; /settings itself, and any page it does not have, open
+    // on General.
     case 'settings':
-      return pathOf('settings')
+      return pathOf('settings', known(SETTINGS_PAGES, a) ? a! : SETTINGS_PAGES[0].id)
   }
   return '/'
 }
@@ -238,8 +254,14 @@ export function navLevel(pathname: string): NavLevel {
       current: id === undefined ? pathOf(top) : pathOf(top, id),
     }
   }
-  // The root's own level, Settings among it: the screens, each opening on
-  // its first page.
+  if (top === 'settings') {
+    return {
+      back: HOME,
+      items: links('/settings', SETTINGS_PAGES),
+      current: pathOf(top, id ?? SETTINGS_PAGES[0].id),
+    }
+  }
+  // The root's own level: the screens, each opening on its first page.
   return {
     items: ROOT.map((l) => ({ ...l, href: canonical(l.href) })),
     current: canonical(top === undefined ? '/' : pathOf(top)),
@@ -268,6 +290,9 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
   out.push({ href: canonical(pathOf(tab.id)), label: tab.label })
   if (top === 'activity' && id !== undefined) {
     out.push({ href: pathOf(top, id), label: label(ACTIVITY_PAGES, id) })
+  }
+  if (top === 'settings' && id !== undefined) {
+    out.push({ href: pathOf(top, id), label: label(SETTINGS_PAGES, id) })
   }
   return out
 }

@@ -35,6 +35,7 @@ import type {
   GatewayLive,
   Health,
   ClientFile,
+  FamilyReport,
   Model,
   OAuthResult,
   OAuthStart,
@@ -323,6 +324,18 @@ const clients = {
 const models = {
   list: async (signal?: AbortSignal): Promise<Model[]> =>
     (await http.get<{ data: Model[] | null }>('/admin/models', signal)).data ?? [],
+
+  /** Each provider's families, its mode, and which version each account would serve. */
+  families: async (signal?: AbortSignal): Promise<FamilyReport[]> =>
+    (await http.get<{ providers: FamilyReport[] | null }>('/admin/model-families', signal)).providers ?? [],
+
+  /** Set the one version a family serves for the gateway, or '' to follow the latest. */
+  setVersion: async (family: string, model: string): Promise<FamilyReport[]> =>
+    (await http.post<{ providers: FamilyReport[] | null }>('/admin/model-families/version', { family, model })).providers ?? [],
+
+  /** Offer a provider's models by family, or every model. */
+  setByFamily: (provider: string, enabled: boolean) =>
+    http.send('POST', path`/admin/model-families/${provider}/mode`, { body: { enabled } }),
 }
 
 /** The gateway's own state and switches. */
@@ -331,6 +344,9 @@ const gateway = {
   config: (signal?: AbortSignal) => http.get<GatewayConfig>('/admin/config', signal),
 
   setServing: (enabled: boolean) => http.send('POST', '/admin/gateway', { body: { enabled } }),
+
+  /** The MCP server's switch. */
+  setMCP: (enabled: boolean) => http.send('POST', '/admin/mcp', { body: { enabled } }),
 
   /**
    * Liveness and the build, as every listener answers them to anyone: all the

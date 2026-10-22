@@ -25,8 +25,8 @@ export default function Security({
   const [open, setOpen] = useState<Open>('none')
 
   return (
-    // Titled, like every card on the Settings page: three of them share it,
-    // and no entry in the navigation names any.
+    // Titled: it shares General with the gateway switch, and the page's
+    // name says neither.
     <Card
       title="Admin account"
       aside={

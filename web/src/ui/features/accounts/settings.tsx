@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ConsentFlow } from './add'
 import AccountModels from '../models/switches'
+import AccountFamilies from './families'
 import { useAction } from '../../hooks'
 import { api, type Account, type ProbeResult } from '../../../api/client'
 import { dateTime, relative } from '../../format'
@@ -52,6 +53,8 @@ export default function AccountSettings({
   const { busy, error, setError, run: act } = useAction<Busy>()
   const confirm = useConfirm()
   const [reconnecting, setReconnecting] = useState(false)
+  // Bumped by each switch, so which version it serves is read again.
+  const [switched, setSwitched] = useState(0)
 
   // Reconnecting is the fix for a dead refresh token and the only cure for an
   // expiring one, so it leads the actions when either is the case.
@@ -76,9 +79,18 @@ export default function AccountSettings({
 
   if (section === 'models') {
     return (
-      <Card>
-        <AccountModels account={account} onChanged={onChanged} />
-      </Card>
+      <>
+        <AccountFamilies account={account} version={switched} />
+        <Card>
+          <AccountModels
+            account={account}
+            onChanged={() => {
+              setSwitched((n) => n + 1)
+              onChanged()
+            }}
+          />
+        </Card>
+      </>
     )
   }
 

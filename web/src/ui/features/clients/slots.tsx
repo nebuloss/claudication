@@ -5,7 +5,6 @@ import {
   Actions,
   Button,
   Card,
-  Checkbox,
   Chip,
   ErrorBanner,
   Field,
@@ -21,15 +20,16 @@ import { Binding, BindingMenu, providerTitle, type Client } from '../../clients/
 
 /**
  * The client's model names: one per model setting its configuration has,
- * each the client's own, each bound to a real model or to a target that
- * moves with each release. Moving the client from Claude to GPT is a change
- * here and nothing else: both APIs reach both providers.
+ * each the client's own, each bound to a family or to a model, as
+ * Settings › Models offers the provider. Moving the client from Claude to GPT
+ * is a change here and nothing else: both APIs reach both providers.
  *
  * The menus offer only what the server says is available to this client now
- * (its `choices`): listed by a connected account, and on there, each model
- * once. Following the newest of a kind is the checkbox beside the menu, not
- * an entry of its own (BindingMenu). A binding that has since become
- * unavailable is kept and shown, with why, until it is replaced.
+ * (its `choices`): listed by a connected account, and on there, each once
+ * (BindingMenu). Which version a family serves is not chosen here: it is the
+ * gateway's, on Settings › Models. A binding that has since become
+ * unavailable, or was made in the other mode, is kept and shown until it is
+ * replaced.
  */
 export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
   const choices = c.wire.choices ?? []
@@ -50,8 +50,8 @@ export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged:
       info={
         <p>
           A name is this client&rsquo;s alone: another client may have one by the same name, bound to something
-          else. When the model picked is the newest of its kind, the box beside it keeps the name on the newest
-          as accounts list new releases.
+          else. Settings › Models says whether a name is bound to a family (Claude Opus, GPT Sol) or to a model,
+          and which version each family serves.
         </p>
       }
     >
@@ -124,7 +124,6 @@ function SlotRow({
           )}
           <Select label="Serves" value={menu.value} options={menu.options} onChange={(v) => void save(menu.pick(v))}
             disabled={busy !== ''} />
-          <FollowBox menu={menu} disabled={busy !== ''} onChange={(b) => void save(b)} />
           {s.removable && (
             <IconButton label={`Remove ${s.name}`} onClick={() => void remove()}>
               <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
@@ -189,8 +188,8 @@ function AddSlotDialog({
   onAdded: () => void
 }) {
   const [name, setName] = useState('')
-  // A new name starts following, as the server's own default does: shown as
-  // the model it serves now with the box checked.
+  // A new name starts on Claude Opus where it is offered, as the server's
+  // own default does.
   const [serves, setServes] = useState(() => BindingMenu.initial(choices))
   const menu = new BindingMenu(choices, serves)
   const { busy, error, run } = useAction()
@@ -214,10 +213,7 @@ function AddSlotDialog({
             changed later, like any other name&rsquo;s.
           </Muted>
           <Field label="Model name" value={name} onChange={setName} mono autoFocus />
-          <div className="flex flex-col gap-1">
-            <Select label="Serves" value={menu.value} options={menu.options} onChange={(v) => setServes(menu.pick(v))} />
-            <FollowBox menu={menu} onChange={setServes} />
-          </div>
+          <Select label="Serves" value={menu.value} options={menu.options} onChange={(v) => setServes(menu.pick(v))} />
           <ErrorBanner error={error} />
           <Actions>
             <Button type="submit" busy={busy === 'add'} disabled={!ready}>
@@ -230,33 +226,5 @@ function AddSlotDialog({
         </Stack>
       </form>
     </Modal>
-  )
-}
-
-/**
- * The checkbox beside a binding menu, when a target resolves to the model
- * picked: checked, the name follows the target and moves with the next
- * release; unchecked, it stays on this model. Nothing at all for a model no
- * target serves now, so the box never offers what it could not do.
- */
-function FollowBox({
-  menu,
-  onChange,
-  disabled,
-}: {
-  menu: BindingMenu
-  onChange: (b: Binding) => void
-  disabled?: boolean
-}) {
-  const f = menu.follow
-  if (f === undefined) return null
-  return (
-    <Checkbox
-      checked={f.checked}
-      label={f.label}
-      disabled={disabled}
-      title={`${f.title}: serves this model now, and moves to each newer one as accounts list it`}
-      onChange={(on) => onChange(menu.setFollow(on))}
-    />
   )
 }

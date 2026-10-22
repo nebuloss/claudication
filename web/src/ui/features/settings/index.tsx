@@ -1,29 +1,31 @@
 import ConfigTable from './config-table'
 import GatewaySwitch from './gateway-switch'
+import McpSettings from './mcp'
+import ModelSettings from './models'
 import Security from './security'
 import { type GatewayConfig, type Session } from '../../../api/client'
+import { type SettingsPageId } from '../../route'
 import { Card, Empty, Loading, Page } from '../../primitives'
 
 /**
- * Settings: one page, with nothing under it — whether the gateway serves, the
- * admin account, and the configuration as loaded, in that order.
+ * Settings: the gateway's own, a page each (route.ts, SETTINGS_PAGES).
  *
- * One page because that is all that is left of the gateway's own settings.
- * Model names, chat naming and image fitting are each client's, on its page,
- * and what remains is a switch, an account and a read-only table: a sub-page
- * apiece was a click and a Back more than any of them is worth. The order is
- * how often each is reached for — the switch first, because it is the one
- * wanted in a hurry; the table last, because it is long and only read.
+ *   General        whether the gateway serves, and the admin account
+ *   Models         each provider's mode, its families and who serves which
+ *   MCP            the MCP server's switch and address
+ *   Configuration  the configuration as loaded, read-only
  *
  * The configuration is loaded by the shell, because the same request carries
- * the switch and the settings rows, and the header reads it too.
+ * the switches and the settings rows, and the header reads it too.
  */
 export default function Settings({
+  page,
   session,
   onSessionChanged,
   config,
   onConfigChanged,
 }: {
+  page: SettingsPageId
   session: Session
   onSessionChanged: () => void
   /**
@@ -56,13 +58,18 @@ export default function Settings({
 
   return (
     <Page>
-      {configured('Gateway', (d) => (
-        <GatewaySwitch enabled={d.gateway_enabled} onChanged={() => void onConfigChanged()} />
-      ))}
-      <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
-      {configured('Configuration', (d) => (
-        <ConfigTable config={d} />
-      ))}
+      {page === 'general' && (
+        <>
+          {configured('Gateway', (d) => (
+            <GatewaySwitch enabled={d.gateway_enabled} onChanged={() => void onConfigChanged()} />
+          ))}
+          <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
+        </>
+      )}
+      {page === 'models' && <ModelSettings />}
+      {page === 'mcp' &&
+        configured('MCP server', (d) => <McpSettings config={d} onChanged={() => void onConfigChanged()} />)}
+      {page === 'configuration' && configured('Configuration', (d) => <ConfigTable config={d} />)}
     </Page>
   )
 }

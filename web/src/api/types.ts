@@ -514,6 +514,8 @@ export interface Model {
   serving?: string
   /** The slot that name fills. */
   slot?: string
+  /** The family this entry stands for, when it is one offered as one: claude:opus. */
+  follows?: string
   /** Whose accounts serve it, when not Anthropic's: openai. */
   provider?: string
   /** The provider's own ranking of its models, best first (ChatGPT's). */
@@ -526,6 +528,8 @@ export interface GatewayConfig {
   settings: Setting[]
   /** The gateway switch: off, every client-facing route refuses. */
   gateway_enabled: boolean
+  /** The MCP server's switch: off, /mcp answers 404 to every client. */
+  mcp_enabled: boolean
 }
 
 /** What /health answers on every listener, unauthenticated. */
@@ -651,9 +655,9 @@ export interface ClientTypesWire {
 }
 
 /**
- * One thing a client's slot can be bound to now — a real model, or a target
- * it follows — and what it serves. The server offers only what is available
- * to that client (internal/service/models, available.go).
+ * One thing a client's slot can be bound to now — a family, or a real model
+ * — and what it serves. The server offers only what is available to that
+ * client (internal/service/models, available.go).
  */
 export interface BindingChoice {
   model?: string
@@ -661,8 +665,48 @@ export interface BindingChoice {
   title: string
   serving: string
   provider: string
-  /** The targets that resolve to this model now: following one serves it today and the next release after. */
-  followed_by?: { follows: string; title: string }[]
+  /** A family's versions some account would serve it with now, newest first. */
+  versions?: string[]
+}
+
+/** One provider's families, as the Models settings page shows them (internal/service/models, Report). */
+export interface FamilyReport {
+  provider: string
+  title: string
+  /** Whether an account of it is switched on: with none there is nothing to list. */
+  connected: boolean
+  /** Offered by family, rather than every model. */
+  by_family: boolean
+  mode_stored: boolean
+  families: FamilyRow[]
+  accounts: { id: string; name: string; disabled: boolean; serves: Record<string, string> }[]
+  /** Models no family takes, offered as themselves. */
+  other?: string[]
+}
+
+export interface FamilyRow {
+  follows: string
+  /** What a direct-mode client names it by: claude-opus. */
+  id: string
+  title: string
+  /** The version a request gets where an account has it; '' when none would. */
+  serving: string
+  /** The one version the family is set to serve; absent while it follows the latest. */
+  pinned?: string
+  /** Why no account serves it, when none does. */
+  why?: string
+  versions: {
+    model: string
+    title?: string
+    /** Switched-on accounts whose list names it. */
+    listed: string[]
+    /** Those that would serve the family with it. */
+    served_by: string[]
+    /** Those of `listed` that have it on: who could serve it, were the family set to it. */
+    on: string[]
+    /** Off on every account that lists it. */
+    off?: boolean
+  }[]
 }
 
 /** One of a client's slots, resolved. */
