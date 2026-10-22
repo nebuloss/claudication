@@ -252,9 +252,9 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
     '/activity/models', '/activity/clients', '/activity/accounts', '/activity/requests',
   ])
   check('and the page open is current', lvl('/activity/clients').current, '/activity/clients')
-  check('an account lists its traffic and its settings', hrefs(lvl('/accounts/a1/usage')), [
-    '/accounts/a1/usage', '/accounts/a1/requests',
-    '/accounts/a1/models', '/accounts/a1/connection', '/accounts/a1/advanced',
+  check('an account lists its pages in a client\'s order', hrefs(lvl('/accounts/a1/usage')), [
+    '/accounts/a1/usage', '/accounts/a1/models',
+    '/accounts/a1/requests', '/accounts/a1/connection', '/accounts/a1/advanced',
   ])
   check('a client too', hrefs(lvl('/clients/c1/usage')), [
     '/clients/c1/usage', '/clients/c1/models', '/clients/c1/chats', '/clients/c1/requests',
