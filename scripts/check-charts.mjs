@@ -333,7 +333,7 @@ console.log('\n— client specs: a slot\'s binding is one menu value —')
 
 console.log('\n— model tree: provider, family, model, newest first —')
 {
-  const { modelTree, familyOf, groupState, openByDefault } = await import(`${OUT}/domain/model-tree.js`)
+  const { modelTree, familyOf, groupState, openByDefault, modelsOf, filterTree, newestOnly, changes } = await import(`${OUT}/domain/model-tree.js`)
   // The ChatGPT backend's list as measured (2026-10-19), in its own ranking,
   // undated; Anthropic's dated, one by its line and the rest by id.
   const gpt = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']
@@ -368,11 +368,32 @@ console.log('\n— model tree: provider, family, model, newest first —')
   check('a group is on, off or mixed', [groupState([true, true]), groupState([false]), groupState([true, false])], ['on', 'off', 'mixed'])
   check('open at first: each provider and its newest family', [...openByDefault(tree)],
     ['anthropic', 'anthropic/fable', 'openai', 'openai/gpt-6.1'])
+  check('every model once, in the tree\'s order', modelsOf(tree).map((m) => m.id).slice(0, 3),
+    ['claude-fable-1', 'claude-opus-5-5', 'claude-opus-5'])
+  const named = modelTree([{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }, { id: 'claude-opus-5', display_name: 'Claude Opus 5' },
+    { id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }, ...gpt])
+  check('a search matches every word, in name or id, any case',
+    modelsOf(filterTree(named, 'OPUS 5.5')).map((m) => m.id), ['claude-opus-5-5'])
+  check('an id pasted whole finds its row', modelsOf(filterTree(named, 'gpt-5.6-terra')).map((m) => m.id), ['gpt-5.6-terra'])
+  check('a group with nothing left goes, its provider too',
+    filterTree(named, 'sonnet').map((p) => [p.key, p.families.map((f) => f.key)]), [['anthropic', ['anthropic/sonnet']]])
+  check('an empty search is the whole tree', modelsOf(filterTree(named, '  ')).length, modelsOf(named).length)
+  const want = newestOnly(tree)
+  check('newest only: the first of each family on, the rest off',
+    modelsOf(tree).filter((m) => want.get(m.id)).map((m) => m.id),
+    ['claude-fable-1', 'claude-opus-5-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001', 'gpt-6.1-sol', 'gpt-6-astra', 'gpt-5.6-sol'])
+  const now = new Set(['claude-opus-5-5', 'claude-opus-5', 'gpt-6-sol'])
+  check('a preset writes only what differs, in order',
+    changes(modelsOf(tree), (m) => now.has(m.id), (m) => want.get(m.id)).map((c) => `${c.model.id}=${c.enabled}`),
+    ['claude-fable-1=true', 'claude-opus-5=false', 'claude-sonnet-5=true', 'claude-haiku-4-5-20251001=true',
+      'gpt-6.1-sol=true', 'gpt-6-astra=true', 'gpt-6-sol=false', 'gpt-5.6-sol=true'])
+  check('a model the preset does not name is left alone',
+    changes([{ id: 'a' }, { id: 'b' }], () => false, (m) => (m.id === 'a' ? true : undefined)).map((c) => c.model.id), ['a'])
 }
 
 console.log('\n— model tests: a few at a time, each result as it lands —')
 {
-  const { eachBounded, explain, failing } = await import(`${OUT}/domain/model-tests.js`)
+  const { eachBounded, explain, brief, failing } = await import(`${OUT}/domain/model-tests.js`)
   let running = 0
   let peak = 0
   const landed = []
@@ -393,6 +414,10 @@ console.log('\n— model tests: a few at a time, each result as it lands —')
   check('a pass says how long', explain(t(true, 200)), 'ok · 120 ms')
   check('a model outside the plan says so', explain(t(false, 400, 'usage_not_included')), 'not in this plan')
   check('an unknown model too', explain(t(false, 404, '')), 'not served to this account')
+  check('a short reason fits the chip as it is', brief(t(false, 404, '')), 'not served to this account')
+  const long = 'request failed: Post "https://api.anthropic.com/v1/messages": dial tcp: connection refused'
+  check('a long one is cut to its kind, with no answer', brief(t(false, 0, long)), 'could not reach it')
+  check('or its status', brief(t(false, 500, long)), 'failed (HTTP 500)')
   check('a rate limit passes', failing([{ id: 'a', enabled: true, test: t(false, 429) }]), [])
   check('a lasting failure on an enabled model is offered', failing([
     { id: 'a', enabled: true, test: t(false, 404) }, { id: 'b', enabled: false, test: t(false, 404) },

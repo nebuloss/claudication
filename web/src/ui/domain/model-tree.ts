@@ -1,6 +1,6 @@
 /**
  * A list of models as a tree: provider › family › model, newest first at each
- * level. What every list of model switches is drawn from — an account's
+ * level. What every model checklist is drawn from — an account's
  * Models page, a client's Allowed models — so they group alike. Pure: no
  * React, so `make test-web` exercises it.
  *
@@ -139,10 +139,73 @@ export function modelTree<T extends TreeModel>(models: readonly T[]): ModelProvi
     }))
 }
 
-/** A group's switch: on when every model in it is, off when none is, mixed between. */
+/**
+ * A group's checkbox: checked when every model in it is on, unchecked when
+ * none is, mixed (the checkbox's indeterminate) between.
+ */
 export function groupState(on: readonly boolean[]): 'on' | 'off' | 'mixed' {
   const n = on.filter(Boolean).length
   return n === 0 ? 'off' : n === on.length ? 'on' : 'mixed'
+}
+
+/** Every model of a tree, in its order: newest first within each family. */
+export function modelsOf<T>(tree: readonly ModelProvider<T>[]): T[] {
+  return tree.flatMap((p) => p.families.flatMap((f) => f.models))
+}
+
+/**
+ * The tree cut to the models a search names, empty groups dropped. Each word
+ * of the query has to appear in the model's name or its id, in any order and
+ * any case, so "opus 5" finds Claude Opus 5.5 and claude-opus-5 alike, and an
+ * id pasted from a log finds its row.
+ */
+export function filterTree<T extends TreeModel>(tree: readonly ModelProvider<T>[], query: string): ModelProvider<T>[] {
+  const words = query.toLowerCase().split(/\s+/).filter((w) => w !== '')
+  if (words.length === 0) return [...tree]
+  const hit = (m: T) => {
+    const text = `${m.display_name ?? ''} ${m.id}`.toLowerCase()
+    return words.every((w) => text.includes(w))
+  }
+  return tree
+    .map((p) => ({
+      ...p,
+      families: p.families.map((f) => ({ ...f, models: f.models.filter(hit) })).filter((f) => f.models.length > 0),
+    }))
+    .filter((p) => p.families.length > 0)
+}
+
+/**
+ * The newest model of each family on and every other one off: what a client
+ * usually wants once a release supersedes the last, and the one-click way
+ * back to a short list after a few generations have piled up. "Newest" is
+ * the tree's own order — the model a family lists first, the one the
+ * gateway's claude:<family> targets follow.
+ */
+export function newestOnly<T extends TreeModel>(tree: readonly ModelProvider<T>[]): Map<string, boolean> {
+  const want = new Map<string, boolean>()
+  for (const p of tree) {
+    for (const f of p.families) f.models.forEach((m, i) => want.set(m.id, i === 0))
+  }
+  return want
+}
+
+/**
+ * The writes that take a list from what is on to what is wanted: one per
+ * model that differs, in the list's order, and none for a model already
+ * where it should be. The API takes one model per call, so a preset costs
+ * as many calls as it changes and no more.
+ */
+export function changes<T extends { id: string }>(
+  models: readonly T[],
+  on: (m: T) => boolean,
+  want: (m: T) => boolean | undefined,
+): { model: T; enabled: boolean }[] {
+  const out: { model: T; enabled: boolean }[] = []
+  for (const m of models) {
+    const w = want(m)
+    if (w !== undefined && w !== on(m)) out.push({ model: m, enabled: w })
+  }
+  return out
 }
 
 /**

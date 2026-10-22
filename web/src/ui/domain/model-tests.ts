@@ -48,6 +48,18 @@ export function explain(t: ModelTest): string {
   return t.error !== undefined && t.error !== '' ? t.error : `failed (HTTP ${t.status})`
 }
 
+/**
+ * What fits in the chip at the end of a model's row: explain's words when
+ * they are short, else just the failure's kind. An upstream's own text can
+ * run to a whole URL and a socket error, which pushed the row past the edge
+ * of its list; it stays on the chip's tooltip, whole.
+ */
+export function brief(t: ModelTest): string {
+  const said = explain(t)
+  if (said.length <= 32) return said
+  return t.status > 0 ? `failed (HTTP ${t.status})` : 'could not reach it'
+}
+
 /** The models to suggest switching off: on, tested, and failed for a reason that lasts. */
 export function failing(models: readonly { id: string; enabled: boolean; test?: ModelTest }[]): string[] {
   return models
