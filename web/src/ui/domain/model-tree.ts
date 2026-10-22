@@ -140,41 +140,6 @@ export function modelTree<T extends TreeModel>(models: readonly T[]): ModelProvi
 }
 
 /**
- * A group's checkbox: checked when every model in it is on, unchecked when
- * none is, mixed (the checkbox's indeterminate) between.
- */
-export function groupState(on: readonly boolean[]): 'on' | 'off' | 'mixed' {
-  const n = on.filter(Boolean).length
-  return n === 0 ? 'off' : n === on.length ? 'on' : 'mixed'
-}
-
-/** Every model of a tree, in its order: newest first within each family. */
-export function modelsOf<T>(tree: readonly ModelProvider<T>[]): T[] {
-  return tree.flatMap((p) => p.families.flatMap((f) => f.models))
-}
-
-/**
- * The tree cut to the models a search names, empty groups dropped. Each word
- * of the query has to appear in the model's name or its id, in any order and
- * any case, so "opus 5" finds Claude Opus 5.5 and claude-opus-5 alike, and an
- * id pasted from a log finds its row.
- */
-export function filterTree<T extends TreeModel>(tree: readonly ModelProvider<T>[], query: string): ModelProvider<T>[] {
-  const words = query.toLowerCase().split(/\s+/).filter((w) => w !== '')
-  if (words.length === 0) return [...tree]
-  const hit = (m: T) => {
-    const text = `${m.display_name ?? ''} ${m.id}`.toLowerCase()
-    return words.every((w) => text.includes(w))
-  }
-  return tree
-    .map((p) => ({
-      ...p,
-      families: p.families.map((f) => ({ ...f, models: f.models.filter(hit) })).filter((f) => f.models.length > 0),
-    }))
-    .filter((p) => p.families.length > 0)
-}
-
-/**
  * The newest model of each family on and every other one off: what a client
  * usually wants once a release supersedes the last, and the one-click way
  * back to a short list after a few generations have piled up. "Newest" is
@@ -208,17 +173,26 @@ export function changes<T extends { id: string }>(
   return out
 }
 
+/** A provider or a family, as a node of the checklist tree. */
+export interface ModelGroup<C> {
+  key: string
+  label: string
+  defaultOpen: boolean
+  children: C[]
+}
+
 /**
- * Which groups are open before anyone has folded one: every provider, and in
- * each the newest family alone — the one a model is likely being looked for
- * in; the older ones are a click away rather than a scroll past.
+ * The tree as the checklist's nodes: provider and family groups, and a leaf
+ * per model built by `leaf`, which is where what a row shows is decided.
+ * Open before anyone has folded one: every provider, and in each the newest
+ * family alone — the one a model is likely being looked for in; the older
+ * ones are a click away rather than a scroll past.
  */
-export function openByDefault<T>(tree: readonly ModelProvider<T>[]): Set<string> {
-  const open = new Set<string>()
-  for (const p of tree) {
-    open.add(p.key)
-    const first = p.families[0]
-    if (first !== undefined) open.add(first.key)
-  }
-  return open
+export function modelNodes<T, L>(tree: readonly ModelProvider<T>[], leaf: (m: T) => L): ModelGroup<ModelGroup<L>>[] {
+  return tree.map((p) => ({
+    key: p.key,
+    label: p.title,
+    defaultOpen: true,
+    children: p.families.map((f, i) => ({ key: f.key, label: f.title, defaultOpen: i === 0, children: f.models.map(leaf) })),
+  }))
 }

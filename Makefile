@@ -149,6 +149,7 @@ test-web:
 	  src/ui/charts/scale.ts src/ui/charts/stack.ts src/ui/charts/paint.tsx \
 	  src/ui/route.ts src/ui/clients/specs.ts src/ui/domain/model-tests.ts src/ui/domain/model-tree.ts \
 	  src/ui/features/requests/filter.ts src/ui/features/requests/pager.ts src/ui/primitives/title-edit.ts \
+	  src/ui/primitives/check-tree-state.ts \
 	  src/ui/features/usage/rollup.ts
 	@node scripts/check-charts.mjs
 	@rm -rf web/.charts-check

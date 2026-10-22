@@ -333,7 +333,10 @@ console.log('\n— client specs: a slot\'s binding is one menu value —')
 
 console.log('\n— model tree: provider, family, model, newest first —')
 {
-  const { modelTree, familyOf, groupState, openByDefault, modelsOf, filterTree, newestOnly, changes } = await import(`${OUT}/domain/model-tree.js`)
+  const { modelTree, familyOf, modelNodes, newestOnly, changes } = await import(`${OUT}/domain/model-tree.js`)
+  const { defaultOpen, shownLeaves } = await import(`${OUT}/primitives/check-tree-state.js`)
+  const modelsOf = (t) => t.flatMap((p) => p.families.flatMap((f) => f.models))
+  const nodesOf = (t) => modelNodes(t, (m) => ({ key: m.id, label: m.display_name ?? m.id, search: m.id }))
   // The ChatGPT backend's list as measured (2026-10-19), in its own ranking,
   // undated; Anthropic's dated, one by its line and the rest by id.
   const gpt = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']
@@ -365,19 +368,17 @@ console.log('\n— model tree: provider, family, model, newest first —')
   check('a line wins over the id', familyOf({ id: 'claude-x-1', line: 'opus' }).key, 'opus')
   check('undated, a later version is newer', modelTree([{ id: 'claude-opus-5' }, { id: 'claude-opus-5-5' }])[0].families[0].models.map((m) => m.id),
     ['claude-opus-5-5', 'claude-opus-5'])
-  check('a group is on, off or mixed', [groupState([true, true]), groupState([false]), groupState([true, false])], ['on', 'off', 'mixed'])
-  check('open at first: each provider and its newest family', [...openByDefault(tree)],
+  check('as nodes: provider over family over model',
+    nodesOf(tree).map((p) => [p.label, p.children.map((f) => [f.label, f.children.map((m) => m.key)])])[0].slice(0, 2),
+    ['Claude', [['Fable', ['claude-fable-1']], ['Opus', ['claude-opus-5-5', 'claude-opus-5']], ['Sonnet', ['claude-sonnet-5']],
+      ['Haiku', ['claude-haiku-4-5-20251001']]]])
+  check('open at first: each provider and its newest family', [...defaultOpen(nodesOf(tree))],
     ['anthropic', 'anthropic/fable', 'openai', 'openai/gpt-6.1'])
-  check('every model once, in the tree\'s order', modelsOf(tree).map((m) => m.id).slice(0, 3),
-    ['claude-fable-1', 'claude-opus-5-5', 'claude-opus-5'])
-  const named = modelTree([{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }, { id: 'claude-opus-5', display_name: 'Claude Opus 5' },
-    { id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }, ...gpt])
-  check('a search matches every word, in name or id, any case',
-    modelsOf(filterTree(named, 'OPUS 5.5')).map((m) => m.id), ['claude-opus-5-5'])
-  check('an id pasted whole finds its row', modelsOf(filterTree(named, 'gpt-5.6-terra')).map((m) => m.id), ['gpt-5.6-terra'])
-  check('a group with nothing left goes, its provider too',
-    filterTree(named, 'sonnet').map((p) => [p.key, p.families.map((f) => f.key)]), [['anthropic', ['anthropic/sonnet']]])
-  check('an empty search is the whole tree', modelsOf(filterTree(named, '  ')).length, modelsOf(named).length)
+  const named = nodesOf(modelTree([{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' },
+    { id: 'claude-opus-5', display_name: 'Claude Opus 5' }, { id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }, ...gpt]))
+  check('a search matches every word, in name or id, any case', shownLeaves(named, 'OPUS 5.5'), ['claude-opus-5-5'])
+  check('an id pasted whole finds its row', shownLeaves(named, 'gpt-5.6-terra'), ['gpt-5.6-terra'])
+  check('an empty search is the whole tree', shownLeaves(named, '  ').length, 10)
   const want = newestOnly(tree)
   check('newest only: the first of each family on, the rest off',
     modelsOf(tree).filter((m) => want.get(m.id)).map((m) => m.id),
@@ -389,6 +390,49 @@ console.log('\n— model tree: provider, family, model, newest first —')
       'gpt-6.1-sol=true', 'gpt-6-astra=true', 'gpt-6-sol=false', 'gpt-5.6-sol=true'])
   check('a model the preset does not name is left alone',
     changes([{ id: 'a' }, { id: 'b' }], () => false, (m) => (m.id === 'a' ? true : undefined)).map((c) => c.model.id), ['a'])
+}
+
+console.log('\n— check tree: depth, boxes and counts worked out from the nodes —')
+{
+  const { place, cut, boxState, defaultOpen, leafDepth, leafKeys, shownLeaves } = await import(`${OUT}/primitives/check-tree-state.js`)
+  // Four levels deep, on purpose: the tree is not written for three.
+  const nodes = [
+    { key: 'a', label: 'A', defaultOpen: true, children: [
+      { key: 'a1', label: 'A1', defaultOpen: true, children: [
+        { key: 'a1x', label: 'A1X', children: [{ key: 'deep', label: 'Deep one', checked: true }] },
+        { key: 'x', label: 'Ex', search: 'model-x', checked: true },
+        { key: 'y', label: 'Why', checked: false },
+      ] },
+      { key: 'a2', label: 'A2', children: [{ key: 'z', label: 'Zed', checked: false, disabled: true }] },
+    ] },
+    { key: 'flat', label: 'Flat leaf', checked: true },
+  ]
+  const open = defaultOpen(nodes)
+  const placed = place(nodes, (k) => open.has(k))
+  const walk = (ps) => ps.flatMap((p) => [[p.node.key, p.depth, p.state, p.count], ...walk(p.children)])
+  check('depth from nesting, any depth; a group\'s box and count from every leaf under it', walk(placed), [
+    ['a', 0, 'mixed', '2 of 4'], ['a1', 1, 'mixed', '2 of 3'], ['a1x', 2, 'on', '1 of 1'], ['deep', 3, 'on', '1 of 1'],
+    ['x', 2, 'on', '1 of 1'], ['y', 2, 'off', '0 of 1'], ['a2', 1, 'off', '0 of 1'], ['z', 2, 'off', '0 of 1'],
+    ['flat', 0, 'on', '1 of 1'],
+  ])
+  check('open: the ones that say so', placed.map((p) => [p.node.key, p.open]).concat(placed[0].children.map((p) => [p.node.key, p.open])),
+    [['a', true], ['flat', false], ['a1', true], ['a2', false]])
+  check('a group\'s box moves every leaf under it but a disabled one', placed[0].leaves, ['deep', 'x', 'y'])
+  check('a group of only disabled leaves is disabled itself', placed[0].children[1].disabled, true)
+  check('a leaf\'s box is itself', placed[1].leaves, ['flat'])
+  check('on, off or mixed — and off with nothing in it', [boxState([true, true]), boxState([false]), boxState([true, false]), boxState([])],
+    ['on', 'off', 'mixed', 'off'])
+  check('an empty group counts nothing and moves nothing',
+    [place([{ key: 'g', label: 'G', children: [] }], () => true)].map(([g]) => [g.count, g.state, g.disabled, g.leaves]), [['0 of 0', 'off', true, []]])
+  check('the deepest leaf', [leafDepth(nodes), leafDepth([{ key: 'l', label: 'L' }])], [3, 0])
+  check('every leaf, in order', leafKeys(nodes), ['deep', 'x', 'y', 'z', 'flat'])
+  const found = place(nodes, () => false, 'why')
+  check('a search: its matches, their groups open whatever the folds, the rest gone',
+    walk(found).map(([k]) => k).concat(found.map((p) => p.open)), ['a', 'a1', 'y', true])
+  check('under a search a group boxes and counts what it shows', [found[0].state, found[0].count, found[0].leaves], ['off', '0 of 1', ['y']])
+  check('the search words: label or search text, every word, any case', shownLeaves(nodes, 'MODEL x'), ['x'])
+  check('a group is not matched by its own label', cut(nodes, 'A2').length, 0)
+  check('no search, everything', shownLeaves(nodes, ' ').length, 5)
 }
 
 console.log('\n— model tests: a few at a time, each result as it lands —')

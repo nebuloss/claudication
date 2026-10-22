@@ -9,24 +9,15 @@ import {
   ErrorState,
   Loading,
   SearchField,
+  CheckTree,
   Stack,
-  Tree,
-  TreeGroup,
-  TreeItem,
+  shownLeaves,
   useConfirm,
-  useFolds,
+  type CheckNode,
 } from '../../primitives'
 import { compact, monthYear, timeOfDay } from '../../format'
 import { brief, eachBounded, explain, failing, testOf } from '../../domain/model-tests'
-import {
-  changes,
-  filterTree,
-  groupState,
-  modelTree,
-  modelsOf,
-  newestOnly,
-  openByDefault,
-} from '../../domain/model-tree'
+import { changes, modelNodes, modelTree, newestOnly } from '../../domain/model-tree'
 
 /** How many model tests run at once: quick for a dozen models, and no burst. */
 const TESTS_AT_ONCE = 2
@@ -56,10 +47,10 @@ type Change = { model: AccountModel; enabled: boolean }
  * go; never automatically, because a test is one answer and an operator
  * decides.
  *
- * Folded into provider › family › model (domain/model-tree), so a list that
- * gains a model per release reads as the few families it is, with the older
- * ones folded out of the way; folds are remembered per list (`folds`) in this
- * browser. Above it, the quick ways through a long list: a search, All and
+ * Folded into provider › family › model (domain/model-tree builds the
+ * nodes, primitives/check-tree draws them), so a list that gains a model per
+ * release reads as the few families it is, with the older ones folded out of
+ * the way; folds are remembered per list (`folds`) in this browser. Above it, the quick ways through a long list: a search, All and
  * None, and Newest only.
  *
  * A box moves at once, then the server is told; on a failure it moves back
@@ -90,10 +81,7 @@ function ModelChecklist({
 }) {
   const { data, error, loading, reload } = useLoader(load, { deps })
   const tree = useMemo(() => modelTree(data?.models ?? []), [data])
-  const defaults = useMemo(() => openByDefault(tree), [tree])
-  const fold = useFolds(folds, defaults)
   const [query, setQuery] = useState('')
-  const shown = useMemo(() => filterTree(tree, query), [tree, query])
   // What was switched or tested here since the list was read, so the row
   // moves at once rather than after a round trip and a re-read.
   const [flipped, setFlipped] = useState<Record<string, boolean>>({})
@@ -114,7 +102,7 @@ function ModelChecklist({
   const count = data.models.filter(on).length
   const failed = failing(data.models.map((m) => ({ id: m.id, enabled: on(m), test: lastTest(m) })))
   const filtering = query.trim() !== ''
-  const visible = modelsOf(shown)
+  const byId = new Map(data.models.map((m) => [m.id, m]))
   // Writing anything holds every box still, so two batches never interleave;
   // a test running does not, since it changes nothing.
   const writing = busy !== '' && busy !== 'test-all'
@@ -140,7 +128,6 @@ function ModelChecklist({
     void apply(key, changes(models, on, () => enabled))
   const newest = newestOnly(tree)
   const toNewest = changes(data.models, on, (m) => newest.get(m.id))
-  const counted = (models: readonly AccountModel[]) => `${models.filter(on).length} of ${models.length}`
 
   const testOne = async (id: string): Promise<void> => {
     if (test === undefined) return
@@ -174,57 +161,56 @@ function ModelChecklist({
       action: () => apply('failing', changes(data.models, on, (m) => (failed.includes(m.id) ? false : undefined))),
     })
 
-  const row = (m: AccountModel) => {
+  // What a model's row says. The tree places it, boxes its groups and counts
+  // them; none of that is worked out here.
+  const leaf = (m: AccountModel): CheckNode => {
     const t = lastTest(m)
     const name = m.display_name ?? m.id
-    return (
-      <TreeItem
-        key={m.id}
-        level={2}
-        label={name}
-        name={
+    return {
+      key: m.id,
+      label: name,
+      search: m.id,
+      name: (
+        <>
+          {name}
+          {!m.listed && <span className="ml-2 text-xs text-warning">no longer listed upstream</span>}
+        </>
+      ),
+      checked: on(m),
+      facts: [
+        <code title={m.id}>{m.id}</code>,
+        m.max_input_tokens !== undefined ? (
+          <span className="tabular-nums">
+            {compact(m.max_input_tokens)} in{m.max_tokens !== undefined && ` · ${compact(m.max_tokens)} out`}
+          </span>
+        ) : null,
+        monthYear(m.created_at) !== '' ? <span>{monthYear(m.created_at)}</span> : null,
+      ],
+      end:
+        test === undefined ? undefined : (
           <>
-            {name}
-            {!m.listed && <span className="ml-2 text-xs text-warning">no longer listed upstream</span>}
+            {t !== undefined && (
+              <span
+                className="min-w-0 truncate"
+                title={`${explain(t)}${t.error !== undefined && t.error !== explain(t) ? `\n${t.error}` : ''}\nTested at ${timeOfDay(t.at)}`}
+              >
+                <Chip tone={t.ok ? 'ok' : 'error'}>{brief(t)}</Chip>
+              </span>
+            )}
+            {m.listed && (
+              <Button variant="text" size="sm" busy={testing[m.id] === true} onClick={() => void testOne(m.id)}>
+                Test
+              </Button>
+            )}
           </>
-        }
-        checked={on(m)}
-        onChange={(v) => void apply(m.id, [{ model: m, enabled: v }])}
-        disabled={writing}
-        columns={COLUMNS}
-        facts={[
-          <code key="id" title={m.id}>
-            {m.id}
-          </code>,
-          m.max_input_tokens !== undefined ? (
-            <span key="size" className="tabular-nums">
-              {compact(m.max_input_tokens)} in{m.max_tokens !== undefined && ` · ${compact(m.max_tokens)} out`}
-            </span>
-          ) : null,
-          monthYear(m.created_at) !== '' ? <span key="date">{monthYear(m.created_at)}</span> : null,
-        ]}
-        end={
-          test === undefined ? undefined : (
-            <>
-              {t !== undefined && (
-                <span
-                  className="min-w-0 truncate"
-                  title={`${explain(t)}${t.error !== undefined && t.error !== explain(t) ? `\n${t.error}` : ''}\nTested at ${timeOfDay(t.at)}`}
-                >
-                  <Chip tone={t.ok ? 'ok' : 'error'}>{brief(t)}</Chip>
-                </span>
-              )}
-              {m.listed && (
-                <Button variant="text" size="sm" busy={testing[m.id] === true} onClick={() => void testOne(m.id)}>
-                  Test
-                </Button>
-              )}
-            </>
-          )
-        }
-      />
-    )
+        ),
+    }
   }
+  const nodes = modelNodes(tree, leaf)
+  const visible = shownLeaves(nodes, query).flatMap((id) => byId.get(id) ?? [])
+  // A box reports the models it stands for: one, or every one under a group.
+  const onBoxes = (ids: string[], enabled: boolean) =>
+    setAll(ids.length === 1 ? (ids[0] ?? 'group') : 'group', ids.flatMap((id) => byId.get(id) ?? []), enabled)
 
   return (
     <Stack gap={3}>
@@ -266,27 +252,8 @@ function ModelChecklist({
         )}
       </div>
       <ErrorBanner error={failure} />
-      <Tree label="Models">
-        {shown.length === 0 && (
-          <li className="list-none px-3 py-6 text-sm text-on-surface-variant">No model matches “{query.trim()}”.</li>
-        )}
-        {shown.map((p) => (
-          // Open while searching, every group: a match folded away is a
-          // match not found.
-          <TreeGroup key={p.key} title={p.title} count={counted(modelsOf([p]))}
-            open={filtering || fold.isOpen(p.key)} onToggle={filtering ? undefined : () => fold.toggle(p.key)}
-            state={groupState(modelsOf([p]).map(on))} onSet={(v) => setAll(p.key, modelsOf([p]), v)}
-            disabled={writing}>
-            {p.families.map((f) => (
-              <TreeGroup key={f.key} level={1} title={f.title} count={counted(f.models)}
-                open={filtering || fold.isOpen(f.key)} onToggle={filtering ? undefined : () => fold.toggle(f.key)}
-                state={groupState(f.models.map(on))} onSet={(v) => setAll(f.key, f.models, v)} disabled={writing}>
-                {f.models.map(row)}
-              </TreeGroup>
-            ))}
-          </TreeGroup>
-        ))}
-      </Tree>
+      <CheckTree label="Models" nodes={nodes} onChange={onBoxes} columns={COLUMNS} storageKey={folds}
+        filter={query} disabled={writing} />
     </Stack>
   )
 }
