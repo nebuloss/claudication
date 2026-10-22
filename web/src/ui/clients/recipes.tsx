@@ -132,12 +132,15 @@ export const RECIPES: ClientRecipe[] = [
         lang: 'json',
         body: crushJson,
         write: write.crushJson,
-        // crush reads %LOCALAPPDATA%\crush on Windows, not ~/.config. Its own
+        // ~/.config/crush/crush.json on every OS, Windows included: crush
+        // reads its config from XDG_CONFIG_HOME or <home>/.config
+        // (internal/home/home.go:26, config/load.go:1210 at 76cc5c57).
+        // %LOCALAPPDATA%\crush is its data file, where the picker saves picks
+        // (load.go:1266) — writing there reset them on every install. Its own
         // provider, and the large and small picks, which name it; the
         // operator's other providers stay.
         install: {
           path: '.config/crush/crush.json',
-          windowsPath: 'AppData/Local/crush/crush.json',
           merge: { format: 'json', owns: ['providers.claudication', 'models.large', 'models.small'] },
         },
       },

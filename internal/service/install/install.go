@@ -64,7 +64,8 @@ type File struct {
 	// slashes: ".codex/config.toml".
 	Path string `json:"path"`
 	// WindowsPath is where it goes on Windows when that differs, relative to
-	// the home directory as well: crush keeps its config under AppData.
+	// the home directory as well. No client needs one today: crush, which
+	// had one, reads ~/.config on Windows too.
 	WindowsPath string `json:"windows_path,omitempty"`
 	// Env marks a file of `export NAME=value` lines meant to be in every
 	// shell: sourced from the shell profile on Linux and macOS, and set as the
