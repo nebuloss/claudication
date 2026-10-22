@@ -85,7 +85,8 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
         </span>
         <span className="text-2xl leading-8">{s.label}</span>
       </div>
-      <p className="mt-4 text-sm leading-relaxed text-on-surface">{s.detail}</p>
+      {/* On a phone the label says it when all is well, and the line is room the incidents need. */}
+      <p className={`mt-4 text-sm leading-relaxed text-on-surface ${s.tone === 'ok' ? 'hidden sm:block' : ''}`}>{s.detail}</p>
       {quarter !== null && (
         <p className="mt-4 flex items-baseline gap-2">
           <span className="text-4xl leading-tight tabular-nums text-on-surface">{percent(quarter)}</span>
@@ -123,14 +124,15 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
  * page is the window's height, the title one line over the cards, and the
  * cards take what is left — side by side on a desktop, stacked on a phone
  * with the incidents last — the incidents listing as many as that leaves
- * room for. Only a window too short for the status and history together
+ * room for. On a tall screen the cards stop at 34rem and sit in the middle,
+ * rather than stretching into empty boxes. Only a window too short for the status and history together
  * scrolls. A hero on the left with the history under it ran to 979px; a page
  * about whether something is up should be read at a glance.
  */
 export default function Welcome() {
   const { result, last } = useStatus()
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4 sm:gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4 sm:gap-6 lg:justify-center">
       <section aria-labelledby="welcome-title" className="flex items-center gap-4">
         <BrandMark />
         <h1
@@ -140,7 +142,7 @@ export default function Welcome() {
           {COPY.title}
         </h1>
       </section>
-      <div className="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(8rem,1fr)] gap-4 sm:gap-6 lg:grid-cols-3 lg:grid-rows-[minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(7rem,1fr)] gap-4 sm:gap-6 lg:max-h-[34rem] lg:grid-cols-3 lg:grid-rows-[minmax(0,1fr)]">
         <Now result={result} last={last} />
         {last !== null && (
           <>
