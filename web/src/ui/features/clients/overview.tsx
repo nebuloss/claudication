@@ -13,7 +13,7 @@ import {
   Stack,
   useConfirm,
 } from '../../primitives'
-import type { Client, ClientTypes } from '../../clients/specs'
+import { followLabel, providerTitle, type Client, type ClientTypes } from '../../clients/specs'
 import { SetupCard } from './setup'
 
 /**
@@ -48,6 +48,12 @@ export function ClientOverview({
  * What each of the client's names serves now, read-only: the editor is on its
  * Models page, beside the switches that bound what the names may serve, and
  * a second copy of it here would be two places to change one thing.
+ *
+ * One row per name, in columns: the name the client asks for and what it is
+ * for, the model it reaches and on which provider, and how it is bound —
+ * following a family's releases, pinned, or unavailable and why. It was a
+ * wrapped line of "name → id" pairs, which read as one run-on sentence once a
+ * client had more than three names.
  */
 function NamesSummary({ client: c }: { client: Client }) {
   const href = `${clientHref(c.id)}/models`
@@ -61,15 +67,35 @@ function NamesSummary({ client: c }: { client: Client }) {
       ) : c.slots.length === 0 ? (
         <p className="text-sm text-on-surface-variant">No model names yet.</p>
       ) : (
-        <ul className="m-0 flex list-none flex-wrap gap-x-6 gap-y-2 p-0 text-sm">
-          {c.slots.map((s) => (
-            <li key={s.id} className="flex items-center gap-2">
-              <code className="text-on-surface">{s.name}</code>
-              <span aria-hidden className="text-on-surface-variant">→</span>
-              <code className="text-on-surface-variant">{s.serving || '—'}</code>
-              {(s.unavailable ?? '') !== '' && <Chip tone="error">unavailable</Chip>}
-            </li>
-          ))}
+        <ul className="m-0 flex list-none flex-col divide-y divide-outline-variant p-0">
+          {c.slots.map((s) => {
+            const unavailable = s.unavailable ?? ''
+            const follows = s.bound ?? ''
+            return (
+              <li
+                key={s.id}
+                className="grid grid-cols-1 gap-x-4 gap-y-1 py-2.5 text-sm sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto] sm:items-center"
+              >
+                <span className="flex min-w-0 flex-col">
+                  <code className="truncate font-medium text-on-surface">{s.name}</code>
+                  <span className="truncate text-xs text-on-surface-variant">{s.label}</span>
+                </span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <code className="truncate text-on-surface">{s.serving || '—'}</code>
+                  {s.provider !== undefined && <Chip>{providerTitle(s.provider)}</Chip>}
+                </span>
+                <span className="text-xs text-on-surface-variant sm:text-right">
+                  {unavailable !== '' ? (
+                    <Chip tone="error">{unavailable}</Chip>
+                  ) : follows !== '' ? (
+                    followLabel(follows, s.title).replace(/^Follow/, 'Follows')
+                  ) : (
+                    'Pinned'
+                  )}
+                </span>
+              </li>
+            )
+          })}
         </ul>
       )}
     </Card>

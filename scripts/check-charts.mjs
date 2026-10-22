@@ -254,7 +254,7 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
     '/accounts/a1/models', '/accounts/a1/connection', '/accounts/a1/advanced',
   ])
   check('a client too', hrefs(lvl('/clients/c1/usage')), [
-    '/clients/c1/usage', '/clients/c1/chats', '/clients/c1/requests', '/clients/c1/models',
+    '/clients/c1/usage', '/clients/c1/models', '/clients/c1/chats', '/clients/c1/requests',
   ])
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
   check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')

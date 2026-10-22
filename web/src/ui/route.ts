@@ -74,9 +74,11 @@ export type AccountPageId = (typeof ACCOUNT_PAGES)[number]['id'] | ''
  */
 export const CLIENT_PAGES = [
   { id: 'usage', label: 'Usage', kind: 'traffic' },
+  // Right after Usage: what a client's names serve is what the operator
+  // changes most, and it sat last, behind the client's history.
+  { id: 'models', label: 'Models', kind: 'settings' },
   { id: 'chats', label: 'Chats', kind: 'traffic' },
   { id: 'requests', label: 'Requests', kind: 'traffic' },
-  { id: 'models', label: 'Models', kind: 'settings' },
 ] as const satisfies readonly ItemPage[]
 
 /** A client's page, or '' for its overview. */
