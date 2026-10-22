@@ -16,7 +16,7 @@ import {
   Select,
   Stack,
 } from '../../primitives'
-import { Binding, BindingMenu, providerTitle, type Client } from '../../clients/specs'
+import { Binding, BindingMenu, type Client } from '../../clients/specs'
 
 /**
  * The client's model names: one per model setting its configuration has,
@@ -113,15 +113,8 @@ function SlotRow({
           {s.field !== '' ? <code>{s.field}</code> : null} {s.hint}
         </>
       }
-      status={
-        <>
-          <span>
-            now <code className="text-on-surface">{s.serving || '—'}</code>
-            {s.provider !== undefined && ` on ${providerTitle(s.provider)}`}
-          </span>
-          {unavailable !== '' && <Chip tone="error">unavailable: {unavailable}</Chip>}
-        </>
-      }
+      // What it serves is the menu's own label; under it only why it cannot.
+      status={unavailable !== '' ? <Chip tone="error">unavailable: {unavailable}</Chip> : undefined}
       error={error}
     >
           <Field label="Model name" value={name} onChange={setName} mono />

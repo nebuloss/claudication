@@ -70,6 +70,8 @@ type SlotJSON struct {
 	// (the spec's Follows is the default it started on).
 	Model string         `json:"model"`
 	Bound clients.Follow `json:"bound,omitempty"`
+	// Family is the family's model id (claude-opus) when it follows one.
+	Family string `json:"family,omitempty"`
 	// Title names the binding as the slot's menu does.
 	Title string `json:"title"`
 	// Serving is the real model its binding points at now and Provider whose
@@ -111,7 +113,7 @@ func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) Cli
 		}
 		b, why := s.models.Resolve(ctx, c.ModelsOff, store.Binding{Model: sl.Model, Follows: sl.Follows})
 		out.Slots = append(out.Slots, SlotJSON{Slot: spec, Name: sl.Name, Model: sl.Model, Bound: sl.Follows,
-			Title: b.Title, Serving: b.Serving, Provider: b.Provider, Unavailable: why,
+			Title: b.Title, Family: b.Family, Serving: b.Serving, Provider: b.Provider, Unavailable: why,
 			Removable: t.Removable(sl.Slot)})
 	}
 	return out

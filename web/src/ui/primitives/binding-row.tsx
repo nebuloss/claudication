@@ -33,7 +33,7 @@ export function BindingRow({
         </div>
         <div className="flex flex-wrap items-center gap-3">{children}</div>
         {status !== undefined && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface-variant">{status}</div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface-variant empty:hidden">{status}</div>
         )}
         <ErrorBanner error={error} />
       </div>

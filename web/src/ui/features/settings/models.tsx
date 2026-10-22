@@ -139,17 +139,12 @@ function FamilyBinding({
   // pinned, it offers the versions. Unchecking pins what is served now, so
   // the switch changes nothing until another version is chosen.
   const options = latest
-    ? [
-        {
-          value: '',
-          label: f.versions.find((v) => v.model === f.serving)?.title || f.serving || 'no account serves it',
-          hint: f.serving,
-        },
-      ]
+    ? [{ value: '', label: f.serving || 'no account serves it' }]
     : served.map((v) => ({
         value: v.model,
-        label: v.title || v.model,
-        hint: v.on.length > 0 ? v.model : 'no account serves it',
+        // By id, as a client's menu names what a family serves.
+        label: v.model,
+        hint: v.on.length > 0 ? v.title : 'no account serves it',
       }))
   const follow = (on: boolean) => set(on ? '' : f.serving || (served[0]?.model ?? ''))
   const pinnedVersion = f.versions.find((v) => v.model === pinned)
@@ -160,13 +155,8 @@ function FamilyBinding({
       title={f.title}
       status={
         <>
-          {f.serving !== '' ? (
-            <span>
-              now <code className="text-on-surface">{f.serving}</code>
-            </span>
-          ) : (
-            <Chip tone="warn">{f.why ?? 'no account serves it'}</Chip>
-          )}
+          {/* What it serves is the menu's own label; under it only why it cannot. */}
+          {f.serving === '' && <Chip tone="warn">{f.why ?? 'no account serves it'}</Chip>}
           {lacking.length > 0 && (
             <span>
               <Accounts ids={lacking} names={names} /> {lacking.length === 1 ? 'does' : 'do'} not have {pinned}, and{' '}

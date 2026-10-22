@@ -68,6 +68,9 @@ func (o Off) allows(model string) bool {
 type Choice struct {
 	Model   string         `json:"model,omitempty"`
 	Follows clients.Follow `json:"follows,omitempty"`
+	// Family is a family's model id (claude-opus), what a menu names it by
+	// beside the version it serves: the id is the name a client sees.
+	Family string `json:"family,omitempty"`
 	// Title is how a menu names it: the model's display name, or the
 	// family's.
 	Title string `json:"title"`
@@ -162,7 +165,7 @@ func (s *Catalog) Resolve(ctx context.Context, off Off, b store.Binding) (Choice
 		}
 	}
 	if f != "" {
-		c.Title, c.Provider = f.Title(), f.Provider()
+		c.Title, c.Provider, c.Family = f.Title(), f.Provider(), f.ModelID()
 		r, why := s.resolveFamily(ctx, off, f)
 		if len(r.serving) > 0 {
 			c.Serving, c.Versions = r.serving[0], r.serving

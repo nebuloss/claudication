@@ -662,6 +662,8 @@ export interface ClientTypesWire {
 export interface BindingChoice {
   model?: string
   follows?: string
+  /** A family's model id (claude-opus), which its menu entry is named by. */
+  family?: string
   title: string
   serving: string
   provider: string
@@ -716,6 +718,8 @@ export interface SlotWire extends SlotSpec {
   /** The real model it is bound to, or `bound` the target it follows. */
   model: string
   bound?: string
+  /** The family's model id (claude-opus) when it follows one. */
+  family?: string
   /** How the slot's menu names its binding. */
   title: string
   /** What the binding points at now, shown even when it cannot be served. */

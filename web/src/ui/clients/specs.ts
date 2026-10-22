@@ -178,7 +178,12 @@ export class BindingMenu {
   ) {
     this.options = choices.map((c) =>
       (c.model ?? '') === ''
-        ? { value: Binding.follow(c.follows ?? '').value, label: c.title, hint: servedHint(c), group: providerTitle(c.provider) }
+        ? {
+            value: Binding.follow(c.follows ?? '').value,
+            label: familyLabel(c.family ?? c.title, c.serving),
+            hint: servedHint(c),
+            group: providerTitle(c.provider),
+          }
         : { value: Binding.model(c.model ?? '').value, label: c.title || (c.model ?? ''), hint: c.model, group: providerTitle(c.provider) },
     )
     this.value = binding.value
@@ -212,11 +217,19 @@ export class BindingMenu {
   }
 }
 
-/** What a family's entry says under its name: what serves it now. */
+/**
+ * A family as a menu names it: its id and the version it serves now —
+ * claude-opus (claude-opus-5-5) — so the menu itself says what Settings ›
+ * Models resolved it to, and no line under it has to repeat that.
+ */
+export function familyLabel(family: string, serving: string): string {
+  return serving !== '' && serving !== family ? `${family} (${serving})` : family
+}
+
+/** What a family's entry says under its name: the other versions an account without the newest serves. */
 function servedHint(c: BindingChoice): string {
   const versions = c.versions ?? []
-  if (versions.length > 1) return `now ${versions[0]}, or ${versions.slice(1).join(', ')} on an account without it`
-  return c.serving !== '' ? `now ${c.serving}` : ''
+  return versions.length > 1 ? `or ${versions.slice(1).join(', ')} on an account without it` : ''
 }
 
 /** A client, as its page reads it. */
