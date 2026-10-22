@@ -294,17 +294,18 @@ console.log('\n— client specs: a slot\'s binding is one menu value —')
 
   // By family: the menu is the families, and a model no family takes.
   const byFamily = [
-    { follows: 'claude:opus', title: 'Claude Opus', serving: 'claude-opus-5-5', provider: 'anthropic',
+    { follows: 'claude:opus', family: 'claude-opus', title: 'Claude Opus', serving: 'claude-opus-5-5', provider: 'anthropic',
       versions: ['claude-opus-5-5', 'claude-opus-5'] },
-    { follows: 'openai:sol', title: 'GPT Sol', serving: 'gpt-6.1-sol', provider: 'openai', versions: ['gpt-6.1-sol'] },
+    { follows: 'openai:sol', family: 'gpt-sol', title: 'GPT Sol', serving: 'gpt-6.1-sol', provider: 'openai', versions: ['gpt-6.1-sol'] },
     { model: 'codex-x', title: 'Codex X', serving: 'codex-x', provider: 'openai' },
   ]
   const fam = new BindingMenu(byFamily, Binding.follow('claude:opus'), { title: 'Claude Opus', serving: 'claude-opus-5-5' })
   check('each choice once, by provider, nothing else', fam.options.map((o) => [o.group, o.value, o.label]), [
-    ['Claude', 'follow:claude:opus', 'Claude Opus'], ['ChatGPT', 'follow:openai:sol', 'GPT Sol'], ['ChatGPT', 'model:codex-x', 'Codex X'],
+    ['Claude', 'follow:claude:opus', 'claude-opus (claude-opus-5-5)'], ['ChatGPT', 'follow:openai:sol', 'gpt-sol (gpt-6.1-sol)'], ['ChatGPT', 'model:codex-x', 'Codex X'],
   ])
-  check('a family says what serves it, and what an account without it gets', fam.options[0].hint,
-    'now claude-opus-5-5, or claude-opus-5 on an account without it')
+  check('a family says what an account without its newest gets', fam.options[0].hint,
+    'or claude-opus-5 on an account without it')
+  check('and nothing when every account has the same', fam.options[1].hint, '')
   check('the binding is the value', fam.value, 'follow:claude:opus')
   check('picking binds what was picked', fam.pick('follow:openai:sol').body, { follows: 'openai:sol' })
   check('a new name starts on the Opus family', BindingMenu.initial(byFamily).body, { follows: 'claude:opus' })
