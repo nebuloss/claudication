@@ -34,7 +34,7 @@ createRoot(root).render(
         <span className="text-sm font-medium tracking-wide text-on-surface-variant">claudication</span>
         <ThemeToggle />
       </header>
-      <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4 py-4 sm:px-8 sm:py-6">
+      <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4 py-4 sm:px-8 sm:py-6 lg:justify-center">
         <Welcome />
       </main>
     </div>

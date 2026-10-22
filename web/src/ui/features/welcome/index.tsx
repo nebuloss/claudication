@@ -86,14 +86,16 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
         <span className="text-2xl leading-8">{s.label}</span>
       </div>
       {/* On a phone the label says it when all is well, and the line is room the incidents need. */}
-      <p className={`mt-4 text-sm leading-relaxed text-on-surface ${s.tone === 'ok' ? 'hidden sm:block' : ''}`}>{s.detail}</p>
+      <p
+        className={`mt-4 text-sm leading-relaxed text-on-surface ${s.tone === 'ok' ? 'hidden sm:block [@media(max-height:50rem)]:hidden' : ''}`}
+      >{s.detail}</p>
       {quarter !== null && (
         <p className="mt-4 flex items-baseline gap-2">
           <span className="text-4xl leading-tight tabular-nums text-on-surface">{percent(quarter)}</span>
           <span className="text-sm text-on-surface-variant">uptime over 90 days</span>
         </p>
       )}
-      <div className="mt-4 hidden border-t border-outline-variant/40 pt-3 sm:block">
+      <div className="mt-4 hidden border-t border-outline-variant/40 pt-3 sm:block [@media(max-height:50rem)]:hidden">
         <Muted size="xs">
           {result.kind !== 'checking' ? `Checked at ${clock.format(result.at)}. ` : ''}
           Checked again every minute while this page is open.
@@ -120,41 +122,44 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
  * paragraphs that explained the address and told visitors what to do said
  * nothing a person with a key needs, or anyone else can act on, and went.
  *
- * One screen, no scrollbar, whatever the window (the owner's ask): the
- * page is the window's height, the title one line over the cards, and the
- * cards take what is left — side by side on a desktop, stacked on a phone
- * with the incidents last — the incidents listing as many as that leaves
- * room for. On a tall screen the cards stop at 28rem and sit in the middle,
- * rather than stretching into empty boxes. Only a window too short for the status and history together
- * scrolls. A hero on the left with the history under it ran to 979px; a page
- * about whether something is up should be read at a glance.
+ * One screen, no scrollbar, whatever the window (the owner's ask), in the
+ * layout the owner preferred: on a desktop the title on the left and the
+ * status on the right, the history wide under the title and the incidents
+ * beside it. The page is the window's height; the incidents list as many as
+ * the room left holds, and a window under 50rem tall drops the status's two
+ * secondary lines — what "Accepting requests" already says, and when it was
+ * checked — so the history keeps its size. On a tall screen the grid stops at
+ * 48rem and sits in the middle. On a phone it all stacks, the incidents last.
  */
 export default function Welcome() {
   const { result, last } = useStatus()
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4 sm:gap-6 lg:justify-center">
-      <section aria-labelledby="welcome-title" className="flex items-center gap-4">
-        <BrandMark />
+    <div className="grid min-h-0 w-full flex-1 grid-rows-[auto_auto_auto_minmax(7rem,1fr)] gap-4 sm:gap-6 lg:max-h-[48rem] lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[auto_minmax(0,1fr)] lg:gap-8">
+      <section aria-labelledby="welcome-title" className="flex items-center gap-4 lg:flex-col lg:items-start lg:justify-center lg:gap-6">
+        <span className="lg:hidden">
+          <BrandMark />
+        </span>
+        <span className="hidden lg:block">
+          <BrandMark size="lg" />
+        </span>
         <h1
           id="welcome-title"
-          className="text-[clamp(1.5rem,min(5vh,7vw),3rem)] leading-tight font-normal tracking-tight text-on-surface"
+          className="text-[clamp(1.5rem,min(6vh,7vw),3rem)] leading-tight font-normal tracking-tight text-on-surface"
         >
           {COPY.title}
         </h1>
       </section>
-      <div className="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(7rem,1fr)] gap-4 sm:gap-6 lg:max-h-[28rem] lg:grid-cols-3 lg:grid-rows-[minmax(0,1fr)]">
-        <Now result={result} last={last} />
-        {last !== null && (
-          <>
-            <Card title="History">
-              <UptimeStrips report={last} />
-            </Card>
-            <Card title="Recent incidents" fill>
-              <IncidentList report={last} limit={30} fit />
-            </Card>
-          </>
-        )}
-      </div>
+      <Now result={result} last={last} />
+      {last !== null && (
+        <>
+          <Card title="History">
+            <UptimeStrips report={last} />
+          </Card>
+          <Card title="Recent incidents" fill>
+            <IncidentList report={last} limit={30} fit />
+          </Card>
+        </>
+      )}
     </div>
   )
 }
