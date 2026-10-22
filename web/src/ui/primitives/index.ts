@@ -6,6 +6,7 @@
  * and two of the files beside it imported it back, which is a cycle the
  * bundler happened to resolve. Nothing here has a body, so nothing can.
  */
+export { BindingRow } from './binding-row'
 export { Button, ButtonLink, IconButton, IconLink, buttonClass } from './button'
 export type { ButtonLook, ButtonSize, ButtonTone, ButtonVariant } from './button'
 export { Segmented, SubNav, WindowPicker } from './choice'

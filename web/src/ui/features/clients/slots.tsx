@@ -3,6 +3,7 @@ import { api, type BindingChoice, type SlotWire } from '../../../api/client'
 import { useAction } from '../../hooks'
 import {
   Actions,
+  BindingRow,
   Button,
   Card,
   Chip,
@@ -14,7 +15,6 @@ import {
   Note,
   Select,
   Stack,
-  Tile,
 } from '../../primitives'
 import { Binding, BindingMenu, providerTitle, type Client } from '../../clients/specs'
 
@@ -106,15 +106,24 @@ function SlotRow({
   const unavailable = s.unavailable ?? ''
 
   return (
-    <Tile>
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="text-sm font-medium text-on-surface">{s.label || s.id}</span>
-          <Muted as="span" size="xs">
-            {s.field !== '' ? <code>{s.field}</code> : null} {s.hint}
-          </Muted>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
+    <BindingRow
+      title={s.label || s.id}
+      hint={
+        <>
+          {s.field !== '' ? <code>{s.field}</code> : null} {s.hint}
+        </>
+      }
+      status={
+        <>
+          <span>
+            now <code className="text-on-surface">{s.serving || '—'}</code>
+            {s.provider !== undefined && ` on ${providerTitle(s.provider)}`}
+          </span>
+          {unavailable !== '' && <Chip tone="error">unavailable: {unavailable}</Chip>}
+        </>
+      }
+      error={error}
+    >
           <Field label="Model name" value={name} onChange={setName} mono />
           {name !== s.name && (
             <Button variant="outlined" busy={busy === 'save'} disabled={name.trim() === ''}
@@ -129,17 +138,7 @@ function SlotRow({
               <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
             </IconButton>
           )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface-variant">
-          <span>
-            now <code className="text-on-surface">{s.serving || '—'}</code>
-            {s.provider !== undefined && ` on ${providerTitle(s.provider)}`}
-          </span>
-          {unavailable !== '' && <Chip tone="error">unavailable: {unavailable}</Chip>}
-        </div>
-        <ErrorBanner error={error} />
-      </div>
-    </Tile>
+    </BindingRow>
   )
 }
 

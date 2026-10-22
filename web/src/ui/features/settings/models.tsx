@@ -2,6 +2,7 @@ import { api, type FamilyReport, type FamilyRow } from '../../../api/client'
 import { useAction, useLoader } from '../../hooks'
 import { accountHref } from '../../route'
 import {
+  BindingRow,
   Card,
   Chip,
   ErrorBanner,
@@ -13,7 +14,6 @@ import {
   Select,
   SettingSwitch,
   Stack,
-  Tile,
 } from '../../primitives'
 
 /**
@@ -128,7 +128,7 @@ function FamilyBinding({
       onChanged()
     })
   const options = [
-    { value: '', label: 'Latest', hint: f.serving !== '' ? `now ${f.serving}` : 'each account its newest' },
+    { value: '', label: 'Latest', hint: 'each account its newest' },
     // Only what some switched-on account serves: a version switched off on
     // every account leaves the menu, and comes back when one switches it on
     // — the page reads the accounts afresh each time it opens. A pinned one
@@ -145,23 +145,30 @@ function FamilyBinding({
   const lacking = pinned !== '' ? connected.filter((id) => !(pinnedVersion?.on ?? []).includes(id)) : []
 
   return (
-    <Tile>
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="text-sm font-medium text-on-surface">{f.title}</span>
-          <code className="text-xs text-on-surface-variant">{f.id}</code>
-        </div>
-        <Select label="Serves" value={pinned} options={options} disabled={busy !== ''} onChange={(v) => void set(v)} />
-        {f.serving === '' && <Chip tone="warn">{f.why ?? 'no account serves it'}</Chip>}
-        {lacking.length > 0 && (
-          <Note tone="warn">
-            <Accounts ids={lacking} names={names} /> {lacking.length === 1 ? 'does' : 'do'} not have {pinned}, and{' '}
-            {lacking.length === 1 ? 'serves' : 'serve'} no {f.title}.
-          </Note>
-        )}
-        <ErrorBanner error={error} />
-      </div>
-    </Tile>
+    <BindingRow
+      title={f.title}
+      hint={<code>{f.id}</code>}
+      status={
+        <>
+          {f.serving !== '' ? (
+            <span>
+              now <code className="text-on-surface">{f.serving}</code>
+            </span>
+          ) : (
+            <Chip tone="warn">{f.why ?? 'no account serves it'}</Chip>
+          )}
+          {lacking.length > 0 && (
+            <span>
+              <Accounts ids={lacking} names={names} /> {lacking.length === 1 ? 'does' : 'do'} not have {pinned}, and{' '}
+              {lacking.length === 1 ? 'serves' : 'serve'} no {f.title}
+            </span>
+          )}
+        </>
+      }
+      error={error}
+    >
+      <Select label="Serves" value={pinned} options={options} disabled={busy !== ''} onChange={(v) => void set(v)} />
+    </BindingRow>
   )
 }
 
