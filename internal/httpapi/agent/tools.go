@@ -147,6 +147,7 @@ func (a *Agent) tools() []mcp.Tool {
 				"on a machine already set up with it: its model names, what each serves and each one's limits. The " +
 				"command is the admin page's Update config: it carries no key and keeps the key on the machine, " +
 				"works once, for fifteen minutes, and changes nothing on a machine never set up with this client. " +
+				"It points the files at the address the client was set up with. " +
 				"Run it yourself with your shell tool on the machine to update (curl into sh on Linux and macOS, " +
 				"irm into iex in PowerShell on Windows), then restart the client — or start a new session — for it " +
 				"to read the files.",
@@ -190,20 +191,12 @@ func (a *Agent) status(ctx context.Context, _ json.RawMessage) (any, error) {
 	if count == 0 {
 		count, period, own = cfg.Limits.RequestsPerMinute, time.Minute, false
 	}
+	// Counted in SQL, two sums over one range: an agent may poll this, and a
+	// busy client's day is thousands of rows not worth reading each time.
 	now := time.Now()
-	reqs, err := a.d.Store.KeyRequests(ctx, c.ID, now.Add(-max(limits.BudgetWindow, period)))
+	inPeriod, day, err := a.d.Store.KeyActivity(ctx, c.ID, now.Add(-period), now.Add(-limits.BudgetWindow))
 	if err != nil {
 		return nil, err
-	}
-	var inPeriod int
-	var day int64
-	for _, q := range reqs {
-		if q.At.After(now.Add(-period)) {
-			inPeriod++
-		}
-		if q.At.After(now.Add(-limits.BudgetWindow)) {
-			day += q.Tokens
-		}
 	}
 	lim := map[string]any{
 		"requests":         count,
@@ -227,7 +220,7 @@ func (a *Agent) status(ctx context.Context, _ json.RawMessage) (any, error) {
 		"limits":  lim,
 		"usage":   use,
 	}
-	if share, ok := a.d.Share(ctx, c.ID); ok {
+	if share, ok := a.share(ctx, c.ID); ok {
 		out["subscription_share"] = share
 		out["subscription_share_note"] = "Percent of each provider's pooled 5-hour and 7-day windows this client used, estimated " +
 			"from its share of the gateway's traffic on each account; anything else using the same accounts is counted as " +
@@ -486,13 +479,14 @@ func (a *Agent) manage(tool string, run manageCall) func(context.Context, json.R
 
 // audit files a manage call in the request log, under the client: the place
 // the operator already reads what a client did, filtered by client, with the
-// tool as its path. A row of the kind a refusal is (Rejected), because it
-// reached no upstream and spent nothing: every chart and total steps over
-// it, and only the log shows it. Refused calls are filed too, with why —
-// an agent trying what it may not is worth seeing.
+// tool as its path. A change made is its own kind of row (store.UsageEvent,
+// Change): it reached no upstream and spent nothing, so every chart and total
+// steps over it, and it is not a refusal, so no refusal count does either.
+// Refused calls are filed too, as refusals, with why — an agent trying what
+// it may not is worth seeing.
 func (a *Agent) audit(ctx context.Context, c store.Client, tool, name, model string, err error) {
 	info := callOf(ctx)
-	status, why := 200, ""
+	status, why, refused := 200, "", err != nil
 	var te *mcp.ToolError
 	var pe *mcp.ParamsError
 	switch {
@@ -512,7 +506,10 @@ func (a *Agent) audit(ctx context.Context, c store.Client, tool, name, model str
 	a.d.Record(store.UsageEvent{
 		At: time.Now(), KeyID: c.ID, Path: Path + "/" + tool, Status: status,
 		VirtualModel: name, Model: model, ConversationID: conversation(ctx),
-		Client: info.client, IP: info.ip, Rejected: true, Error: why,
+		// A change made is a change, kind 3, which no aggregate counts and
+		// no refusal count or filter takes for one; a change refused is a
+		// refusal like any other.
+		Client: info.client, IP: info.ip, Rejected: refused, Change: !refused, Error: why,
 	})
 }
 
@@ -609,14 +606,14 @@ func (a *Agent) addModel(ctx context.Context, c store.Client, args json.RawMessa
 	if err != nil {
 		return nil, name, "", err
 	}
-	if b.Model == "" && b.Follows == "" {
-		// What every type's main name starts on, as the admin page's does.
-		b.Follows = clients.FollowOpus
+	// The admin page's rule for a new name, the same helper: none given
+	// follows the newest Opus whether or not an account serves it yet.
+	b, choice, why := a.d.Models.NewSlot(ctx, b)
+	if why != "" {
+		return nil, name, b.Model + string(b.Follows),
+			mcp.Refuse(choice.Title + " is not available to this client: " + why + "; list_models lists what is")
 	}
-	serving, err := a.available(ctx, b)
-	if err != nil {
-		return nil, name, b.Model + string(b.Follows), err
-	}
+	serving := choice.Serving
 	if err := a.d.Store.AddSlot(ctx, c.ID, name, b); err != nil {
 		return nil, name, serving, refusal(err)
 	}
@@ -662,27 +659,37 @@ func (a *Agent) updateConfig(ctx context.Context, c store.Client, args json.RawM
 	if c.ConfiguredAt == nil {
 		return nil, "", "", mcp.Refuse("this client is not set up yet: its install command, on its page, sets it up")
 	}
-	base := callOf(ctx).base
+	// The address its machine was set up with, which the last command it
+	// fetched recorded — never one read off this request, which behind a
+	// proxy, or a path prefix, can be one the client cannot reach, and an
+	// update writing it would cut the client off from the gateway.
+	base := c.Base
 	if base == "" {
-		return nil, "", "", mcp.Refuse("the gateway does not know its own address: an administrator sets public-url")
+		return nil, "", "", mcp.Refuse("the gateway does not know the address this client was set up with: it learns it " +
+			"when an install or update command made on the client's page is run. An administrator can make one there once.")
 	}
-	// As the admin page does: a list that cannot be read gives files with
-	// each name at the defaults rather than no update.
-	list, err := a.d.Models.For(ctx, c.APIKey)
+	// As the admin page does: bounded, and a list that cannot be read gives
+	// files with each name at the defaults rather than no update.
+	lctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	list, err := a.d.Models.For(lctx, c.APIKey)
+	cancel()
 	if err != nil {
 		a.d.Log.Warn("could not read a client's model list; writing its files without the models' facts", "id", c.ID, "err", err)
 	}
-	token, expires, err := clientconfig.MakeUpdate(ctx, a.d.Store, a.d.Install, c, clientconfig.For(c, list), base)
+	// One of the agent's own links: the command on the client's page, if
+	// the operator has one waiting, stays as it is.
+	token, expires, err := clientconfig.MakeUpdate(ctx, a.d.Store, a.d.Install, c, true, clientconfig.For(c, list), base)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", "", mcp.Refuse(err.Error())
 	}
 	windows := in.Platform == "windows"
 	how := "Run it in a terminal (sh) on the machine to update."
 	if windows {
 		how = "Run it in PowerShell on the machine to update."
 	}
+	shell := map[bool]string{false: "sh", true: "ps1"}[windows]
 	return map[string]any{
-		"command":    install.Command(base, token, windows),
+		"command":    install.Commands(base, token)[shell],
 		"expires_at": expires.UTC().Format(time.RFC3339),
 		"note": how + " It works once, until expires_at, carries no key and keeps the one on the machine. " +
 			"Restart the client, or start a new session, for it to read the new files.",

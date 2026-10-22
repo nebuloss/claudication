@@ -81,6 +81,12 @@ type UsageEvent struct {
 	// in trusted-proxies, X-Forwarded-For is ignored and every client is
 	// recorded as the proxy.
 	IP string
+	// Change is a change a client's own agent made to it through the MCP
+	// server (internal/httpapi/agent), kind 3: no request was relayed or
+	// refused, so no aggregate counts it, and the request log shows it with
+	// the tool as its path. A refused change is Rejected instead, a refusal
+	// like any other.
+	Change bool
 	// Naming is a client's own request to name its chat (crush's and
 	// opencode's, internal/service/titles): part of the chat's cost, as the
 	// gateway's own titling is, and not one of its turns. On write it files
@@ -113,8 +119,10 @@ const (
 	// request cannot be neither.
 	sqlIsOK = `(error_code = '')`
 	// sqlCounted is a row the aggregates add up: everything that reached the
-	// upstream, the gateway's own titling included, and not what it refused.
-	sqlCounted = `kind <> 1`
+	// upstream, the gateway's own titling included, and not what it refused
+	// nor a change an agent made to its client, neither of which was a
+	// request relayed.
+	sqlCounted = `kind IN (0, 2)`
 	// sqlTokens is UsageEvent.Tokens in SQL: every billed kind, cache reads
 	// included.
 	sqlTokens = `(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens)`
@@ -127,6 +135,7 @@ const (
 	kindRelayed  = 0
 	kindRejected = 1
 	kindInternal = 2
+	kindChange   = 3
 )
 
 // kind is which of those an event is. Refused first: a refusal of the
@@ -135,6 +144,8 @@ func (e UsageEvent) kind() int {
 	switch {
 	case e.Rejected:
 		return kindRejected
+	case e.Change:
+		return kindChange
 	case e.Path == InternalPath, e.Naming:
 		return kindInternal
 	}
@@ -211,6 +222,7 @@ func scanUsageEvent(sc scanner) (UsageEvent, error) {
 	}
 	e.At = fromMS(at)
 	e.Rejected = kind == kindRejected
+	e.Change = kind == kindChange
 	e.Duration = time.Duration(durMS) * time.Millisecond
 	e.FirstToken = time.Duration(firstMS) * time.Millisecond
 	return e, nil

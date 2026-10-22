@@ -470,34 +470,40 @@ func (s secretIs) KeySecret(context.Context, string) (string, error) {
 func TestMakeUpdateRefusesTheKey(t *testing.T) {
 	c := store.Client{APIKey: store.APIKey{ID: "c1", Name: "laptop", Prefix: "abcd"}, Type: "crush"}
 	links := install.New(time.Minute)
-	if _, _, err := MakeUpdate(context.Background(), secretIs(`"models"`), links, c, Setup{Slots: crushSlots}, "https://gw.example"); err == nil ||
+	if _, _, err := MakeUpdate(context.Background(), secretIs(`"models"`), links, c, false, Setup{Slots: crushSlots}, "https://gw.example"); err == nil ||
 		!strings.Contains(err.Error(), "carries the client's key") {
 		t.Errorf("an update carrying the secret: %v", err)
 	}
 	if links.UpdateStateOf("c1").State != install.None {
 		t.Error("a refused update made a link")
 	}
-	token, _, err := MakeUpdate(context.Background(), secretIs(""), links, c, Setup{Slots: crushSlots}, "https://gw.example")
+	token, _, err := MakeUpdate(context.Background(), secretIs(""), links, c, false, Setup{Slots: crushSlots}, "https://gw.example")
 	if err != nil || token == "" || links.UpdateStateOf("c1").State != install.Waiting {
 		t.Errorf("an update with no secret kept: %q %v", token, err)
 	}
 	c.Type = "custom"
-	if _, _, err := MakeUpdate(context.Background(), secretIs(""), links, c, Setup{}, "https://gw.example"); err == nil {
+	if _, _, err := MakeUpdate(context.Background(), secretIs(""), links, c, false, Setup{}, "https://gw.example"); err == nil {
 		t.Error("a custom client's update")
 	}
 }
 
 func TestBase(t *testing.T) {
 	for raw, want := range map[string]string{
-		"https://gw.example.com/":  "https://gw.example.com",
-		"http://127.0.0.1:18403":   "http://127.0.0.1:18403",
-		"https://x.example/claude": "https://x.example/claude",
+		"https://gw.example.com/":       "https://gw.example.com",
+		"http://127.0.0.1:18403":        "http://127.0.0.1:18403",
+		"https://x.example/claude":      "https://x.example/claude",
+		"http://[::1]:8317":             "http://[::1]:8317",
+		"https://[2001:db8::7]/gw/":     "https://[2001:db8::7]/gw",
+		"http://my_host.internal:8317":  "http://my_host.internal:8317",
+		"https://gw.example/a%20b/x-y_": "https://gw.example/a%20b/x-y_",
 	} {
 		if got, err := Base(raw); err != nil || got != want {
 			t.Errorf("Base(%q) = %q, %v", raw, got, err)
 		}
 	}
-	for _, bad := range []string{"", "gw.example.com", "https://gw'.example", "https://gw.example/a b", "javascript:x", "https://gw.example/$(id)"} {
+	for _, bad := range []string{"", "gw.example.com", "https://gw'.example", "https://gw.example/a b", "javascript:x",
+		"https://gw.example/$(id)", "ftp://gw.example", "https://user@gw.example", "https://gw.example/?q=1",
+		"https://gw.example/#x", "http://[::1", "http://[nothost]:80", "http://gw.example:99999", "https://", "http://:80"} {
 		if _, err := Base(bad); err == nil {
 			t.Errorf("Base(%q) took it", bad)
 		}

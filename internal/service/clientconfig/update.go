@@ -19,12 +19,14 @@ type Secrets interface {
 // them under a new update link, answering its token and when it stops
 // working. One path for the admin page's Update config and the MCP server's
 // update_config, so what an agent is handed is what the operator would be.
+// byAgent is the second: its link is one of the agent's own, and replaces
+// neither the page's nor another of the agent's (install.Links).
 //
 // The files are refused if the key is in them after all — the secret, or its
 // prefix, which is enough of it to know it by: an update command goes on a
 // screen and into an agent's transcript, and the writer leaving the key out
 // is the rule this holds it to.
-func MakeUpdate(ctx context.Context, secrets Secrets, links *install.Links, c store.Client,
+func MakeUpdate(ctx context.Context, secrets Secrets, links *install.Links, c store.Client, byAgent bool,
 	s Setup, base string) (string, time.Time, error) {
 	files := Update(c.Type, c.Spec().Label, s, base)
 	if files == nil {
@@ -40,5 +42,5 @@ func MakeUpdate(ctx context.Context, secrets Secrets, links *install.Links, c st
 	if p := install.Carrying(files, marks...); p != "" {
 		return "", time.Time{}, fmt.Errorf("%s carries the client's key; an update carries none, and keeps the one on disk", p)
 	}
-	return links.Create(install.Bundle{ClientID: c.ID, Key: c.Name, Files: files, Update: true})
+	return links.Create(install.Bundle{ClientID: c.ID, Key: c.Name, Files: files, Update: true, ByAgent: byAgent, Base: base})
 }

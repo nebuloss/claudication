@@ -422,3 +422,37 @@ func TestSlotUsageAndKeyRequests(t *testing.T) {
 		t.Errorf("a's requests: %+v", reqs)
 	}
 }
+
+// What the MCP server's status counts, in SQL: requests in the period,
+// refusals included, tokens over the day, an agent's changes neither.
+func TestKeyActivity(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	c := makeClient(t, st, "box", "crush")
+	now := time.Now()
+	for _, e := range []UsageEvent{
+		{At: now.Add(-30 * time.Second), KeyID: c.ID, Path: "/v1/messages", Status: 200, InputTokens: 10, OutputTokens: 5},
+		{At: now.Add(-10 * time.Second), KeyID: c.ID, Path: "/v1/messages", Status: 429, Rejected: true},
+		{At: now.Add(-5 * time.Second), KeyID: c.ID, Path: "/mcp/bind_model", Status: 200, Change: true},
+		{At: now.Add(-2 * time.Hour), KeyID: c.ID, Path: "/v1/messages", Status: 200, InputTokens: 100},
+		{At: now.Add(-48 * time.Hour), KeyID: c.ID, Path: "/v1/messages", Status: 200, InputTokens: 1000},
+		{At: now.Add(-time.Second), KeyID: "someone", Path: "/v1/messages", Status: 200, InputTokens: 7},
+	} {
+		if err := st.RecordUsage(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reqs, tokens, err := st.KeyActivity(ctx, c.ID, now.Add(-time.Minute), now.Add(-24*time.Hour))
+	if err != nil || reqs != 2 || tokens != 115 {
+		t.Errorf("activity: %d requests, %d tokens, %v", reqs, tokens, err)
+	}
+	// A change is read back as one, and counted in no usage figure.
+	use, _ := st.KeyUsageOf(ctx, c.ID, now.Add(-time.Hour))
+	if use[c.ID].Requests != 1 {
+		t.Errorf("usage counts %d requests, want the one relayed", use[c.ID].Requests)
+	}
+	rows, _, err := st.RecentUsage(ctx, 10, UsageCursor{}, RequestFilter{KeyIDs: []string{c.ID}, Kinds: []string{"change"}})
+	if err != nil || len(rows) != 1 || !rows[0].Change || rows[0].Rejected {
+		t.Errorf("the change as the log reads it: %+v %v", rows, err)
+	}
+}

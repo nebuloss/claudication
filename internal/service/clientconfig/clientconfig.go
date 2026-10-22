@@ -27,7 +27,10 @@ package clientconfig
 import (
 	"encoding/json"
 	"errors"
+	"net"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"claudication/configs"
@@ -52,20 +55,37 @@ const MCPServer = "claudication"
 // MCPPath is where the MCP server is on the relay.
 const MCPPath = "/mcp"
 
-// baseURL is an address a client can be pointed at: http or https, a host,
-// maybe a port and a path, and nothing a shell, a TOML string or a JSON one
-// would read as anything but text — it is written into every file and into
-// the command that fetches them.
-var baseURL = regexp.MustCompile(`^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$`)
+// baseText is what an address may be spelt with: the characters of a URL's
+// scheme, host (an IPv6 literal's brackets and an underscore included), port
+// and path, percent-escapes, and nothing a shell's single quotes, a TOML
+// string or a JSON one would read as anything but text — the address is put
+// into every file and into the command that fetches them as it is.
+var baseText = regexp.MustCompile(`^[A-Za-z0-9._~:/\[\]%@!&()*+,;=-]+$`)
 
 // ErrBase is an address Base refuses.
 var ErrBase = errors.New("the gateway's address is http(s)://host[:port][/path], with nothing else in it")
 
 // Base is the address files are written for, its trailing slashes dropped;
-// ErrBase for one that is not an address, or not safe to write.
+// ErrBase for one that is not an address, or not safe to write. Parsed as a
+// URL: http or https, a host — a name, an IPv4 address or a bracketed IPv6
+// one — a port if any, a path prefix if the gateway is behind one, and no
+// user, query or fragment, which no client's base URL takes.
 func Base(raw string) (string, error) {
 	b := strings.TrimRight(strings.TrimSpace(raw), "/")
-	if !baseURL.MatchString(b) {
+	if !baseText.MatchString(b) || strings.ContainsAny(b, "'\"\\$`") {
+		return "", ErrBase
+	}
+	u, err := url.Parse(b)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" ||
+		u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
+		return "", ErrBase
+	}
+	if p := u.Port(); p != "" {
+		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
+			return "", ErrBase
+		}
+	}
+	if h := u.Hostname(); strings.Contains(h, ":") && net.ParseIP(h) == nil {
 		return "", ErrBase
 	}
 	return b, nil

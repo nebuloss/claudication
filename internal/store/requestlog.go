@@ -142,15 +142,21 @@ func (f RequestFilter) where() (string, []any) {
 
 	// Both ticked is every row, so it narrows nothing and says nothing — the
 	// same as neither, which is what an untouched menu means.
-	relayed, rejected := contains(f.Kinds, "relayed"), contains(f.Kinds, "rejected")
 	// "relayed" is everything that reached the upstream, the gateway's own
-	// titling included. kind = 1 is spelled as the partial index
+	// titling included; "rejected" what it refused; "change" an agent's
+	// change to its client. kind = 1 alone is spelled as the partial index
 	// idx_usage_rejected is, which is what lets the planner use it.
+	var kinds []string
+	for _, k := range []struct{ name, sql string }{{"relayed", "0, 2"}, {"rejected", "1"}, {"change", "3"}} {
+		if contains(f.Kinds, k.name) {
+			kinds = append(kinds, k.sql)
+		}
+	}
 	switch {
-	case relayed && !rejected:
-		clauses = append(clauses, "kind <> 1")
-	case rejected && !relayed:
+	case len(kinds) == 1 && kinds[0] == "1":
 		clauses = append(clauses, "kind = 1")
+	case len(kinds) > 0 && len(kinds) < 3:
+		clauses = append(clauses, "kind IN ("+strings.Join(kinds, ", ")+")")
 	}
 	switch f.Outcome {
 	case "failed":

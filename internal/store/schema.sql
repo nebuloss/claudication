@@ -101,7 +101,13 @@ CREATE TABLE clients (
     -- server (internal/httpapi/agent): rebind its model names, add and
     -- remove its own, and make its update command. Off unless switched on:
     -- it hands a model the operator's choice of what the client runs.
-    agent_manage  INTEGER NOT NULL DEFAULT 0
+    agent_manage  INTEGER NOT NULL DEFAULT 0,
+    -- The address its machine was set up with: the base the last install or
+    -- update command it fetched wrote into its files. The MCP server's
+    -- update_config writes that one again rather than guess one from the
+    -- request, which behind a proxy can name an address the client cannot
+    -- reach. '' until a command is fetched.
+    base          TEXT    NOT NULL DEFAULT ''
 ) WITHOUT ROWID;
 
 -- A direct-mode client's models switched off. Kept as what is off, so a model
@@ -283,10 +289,13 @@ CREATE TABLE usage_events (
     -- 0 relayed for a client; 1 refused before the upstream, which spent
     -- nothing and has no key, model or account to group under; 2 made by the
     -- gateway for itself (store.InternalPath: naming a chat), part of a chat's
-    -- cost but no evidence of who was having it. Aggregates take kind <> 1,
-    -- the chat rollups kind = 0. Zero is the common case, so a caller that
-    -- does not think about it files a relayed request.
-    kind               INTEGER NOT NULL DEFAULT 0 CHECK (kind IN (0, 1, 2)),
+    -- cost but no evidence of who was having it; 3 a change a client's own
+    -- agent made to it through the MCP server (internal/httpapi/agent): no
+    -- request was relayed or refused, and it is in the log to be seen.
+    -- Aggregates take kind IN (0, 2), the chat rollups kind = 0. Zero is the
+    -- common case, so a caller that does not think about it files a relayed
+    -- request.
+    kind               INTEGER NOT NULL DEFAULT 0 CHECK (kind IN (0, 1, 2, 3)),
     key_id             TEXT    NOT NULL DEFAULT '',
     account_id         TEXT    NOT NULL DEFAULT '',
     -- Whose account served it: anthropic, openai. Kept with the row because,

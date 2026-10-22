@@ -13,9 +13,6 @@ export const EXAMPLE_BASE = 'https://claudication.example.com'
  */
 export const EXAMPLE_KEY = 'clc_...'
 
-/** Where the gateway's MCP server is on the relay. */
-export const MCP_PATH = '/mcp'
-
 /** What a client type's page says around its files. */
 export type RecipeData = {
   /** The client type's id (internal/service/clients). */

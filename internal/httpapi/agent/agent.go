@@ -44,6 +44,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"claudication/internal/api"
@@ -67,7 +68,7 @@ type Store interface {
 	AddSlot(ctx context.Context, keyID, name string, b store.Binding) error
 	RemoveSlot(ctx context.Context, keyID, slot string) error
 	KeySecret(ctx context.Context, id string) (string, error)
-	KeyRequests(ctx context.Context, keyID string, since time.Time) ([]store.KeyRequest, error)
+	KeyActivity(ctx context.Context, keyID string, periodSince, daySince time.Time) (int, int64, error)
 	ChatsIn(ctx context.Context, since time.Time, limit int, scope store.UsageScope) (store.ChatReport, error)
 	ChatOfKey(ctx context.Context, id, keyID string) (bool, error)
 	SetManualTitle(ctx context.Context, id, title string) (string, error)
@@ -81,6 +82,7 @@ type Models interface {
 	Choices(ctx context.Context) []modelsvc.Choice
 	Available(ctx context.Context) []modelsvc.Choice
 	Resolve(ctx context.Context, b store.Binding) (modelsvc.Choice, string)
+	NewSlot(ctx context.Context, b store.Binding) (store.Binding, modelsvc.Choice, string)
 }
 
 // Deps is what the server is built from. Every field is required.
@@ -103,17 +105,56 @@ type Deps struct {
 	// Share is a client's estimated share of the subscriptions, as its page
 	// shows it (admin.ShareOf); ok false when there is no history.
 	Share func(ctx context.Context, keyID string) (any, bool)
+	// Conversation reads a chat id out of headers the way the client-facing
+	// dialects do (api.Protocol, ConversationID), for a custom client, which
+	// has no type to name its header: handed across by the composition root,
+	// the one place that knows the dialects.
+	Conversation func(h http.Header) string
 }
 
 // Agent serves the MCP server.
 type Agent struct {
 	d   Deps
 	srv *mcp.Server
+
+	// shares are the subscription shares status last read, by client: the
+	// estimate reads every account's windows, and an agent polling status
+	// must not make the gateway do that on each call.
+	sharesMu sync.Mutex
+	shares   map[string]cachedShare
+}
+
+// shareTTL is how long a client's share is answered from what was read: the
+// windows it is estimated from are polled every few minutes at best.
+const shareTTL = 30 * time.Second
+
+type cachedShare struct {
+	at    time.Time
+	share any
+	ok    bool
+}
+
+// share is a client's subscription share, read at most once per shareTTL.
+func (a *Agent) share(ctx context.Context, keyID string) (any, bool) {
+	a.sharesMu.Lock()
+	defer a.sharesMu.Unlock()
+	now := time.Now()
+	if c, hit := a.shares[keyID]; hit && now.Sub(c.at) < shareTTL {
+		return c.share, c.ok
+	}
+	for k, c := range a.shares {
+		if now.Sub(c.at) >= shareTTL {
+			delete(a.shares, k)
+		}
+	}
+	share, ok := a.d.Share(ctx, keyID)
+	a.shares[keyID] = cachedShare{at: now, share: share, ok: ok}
+	return share, ok
 }
 
 // New builds the server and its tools.
 func New(d Deps) *Agent {
-	a := &Agent{d: d}
+	a := &Agent{d: d, shares: map[string]cachedShare{}}
 	a.srv = &mcp.Server{
 		Name: "claudication", Title: "Claudication gateway", Version: version.Version,
 		Instructions: instructions,
@@ -149,8 +190,6 @@ type call struct {
 	client       string
 	surface      string
 	ip           string
-	// base is the address the client's files point at.
-	base string
 }
 
 type callKey struct{}
@@ -163,29 +202,11 @@ func callOf(ctx context.Context) call {
 func (a *Agent) serve(w http.ResponseWriter, r *http.Request) {
 	key, _ := httpx.APIKey(r.Context())
 	c := call{
-		conversation: conversationOf(key, r.Header),
+		conversation: a.conversationOf(key, r.Header),
 		client:       api.ClientName(r.UserAgent()),
 		ip:           httpx.ClientIP(r.Context()),
-		base:         a.base(r),
 	}
 	a.srv.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callKey{}, c)))
-}
-
-// base is the address a client's files are written for: public-url, which is
-// what the operator said clients reach, else the address this request came
-// to, which is the one the agent's own client was configured with.
-func (a *Agent) base(r *http.Request) string {
-	if b, err := clientconfig.Base(a.d.Config.PublicURL); err == nil {
-		return b
-	}
-	scheme := "http"
-	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		scheme = "https"
-	}
-	if b, err := clientconfig.Base(scheme + "://" + r.Host); err == nil {
-		return b
-	}
-	return ""
 }
 
 // instructions are what a client may put before its model, so it knows what
@@ -239,16 +260,16 @@ func conversation(ctx context.Context) string {
 }
 
 // conversationOf is the chat a request to the server says it comes from in
-// its headers: the ones its client's type names its chats in, read as /v1
-// reads them (internal/api, conversation.go). A custom client is read for
-// every header any type uses.
-func conversationOf(key store.APIKey, h http.Header) string {
+// its headers: the ones its client's type names its chats in
+// (clients.Type, Sessions), as the gateway groups its /v1 requests; for a
+// custom client, which has none, whatever the dialects read (Deps,
+// Conversation), as /v1 reads an unknown client's.
+func (a *Agent) conversationOf(key store.APIKey, h http.Header) string {
 	t := (store.Client{APIKey: key, Type: key.ClientType}).Spec()
-	headers := t.Sessions
-	if len(headers) == 0 {
-		headers = []string{"X-Claude-Code-Session-Id", "X-Session-Id", "Session_id", "Conversation_id", "Session-Id", "Thread-Id"}
+	if len(t.Sessions) == 0 {
+		return a.d.Conversation(h)
 	}
-	return api.HeaderID(h, headers...)
+	return api.HeaderID(h, t.Sessions...)
 }
 
 // errorText is a store refusal as the agent is told it: the store's own words

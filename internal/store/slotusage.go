@@ -80,7 +80,7 @@ func (s *Store) SlotUsage(ctx context.Context, scope SlotScope, since time.Time)
 		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(`+sqlCacheTokens+`), 0), COALESCE(SUM(reasoning_tokens), 0), MAX(at)
 		   FROM usage_events u
-		  WHERE kind <> 1 AND at >= ?`+where+`
+		  WHERE kind IN (0, 2) AND at >= ?`+where+`
 		  GROUP BY key_id, `+account+`, alias, model, provider
 		  ORDER BY COUNT(*) DESC, key_id, `+account+`, alias, model`, append([]any{ms(since)}, args...)...)
 	if err != nil {

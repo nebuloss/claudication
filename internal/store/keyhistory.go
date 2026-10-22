@@ -24,7 +24,7 @@ type KeyRequest struct {
 func (s *Store) KeyRequests(ctx context.Context, keyID string, since time.Time) ([]KeyRequest, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT at, `+sqlTokens+` FROM usage_events
-		  WHERE at >= ? AND key_id = ?
+		  WHERE at >= ? AND key_id = ? AND kind <> 3
 		  ORDER BY at, id`, ms(since), keyID)
 	if err != nil {
 		return nil, fmt.Errorf("key requests: %w", err)
@@ -42,6 +42,25 @@ func (s *Store) KeyRequests(ctx context.Context, keyID string, since time.Time) 
 		out = append(out, KeyRequest{At: fromMS(at), Tokens: tokens})
 	}
 	return out, rows.Err()
+}
+
+// KeyActivity is what a key did over two windows, counted in SQL: its
+// requests since periodSince, refusals included, as its rate limit counts
+// them, and the tokens it spent since daySince, as its budget does. What the
+// MCP server's status tool reports (internal/httpapi/agent) without reading
+// every row of a day, however often an agent asks.
+func (s *Store) KeyActivity(ctx context.Context, keyID string, periodSince, daySince time.Time) (int, int64, error) {
+	from := min(ms(periodSince), ms(daySince))
+	var requests int
+	var tokens int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(at >= ?), 0), COALESCE(SUM(CASE WHEN at >= ? THEN `+sqlTokens+` ELSE 0 END), 0)
+		   FROM usage_events
+		  WHERE at >= ? AND key_id = ? AND kind <> 3`, ms(periodSince), ms(daySince), from, keyID).Scan(&requests, &tokens)
+	if err != nil {
+		return 0, 0, fmt.Errorf("key activity: %w", err)
+	}
+	return requests, tokens, nil
 }
 
 // MinuteCount is how many requests the gateway took in one minute.
@@ -64,7 +83,7 @@ type MinuteCount struct {
 func (s *Store) RequestsPerMinute(ctx context.Context, since time.Time) ([]MinuteCount, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT at / 60000, COUNT(*) FROM usage_events
-		  WHERE at >= ?
+		  WHERE at >= ? AND kind <> 3
 		  GROUP BY 1 ORDER BY 1`, ms(since))
 	if err != nil {
 		return nil, fmt.Errorf("requests per minute: %w", err)

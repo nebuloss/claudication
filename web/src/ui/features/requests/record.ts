@@ -74,6 +74,11 @@ export class RequestRecord {
     return this.row.rejected === true
   }
 
+  /** A change the client's agent made to it over MCP: neither relayed nor refused. */
+  get change(): boolean {
+    return this.row.change === true
+  }
+
   /** The Message column's word, or "no error". */
   get outcome(): string {
     const label = messageLabel(this.row.error_code)

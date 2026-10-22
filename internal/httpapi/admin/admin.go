@@ -93,6 +93,9 @@ type Models interface {
 	// Resolve is what a binding serves now, and why it is unavailable when it
 	// is.
 	Resolve(ctx context.Context, b store.Binding) (modelsvc.Choice, string)
+	// NewSlot is the binding a name added to a client starts on, and why it
+	// cannot be made.
+	NewSlot(ctx context.Context, b store.Binding) (store.Binding, modelsvc.Choice, string)
 }
 
 // New builds an Admin with no session open.

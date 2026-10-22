@@ -32,7 +32,11 @@ export function RequestDetail({ record, onClose }: { record: RequestRecord; onCl
         <div className="flex flex-wrap items-center gap-3">
           <StatusChip record={record} />
           <Muted as="span">
-            {record.refused ? 'refused by this gateway' : 'forwarded to the upstream'}
+            {record.change
+              ? "a change the client's agent made through the MCP server"
+              : record.refused
+                ? 'refused by this gateway'
+                : 'forwarded to the upstream'}
           </Muted>
           <span className="flex-grow" />
           <CopyButton label="Copy record" value={record.asText()} />

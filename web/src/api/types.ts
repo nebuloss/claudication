@@ -403,6 +403,12 @@ export interface RequestRow {
    */
   rejected?: boolean
   /**
+   * A change the client's own agent made to it through the gateway's MCP
+   * server — a model name rebound, an update command made — with the tool as
+   * its path. Nothing was relayed or refused, so no usage figure counts it.
+   */
+  change?: boolean
+  /**
    * Which machine made the request. For a refused one it is the only identity
    * there is; for a relayed one it answers what a key and a User-Agent cannot,
    * which is where it ran.
@@ -640,6 +646,8 @@ export interface TypeSpec {
 export interface ClientTypesWire {
   types: TypeSpec[]
   dialects: { id: DialectId; title: string }[]
+  /** Where the gateway's MCP server is on the relay: /mcp. */
+  mcp_path: string
 }
 
 /**
@@ -679,6 +687,8 @@ export interface InstallState {
   token?: string
   expires_at: string
   used?: { at: string; ip: string; shell: string }
+  /** While it waits: the line that runs it, by shell (sh, ps1), as the gateway writes it. */
+  commands?: Record<string, string>
 }
 
 /** A client, and the key it holds. */

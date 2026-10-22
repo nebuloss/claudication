@@ -365,7 +365,7 @@ func (s *Admin) handleKeyInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	setup := s.setupOf(r, c)
 	files := clientconfig.Install(c.Type, c.Spec().Label, setup, base, plaintext)
-	token, expires, err := s.install.Create(install.Bundle{ClientID: c.ID, Key: c.Name, Files: files})
+	token, expires, err := s.install.Create(install.Bundle{ClientID: c.ID, Key: c.Name, Files: files, Base: base})
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -373,6 +373,7 @@ func (s *Admin) handleKeyInstall(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"token":      token,
 		"expires_at": expires.UTC().Format(time.RFC3339),
+		"commands":   install.Commands(base, token),
 	})
 }
 
@@ -397,7 +398,7 @@ func (s *Admin) handleKeyUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setup := s.setupOf(r, c)
-	token, expires, err := clientconfig.MakeUpdate(r.Context(), s.store, s.install, c, setup, base)
+	token, expires, err := clientconfig.MakeUpdate(r.Context(), s.store, s.install, c, false, setup, base)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -406,5 +407,6 @@ func (s *Admin) handleKeyUpdate(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"token":      token,
 		"expires_at": expires.UTC().Format(time.RFC3339),
+		"commands":   install.Commands(base, token),
 	})
 }

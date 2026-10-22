@@ -38,8 +38,9 @@ func TestInstallAddress(t *testing.T) {
 		Client struct {
 			ConfiguredAt string `json:"configured_at"`
 			Install      struct {
-				State string `json:"state"`
-				Used  *struct {
+				State    string            `json:"state"`
+				Commands map[string]string `json:"commands"`
+				Used     *struct {
 					IP    string `json:"ip"`
 					Shell string `json:"shell"`
 				} `json:"used"`
@@ -66,7 +67,10 @@ func TestInstallAddress(t *testing.T) {
 		t.Errorf("before a link: %q", s)
 	}
 	token := link()
-	if p := page(); p.Client.Install.State != "waiting" || p.Client.ConfiguredAt != "" {
+	if p := page(); p.Client.Install.State != "waiting" || p.Client.ConfiguredAt != "" ||
+		// The lines are the gateway's to write, for the page to show.
+		p.Client.Install.Commands["sh"] != "curl -fsSL 'https://gw.example/install?token="+token+"&shell=sh' | sh" ||
+		p.Client.Install.Commands["ps1"] != "irm 'https://gw.example/install?token="+token+"&shell=ps1' | iex" {
 		t.Errorf("made: %+v", p)
 	}
 	for _, q := range []struct {
@@ -95,6 +99,11 @@ func TestInstallAddress(t *testing.T) {
 	if p.Client.Install.State != "used" || p.Client.Install.Used == nil || p.Client.Install.Used.Shell != "ps1" ||
 		p.Client.ConfiguredAt == "" {
 		t.Errorf("after the fetch: %+v", p)
+	}
+	// The fetch records the address the machine was set up with, which an
+	// update its agent asks for writes again.
+	if got, _ := st.Client(t.Context(), c.ID); got.Base != "https://gw.example" {
+		t.Errorf("the recorded address: %q", got.Base)
 	}
 	// Configured: neither the key nor another link is offered.
 	if status, body := call(t, base, http.MethodGet, "/admin/keys/"+c.ID+"/secret", "", ck); status != http.StatusConflict ||

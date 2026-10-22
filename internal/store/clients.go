@@ -47,7 +47,10 @@ type Client struct {
 	// ConfiguredAt is when the client was first set up with its key; see
 	// configured_at in schema.sql.
 	ConfiguredAt *time.Time
-	Slots        []ClientSlot
+	// Base is the address its machine was set up with (base in schema.sql),
+	// '' until an install or update command of its was fetched.
+	Base  string
+	Slots []ClientSlot
 }
 
 // ClientSlot is one of a client's model slots.
@@ -180,7 +183,7 @@ func checkSlotName(name string) (string, error) {
 }
 
 // clientColumns are a client's own columns, read beside its key's.
-const clientColumns = `c.type, c.mode, c.disabled_at, c.configured_at`
+const clientColumns = `c.type, c.mode, c.disabled_at, c.configured_at, c.base`
 
 // Clients lists every client, oldest first, with its key and its slots. The
 // gateway's own key is no client and is not in it.
@@ -240,7 +243,7 @@ func scanClient(sc scanner) (Client, error) {
 		mode                 string
 		disabled, configured sql.NullInt64
 	)
-	key, err := scanKeyAround(sc, nil, []any{&c.Type, &mode, &disabled, &configured})
+	key, err := scanKeyAround(sc, nil, []any{&c.Type, &mode, &disabled, &configured, &c.Base})
 	if err != nil {
 		return Client{}, err
 	}
@@ -469,6 +472,15 @@ func (s *Store) SetClientNameChats(ctx context.Context, keyID string, on bool) e
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrClientNotFound
+	}
+	return nil
+}
+
+// SetClientBase records the address a client's machine was set up with: the
+// base of the install or update command it just fetched.
+func (s *Store) SetClientBase(ctx context.Context, keyID, base string) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE clients SET base = ? WHERE key_id = ?`, base, keyID); err != nil {
+		return fmt.Errorf("record client base: %w", err)
 	}
 	return nil
 }

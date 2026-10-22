@@ -131,7 +131,9 @@ func (s *Admin) handleClientTypes(w http.ResponseWriter, r *http.Request) {
 	for _, d := range []clients.Dialect{clients.Messages, clients.Responses} {
 		dialects = append(dialects, dialectJSON{ID: d, Title: d.Title()})
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"types": clients.All, "dialects": dialects})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"types": clients.All, "dialects": dialects,
+		// So the page names the MCP server's address from the one copy of it.
+		"mcp_path": clientconfig.MCPPath})
 }
 
 // handleListClients lists every client with its key's figures and its
@@ -296,12 +298,11 @@ func (s *Admin) handleAddSlot(w http.ResponseWriter, r *http.Request) {
 	if !httpx.DecodeJSON(w, r, &body) {
 		return
 	}
-	b := store.Binding{Model: body.Model, Follows: body.Follows}
-	if b.Model == "" && b.Follows == "" {
-		// The default every type's main slot starts on, as a new client's
-		// does, whether or not an account serves it yet.
-		b.Follows = clients.FollowOpus
-	} else if !s.available(w, r, c, b) {
+	// The MCP server's add_model holds a new name to the same rule.
+	b, choice, why := s.models.NewSlot(r.Context(), store.Binding{Model: body.Model, Follows: body.Follows})
+	if why != "" {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
+			choice.Title+" is not available to this client: "+why)
 		return
 	}
 	if s.clientError(w, s.store.AddSlot(r.Context(), c.ID, strings.TrimSpace(body.Name), b), "add the slot") {

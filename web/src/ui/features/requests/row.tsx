@@ -183,15 +183,17 @@ export function RequestRowView({
           for the rest was two idioms for one job. */}
       <Td nowrap>
         <Filterable
-          onClick={() => onNarrow('kind', record.refused ? 'rejected' : 'relayed')}
+          onClick={() => onNarrow('kind', record.change ? 'change' : record.refused ? 'rejected' : 'relayed')}
           title={
-            record.refused
-              ? 'Only requests this gateway refused'
-              : 'Only requests that reached the upstream'
+            record.change
+              ? 'Only changes clients’ agents made through the MCP server'
+              : record.refused
+                ? 'Only requests this gateway refused'
+                : 'Only requests that reached the upstream'
           }
         >
           <span className={record.refused ? 'text-warning' : 'text-on-surface-variant'}>
-            {record.refused ? 'no' : 'yes'}
+            {record.change ? 'no, a change' : record.refused ? 'no' : 'yes'}
           </span>
         </Filterable>
       </Td>

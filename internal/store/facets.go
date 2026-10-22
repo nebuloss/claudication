@@ -141,13 +141,14 @@ func (s *Store) facet(ctx context.Context, column string, limit int) ([]FacetVal
 
 // kindFacet counts what did and did not reach the upstream.
 //
-// Two rows at most, and it speaks the filter's vocabulary rather than the
-// column's storage: the table holds three kinds, the filter says "relayed" or
-// "rejected", and translating here keeps that word in one place. The
-// gateway's own requests reached the upstream, so they count as relayed.
+// Three rows at most, and it speaks the filter's vocabulary rather than the
+// column's storage: the table holds four kinds, the filter says "relayed",
+// "rejected" or "change", and translating here keeps that word in one place.
+// The gateway's own requests reached the upstream, so they count as relayed.
 func (s *Store) kindFacet(ctx context.Context) ([]FacetValue, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT kind = 1 AS rejected, COUNT(*) FROM usage_events GROUP BY rejected ORDER BY COUNT(*) DESC`)
+		SELECT CASE kind WHEN 1 THEN 1 WHEN 3 THEN 3 ELSE 0 END AS k, COUNT(*) FROM usage_events
+		 GROUP BY k ORDER BY COUNT(*) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("facet kinds: %w", err)
 	}
@@ -155,9 +156,9 @@ func (s *Store) kindFacet(ctx context.Context) ([]FacetValue, error) {
 
 	out := []FacetValue{}
 	for rows.Next() {
-		var rejected bool
+		var kind int
 		var count int64
-		if err := rows.Scan(&rejected, &count); err != nil {
+		if err := rows.Scan(&kind, &count); err != nil {
 			return nil, fmt.Errorf("facet kinds: %w", err)
 		}
 		// The column is called Forwarded and answers yes or no, so the menu
@@ -165,8 +166,12 @@ func (s *Store) kindFacet(ctx context.Context) ([]FacetValue, error) {
 		// "rejected" are what the filter and the URL have always said, and a
 		// link written last week still works.
 		v := FacetValue{Value: "relayed", Label: "yes", Count: count}
-		if rejected {
+		switch kind {
+		case kindRejected:
 			v = FacetValue{Value: "rejected", Label: "no", Count: count}
+		case kindChange:
+			// Nothing was forwarded: the client's agent changed the client.
+			v = FacetValue{Value: "change", Label: "no, an agent's change", Count: count}
 		}
 		out = append(out, v)
 	}

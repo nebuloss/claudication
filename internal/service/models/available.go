@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"claudication/internal/service/clients"
 	"claudication/internal/store"
@@ -109,6 +110,28 @@ func (s *Catalog) Resolve(ctx context.Context, b store.Binding) (Choice, string)
 	}
 	c.Provider = s.ServingProvider(ctx, c.Serving)
 	return c, s.unavailable(ctx, c.Provider, c.Serving)
+}
+
+// NewSlot is the binding a name added to a client starts on, what it serves,
+// and why it cannot be made, "" when it can: one rule for the admin page's
+// Add and the MCP server's add_model. None given follows the newest Claude
+// Opus, as every type's main name starts on, and is made whether or not an
+// account serves it yet — the page then shows it unavailable, as a new
+// client's own names are until an account is connected. One given has to be
+// available now, as a rebinding has to.
+func (s *Catalog) NewSlot(ctx context.Context, b store.Binding) (store.Binding, Choice, string) {
+	b.Model = strings.TrimSpace(b.Model)
+	if b.Model == "" && b.Follows == "" {
+		b.Follows = clients.FollowOpus
+		c, _ := s.Resolve(ctx, b)
+		return b, c, ""
+	}
+	if b.Follows != "" && !b.Follows.Valid() {
+		// The store says what is wrong with it.
+		return b, Choice{Follows: b.Follows, Title: string(b.Follows)}, ""
+	}
+	c, why := s.Resolve(ctx, b)
+	return b, c, why
 }
 
 // unavailable is why a real model cannot serve a client now, or "".

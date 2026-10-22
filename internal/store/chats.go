@@ -166,7 +166,7 @@ func (s *Store) ChatsIn(ctx context.Context, since time.Time, limit int, scope U
 		        MIN(at), MAX(at),
 		        (SELECT group_concat(m) FROM
 		            (SELECT DISTINCT model AS m FROM usage_events e2
-		              WHERE e2.conversation_id = e.conversation_id AND e2.kind <> 1 AND e2.at >= ?
+		              WHERE e2.conversation_id = e.conversation_id AND e2.kind IN (0, 2) AND e2.at >= ?
 		                AND e2.model <> ''
 		              ORDER BY e2.at)),
 		        `+nameOf(nameKey, `(SELECT e3.key_id FROM usage_events e3
@@ -432,26 +432,29 @@ func (s *Store) RetitleChat(ctx context.Context, id, title, model string, basis 
 	return nil
 }
 
-// ChatOfKey reports whether a conversation is one a key took part in: a
-// request of its, relayed or the client's own naming, filed under the chat.
-// What lets a client's agent name a chat of its own client and no other's
-// (internal/httpapi/agent). Refusals are no part of it: a refused request
-// names whatever chat its sender likes, and proves nothing.
+// ChatOfKey reports whether a conversation is a key's own: every request
+// filed under it, relayed or the client's own naming, is that key's. What
+// lets a client's agent name a chat of its own client and no other's
+// (internal/httpapi/agent).
+//
+// Every rather than any: a conversation id is whatever the client sends, so a
+// client can put another's id on a request of its own, and "it has one of my
+// requests" would then hand it the other's chat. A chat with requests from
+// two keys is nobody's to name from here; an operator still can. Refusals
+// are no part of it either way: a refused request proves nothing.
 func (s *Store) ChatOfKey(ctx context.Context, id, keyID string) (bool, error) {
 	if id == "" || keyID == "" {
 		return false, nil
 	}
-	var one int
+	var keys int
+	var first string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT 1 FROM usage_events
-		  WHERE conversation_id = ? AND key_id = ? AND `+sqlCounted+` LIMIT 1`, id, keyID).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
+		`SELECT COUNT(DISTINCT key_id), COALESCE(MIN(key_id), '') FROM usage_events
+		  WHERE conversation_id = ? AND `+sqlCounted, id).Scan(&keys, &first)
 	if err != nil {
 		return false, fmt.Errorf("chat of key: %w", err)
 	}
-	return true, nil
+	return keys == 1 && first == keyID, nil
 }
 
 // SetManualTitle stores a title an operator typed, replacing any there was.

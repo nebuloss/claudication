@@ -63,6 +63,14 @@ func (s *Gateway) handleInstall(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("could not mark a client configured", "client", bundle.ClientID, "err", err)
 		}
 	}
+	// The address the files point at is now the one this machine has: what
+	// an update the client's agent asks for writes again (internal/httpapi/
+	// agent), rather than an address read off its request.
+	if bundle.Base != "" {
+		if err := s.store.SetClientBase(r.Context(), bundle.ClientID, bundle.Base); err != nil {
+			s.log.Warn("could not record a client's address", "client", bundle.ClientID, "err", err)
+		}
+	}
 	script := install.Shell(bundle)
 	if ps {
 		script = install.PowerShell(bundle)

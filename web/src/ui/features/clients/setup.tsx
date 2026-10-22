@@ -18,7 +18,7 @@ import {
 import { countdown, dateTime } from '../../format'
 import { relayAddress } from '../../clients/address'
 import { ClientBody } from '../../clients/client-body'
-import { EXAMPLE_BASE, MCP_PATH } from '../../clients/model'
+import { EXAMPLE_BASE } from '../../clients/model'
 import { recipeFor } from '../../clients/recipes'
 import type { Client, ClientTypes } from '../../clients/specs'
 
@@ -100,7 +100,7 @@ export function SetupCard({
           </Note>
         )}
         {c.installs ? (
-          <TypedSetup client={c} gateway={gateway} onChanged={onChanged} />
+          <TypedSetup client={c} types={types} gateway={gateway} onChanged={onChanged} />
         ) : (
           <CustomSetup client={c} types={types} gateway={gateway} />
         )}
@@ -146,7 +146,17 @@ function useFiles(c: Client, gateway: string): { files: ClientFile[] | null; err
  * A typed client's files, written with its own names and the facts of the
  * models they serve now, and the one command that installs them.
  */
-function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway: string; onChanged: () => void }) {
+function TypedSetup({
+  client: c,
+  types,
+  gateway,
+  onChanged,
+}: {
+  client: Client
+  types: ClientTypes
+  gateway: string
+  onChanged: () => void
+}) {
   const recipe = recipeFor(c.type.id)
   const secret = useSecret(c)
   const { files, error } = useFiles(c, gateway)
@@ -163,7 +173,7 @@ function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway
         key.
       </Note>
       <Note>
-        Each also registers the gateway&rsquo;s MCP server, <code>{gateway + MCP_PATH}</code>, under the name{' '}
+        Each also registers the gateway&rsquo;s MCP server, <code>{gateway + types.mcpPath}</code>, under the name{' '}
         <code>claudication</code> and with this client&rsquo;s key: tools for its own agent to read what it
         serves and its limits — and, with <em>Agent may manage this client</em> on, to switch its names and make
         its update command. Your other MCP servers stay as they are.
@@ -232,9 +242,9 @@ function InstallCommand({
       onChanged()
     })
 
-  const url = (token: string) => `${gateway}/install?token=${token}&shell=${platform === 'windows' ? 'ps1' : 'sh'}`
-  const command = (token: string) =>
-    platform === 'windows' ? `irm '${url(token)}' | iex` : `curl -fsSL '${url(token)}' | sh`
+  // The line itself is the gateway's (internal/service/install, Commands),
+  // the one the MCP server hands an agent too.
+  const command = state.commands?.[platform === 'windows' ? 'ps1' : 'sh'] ?? ''
   const left = Math.max(0, Math.round((new Date(state.expires_at).getTime() - now) / 1000))
 
   return (
@@ -248,9 +258,9 @@ function InstallCommand({
           { id: 'windows', label: 'Windows', content: 'Windows' },
         ]}
       />
-      {state.state === 'waiting' && state.token !== undefined && left > 0 ? (
+      {state.state === 'waiting' && state.token !== undefined && command !== '' && left > 0 ? (
         <>
-          <CopyField label={platform === 'windows' ? 'PowerShell' : 'Terminal'} value={command(state.token)}
+          <CopyField label={platform === 'windows' ? 'PowerShell' : 'Terminal'} value={command}
             conceal={state.token} />
           <KeyValue items={[['Waiting', `to be run — ${countdown(left)} left, once`]]} />
         </>
@@ -308,7 +318,7 @@ function CustomSetup({ client: c, types, gateway }: { client: Client; types: Cli
           [types.dialectTitle('anthropic'), `${gateway} for SDKs that add /v1 themselves (Anthropic's), ${gateway}/v1 for the rest — x-api-key or Authorization: Bearer`],
           [types.dialectTitle('openai'), `${gateway}/v1 — Authorization: Bearer`],
           ['Models', c.namesSlots ? c.slots.map((s) => s.name).join(', ') || 'none yet' : 'real model ids, less the ones switched off'],
-          ['MCP server', `${gateway}${MCP_PATH} — Streamable HTTP, Authorization: Bearer with the same key`],
+          ['MCP server', `${gateway}${types.mcpPath} — Streamable HTTP, Authorization: Bearer with the same key`],
         ]}
       />
       <Note>
@@ -323,7 +333,7 @@ function CustomSetup({ client: c, types, gateway }: { client: Client; types: Cli
         it may use, its limits and usage, its chats — and, with <em>Agent may manage this client</em> on, switching
         its names. Point an MCP client at it with the key as a bearer token.
       </Note>
-      <CopyField label="MCP server (Streamable HTTP)" value={`${gateway}${MCP_PATH}`} />
+      <CopyField label="MCP server (Streamable HTTP)" value={`${gateway}${types.mcpPath}`} />
       <CopyField label="MCP header" value="Authorization: Bearer clc_…" />
     </Stack>
   )

@@ -281,11 +281,11 @@ const clients = {
 
   /** The client's files, key and all, for one install command; the token fetches them once. */
   createInstall: (id: string, base: string) =>
-    http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/install`, { base }),
+    http.post<{ token: string; expires_at: string; commands: Record<string, string> }>(path`/admin/keys/${id}/install`, { base }),
 
   /** A configured client's update files, which carry no key, for one command. */
   createUpdate: (id: string, base: string) =>
-    http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/update`, { base }),
+    http.post<{ token: string; expires_at: string; commands: Record<string, string> }>(path`/admin/keys/${id}/update`, { base }),
 
   /** Whether its own agent may change it through the gateway's MCP server. */
   setAgentManage: async (id: string, enabled: boolean): Promise<ClientWire> =>

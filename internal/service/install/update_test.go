@@ -289,3 +289,63 @@ func TestUpdateLinksAreTheirOwn(t *testing.T) {
 		t.Error("a forgotten client still has a link")
 	}
 }
+
+// An agent's update links replace nothing: the operator's command on the
+// client's page stays waiting, two agents' both work, each once, and each is
+// gone at its time; a new key forgets them with the rest.
+func TestAgentUpdateLinksReplaceNothing(t *testing.T) {
+	l := New(time.Minute)
+	now := time.Now()
+	l.now = func() time.Time { return now }
+	files := []File{{ClientID: "codex", Client: "Codex", Path: ".codex/config.toml", Body: "x"}}
+	page, _, err := l.Create(Bundle{ClientID: "c1", Key: "laptop", Files: files, Update: true, Base: "https://gw.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a1, _, err := l.Create(Bundle{ClientID: "c1", Key: "laptop", Files: files, Update: true, ByAgent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2, _, err := l.Create(Bundle{ClientID: "c1", Key: "laptop", Files: files, Update: true, ByAgent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := l.UpdateStateOf("c1")
+	if st.State != Waiting || st.Token != page || st.Commands["sh"] != Command("https://gw.example", page, false) {
+		t.Errorf("the page's command after an agent's: %+v", st)
+	}
+	for _, tok := range []string{a2, a1} {
+		if b, err := l.Take(tok, "", "sh"); err != nil || !b.ByAgent {
+			t.Errorf("an agent's link: %+v %v", b, err)
+		}
+		if _, err := l.Take(tok, "", "sh"); !errors.Is(err, ErrUsed) {
+			t.Errorf("an agent's link twice: %v", err)
+		}
+	}
+	if _, err := l.Take(page, "", "sh"); err != nil {
+		t.Errorf("the page's command after the agents' were run: %v", err)
+	}
+	if _, _, err := l.Create(Bundle{ClientID: "c1", Files: files, ByAgent: true}); err == nil {
+		t.Error("an agent's install link")
+	}
+	for i := 0; i < maxAgentLinks; i++ {
+		if _, _, err := l.Create(Bundle{ClientID: "c1", Files: files, Update: true, ByAgent: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := l.Create(Bundle{ClientID: "c1", Files: files, Update: true, ByAgent: true}); err == nil {
+		t.Error("no bound on an agent's waiting links")
+	}
+	late, _, _ := l.Create(Bundle{ClientID: "c2", Files: files, Update: true, ByAgent: true})
+	now = now.Add(2 * time.Minute)
+	if _, err := l.Take(late, "", "sh"); !errors.Is(err, ErrUnknown) {
+		t.Errorf("an agent's link past its time: %v", err)
+	}
+	if _, _, err := l.Create(Bundle{ClientID: "c1", Files: files, Update: true, ByAgent: true}); err != nil {
+		t.Fatal(err)
+	}
+	l.Forget("c1")
+	if len(l.byAgent) != 0 {
+		t.Errorf("a new key left an agent's links: %d", len(l.byAgent))
+	}
+}

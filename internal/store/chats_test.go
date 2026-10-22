@@ -223,8 +223,10 @@ func TestChatEventsReturnEveryRecordedField(t *testing.T) {
 	}
 	v := reflect.ValueOf(want)
 	for i := range v.NumField() {
-		// Naming is written as the row's kind and not read back as itself.
-		if name := v.Type().Field(i).Name; name != "ID" && name != "Naming" && v.Field(i).IsZero() {
+		// Naming is written as the row's kind and not read back as itself;
+		// Change is a kind too, exclusive of Rejected, and read back in
+		// TestKeyActivity.
+		if name := v.Type().Field(i).Name; name != "ID" && name != "Naming" && name != "Change" && v.Field(i).IsZero() {
 			t.Fatalf("fixture leaves %s at its zero value, so its loss would go unnoticed", name)
 		}
 	}

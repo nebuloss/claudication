@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -63,8 +64,12 @@ func (c mcpClient) tool(name, args string, meta ...string) (map[string]any, stri
 	if len(meta) > 0 {
 		m = `,"_meta":` + meta[0]
 	}
+	var headers []string
+	if len(meta) > 1 {
+		headers = meta[1:]
+	}
 	status, out := c.post(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"`+name+`","arguments":`+args+m+`}}`,
-		"Mcp-Protocol-Version", "2025-11-25")
+		append([]string{"Mcp-Protocol-Version", "2025-11-25"}, headers...)...)
 	if status != http.StatusOK {
 		c.t.Fatalf("%s: %d %v", name, status, out)
 	}
@@ -201,23 +206,25 @@ func TestMCPManageTier(t *testing.T) {
 	}
 	audit := func() []string {
 		t.Helper()
-		rows, err := st.DB().Query(`SELECT path, status, error FROM usage_events WHERE key_id = ? AND kind = 1 AND path LIKE '/mcp/%' ORDER BY id`, c.ID)
+		rows, err := st.DB().Query(`SELECT path, status, kind FROM usage_events WHERE key_id = ? AND path LIKE '/mcp/%' ORDER BY id`, c.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer rows.Close()
 		var out []string
 		for rows.Next() {
-			var path, msg string
-			var status int
-			if err := rows.Scan(&path, &status, &msg); err != nil {
+			var path string
+			var status, kind int
+			if err := rows.Scan(&path, &status, &kind); err != nil {
 				t.Fatal(err)
 			}
-			out = append(out, path+" "+http.StatusText(status))
+			// A refusal is filed as one (kind 1), a change made as a
+			// change (kind 3), which neither refusal counts nor totals take.
+			out = append(out, fmt.Sprintf("%s %s %d", path, http.StatusText(status), kind))
 		}
 		return out
 	}
-	if got := audit(); len(got) != 1 || got[0] != "/mcp/bind_model Forbidden" {
+	if got := audit(); len(got) != 1 || got[0] != "/mcp/bind_model Forbidden 1" {
 		t.Errorf("the refused call's audit: %v", got)
 	}
 
@@ -248,6 +255,20 @@ func TestMCPManageTier(t *testing.T) {
 	if sc, text, isErr := cl.tool("add_model", `{"name":"deep","follows":"claude:sonnet"}`); isErr || sc["serving"] != "claude-sonnet-5" {
 		t.Errorf("add_model: %s", text)
 	}
+	// With no binding, the admin page's rule: the newest Opus, made whether
+	// or not an account serves one yet — none does here.
+	if _, text, isErr := cl.tool("add_model", `{"name":"later"}`); isErr {
+		t.Errorf("add_model with no binding: %s", text)
+	}
+	if got, _ := st.Client(ctx, c.ID); len(got.Slots) != 4 || got.Slots[3].Follows != "claude:opus" {
+		t.Errorf("the default binding: %+v", got.Slots)
+	}
+	if _, text, isErr := cl.tool("add_model", `{"name":"nowhere","model":"claude-opus-4"}`); !isErr || !strings.Contains(text, "not available") {
+		t.Errorf("add_model with an unavailable model: %v %s", isErr, text)
+	}
+	if _, text, isErr := cl.tool("remove_model", `{"name":"later"}`); isErr {
+		t.Errorf("remove_model: %s", text)
+	}
 	if _, text, isErr := cl.tool("remove_model", `{"name":"small"}`); !isErr || !strings.Contains(text, "stays") {
 		t.Errorf("a type's own name removed: %v %s", isErr, text)
 	}
@@ -266,6 +287,16 @@ func TestMCPManageTier(t *testing.T) {
 	}
 	if _, text, isErr := cl.tool("update_config", `{"platform":"mac"}`); !isErr || !strings.Contains(text, "unix or windows") {
 		t.Errorf("a platform it does not know: %v %s", isErr, text)
+	}
+	// No address recorded for its machine: refused, rather than one read off
+	// this request, which behind a proxy can be one the client cannot reach.
+	if _, text, isErr := cl.tool("update_config", `{"platform":"unix"}`, `{}`, "X-Forwarded-Proto", "https"); !isErr ||
+		!strings.Contains(text, "address this client was set up with") {
+		t.Errorf("update_config with no address known: %v %s", isErr, text)
+	}
+	// The address its last fetched command recorded is the one written.
+	if err := st.SetClientBase(ctx, c.ID, url); err != nil {
+		t.Fatal(err)
 	}
 	for platform, want := range map[string]string{"unix": "| sh", "windows": "| iex"} {
 		sc, text, isErr := cl.tool("update_config", `{"platform":"`+platform+`"}`)
@@ -297,8 +328,20 @@ func TestMCPManageTier(t *testing.T) {
 	}
 
 	got := audit()
-	if len(got) != 12 || got[len(got)-1] != "/mcp/update_config OK" || got[1] != "/mcp/bind_model Bad Request" {
+	if len(got) != 16 || got[len(got)-1] != "/mcp/update_config OK 3" || got[1] != "/mcp/bind_model Bad Request 1" ||
+		got[5] != "/mcp/bind_model OK 3" {
 		t.Errorf("the audit: %v", got)
+	}
+	// None of it is a request: the client's traffic counts none, and the
+	// request log's filters put each where it belongs.
+	if use, err := st.KeyUsageOf(ctx, c.ID, time.Now().Add(-time.Hour)); err != nil || use[c.ID].Requests != 0 {
+		t.Errorf("the changes counted as requests: %+v %v", use, err)
+	}
+	for kind, want := range map[string]int{"change": 7, "rejected": 9, "relayed": 0} {
+		rows, _, err := st.RecentUsage(ctx, 100, store.UsageCursor{}, store.RequestFilter{KeyIDs: []string{c.ID}, Kinds: []string{kind}})
+		if err != nil || len(rows) != want {
+			t.Errorf("filter %s: %d rows, want %d (%v)", kind, len(rows), want, err)
+		}
 	}
 }
 
@@ -315,6 +358,10 @@ func TestMCPNameChat(t *testing.T) {
 		{At: at, KeyID: c.ID, Path: "/v1/responses", Status: 200, ConversationID: "sess-mine", Model: "gpt-6.1-sol", InputTokens: 10},
 		{At: at.Add(time.Second), KeyID: c.ID, Path: "/v1/responses", Status: 200, ConversationID: "sess-codex", Model: "gpt-6.1-sol", InputTokens: 10},
 		{At: at, KeyID: other.ID, Path: "/v1/responses", Status: 200, ConversationID: "sess-theirs", Model: "gpt-6.1-sol", InputTokens: 10},
+		// A chat both keys sent requests under — the client can put any id on
+		// a request of its own — is neither's to name.
+		{At: at, KeyID: other.ID, Path: "/v1/responses", Status: 200, ConversationID: "sess-shared", Model: "gpt-6.1-sol", InputTokens: 10},
+		{At: at, KeyID: c.ID, Path: "/v1/responses", Status: 200, ConversationID: "sess-shared", Model: "gpt-6.1-sol", InputTokens: 10},
 		// A refusal names whatever chat it likes, and proves nothing.
 		{At: at, KeyID: c.ID, Path: "/v1/responses", Status: 429, ConversationID: "sess-theirs", Rejected: true},
 	} {
@@ -329,7 +376,7 @@ func TestMCPNameChat(t *testing.T) {
 		t.Fatalf("chats: %s", text)
 	}
 	list := sc["chats"].([]any)
-	if len(list) != 2 || list[0].(map[string]any)["id"] != "sess-codex" || list[0].(map[string]any)["current"] != true {
+	if len(list) != 3 || list[0].(map[string]any)["id"] != "sess-codex" || list[0].(map[string]any)["current"] != true {
 		t.Errorf("chats: %v", list)
 	}
 
@@ -347,7 +394,7 @@ func TestMCPNameChat(t *testing.T) {
 	if rec, _, _ := st.TitleRecord(ctx, "sess-mine"); rec.Title != "Fix the login bug" {
 		t.Errorf("the client's title replaced the agent's: %q", rec.Title)
 	}
-	for _, id := range []string{"sess-theirs", "sess-nobody"} {
+	for _, id := range []string{"sess-theirs", "sess-nobody", "sess-shared"} {
 		if _, text, isErr := cl.tool("name_chat", `{"chat_id":"`+id+`","title":"mine now"}`); !isErr || !strings.Contains(text, "no chat") {
 			t.Errorf("%s: %v %s", id, isErr, text)
 		}
@@ -367,6 +414,25 @@ func TestMCPNameChat(t *testing.T) {
 	}
 	if _, text, isErr := cl.tool("name_chat", `{"chat_id":"sess-mine","title":"   "}`); !isErr || !strings.Contains(text, "empty") {
 		t.Errorf("an empty title: %v %s", isErr, text)
+	}
+}
+
+// A custom client has no type to say which header names its chats, so a call
+// is read as /v1 reads an unknown client's: every dialect's header.
+func TestMCPCustomClientsChat(t *testing.T) {
+	_, st, url := mcpServer(t)
+	ctx := context.Background()
+	c, plain := newClient(t, st, "sdk", "custom", nil)
+	if err := st.RecordUsage(ctx, store.UsageEvent{At: time.Now(), KeyID: c.ID, Path: "/v1/messages", Status: 200,
+		ConversationID: "ses_sdk1", Model: "claude-sonnet-5", InputTokens: 1}); err != nil {
+		t.Fatal(err)
+	}
+	cl := mcpClient{t: t, url: url, header: "Authorization", value: "Bearer " + plain}
+	if _, text, isErr := cl.tool("name_chat", `{"title":"From the SDK"}`, `{}`, "X-Session-Id", "ses_sdk1"); isErr {
+		t.Fatalf("name_chat by the header: %s", text)
+	}
+	if rec, _, _ := st.TitleRecord(ctx, "ses_sdk1"); rec.Title != "From the SDK" {
+		t.Errorf("the chat: %+v", rec)
 	}
 }
 

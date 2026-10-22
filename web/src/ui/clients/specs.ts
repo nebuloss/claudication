@@ -79,6 +79,11 @@ export class ClientTypes {
     return this.all.find((t) => t.id === id) ?? this.all.find((t) => t.custom) ?? new ClientType(FALLBACK)
   }
 
+  /** Where the gateway's MCP server is on the relay, as the server says. */
+  get mcpPath(): string {
+    return this.wire.mcp_path
+  }
+
   /** How an API is named. */
   dialectTitle(d: DialectId): string {
     return this.wire.dialects.find((x) => x.id === d)?.title ?? d

@@ -177,7 +177,7 @@ func (m *Merge) validate(env bool) error {
 // Bundle is what one command installs: one client's files.
 type Bundle struct {
 	// ClientID is the client's id, which the link is kept under: a client
-	// has one live link of each kind at a time.
+	// has one live link of each kind its page makes at a time.
 	ClientID string
 	// Key is the client's name, for the script's first line.
 	Key   string
@@ -187,6 +187,13 @@ type Bundle struct {
 	// and its state is the client's update state rather than its install's,
 	// so the record of where the client was installed from stays.
 	Update bool
+	// ByAgent is an update link a client's own agent made through the MCP
+	// server: one of as many as it keeps waiting, replacing none (Links).
+	ByAgent bool
+	// Base is the address the files are written for, which the command
+	// fetches them from and the client is recorded as set up with once it
+	// does (store.Client, Base).
+	Base string
 }
 
 // Carrying is the first file whose body holds any of marks — a key's secret,
@@ -278,10 +285,16 @@ type Links struct {
 	now func() time.Time
 
 	mu sync.Mutex
-	// byClient is each client's latest link of each kind, install and
-	// update; a new one replaces the last of its kind, and the old token
-	// stops working.
+	// byClient is each client's latest link of each kind its page makes,
+	// install and update; a new one replaces the last of its kind, and the
+	// old token stops working.
 	byClient map[linkKey]*link
+	// byAgent are the update links a client's own agent made through the MCP
+	// server (Bundle.ByAgent), by token: as many as it asks for, each
+	// single-use and gone at its time. Kept apart so an agent's command
+	// never replaces the one the operator has on screen, and two agents'
+	// never replace each other's.
+	byAgent map[string]*link
 }
 
 type linkKey struct {
@@ -318,22 +331,34 @@ type State struct {
 	Token   string    `json:"token,omitempty"`
 	Expires time.Time `json:"expires_at"`
 	Used    *Use      `json:"used,omitempty"`
+	// Commands are the lines that run a waiting link, by shell (sh, ps1):
+	// written here, once, for the page and the MCP server alike.
+	Commands map[string]string `json:"commands,omitempty"`
+}
+
+// Commands are the lines that run a link of base's, by shell.
+func Commands(base, token string) map[string]string {
+	return map[string]string{"sh": Command(base, token, false), "ps1": Command(base, token, true)}
 }
 
 // New returns an empty set of links that each live for ttl.
 func New(ttl time.Duration) *Links {
-	return &Links{ttl: ttl, now: time.Now, byClient: map[linkKey]*link{}}
+	return &Links{ttl: ttl, now: time.Now, byClient: map[linkKey]*link{}, byAgent: map[string]*link{}}
 }
 
 // Create keeps a client's bundle and returns the token that fetches it once,
 // and when that token stops working. The client's previous link of the same
-// kind, if any, is gone; an update link leaves the install link's record be.
+// kind made on its page, if any, is gone; an update link leaves the install
+// link's record be, and an agent's link replaces nothing.
 func (l *Links) Create(b Bundle) (string, time.Time, error) {
 	if err := b.Validate(); err != nil {
 		return "", time.Time{}, err
 	}
 	if b.ClientID == "" {
 		return "", time.Time{}, errors.New("a link is a client's")
+	}
+	if b.ByAgent && !b.Update {
+		return "", time.Time{}, errors.New("an agent makes update links only")
 	}
 	raw := make([]byte, 24)
 	if _, err := rand.Read(raw); err != nil {
@@ -345,8 +370,31 @@ func (l *Links) Create(b Bundle) (string, time.Time, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweep()
-	l.byClient[linkKey{b.ClientID, b.Update}] = &link{token: token, bundle: b, expires: expires}
+	k := &link{token: token, bundle: b, expires: expires}
+	if b.ByAgent {
+		if l.agentLinks(b.ClientID) >= maxAgentLinks {
+			return "", time.Time{}, fmt.Errorf("this client has %d update commands waiting already; run one, or wait for them to expire", maxAgentLinks)
+		}
+		l.byAgent[token] = k
+	} else {
+		l.byClient[linkKey{b.ClientID, b.Update}] = k
+	}
 	return token, expires, nil
+}
+
+// maxAgentLinks bounds what an agent can keep waiting at once: enough for
+// each of a few machines, and a ceiling on what one client can hold in
+// memory by asking in a loop.
+const maxAgentLinks = 8
+
+func (l *Links) agentLinks(clientID string) int {
+	n := 0
+	for _, k := range l.byAgent {
+		if k.bundle.ClientID == clientID && k.used == nil {
+			n++
+		}
+	}
+	return n
 }
 
 // sweep empties every link past its time that was never fetched: its files
@@ -354,13 +402,19 @@ func (l *Links) Create(b Bundle) (string, time.Time, error) {
 // left is what StateOf needs to say "expired". Run on every call, so a key
 // waits in memory no longer than the link's own lifetime plus the next call,
 // rather than until the process restarts. A fetched link already holds no
-// files (Take).
+// files (Take). An agent's link has no state to show, so it goes whole at its
+// time, fetched or not.
 func (l *Links) sweep() {
 	now := l.now()
 	for _, k := range l.byClient {
 		if k.used == nil && !now.Before(k.expires) {
 			k.token = ""
 			k.bundle = Bundle{ClientID: k.bundle.ClientID, Update: k.bundle.Update}
+		}
+	}
+	for t, k := range l.byAgent {
+		if !now.Before(k.expires) {
+			delete(l.byAgent, t)
 		}
 	}
 }
@@ -381,30 +435,33 @@ func (l *Links) Take(token, ip, shell string) (Bundle, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweep()
-	for _, k := range l.byClient {
-		if token == "" || k.token != token {
-			continue
-		}
-		switch {
-		case k.used != nil:
-			return Bundle{}, ErrUsed
-		case !l.now().Before(k.expires):
-			return Bundle{}, ErrUnknown
-		}
-		k.used = &Use{At: l.now(), IP: ip, Shell: shell}
-		b := k.bundle
-		// The files carry the key; once served there is no reason to hold
-		// them.
-		k.bundle = Bundle{ClientID: b.ClientID, Key: b.Key, Update: b.Update}
-		return b, nil
+	if token == "" {
+		return Bundle{}, ErrUnknown
 	}
-	return Bundle{}, ErrUnknown
+	found := l.byAgent[token]
+	for _, k := range l.byClient {
+		if found == nil && k.token == token {
+			found = k
+		}
+	}
+	switch {
+	case found == nil, !l.now().Before(found.expires):
+		return Bundle{}, ErrUnknown
+	case found.used != nil:
+		return Bundle{}, ErrUsed
+	}
+	found.used = &Use{At: l.now(), IP: ip, Shell: shell}
+	b := found.bundle
+	// The files carry the key; once served there is no reason to hold them.
+	found.bundle = Bundle{ClientID: b.ClientID, Key: b.Key, Update: b.Update, ByAgent: b.ByAgent}
+	return b, nil
 }
 
 // StateOf is a client's latest install link as its page shows it.
 func (l *Links) StateOf(clientID string) State { return l.stateOf(linkKey{clientID, false}) }
 
-// UpdateStateOf is a client's latest update link as its page shows it.
+// UpdateStateOf is a client's latest update link made on its page, as the
+// page shows it. An agent's are not: they are the agent's to run.
 func (l *Links) UpdateStateOf(clientID string) State { return l.stateOf(linkKey{clientID, true}) }
 
 func (l *Links) stateOf(key linkKey) State {
@@ -420,16 +477,21 @@ func (l *Links) stateOf(key linkKey) State {
 	case !l.now().Before(k.expires):
 		return State{State: Expired, Expires: k.expires}
 	}
-	return State{State: Waiting, Token: k.token, Expires: k.expires}
+	return State{State: Waiting, Token: k.token, Expires: k.expires, Commands: Commands(k.bundle.Base, k.token)}
 }
 
-// Forget drops both of a client's links: its key changed, or the client is
-// gone. An update link goes too, since what it keeps on disk is the old key.
+// Forget drops every one of a client's links: its key changed, or the client
+// is gone. Update links go too, since what they keep on disk is the old key.
 func (l *Links) Forget(clientID string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.byClient, linkKey{clientID, false})
 	delete(l.byClient, linkKey{clientID, true})
+	for t, k := range l.byAgent {
+		if k.bundle.ClientID == clientID {
+			delete(l.byAgent, t)
+		}
+	}
 }
 
 // heredocEnd is a terminator no file can contain by accident: random, and

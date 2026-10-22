@@ -143,8 +143,11 @@ type RequestJSON struct {
 	ErrorCode string `json:"error_code,omitempty"`
 	// Rejected marks a request the gateway refused itself. IP is which machine
 	// made it, recorded for both kinds.
-	Rejected bool   `json:"rejected"`
-	IP       string `json:"ip,omitempty"`
+	Rejected bool `json:"rejected"`
+	// Change marks a change a client's own agent made to it through the MCP
+	// server: no request, relayed or refused; the tool is its path.
+	Change bool   `json:"change,omitempty"`
+	IP     string `json:"ip,omitempty"`
 	// Client is the program that was running, read from the User-Agent: what
 	// actually sent it, which a refused request has too, and which tells a
 	// custom client's several programs apart.
@@ -186,6 +189,7 @@ func (s *Admin) toRequestJSON(e store.UsageEvent) RequestJSON {
 		ErrorKind:       s.refusal(e.Provider, e.Error),
 		ErrorCode:       e.ErrorCode,
 		Rejected:        e.Rejected,
+		Change:          e.Change,
 		IP:              e.IP,
 		Client:          e.Client,
 		Surface:         clients.SurfaceTitle(e.Surface),

@@ -57,6 +57,7 @@ type Store interface {
 	TouchKey(ctx context.Context, id string)
 	OldestSpendAt(ctx context.Context, keyID string, since time.Time) (time.Time, bool)
 	MarkConfigured(ctx context.Context, keyID string) error
+	SetClientBase(ctx context.Context, keyID, base string) error
 }
 
 // Deps is what a Gateway is built from. Every field is required.

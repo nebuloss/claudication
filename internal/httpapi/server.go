@@ -392,6 +392,16 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Budgets: s.budgets, InFlight: s.inflight, Enabled: s.serving,
 		Record: func(e store.UsageEvent) { s.recorder.Record(e, 0) },
 		Guard:  s.gateway.Guard,
+		// A custom client's chat, read as each dialect reads an unknown
+		// client's, in the order they are registered.
+		Conversation: func(h http.Header) string {
+			for _, p := range s.protocols {
+				if id := p.ConversationID(h, nil); id != "" {
+					return id
+				}
+			}
+			return ""
+		},
 		// Per provider and in all, never per account: which accounts the
 		// gateway pools, and their addresses, are the operator's to know.
 		Share: func(ctx context.Context, keyID string) (any, bool) {

@@ -306,7 +306,7 @@ count against the client's rate limit.
 | `name_chat` | read | Sets a chat's title, as an operator's rename does (below) |
 | `bind_model` | manage | Binds one of its names to a model or target `list_models` offers; nothing else is accepted |
 | `add_model`, `remove_model` | manage | A name of its own for its picker, on a type that takes them; the type's own names stay |
-| `update_config` | manage | The client's **Update config** command (`unix` or `windows`), made as the page makes it: once, fifteen minutes, no key in it. The agent runs it with its own shell |
+| `update_config` | manage | The client's **Update config** command (`unix` or `windows`), made as the page makes it: once, fifteen minutes, no key in it, for the address the client's machine was set up with. The agent runs it with its own shell |
 
 The **manage** tools work only while the client's **Agent may manage this
 client** switch (its Settings card) is on, and it is off for every client
@@ -315,10 +315,21 @@ its tool list, and this server tells it nothing later — and refuse, saying
 who can turn the switch on. Nothing here reaches a client's limits, key, type
 or enable switch, the accounts, another client or the gateway's settings.
 Every manage call, allowed or refused, is logged at warn level and filed in
-the **request log** under the client, path `/mcp/<tool>`, status 200 or the
-refusal's (403 with the switch off, 400 otherwise) and the name and model it
-touched in the model column; like a refusal it reached no upstream, so it is
-in no chart or total.
+the **request log** under the client, path `/mcp/<tool>`, with the name and
+model it touched in the model column. A change made is its own kind of row —
+*Forwarded: no, a change*, its own entry in that column's filter — and is in
+no chart, total or refusal count; a refused one is a refusal like any other
+(403 with the switch off, 400 otherwise).
+
+`update_config` writes the address the client's machine was set up with: the
+one the last install or update command it fetched carried, which the gateway
+records at that fetch. It never guesses one from the agent's request, which
+behind a TLS proxy or a path prefix can name an address the client cannot
+reach, and an update writing that would cut the client off. A client with no
+fetch recorded — every one set up before this release — is refused until an
+install or update command made on its page has been run once. Its commands
+are the agent's own: as many as it asks for, each once and for fifteen
+minutes, and none of them replaces the command waiting on the client's page.
 
 A name is the client's, for every chat it has, so the tools say so: to switch
 only the chat in hand the agent uses its client's own picker — `/model` in
