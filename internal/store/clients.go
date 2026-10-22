@@ -338,7 +338,8 @@ func (s *Store) SetSlot(ctx context.Context, keyID, slot, name string, b Binding
 }
 
 // AddSlot gives a client a slot of the operator's own, on a type that has
-// them (clients.Type, ExtraSlots): a custom client, or crush.
+// them (clients.Type, ExtraSlots): a custom client, or a typed one for its
+// picker.
 //
 // Its id is made up rather than taken from its first name: the name can be
 // changed and the id cannot, so an id that was a name would keep that name

@@ -84,7 +84,10 @@ const CLAUDE_CODE_MODEL_VAR = /^(ANTHROPIC_MODEL|ANTHROPIC_SMALL_FAST_MODEL|ANTH
 /**
  * claude-code.sh: each model variable set to its slot's name, and every name
  * the picker lists told which real model it behaves like. The auto-mode
- * classifier's name is not in the picker: nobody picks it.
+ * classifier's name is not in the picker: nobody picks it. A picker name of
+ * the operator's own has no variable and only its row, which is what lets
+ * /model <name> take it without a probe and handle it as its model
+ * (internal/service/clients, ClaudeCode).
  */
 export function claudeCodeSh(body: string, setup: Setup): string {
   const byField = new Map(setup.slots.map((s) => [s.field, s.name]))
@@ -129,12 +132,13 @@ export function claudeCodeSh(body: string, setup: Setup): string {
 /**
  * config.toml: each model key — model, review_model, and the ones in the
  * [agents] and [memories] tables — set to its slot's name. A field naming two
- * keys (memories) sets both.
+ * keys (memories) sets both. A picker name has no key here: it is a catalog
+ * entry only (codexCatalog).
  */
 export function codexToml(body: string, setup: Setup): string {
   let out = body
   for (const s of setup.slots) {
-    for (const field of s.field.split(',').map((f) => f.trim())) {
+    for (const field of s.field.split(',').map((f) => f.trim()).filter((f) => f !== '')) {
       const key = field.split('.').at(-1) ?? field
       out = out.replace(new RegExp(`^(${key} = )"[^"]*"`, 'm'), `$1"${s.name}"`)
     }
@@ -143,9 +147,11 @@ export function codexToml(body: string, setup: Setup): string {
 }
 
 /**
- * The model catalog Codex reads instead of asking: one entry per name, the
- * committed first entry with the name and the serving model's window put in,
- * and the review slot named as the reviewer every entry defers to.
+ * The model catalog Codex reads instead of asking: one entry per name — a
+ * picker name of the operator's own included, which /model then lists and
+ * -m takes — the committed first entry with the name and the serving model's
+ * window put in, and the review slot named as the reviewer every entry
+ * defers to.
  */
 export function codexCatalog(body: string, setup: Setup): string {
   const json = JSON.parse(body) as { models: Record<string, unknown>[] }
@@ -263,8 +269,9 @@ export function stripComments(body: string): string {
 
 /**
  * opencode.jsonc: its built-in anthropic provider overridden, at /v1, with
- * each name declared at its model's limits, and model and small_model naming
- * the two slots. The file's opening comment is kept; the rest is written
+ * each name declared at its model's limits — a picker name of the operator's
+ * own too, which opencode's model list then offers — and model and
+ * small_model naming the two slots. The file's opening comment is kept; the rest is written
  * whole. A reasoning model gets opencode's adaptive thinking modes, as current
  * Claude models take them.
  *

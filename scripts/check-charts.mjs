@@ -374,6 +374,15 @@ console.log('\n— client configs: the committed files, with the client\'s names
   check('each at its served model\'s window', codex.map((m) => m.context_window), [1000000, 400000, 200000, 200000])
   check('each defers its reviews to the review name', codex.map((m) => m.auto_review_model_override), ['rev', 'rev', 'rev', 'rev'])
   check('everything else in an entry is the committed one', codex[2].base_instructions, template.base_instructions)
+  // A picker name of the operator's own: a catalog entry at its own model's
+  // window, for /model and -m, and no key of config.toml.
+  const codexX = [...codexSlots, { id: 's-0a1b2c', role: 'picker', field: '', name: 'deep', served: gpt }]
+  const catX = JSON.parse(codexCatalog(committed('codex-models.json'), { slots: codexX })).models
+  const deepC = catX.find((m) => m.slug === 'deep')
+  check('codex: a picker name is a catalog entry after the four', catX.map((m) => m.slug), ['big', 'rev', 'sub', 'mem', 'deep'])
+  check('at its own model\'s window, deferring reviews like the rest', [deepC?.context_window, deepC?.max_context_window, deepC?.description, deepC?.auto_review_model_override, deepC?.priority],
+    [400000, 400000, 'GPT-5.5', 'rev', 50])
+  check('and config.toml is as it was without it', codexToml(committed('codex.toml'), { slots: codexX }), toml)
 
   // Claude Code: every model variable its slot's name, the picker told what
   // each behaves like — the setting that makes a plain name act as its model.
@@ -396,6 +405,15 @@ console.log('\n— client configs: the committed files, with the client\'s names
     'sonnet-mine=claude-sonnet-4-5-20250929',
   ])
   check('and leaves the classifier out: nobody picks it', picker.some((o) => o.model === 'auto'), false)
+  // A picker name of the operator's own: no variable, and a row behaving as
+  // its own model, so /model deep takes it and handles it as that model.
+  const shX = claudeCodeSh(committed('claude-code.sh'), {
+    slots: [...ccSlots, { id: 's-0a1b2c', role: 'picker', field: '', name: 'deep', served: opus }, { id: 's-1', role: 'picker', field: '', name: 'quick', served: sonnet }],
+  })
+  const pickerX = JSON.parse(shX.match(/--settings '(\{.*\})'/)[1]).modelPicker.options
+  check('claude code: each picker name has its row, after the built-ins', pickerX.map((o) => `${o.model}=${o.behavesAs}`).slice(-2),
+    ['deep=claude-opus-5-5', 'quick=claude-sonnet-4-5-20250929'])
+  check('and no variable', [/=deep$/m.test(shX), /=quick$/m.test(shX), shX.split('\n').length], [false, false, sh.split('\n').length])
   // The committed file is a new client's: the plain names, each in the picker
   // but the classifier's.
   const ccCommitted = committed('claude-code.sh')
@@ -422,6 +440,16 @@ console.log('\n— client configs: the committed files, with the client\'s names
   check('tool-call streaming on for every name', Object.values(ocM.provider.anthropic.models).map((m) => m.options),
     [{ toolStreaming: true }, { toolStreaming: true }])
   check('its opening comment kept', oc.includes('// opencode, pointed at a claudication gateway.'), true)
+  // A picker name of the operator's own: declared on the provider at its own
+  // model's limits, streaming tool calls; model and small_model stay.
+  const ocX = JSON.parse(stripComments(opencodeJsonc(committed('opencode.jsonc'), {
+    slots: [...ocSlots, { id: 's-0a1b2c', role: 'picker', field: '', name: 'deep', served: gpt }],
+  })))
+  const deepO = ocX.provider.anthropic.models.deep
+  check('opencode: a picker name is declared after the two', Object.keys(ocX.provider.anthropic.models), ['large', 'small', 'deep'])
+  check('at its own model\'s limits, streaming tool calls', [deepO?.limit, deepO?.options, Object.keys(deepO?.variants ?? {})],
+    [{ context: 400000, output: 128000 }, { toolStreaming: true }, ['low', 'medium', 'high']])
+  check('and the two defaults stay', [ocX.model, ocX.small_model], ['anthropic/large', 'anthropic/small'])
   check('a URL\'s // is not a comment', stripComments('{"u": "https://x"} // c'), '{"u": "https://x"} \n')
   const ocCommitted = JSON.parse(stripComments(committed('opencode.jsonc')))
   check('and the committed baseURL', ocM.provider.anthropic.options, ocCommitted.provider.anthropic.options)

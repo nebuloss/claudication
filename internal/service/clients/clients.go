@@ -104,11 +104,12 @@ const (
 	// RoleCustom is an operator's own slot on a custom client: no type's
 	// field takes it.
 	RoleCustom Role = "custom"
-	// RolePicker is an operator's own slot on a typed client whose model
-	// picker lists every model its configuration declares (crush's ctrl+l):
-	// no setting asks for it of the client's own accord, and it is there to
-	// be picked by hand. Its files declare it beside the type's own slots,
-	// and nothing else changes for it.
+	// RolePicker is an operator's own slot on a typed client: a name its
+	// files declare beside the type's own, which its model picker then lists
+	// — Claude Code's /model, Codex's /model and -m, opencode's model list,
+	// crush's ctrl+l. No setting asks for it of the client's own accord; it
+	// is there to be picked by hand for a chat, and declared with what the
+	// model it serves needs, as the type's own names are.
 	RolePicker Role = "picker"
 )
 
@@ -219,13 +220,13 @@ type Type struct {
 	// operator's own naming, and a direct mode.
 	Custom bool `json:"custom"`
 	// ExtraSlots is the role an operator's own slot takes on this type, and
-	// "" for a type that has none: one whose configuration has a field for
-	// every slot and no room for a model it does not name. A custom client's
-	// are RoleCustom, since it is all slots of the operator's own naming;
-	// crush's are RolePicker, since its picker lists every model the file
-	// declares and asks for none of them by itself. Such a slot is added,
-	// renamed, rebound and removed on the client's page; the type's own
-	// Slots stay (Removable).
+	// "" for a type that has none: one whose configuration could not declare
+	// a model it does not name in a field. A custom client's are RoleCustom,
+	// since it is all slots of the operator's own naming; every typed
+	// client's are RolePicker, since each one's files can declare a model
+	// that no setting asks for and its picker lists it (each Type says
+	// where). Such a slot is added, renamed, rebound and removed on the
+	// client's page; the type's own Slots stay (Removable).
 	ExtraSlots Role `json:"extra_slots,omitempty"`
 	// ExtraHint says what an operator's own slot is for, as Slot.Hint does.
 	ExtraHint string `json:"extra_hint,omitempty"`
@@ -320,6 +321,37 @@ type Type struct {
 // ids it refuses there (claude-sonnet-5-5, claude-opus-5-5, claude-opus-5;
 // P$o @239656802) and falls back to a model of its own choosing, which this
 // client may not name; "auto" is on no list, as "claude-auto" was not.
+//
+// An operator's own name (RolePicker) has no variable: a session switches to
+// it with /model <name>, and the file gives it a modelPicker row with
+// behavesAs like every other name. Read from the 2.1.308 binary
+// (~/.local/share/claude/versions/2.1.308, byte offsets) on 2026-10-22, the
+// 2.1.304 one having been replaced by the updater:
+//
+//	accepted   /model validates a name (Hbr @257365329) by the availableModels
+//	           allowlist, then returns valid at once for a name that is a
+//	           modelPicker row (@257365729); any other name is probed with a
+//	           one-token request, querySource model_validation (@257366256),
+//	           and refused as "Model '<name>' not found" on a 404
+//	offered    a row is listed in the picker when its name passes pUo
+//	           (@243623280), which holds for a plain name off a first-party
+//	           base URL: the catalog check behind it, ZF, returns nothing
+//	           unless the base URL is Anthropic's (@242188638)
+//	unknown    a name with no row and no behavesAs "isn't described by this
+//	           version's model catalog" (@242169658) and is run at a guessed
+//	           200k window
+//
+// Captured the same day against a stub Messages server in a loopback-only
+// network namespace, with a scratch HOME and CLAUDE_CONFIG_DIR and the
+// generated --settings plus a row {"model":"deep","behavesAs":
+// "claude-opus-5-5"}: claude -p "/model deep" answered "Set model to deep"
+// and sent nothing; "/model nopicker", a name with no row the stub refused,
+// sent the one-token probe and answered "Model 'nopicker' not found". A turn
+// on --model deep sent max_tokens 128000, effort medium and the Opus prompt
+// profile; with the row saying claude-haiku-5-5, the Haiku profile; with no
+// row, max_tokens 32000, effort high and a warning that the model is
+// unrecognized. So the row is what makes an extra name both pickable without
+// a probe and handled as the model it serves.
 var ClaudeCode = Type{
 	ID: "claude-code", Label: "Claude Code",
 	// Measured 2026-09-17 (internal/api, conversation.go): the header on every
@@ -360,6 +392,8 @@ var ClaudeCode = Type{
 	Sessions:      []string{"X-Claude-Code-Session-Id"},
 	NamesItsChats: true,
 	API:           Messages,
+	ExtraSlots:    RolePicker,
+	ExtraHint:     "In /model's list: a session switches to it with /model <name>.",
 	Slots: []Slot{
 		{ID: "main", Label: "Main", Role: RoleMain, Field: "ANTHROPIC_MODEL", Name: "large",
 			Follows: FollowOpus, Hint: "The session's model, and the sub-agents that inherit it."},
@@ -410,14 +444,21 @@ var ClaudeCode = Type{
 // one behaves as fully as a real slug would; the one way a name goes wrong
 // is a catalog without it, when Codex falls back to its generic metadata
 // (docs/clients.md, "The model catalog").
+//
+// So an operator's own name (RolePicker) is one more catalog entry, written
+// from the committed one with the window of the model it serves, as the
+// type's names are: Codex's /model lists the catalog, and codex -m <name>
+// asks for an entry by its slug. config.toml has no key for it.
 var Codex = Type{
 	ID: "codex", Label: "Codex CLI",
 	// session_id and conversation_id on 0.154.0 (measured, internal/api/openai,
 	// ConversationID); session-id and thread-id on Codex main
 	// (codex-api/src/requests/headers.rs, read 2026-10-19). No naming request
 	// in the 0.154.0 capture: the gateway titler names its chats.
-	Sessions: []string{"Session_id", "Conversation_id", "Session-Id", "Thread-Id"},
-	API:      Responses,
+	Sessions:   []string{"Session_id", "Conversation_id", "Session-Id", "Thread-Id"},
+	API:        Responses,
+	ExtraSlots: RolePicker,
+	ExtraHint:  "In Codex's /model list, and for codex -m <name>.",
 	Slots: []Slot{
 		{ID: "main", Label: "Main", Role: RoleMain, Field: "model", Name: "large",
 			Follows: FollowOpus, Hint: "The session's model, compaction included."},
@@ -478,6 +519,11 @@ var Codex = Type{
 // gets opencode's generic prompt. It is no feature switch: the tools, thinking,
 // caching and streaming are the same, and the mark sent the Claude-tuned
 // prompt to a GPT model as readily as to Claude. So no mark.
+//
+// An operator's own name (RolePicker) is one more model declared on the
+// provider, at its own model's limits and with toolStreaming on, as the two
+// are: opencode's model list (/models) offers every declared model, and
+// picking one runs the session on it. No key of the file names it.
 var Opencode = Type{
 	ID: "opencode", Label: "opencode",
 	// x-session-id: ses_<id>, beside x-session-affinity, measured 2026-09-17;
@@ -487,6 +533,8 @@ var Opencode = Type{
 	Sessions:      []string{"X-Session-Id"},
 	NamesItsChats: true,
 	API:           Messages,
+	ExtraSlots:    RolePicker,
+	ExtraHint:     "In opencode's model list (/models), to pick for a session by hand.",
 	Slots: []Slot{
 		{ID: "main", Label: "Main", Role: RoleMain, Field: "model", Name: "large",
 			Follows: FollowOpus, Hint: "The model doing the work, and every agent's."},
@@ -517,10 +565,9 @@ var Opencode = Type{
 //	         discover_models set; the file lists them, so crush is never
 //	         asked to
 //
-// So an operator's own slot is worth having on crush, and only on crush of
-// the typed clients: the file declares it and the picker lists it, under a
-// name saying what it serves, ready to be picked into either tab. Its role is
-// RolePicker. A pick of it is saved by crush with that moment's max_tokens,
+// So an operator's own slot is worth having on crush: the file declares it
+// and the picker lists it, under a name saying what it serves, ready to be
+// picked into either tab. Its role is RolePicker. A pick of it is saved by crush with that moment's max_tokens,
 // which the gateway fits to the model the slot serves when it is rebound
 // (internal/relay/passes, FitMaxTokens).
 //
@@ -619,7 +666,7 @@ func (t Type) SlotFor(id string) (Slot, bool) {
 // Removable reports whether a client of this type can have its slot of this
 // id taken away: an operator's own, on a type that has them. A type's own
 // slots are fields its files always write — crush's models.large and
-// models.small — and stay. A custom client's are all the operator's, the one
+// models.small, Claude Code's model variables — and stay. A custom client's are all the operator's, the one
 // it starts with included, since no file of the gateway's names any.
 func (t Type) Removable(id string) bool {
 	if t.ExtraSlots == "" {

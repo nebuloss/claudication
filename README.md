@@ -255,9 +255,9 @@ setting its tool has, each with a name the tool asks for:
 
 | Client | Slots |
 |---|---|
-| Claude Code | `large` (`ANTHROPIC_MODEL`), `small` (`ANTHROPIC_SMALL_FAST_MODEL`), `opus`, `sonnet`, `haiku`, `fable` (the `/model` tiers), `auto` (auto mode's classifier) |
-| Codex | `large` (`model`), `review` (`review_model`), `agents` (sub-agents), `small` (memories) |
-| opencode | `large` (`model`), `small` (`small_model`) |
+| Claude Code | `large` (`ANTHROPIC_MODEL`), `small` (`ANTHROPIC_SMALL_FAST_MODEL`), `opus`, `sonnet`, `haiku`, `fable` (the `/model` tiers), `auto` (auto mode's classifier), and any more the operator adds, for `/model` |
+| Codex | `large` (`model`), `review` (`review_model`), `agents` (sub-agents), `small` (memories), and any more the operator adds, for `/model` and `-m` |
+| opencode | `large` (`model`), `small` (`small_model`), and any more the operator adds, for its model list |
 | crush | `large` (`models.large`), `small` (`models.small`), and any more the operator adds, for its picker |
 | Custom | `large`, and any the operator adds — or real model ids, in direct mode |
 

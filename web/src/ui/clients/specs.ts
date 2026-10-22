@@ -41,7 +41,7 @@ export class ClientType {
     return this.spec.custom
   }
 
-  /** Takes model names of the operator's own beside its own slots (a custom client, crush). */
+  /** Takes model names of the operator's own beside its own slots: a custom client, and every typed one for its picker. */
   get extraSlots(): boolean {
     return (this.spec.extra_slots ?? '') !== ''
   }

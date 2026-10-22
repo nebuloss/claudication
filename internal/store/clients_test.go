@@ -138,12 +138,44 @@ func TestASlotTakesAPlainName(t *testing.T) {
 		if slotNamed(t, got, "big") != "main" {
 			t.Errorf("%s: slots after the rename %+v", typ, got.Slots)
 		}
-		// A setting for every slot, and no room for another.
-		if err := st.AddSlot(ctx, c.ID, "extra", Binding{Model: "x"}); !errors.Is(err, ErrInvalidClient) {
-			t.Errorf("%s: AddSlot: %v", typ, err)
-		}
 		if err := st.RemoveSlot(ctx, c.ID, "main"); !errors.Is(err, ErrInvalidClient) {
 			t.Errorf("%s: RemoveSlot: %v", typ, err)
+		}
+	}
+}
+
+// Claude Code, Codex and opencode take names of the operator's own for their
+// pickers, as crush does: added beside the type's settings, under a name
+// none of them has, and removed again; the settings themselves stay.
+func TestPickerNamesOnEveryTypedClient(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for _, typ := range []string{"claude-code", "codex", "opencode"} {
+		c := makeClient(t, st, "box-"+typ, typ)
+		if err := st.AddSlot(ctx, c.ID, "deep", Binding{Model: "gpt-5.5"}); err != nil {
+			t.Fatalf("%s: AddSlot: %v", typ, err)
+		}
+		if err := st.AddSlot(ctx, c.ID, "large", Binding{Model: "x"}); !errors.Is(err, ErrInvalidClient) {
+			t.Errorf("%s: AddSlot under a name it has: %v", typ, err)
+		}
+		got, err := st.Client(ctx, c.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id := slotNamed(t, got, "deep")
+		if spec, ok := got.Spec().SlotFor(id); !ok || spec.Role != clients.RolePicker || spec.Field != "" {
+			t.Errorf("%s: the added name reads as %+v, %v", typ, spec, ok)
+		}
+		for _, s := range got.Spec().Slots {
+			if err := st.RemoveSlot(ctx, c.ID, s.ID); !errors.Is(err, ErrInvalidClient) {
+				t.Errorf("%s: RemoveSlot of its own %s: %v", typ, s.ID, err)
+			}
+		}
+		if err := st.RemoveSlot(ctx, c.ID, id); err != nil {
+			t.Errorf("%s: RemoveSlot of the added name: %v", typ, err)
+		}
+		if err := st.SetClientMode(ctx, c.ID, clients.Direct); !errors.Is(err, ErrInvalidClient) {
+			t.Errorf("%s: direct mode: %v", typ, err)
 		}
 	}
 }

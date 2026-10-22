@@ -276,8 +276,8 @@ func (s *Admin) handleSetSlot(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAddSlot gives a client a model name of the operator's own, on a type
-// that takes them (a custom client, crush), following the newest Claude Opus
-// unless a binding is given.
+// that takes them (a custom client, or a typed one for its picker), following
+// the newest Claude Opus unless a binding is given.
 func (s *Admin) handleAddSlot(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.loadClient(w, r)
 	if !ok {

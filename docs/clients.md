@@ -84,9 +84,9 @@ gateway resolves it to.
 
 | Type | Slots, and the name each starts with |
 |---|---|
-| Claude Code | `large` (`ANTHROPIC_MODEL`), `small` (`ANTHROPIC_SMALL_FAST_MODEL`), `opus`, `sonnet`, `haiku`, `fable` (`ANTHROPIC_DEFAULT_*_MODEL`), `auto` (`CLAUDE_CODE_AUTO_MODE_MODEL`) |
-| Codex CLI | `large` (`model`), `review` (`review_model`), `agents` (`agents.default_subagent_model`), `small` (`memories.extract_model`, `memories.consolidation_model`) |
-| opencode | `large` (`model`), `small` (`small_model`) |
+| Claude Code | `large` (`ANTHROPIC_MODEL`), `small` (`ANTHROPIC_SMALL_FAST_MODEL`), `opus`, `sonnet`, `haiku`, `fable` (`ANTHROPIC_DEFAULT_*_MODEL`), `auto` (`CLAUDE_CODE_AUTO_MODE_MODEL`), and any more the operator adds, for `/model` |
+| Codex CLI | `large` (`model`), `review` (`review_model`), `agents` (`agents.default_subagent_model`), `small` (`memories.extract_model`, `memories.consolidation_model`), and any more the operator adds, for `/model` and `-m` |
+| opencode | `large` (`model`), `small` (`small_model`), and any more the operator adds, for its model list |
 | crush | `large` (`models.large`), `small` (`models.small`), and any more the operator adds, for its picker |
 | Custom | `large`, and any more the operator adds |
 
@@ -197,6 +197,27 @@ request Claude serves, and touches nothing else. Off by default, being the one
 change it makes to what the model is shown; why, and what it costs, is in
 [refused-requests.md](refused-requests.md#the-one-rewrite-you-have-to-ask-for).
 
+### Names of your own, for a client's picker
+
+Every typed client can have more names than its settings take: **Add a model**
+on its page adds one, bound to any model or target like the others, and the
+next file the page writes declares it, so the client's own model picker offers
+it for a chat. Such a name can be renamed, rebound and removed; the type's own
+names stay, since its settings always name them. Where each one appears:
+
+| Client | Where an added name is declared | How a chat picks it |
+|---|---|---|
+| Claude Code | a `modelPicker` row with `behavesAs` the model it serves; no variable | `/model <name>`, or the `/model` list |
+| Codex CLI | an entry in `claudication-models.json` at its model's window; no key of `config.toml` | `/model`, or `codex -m <name>` |
+| opencode | a model on the `anthropic` provider at its model's limits, with `toolStreaming` | the model list (`/models`) |
+| crush | an entry of the provider's `models`, named `<name> · <model>` | `ctrl+l`, either tab (below) |
+
+Claude Code takes a `/model <name>` that is a `modelPicker` row at once, and
+handles it as the model its `behavesAs` names; a name with no row is first
+probed with a one-token request and then run as an unknown model, at a guessed
+200k window. Measured on 2.1.308 against a stub; the record is in
+`go doc ./internal/service/clients` (ClaudeCode).
+
 ### crush's picker
 
 crush runs its coder, task and plan agents and its summaries on the **large**
@@ -206,12 +227,8 @@ declares, in a Large and a Small tab, by each one's name — so `crush.json`
 names each entry for its slot and the model it serves now, `large · Claude
 Opus 5.5`.
 
-A crush client can have more names than its two: **Add a model** on its page
-adds one, bound to any model or target like the others, and the next file the
-page writes declares it, so the picker lists it beside `large` and `small`.
-That is the way to keep, say, a GPT model and a second Claude one a keystroke
-away. Such a name can be renamed, rebound and removed; `large` and `small`
-stay.
+A name added on a crush client's page is listed beside `large` and `small`:
+the way to keep, say, a GPT model and a second Claude one a keystroke away.
 
 The file's `models.large` and `models.small` are only where a first run
 starts. crush saves every pick to its data file —

@@ -142,7 +142,8 @@ function SlotRow({
 
 /**
  * A model name of the operator's own: any number of them on a custom client,
- * and on crush as many more as its picker should list beside large and small.
+ * and on a typed one as many more as its model picker should list beside the
+ * names its own settings take.
  *
  * A dialog, as adding a client or an account is: a new name is two choices —
  * what it is called and what it serves — made together, and the list behind

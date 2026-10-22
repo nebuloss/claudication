@@ -632,8 +632,8 @@ export interface TypeSpec {
   custom: boolean
   /**
    * The role an operator's own slot takes, absent for a type with none: a
-   * custom client's, and crush's, whose picker lists every model its file
-   * declares.
+   * custom client's, and a typed one's ("picker"), which its files declare
+   * so its model picker lists it.
    */
   extra_slots?: string
   /** What such a slot is for. */
