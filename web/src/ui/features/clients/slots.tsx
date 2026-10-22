@@ -64,7 +64,7 @@ export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged:
         {c.slots.map((s) => (
           <SlotRow key={s.id} client={c} slot={s} choices={choices} onChanged={onChanged} />
         ))}
-        {c.type.custom && <AddSlot client={c} onChanged={onChanged} />}
+        {c.type.extraSlots && <AddSlot client={c} onChanged={onChanged} />}
       </Stack>
     </Card>
   )
@@ -119,7 +119,7 @@ function SlotRow({
           )}
           <Select label="Serves" value={binding.value} options={all} onChange={(v) => void save(Binding.parse(v))}
             disabled={busy !== ''} />
-          {c.type.custom && (
+          {s.removable && (
             <IconButton label={`Remove ${s.name}`} onClick={() => void remove()}>
               <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
             </IconButton>
@@ -138,7 +138,11 @@ function SlotRow({
   )
 }
 
-/** A custom client's own new name, following the newest Claude Opus until bound. */
+/**
+ * A model name of the operator's own, following the newest Claude Opus until
+ * bound: any number of them on a custom client, and on crush as many more as
+ * its picker should list beside large and small.
+ */
 function AddSlot({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
   const [name, setName] = useState('')
   const { busy, error, run } = useAction()
@@ -152,7 +156,7 @@ function AddSlot({ client: c, onChanged }: { client: Client; onChanged: () => vo
     <div className="flex flex-wrap items-center gap-3">
       <Field label="New model name" value={name} onChange={setName} mono />
       <Button variant="outlined" busy={busy === 'add'} disabled={name.trim() === ''} onClick={() => void add()}>
-        Add
+        Add a model
       </Button>
       <ErrorBanner error={error} />
     </div>

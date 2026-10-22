@@ -114,3 +114,32 @@ func TestInitial(t *testing.T) {
 		t.Errorf("custom %+v", slots)
 	}
 }
+
+// An operator's own slot is a capability of a type, not of custom alone:
+// crush's picker lists every model its file declares, so it takes them in
+// the picker's role; the types whose files have a field for every slot take
+// none. A type's own slots stay, but for a custom client, all of whose slots
+// are the operator's.
+func TestExtraSlots(t *testing.T) {
+	for _, c := range []struct {
+		typ  Type
+		role Role
+	}{{Crush, RolePicker}, {Custom, RoleCustom}, {ClaudeCode, ""}, {Codex, ""}, {Opencode, ""}} {
+		s, ok := c.typ.SlotFor("s-0a1b2c")
+		if ok != (c.role != "") || (ok && (s.Role != c.role || s.Name != "s-0a1b2c" || !s.Follows.Valid())) {
+			t.Errorf("%s.SlotFor of an operator's slot = %+v, %v", c.typ.ID, s, ok)
+		}
+		if c.typ.Removable("s-0a1b2c") != (c.role != "") {
+			t.Errorf("%s: an operator's slot removable = %v", c.typ.ID, !(c.role != ""))
+		}
+	}
+	if Crush.Removable("large") || Crush.Removable("small") || ClaudeCode.Removable("main") {
+		t.Error("a type's own slot is removable")
+	}
+	if !Custom.Removable("large") {
+		t.Error("a custom client's first slot is not removable")
+	}
+	if s, _ := Crush.SlotFor("small"); s.Role != RoleFast {
+		t.Errorf("crush's small reads as %+v", s)
+	}
+}

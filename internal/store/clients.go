@@ -337,7 +337,8 @@ func (s *Store) SetSlot(ctx context.Context, keyID, slot, name string, b Binding
 	})
 }
 
-// AddSlot gives a custom client a slot of its own.
+// AddSlot gives a client a slot of the operator's own, on a type that has
+// them (clients.Type, ExtraSlots): a custom client, or crush.
 //
 // Its id is made up rather than taken from its first name: the name can be
 // changed and the id cannot, so an id that was a name would keep that name
@@ -356,8 +357,8 @@ func (s *Store) AddSlot(ctx context.Context, keyID, name string, b Binding) erro
 		if err != nil {
 			return fmt.Errorf("add slot: %w", err)
 		}
-		if t, ok := clients.Find(typ); ok && !t.Custom {
-			return invalidClient(t.Label + "'s slots are its configuration's; only a custom client names its own")
+		if t, ok := clients.Find(typ); ok && t.ExtraSlots == "" {
+			return invalidClient(t.Label + "'s slots are its configuration's, and it has no room for another")
 		}
 		id, err := newSlotID()
 		if err != nil {
@@ -377,14 +378,18 @@ func newSlotID() (string, error) {
 	return "s-" + hex.EncodeToString(raw), nil
 }
 
-// RemoveSlot takes a custom client's slot away, freeing its name.
+// RemoveSlot takes an operator's own slot away, freeing its name. A type's
+// own slots stay (clients.Type, Removable).
 func (s *Store) RemoveSlot(ctx context.Context, keyID, slot string) error {
 	c, err := s.Client(ctx, keyID)
 	if err != nil {
 		return err
 	}
-	if !c.Spec().Custom {
-		return invalidClient(c.Spec().Label + "'s slots are its configuration's; only a custom client's can be removed")
+	if t := c.Spec(); !t.Removable(slot) {
+		if t.ExtraSlots == "" {
+			return invalidClient(t.Label + "'s slots are its configuration's; none can be removed")
+		}
+		return invalidClient(slot + " is one of " + t.Label + "'s own settings and stays; only a name added to it can be removed")
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM client_slots WHERE key_id = ? AND slot = ?`, keyID, slot)
 	if err != nil {

@@ -73,12 +73,24 @@ func TestClientsOwnTheirNames(t *testing.T) {
 	if got, _ := st.Client(ctx, a.ID); got.Slots[0].Name != "big" || got.Slots[0].Follows != clients.FollowFirst {
 		t.Errorf("renamed slot %+v", got.Slots[0])
 	}
-	// A typed client's slots are its configuration's.
-	if err := st.AddSlot(ctx, a.ID, "extra", Binding{Model: "x"}); !errors.Is(err, ErrInvalidClient) {
+	// crush takes names of the operator's own, for its picker, beside its
+	// two settings, which stay.
+	if err := st.AddSlot(ctx, a.ID, "extra", Binding{Model: "x"}); err != nil {
 		t.Errorf("AddSlot on crush: %v", err)
 	}
+	if err := st.AddSlot(ctx, a.ID, "small", Binding{Model: "x"}); !errors.Is(err, ErrInvalidClient) {
+		t.Errorf("AddSlot on crush under a name it has: %v", err)
+	}
 	if err := st.RemoveSlot(ctx, a.ID, "small"); !errors.Is(err, ErrInvalidClient) {
-		t.Errorf("RemoveSlot on crush: %v", err)
+		t.Errorf("RemoveSlot of crush's small: %v", err)
+	}
+	withExtra, _ := st.Client(ctx, a.ID)
+	extra := slotNamed(t, withExtra, "extra")
+	if len(withExtra.Slots) != 3 || extra == "large" || extra == "small" {
+		t.Fatalf("crush's slots after adding one: %+v", withExtra.Slots)
+	}
+	if err := st.RemoveSlot(ctx, a.ID, extra); err != nil {
+		t.Errorf("RemoveSlot of crush's own name: %v", err)
 	}
 	if err := st.SetClientMode(ctx, a.ID, clients.Direct); !errors.Is(err, ErrInvalidClient) {
 		t.Errorf("direct mode on crush: %v", err)
@@ -125,6 +137,13 @@ func TestASlotTakesAPlainName(t *testing.T) {
 		}
 		if slotNamed(t, got, "big") != "main" {
 			t.Errorf("%s: slots after the rename %+v", typ, got.Slots)
+		}
+		// A setting for every slot, and no room for another.
+		if err := st.AddSlot(ctx, c.ID, "extra", Binding{Model: "x"}); !errors.Is(err, ErrInvalidClient) {
+			t.Errorf("%s: AddSlot: %v", typ, err)
+		}
+		if err := st.RemoveSlot(ctx, c.ID, "main"); !errors.Is(err, ErrInvalidClient) {
+			t.Errorf("%s: RemoveSlot: %v", typ, err)
 		}
 	}
 }

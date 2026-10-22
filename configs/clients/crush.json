@@ -12,7 +12,7 @@
       "models": [
         {
           "id": "large",
-          "name": "large",
+          "name": "large · Claude Opus 5.5",
           "context_window": 600000,
           "default_max_tokens": 128000,
           "can_reason": true,
@@ -32,7 +32,7 @@
         },
         {
           "id": "small",
-          "name": "small",
+          "name": "small · Claude Opus 5.5",
           "context_window": 600000,
           "default_max_tokens": 128000,
           "can_reason": true,

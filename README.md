@@ -258,7 +258,7 @@ setting its tool has, each with a name the tool asks for:
 | Claude Code | `large` (`ANTHROPIC_MODEL`), `small` (`ANTHROPIC_SMALL_FAST_MODEL`), `opus`, `sonnet`, `haiku`, `fable` (the `/model` tiers), `auto` (auto mode's classifier) |
 | Codex | `large` (`model`), `review` (`review_model`), `agents` (sub-agents), `small` (memories) |
 | opencode | `large` (`model`), `small` (`small_model`) |
-| crush | `large` (`models.large`), `small` (`models.small`) |
+| crush | `large` (`models.large`), `small` (`models.small`), and any more the operator adds, for its picker |
 | Custom | `large`, and any the operator adds — or real model ids, in direct mode |
 
 A name is the client's own, so two clients can both have a `large` on different

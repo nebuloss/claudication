@@ -336,6 +336,23 @@ console.log('\n— client configs: the committed files, with the client\'s names
   const pg = Object.values(crushG.providers)[0]
   check('a GPT model, on the same provider with its own facts', [pg.type, pg.base_url, pg.models[0].context_window, pg.models[0].reasoning_levels],
     ['anthropic', 'https://gw', 400000, ['low', 'medium', 'high']])
+  // The picker lists every model by its name alone, so each says what it serves.
+  check('each name says the model it serves', provider.models.map((m) => m.name),
+    ['large · Claude Opus 5.5', 'small · Claude Sonnet 4.5'])
+  check('a name whose model was not read is its name', JSON.parse(crushJson(committed('crush.json'), {
+    slots: [{ ...crushSlots[0], served: undefined }],
+  }, 'https://gw')).providers.claudication.models[0].name, 'large')
+  // An operator's own picker name is declared beside the two, with its own
+  // model's facts, and leaves the first-run picks on large and small.
+  const crushX = JSON.parse(crushJson(committed('crush.json'), {
+    slots: [...crushSlots, { id: 's-0a1b2c', role: 'picker', field: '', name: 'deep', served: gpt }],
+  }, 'https://gw'))
+  const px = Object.values(crushX.providers)[0]
+  const deep = px.models.find((m) => m.id === 'deep')
+  check('a picker name is declared after the two', px.models.map((m) => m.id), ['large', 'small', 'deep'])
+  check('with its own model\'s facts', [deep?.name, deep?.context_window, deep?.default_max_tokens, deep?.reasoning_levels, deep?.supports_attachments],
+    ['deep · GPT-5.5', 400000, 128000, ['low', 'medium', 'high'], true])
+  check('and the first-run picks stay large and small', [crushX.models.large.model, crushX.models.small.model], ['large', 'small'])
 
   // Codex: four slots, one of them in two fields.
   const codexSlots = [

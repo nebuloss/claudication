@@ -171,9 +171,25 @@ export function codexCatalog(body: string, setup: Setup): string {
 // ── crush ────────────────────────────────────────────────────────────────────
 
 /**
+ * What crush's picker shows for a slot: its name, and the model it serves now.
+ * ctrl+l lists every model of the file by this alone, in both of its tabs, so
+ * a row saying only "deep" would not say what picking it runs.
+ */
+function crushName(s: SlotSetup): string {
+  const what = s.served?.display_name || servingOf(s)
+  return what !== '' ? `${s.name} · ${what}` : s.name
+}
+
+/**
  * crush.json: its anthropic provider at the bare address (crush adds /v1),
- * its model list the client's names with their models' facts, and
- * models.large and models.small naming the two slots, the large one thinking.
+ * its model list every one of the client's names with their models' facts —
+ * the operator's own picker names beside large and small — and models.large
+ * and models.small naming the two slots, the large one thinking.
+ *
+ * Those two are a first run's defaults and no more: crush saves each pick from
+ * its picker to its data file (~/.local/share/crush/crush.json), which loads
+ * after this one and wins. What the file decides for good is the list the
+ * picker offers, and the facts each entry carries.
  *
  * The provider asks for summarized thinking. crush's SDK asks for it only by
  * a real model's id (fantasy, providers/anthropic, thinkingDisplay), which a
@@ -198,7 +214,7 @@ export function crushJson(body: string, setup: Setup, base: string): string {
     const levels = efforts(m)
     const entry: Record<string, unknown> = {
       id: s.name,
-      name: s.name,
+      name: crushName(s),
       context_window: Math.min(m?.max_input_tokens ?? 200_000, CRUSH_WINDOW),
       default_max_tokens: m?.max_tokens ?? 64_000,
       can_reason: levels.length > 0,

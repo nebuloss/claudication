@@ -626,6 +626,14 @@ export interface TypeSpec {
   api?: DialectId
   slots: SlotSpec[]
   custom: boolean
+  /**
+   * The role an operator's own slot takes, absent for a type with none: a
+   * custom client's, and crush's, whose picker lists every model its file
+   * declares.
+   */
+  extra_slots?: string
+  /** What such a slot is for. */
+  extra_hint?: string
   /** The client names its own sessions and the gateway reads the name: no "Name chats" switch. */
   names_its_chats: boolean
 }
@@ -663,6 +671,8 @@ export interface SlotWire extends SlotSpec {
   provider?: string
   /** Why the binding is not available to this client now; absent when it is. */
   unavailable?: string
+  /** One of the operator's own, which can be taken away; a type's own slots stay. */
+  removable: boolean
 }
 
 /** An install link's state, polled while the client's page is open. */

@@ -116,9 +116,13 @@ export const RECIPES: ClientRecipe[] = [
     versioned: false,
     lead: (
       <>
-        Every name is spelled out here, and that is deliberate: crush never calls{' '}
-        <code>/v1/models</code>, so a model missing from this file cannot be selected however well
-        the gateway serves it.
+        Every name is spelled out here, and that is deliberate: crush is never asked to call{' '}
+        <code>/v1/models</code> for a provider whose models are listed, so a model missing from
+        this file cannot be selected however well the gateway serves it. Each is listed in
+        crush&rsquo;s picker (<code>ctrl+l</code>) under its name and the model it serves, names
+        added on the client&rsquo;s page included. The <code>large</code> and <code>small</code>{' '}
+        picks are a first run&rsquo;s defaults: crush saves what you pick to its data file
+        (<code>~/.local/share/crush/crush.json</code>), which wins over this one.
       </>
     ),
     files: [

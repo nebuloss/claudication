@@ -73,6 +73,10 @@ type SlotJSON struct {
 	// is empty when it is. Such a binding is kept and shown, and replaced only
 	// by one of Choices.
 	Unavailable string `json:"unavailable,omitempty"`
+	// Removable is a slot the operator may take away: one of their own, on a
+	// type that has them (clients.Type, Removable). Said here so the page
+	// does not decide it a second time.
+	Removable bool `json:"removable"`
 }
 
 // clientJSON is a client as the admin API reports it, its slots resolved.
@@ -98,7 +102,8 @@ func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) Cli
 		}
 		b, why := s.models.Resolve(ctx, store.Binding{Model: sl.Model, Follows: sl.Follows})
 		out.Slots = append(out.Slots, SlotJSON{Slot: spec, Name: sl.Name, Model: sl.Model, Bound: sl.Follows,
-			Title: b.Title, Serving: b.Serving, Provider: b.Provider, Unavailable: why})
+			Title: b.Title, Serving: b.Serving, Provider: b.Provider, Unavailable: why,
+			Removable: t.Removable(sl.Slot)})
 	}
 	return out
 }
@@ -270,8 +275,9 @@ func (s *Admin) handleSetSlot(w http.ResponseWriter, r *http.Request) {
 	s.writeClient(w, r, c.ID, nil)
 }
 
-// handleAddSlot gives a custom client a model name of its own, following the
-// newest Claude Opus unless a binding is given.
+// handleAddSlot gives a client a model name of the operator's own, on a type
+// that takes them (a custom client, crush), following the newest Claude Opus
+// unless a binding is given.
 func (s *Admin) handleAddSlot(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.loadClient(w, r)
 	if !ok {
@@ -343,7 +349,7 @@ func (s *Admin) handleSetClientMode(w http.ResponseWriter, r *http.Request) {
 	s.writeClient(w, r, c.ID, nil)
 }
 
-// handleRemoveSlot takes a custom client's slot away, freeing its name.
+// handleRemoveSlot takes an operator's own slot away, freeing its name.
 func (s *Admin) handleRemoveSlot(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.loadClient(w, r)
 	if !ok {

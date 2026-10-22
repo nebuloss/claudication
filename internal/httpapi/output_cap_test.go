@@ -40,8 +40,12 @@ func TestASlotsBudgetIsFittedToTheModelItServes(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, crushKey := newClient(t, st, "crush", "crush", map[string]store.Binding{
+	crush, crushKey := newClient(t, st, "crush", "crush", map[string]store.Binding{
 		"large": {Model: "claude-haiku-5"}, "small": {Model: "claude-haiku-5"}})
+	// An operator's own name, for crush's picker, fitted like the type's own.
+	if err := st.AddSlot(ctx, crush.ID, "deep", store.Binding{Model: "claude-haiku-5"}); err != nil {
+		t.Fatal(err)
+	}
 	direct, directKey := newClient(t, st, "tool", "custom", nil)
 	if err := st.SetClientMode(ctx, direct.ID, clients.Direct); err != nil {
 		t.Fatal(err)
@@ -71,6 +75,9 @@ func TestASlotsBudgetIsFittedToTheModelItServes(t *testing.T) {
 	// rebound to Haiku: fitted to Haiku's cap.
 	if got := sentBudget(crushKey, "large", 128000); got != 64000 {
 		t.Errorf("large at 128000 went up as %d, want Haiku's 64000", got)
+	}
+	if got := sentBudget(crushKey, "deep", 100000); got != 64000 {
+		t.Errorf("an operator's own name at 100000 went up as %d, want 64000", got)
 	}
 	// Under the cap is the client's to choose.
 	if got := sentBudget(crushKey, "small", 32000); got != 32000 {

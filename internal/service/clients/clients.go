@@ -104,6 +104,12 @@ const (
 	// RoleCustom is an operator's own slot on a custom client: no type's
 	// field takes it.
 	RoleCustom Role = "custom"
+	// RolePicker is an operator's own slot on a typed client whose model
+	// picker lists every model its configuration declares (crush's ctrl+l):
+	// no setting asks for it of the client's own accord, and it is there to
+	// be picked by hand. Its files declare it beside the type's own slots,
+	// and nothing else changes for it.
+	RolePicker Role = "picker"
 )
 
 // Follow is a moving target a slot can be bound to instead of a fixed model:
@@ -212,6 +218,17 @@ type Type struct {
 	// Custom is the type with no recipe: no files to write, slots of the
 	// operator's own naming, and a direct mode.
 	Custom bool `json:"custom"`
+	// ExtraSlots is the role an operator's own slot takes on this type, and
+	// "" for a type that has none: one whose configuration has a field for
+	// every slot and no room for a model it does not name. A custom client's
+	// are RoleCustom, since it is all slots of the operator's own naming;
+	// crush's are RolePicker, since its picker lists every model the file
+	// declares and asks for none of them by itself. Such a slot is added,
+	// renamed, rebound and removed on the client's page; the type's own
+	// Slots stay (Removable).
+	ExtraSlots Role `json:"extra_slots,omitempty"`
+	// ExtraHint says what an operator's own slot is for, as Slot.Hint does.
+	ExtraHint string `json:"extra_hint,omitempty"`
 	// Sessions are the request headers the type names its chat in, most
 	// specific first: what the gateway groups its requests into chats by.
 	// None for a custom client, whose requests are read the way each API
@@ -479,8 +496,33 @@ var Opencode = Type{
 }
 
 // Crush: models.large and models.small, crush's two model types
-// (crush internal/config, SelectedModelTypeLarge/Small, at 76cc5c5): its
-// coder runs the large one, its titles and summaries the small one.
+// (crush internal/config, SelectedModelTypeLarge/Small, at 76cc5c5). Read at
+// 76cc5c5 for v0.97.2:
+//
+//	large    the coder, task and plan agents (agent/agent.go:1411-1417) and
+//	         a session's summary (agent.go:1851-1884)
+//	small    a session's title, and the agentic fetch tool's own agent
+//	         (agentic_fetch_tool.go:150-184); nothing else
+//	picker   ctrl+l lists every model of every configured provider, in a
+//	         Large and a Small tab, by each model's name
+//	         (ui/model/ui.go:2830)
+//	picks    saved to crush's data file — ~/.local/share/crush/crush.json,
+//	         %LOCALAPPDATA%\crush on Windows — as models.<type> with the
+//	         model, provider, reasoning effort and max_tokens of the moment
+//	         (config/store.go:528-547). That file loads after
+//	         ~/.config/crush/crush.json and wins (config/load.go:944-977),
+//	         so the file's models.large and models.small are a first run's
+//	         defaults only, and a pick pins max_tokens (load.go:838-842)
+//	/models  asked only of a custom provider with no models listed or
+//	         discover_models set; the file lists them, so crush is never
+//	         asked to
+//
+// So an operator's own slot is worth having on crush, and only on crush of
+// the typed clients: the file declares it and the picker lists it, under a
+// name saying what it serves, ready to be picked into either tab. Its role is
+// RolePicker. A pick of it is saved by crush with that moment's max_tokens,
+// which the gateway fits to the model the slot serves when it is rebound
+// (internal/relay/passes, FitMaxTokens).
 //
 // Messages, through its "anthropic" provider type, the path the gateway's
 // crush handling was measured on. crush itself has no rule about a model's
@@ -513,11 +555,13 @@ var Crush = Type{
 	Sessions:      []string{"X-Session-Id"},
 	NamesItsChats: true,
 	API:           Messages,
+	ExtraSlots:    RolePicker,
+	ExtraHint:     "In crush's model picker (ctrl+l), to pick for either model by hand.",
 	Slots: []Slot{
 		{ID: "large", Label: "Large", Role: RoleMain, Field: "models.large", Name: "large",
-			Follows: FollowOpus, Hint: "The model doing the work."},
+			Follows: FollowOpus, Hint: "The model doing the work, and the summaries. crush starts on it."},
 		{ID: "small", Label: "Small", Role: RoleFast, Field: "models.small", Name: "small",
-			Follows: FollowHaiku, Hint: "Titles and summaries."},
+			Follows: FollowHaiku, Hint: "Session titles and web fetches. crush starts on it."},
 	},
 }
 
@@ -527,7 +571,8 @@ var Crush = Type{
 // works on both APIs: which one the tool speaks is the tool's.
 var Custom = Type{
 	ID: "custom", Label: "Custom",
-	Custom: true,
+	Custom:     true,
+	ExtraSlots: RoleCustom,
 	Slots: []Slot{
 		{ID: "large", Label: "Large", Role: RoleMain, Name: "large", Follows: FollowOpus,
 			Hint: "The model the tool asks for."},
@@ -557,17 +602,31 @@ func (t Type) Slot(id string) (Slot, bool) {
 	return Slot{}, false
 }
 
-// SlotFor is a slot of this type by id, or for a custom client's own slot a
-// slot of that id following what its first slot does: what an operator-named
-// slot is.
+// SlotFor is a slot of this type by id, or for an operator's own slot on a
+// type that has them (ExtraSlots) a slot of that id in the type's role for
+// them, following the newest Opus as a type's main slot starts on: what an
+// operator-named slot is.
 func (t Type) SlotFor(id string) (Slot, bool) {
 	if s, ok := t.Slot(id); ok {
 		return s, true
 	}
-	if t.Custom && ValidName(id) {
-		return Slot{ID: id, Label: id, Role: RoleCustom, Name: id, Follows: FollowOpus}, true
+	if t.ExtraSlots != "" && ValidName(id) {
+		return Slot{ID: id, Label: id, Role: t.ExtraSlots, Name: id, Follows: FollowOpus, Hint: t.ExtraHint}, true
 	}
 	return Slot{}, false
+}
+
+// Removable reports whether a client of this type can have its slot of this
+// id taken away: an operator's own, on a type that has them. A type's own
+// slots are fields its files always write — crush's models.large and
+// models.small — and stay. A custom client's are all the operator's, the one
+// it starts with included, since no file of the gateway's names any.
+func (t Type) Removable(id string) bool {
+	if t.ExtraSlots == "" {
+		return false
+	}
+	_, typed := t.Slot(id)
+	return t.Custom || !typed
 }
 
 // name is what a model name may be: lower case, digits, dots and dashes, as a

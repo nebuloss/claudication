@@ -87,7 +87,7 @@ gateway resolves it to.
 | Claude Code | `large` (`ANTHROPIC_MODEL`), `small` (`ANTHROPIC_SMALL_FAST_MODEL`), `opus`, `sonnet`, `haiku`, `fable` (`ANTHROPIC_DEFAULT_*_MODEL`), `auto` (`CLAUDE_CODE_AUTO_MODE_MODEL`) |
 | Codex CLI | `large` (`model`), `review` (`review_model`), `agents` (`agents.default_subagent_model`), `small` (`memories.extract_model`, `memories.consolidation_model`) |
 | opencode | `large` (`model`), `small` (`small_model`) |
-| crush | `large` (`models.large`), `small` (`models.small`) |
+| crush | `large` (`models.large`), `small` (`models.small`), and any more the operator adds, for its picker |
 | Custom | `large`, and any more the operator adds |
 
 A name is the client's own: two clients can both have a `large`, bound to
@@ -196,6 +196,31 @@ its history. Switched on, the gateway caps those images at 2000 px on a
 request Claude serves, and touches nothing else. Off by default, being the one
 change it makes to what the model is shown; why, and what it costs, is in
 [refused-requests.md](refused-requests.md#the-one-rewrite-you-have-to-ask-for).
+
+### crush's picker
+
+crush runs its coder, task and plan agents and its summaries on the **large**
+model, and only a session's title and the web-fetch tool's own agent on the
+**small** one. `ctrl+l` opens its picker, which lists every model the file
+declares, in a Large and a Small tab, by each one's name — so `crush.json`
+names each entry for its slot and the model it serves now, `large · Claude
+Opus 5.5`.
+
+A crush client can have more names than its two: **Add a model** on its page
+adds one, bound to any model or target like the others, and the next file the
+page writes declares it, so the picker lists it beside `large` and `small`.
+That is the way to keep, say, a GPT model and a second Claude one a keystroke
+away. Such a name can be renamed, rebound and removed; `large` and `small`
+stay.
+
+The file's `models.large` and `models.small` are only where a first run
+starts. crush saves every pick to its data file —
+`~/.local/share/crush/crush.json` — which it reads after `~/.config/crush/crush.json`,
+and which wins. A pick also saves the `max_tokens` of the moment, and crush
+sends it on every request after; when the slot is later rebound to a model
+with a smaller output cap, the gateway lowers that budget to the cap of the
+model the slot serves now rather than let the upstream refuse it (for every
+client naming its slots; `go doc ./internal/relay/passes`).
 
 ### When crush compacts
 
