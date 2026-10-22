@@ -3,7 +3,6 @@ import { useAction, useLoader } from '../../hooks'
 import { accountHref } from '../../route'
 import {
   Card,
-  Checkbox,
   Chip,
   ErrorBanner,
   ErrorState,
@@ -11,36 +10,31 @@ import {
   Loading,
   Muted,
   Note,
-  Segmented,
   Select,
+  SettingSwitch,
   Stack,
   Tile,
 } from '../../primitives'
 
-type Mode = 'family' | 'every'
-
 /**
- * The global Models page: per provider, how its models are offered — by
- * family, the default, or every model — and per family which version it
- * serves: the latest (each account its newest) or one version for the whole
+ * The global Models page: per provider, a switch for how its models are
+ * offered — by family, the default, or every model — and per family one menu
+ * of which version it serves: the latest (each account its newest) or one version for the whole
  * gateway. That choice is here alone, the owner's decision (2026-10-22): a
  * client's name is bound to a family or a model and picks no version.
  *
  * Only what connected accounts list (the owner's rule): never the public
  * catalogue, never a model no switched-on account lists. A provider with no
- * account is a line saying so, its mode still settable for when one is
- * connected. A version every account has switched off stays, greyed, so it
- * can be switched back on from its account's page, which each account named
- * links to.
+ * account is a line saying so, its switch still settable for when one is
+ * connected. The versions are in each family's menu, not listed under it:
+ * which account serves which, and switching one, is each account's page.
  *
  * Managing a model — its switch, its test — is each account's Models page
  * alone, the owner's line, and a client's Allowed models is that client's
- * policy; this page is the binding layer over them, and shows the accounts'
- * versions read-only.
+ * policy; this page is the binding layer over them.
  *
- * What a family is served with is per account (internal/service/models,
- * family.go): each version lists the accounts that would serve the family
- * with it, so a plan without the newest Opus is seen serving the one before.
+ * What Latest serves is per account (internal/service/models, family.go): a
+ * plan without the newest Opus serves the one before.
  */
 export default function ModelSettings() {
   const { data, error, loading, reload } = useLoader((signal) => api.models.families(signal))
@@ -59,96 +53,59 @@ export default function ModelSettings() {
 
 function ProviderCard({ report: p, onChanged }: { report: FamilyReport; onChanged: () => void }) {
   const { busy, error, run } = useAction()
-  const mode: Mode = p.by_family ? 'family' : 'every'
-  const setMode = (m: Mode) =>
+  const setByFamily = (on: boolean) =>
     run('mode', async () => {
-      await api.models.setByFamily(p.provider, m === 'family')
+      await api.models.setByFamily(p.provider, on)
       onChanged()
     })
   const names = new Map(p.accounts.map((a) => [a.id, a.name]))
 
   return (
-    <Card
-      title={p.title}
-      aside={
-        <Segmented<Mode>
-          label={`How ${p.title} models are offered`}
-          value={mode}
-          onChange={(m) => {
-            if (m !== mode && busy === '') void setMode(m)
-          }}
-          options={[
-            { id: 'family', label: 'One choice per family, served by its newest version', content: 'Families' },
-            { id: 'every', label: 'Every version, each a choice of its own', content: 'Every model' },
-          ]}
-        />
-      }
-    >
+    <Card title={p.title}>
       <Stack gap={4}>
-        <p className="text-sm text-on-surface">
-          {p.by_family ? (
-            <>
-              Clients are offered each family once — a model name&rsquo;s menu, a client&rsquo;s Allowed models, a
-              direct client&rsquo;s list and the MCP server&rsquo;s — and the version each family serves is set
-              here, for every client: the latest, each account serving the newest it has, so a plan without the
-              latest still serves the family; or one version, served by the accounts that have it.
-            </>
-          ) : (
-            <>
-              Clients are offered every version, each a choice of its own. A name bound to a family before keeps
-              serving it as set below.
-            </>
-          )}
-        </p>
+        <SettingSwitch
+          label="Use model families"
+          checked={p.by_family}
+          disabled={busy !== ''}
+          onChange={(on) => void setByFamily(on)}
+          info={
+            p.by_family
+              ? 'Clients are offered each family once, served by the version set below.'
+              : 'Clients are offered every version, each a choice of its own.'
+          }
+        />
         <ErrorBanner error={error} />
         {!p.connected ? (
           <Note>
-            No {p.title} account is connected, so there is nothing to list.{' '}
+            No {p.title} account is connected.{' '}
             <InlineLink href="/accounts" primary>
               Connect a {p.title} account
             </InlineLink>
-            ; the mode above applies once one is.
+            ; this applies once one is.
           </Note>
-        ) : (
+        ) : p.by_family ? (
           <>
             {p.families.length === 0 && <Muted>The connected accounts list no model of a family.</Muted>}
             {p.families.map((f) => (
-              <FamilyTile key={f.follows} family={f} names={names} onChanged={onChanged}
+              <FamilyBinding key={f.follows} family={f} names={names} onChanged={onChanged}
                 connected={p.accounts.filter((a) => !a.disabled).map((a) => a.id)} />
             ))}
-            {(p.other ?? []).length > 0 && (
-              <Muted size="xs">
-                Offered as themselves, belonging to no family: {(p.other ?? []).map((id, i) => (
-                  <span key={id}>
-                    {i > 0 && ', '}
-                    <code>{id}</code>
-                  </span>
-                ))}
-                .
-              </Muted>
-            )}
-            <Muted size="xs">
-              A version is switched on or off, and tested, on its account&rsquo;s Models page — each account above
-              links there.
-            </Muted>
           </>
-        )}
+        ) : null /* every model: each is a choice of its own, so there is nothing to bind */}
       </Stack>
     </Card>
   )
 }
 
 /**
- * One family: which version it serves — the latest, each account its own
- * newest, or one version for the whole gateway — and each version with the
- * accounts that would serve it.
- *
- * The version is chosen here and nowhere else, the owner's decision
- * (2026-10-22): a client's name is bound to the family, and every client
- * naming it is served the same way. Set to one version, an account without
- * it does not serve the family, which the tile says, naming who can.
+ * One family, drawn as a client's model name is: what it is, and one menu of
+ * what it serves — Latest, each account its own newest version, so a plan
+ * without the newest still serves the family; or one version for the whole
+ * gateway. One menu, as a client's name has, rather than a checkbox that
+ * greyed a menu out and a list of every version under it: the versions are in
+ * the menu, and an account's own Models page is where they are switched.
  */
-function FamilyTile({
+function FamilyBinding({
   family: f,
   names,
   connected,
@@ -162,110 +119,45 @@ function FamilyTile({
 }) {
   const { busy, error, run } = useAction()
   const pinned = f.pinned ?? ''
-  const latest = pinned === ''
   const set = (model: string) =>
     run('version', async () => {
       await api.models.setVersion(f.follows, model)
       onChanged()
     })
-  // Following the latest, the menu shows what that is now, and is not a choice.
-  const servedBy = (m: string) => f.versions.find((v) => v.model === m)?.served_by ?? []
-  const latestHint = (() => {
-    const others = f.versions.filter((v) => v.model !== f.serving && v.served_by.length > 0)
-    return others.length === 0
-      ? 'each account its newest'
-      : `${others.map((v) => `${v.model} on ${v.served_by.map((id) => names.get(id) ?? id).join(', ')}`).join('; ')}`
-  })()
-  const options = latest
-    ? [{ value: '', label: f.serving !== '' ? `Latest: ${f.serving}` : 'Latest', hint: latestHint }]
-    : f.versions.map((v) => ({ value: v.model, label: v.title || v.model, hint: v.model, disabled: v.on.length === 0 }))
+  const options = [
+    { value: '', label: 'Latest', hint: f.serving !== '' ? `now ${f.serving}` : 'each account its newest' },
+    ...f.versions.map((v) => ({
+      value: v.model,
+      label: v.title || v.model,
+      hint: v.model,
+      disabled: v.on.length === 0,
+    })),
+  ]
   const pinnedVersion = f.versions.find((v) => v.model === pinned)
   const lacking = pinned !== '' ? connected.filter((id) => !(pinnedVersion?.on ?? []).includes(id)) : []
 
   return (
     <Tile>
-      <div className="flex flex-col gap-3 px-4 py-3">
+      <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="text-sm font-medium text-on-surface">
-            {f.title} <code className="ml-1 text-xs text-on-surface-variant">{f.id}</code>
-          </span>
-          {f.serving === '' && <Chip tone="warn">{f.why ?? 'no account serves it'}</Chip>}
+          <span className="text-sm font-medium text-on-surface">{f.title}</span>
+          <code className="text-xs text-on-surface-variant">{f.id}</code>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Checkbox
-            checked={latest}
-            label="Follow the latest"
-            disabled={busy !== ''}
-            title="Each account serves the newest version of the family it has, so a plan without the latest still serves it"
-            onChange={(on) => void set(on ? '' : (f.serving || f.versions[0]?.model) ?? '')}
-          />
-          <Select
-            label="Version"
-            value={latest ? '' : pinned}
-            options={options}
-            disabled={latest || busy !== ''}
-            onChange={(v) => void set(v)}
-            width="fixed"
-          />
-        </div>
-        {!latest && (
-          <Note tone={lacking.length > 0 ? 'warn' : 'info'}>
-            Every request for {f.title} is sent {pinned}
-            {servedBy(pinned).length > 0 && (
-              <>
-                , by <Accounts ids={servedBy(pinned)} names={names} />
-              </>
-            )}
-            .{' '}
-            {lacking.length > 0 && (
-              <>
-                <Accounts ids={lacking} names={names} /> {lacking.length === 1 ? 'does' : 'do'} not have it, and{' '}
-                {lacking.length === 1 ? 'serves' : 'serve'} no {f.title}.
-              </>
-            )}
+        <Select label="Serves" value={pinned} options={options} disabled={busy !== ''} onChange={(v) => void set(v)} />
+        {f.serving === '' && <Chip tone="warn">{f.why ?? 'no account serves it'}</Chip>}
+        {lacking.length > 0 && (
+          <Note tone="warn">
+            <Accounts ids={lacking} names={names} /> {lacking.length === 1 ? 'does' : 'do'} not have {pinned}, and{' '}
+            {lacking.length === 1 ? 'serves' : 'serve'} no {f.title}.
           </Note>
         )}
         <ErrorBanner error={error} />
-        <ul className="flex flex-col gap-1.5">
-          {f.versions.map((v) => {
-            const idle = v.listed.filter((id) => !v.served_by.includes(id))
-            return (
-              <li
-                key={v.model}
-                className={`grid grid-cols-1 items-center gap-x-4 gap-y-1 text-sm sm:grid-cols-[14rem_1fr] ${v.off ? 'opacity-60' : ''}`}
-              >
-                <span className="min-w-0 truncate">
-                  <code className="text-on-surface" title={v.title}>
-                    {v.model}
-                  </code>
-                </span>
-                <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-                  {v.off && <Chip>off on every account</Chip>}
-                  {v.served_by.length > 0 && (
-                    <span className="text-xs text-on-surface-variant">
-                      served by <Accounts ids={v.served_by} names={names} />
-                    </span>
-                  )}
-                  {idle.length > 0 && (
-                    <Muted as="span" size="xs">
-                      {v.off ? 'listed by ' : v.served_by.length > 0 ? 'also listed by ' : 'listed by '}
-                      <Accounts ids={idle} names={names} />
-                    </Muted>
-                  )}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
       </div>
     </Tile>
   )
 }
 
-/**
- * Accounts by name, each a link to its own Models page: where a version is
- * switched on or off and tested, which this page only reads.
- */
+/** Accounts by name, each a link to its own Models page, where a version is switched. */
 function Accounts({ ids, names }: { ids: string[]; names: Map<string, string> }) {
   return (
     <>
