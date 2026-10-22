@@ -2,12 +2,14 @@ import { useState } from 'react'
 import { api, type BindingChoice, type SlotWire } from '../../../api/client'
 import { useAction } from '../../hooks'
 import {
+  Actions,
   Button,
   Card,
   Chip,
   ErrorBanner,
   Field,
   IconButton,
+  Modal,
   Muted,
   Note,
   Select,
@@ -64,7 +66,7 @@ export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged:
         {c.slots.map((s) => (
           <SlotRow key={s.id} client={c} slot={s} choices={choices} onChanged={onChanged} />
         ))}
-        {c.type.extraSlots && <AddSlot client={c} onChanged={onChanged} />}
+        {c.type.extraSlots && <AddSlot client={c} choices={choices} onChanged={onChanged} />}
       </Stack>
     </Card>
   )
@@ -139,26 +141,84 @@ function SlotRow({
 }
 
 /**
- * A model name of the operator's own, following the newest Claude Opus until
- * bound: any number of them on a custom client, and on crush as many more as
- * its picker should list beside large and small.
+ * A model name of the operator's own: any number of them on a custom client,
+ * and on crush as many more as its picker should list beside large and small.
+ *
+ * A dialog, as adding a client or an account is: a new name is two choices —
+ * what it is called and what it serves — made together, and the list behind
+ * it is not what the operator is looking at meanwhile. Created with its
+ * binding in one request, so it never exists for a moment bound to a default
+ * nobody chose.
  */
-function AddSlot({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
-  const [name, setName] = useState('')
-  const { busy, error, run } = useAction()
-  const add = () =>
-    run('add', async () => {
-      await api.clients.addSlot(c.id, name.trim())
-      setName('')
-      onChanged()
-    })
+function AddSlot({ client: c, choices, onChanged }: { client: Client; choices: readonly BindingChoice[]; onChanged: () => void }) {
+  const [open, setOpen] = useState(false)
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <Field label="New model name" value={name} onChange={setName} mono />
-      <Button variant="outlined" busy={busy === 'add'} disabled={name.trim() === ''} onClick={() => void add()}>
+    <div>
+      <Button variant="outlined" disabled={choices.length === 0} onClick={() => setOpen(true)}>
         Add a model
       </Button>
-      <ErrorBanner error={error} />
+      {open && (
+        <AddSlotDialog
+          client={c}
+          choices={choices}
+          onClose={() => setOpen(false)}
+          onAdded={() => {
+            setOpen(false)
+            onChanged()
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+function AddSlotDialog({
+  client: c,
+  choices,
+  onClose,
+  onAdded,
+}: {
+  client: Client
+  choices: readonly BindingChoice[]
+  onClose: () => void
+  onAdded: () => void
+}) {
+  const options = bindingOptions(choices)
+  const [name, setName] = useState('')
+  const [serves, setServes] = useState(options[0]?.value ?? '')
+  const { busy, error, run } = useAction()
+  const ready = name.trim() !== '' && serves !== ''
+  const add = () =>
+    run('add', async () => {
+      await api.clients.addSlot(c.id, name.trim(), Binding.parse(serves).body)
+      onAdded()
+    })
+  return (
+    <Modal title="Add a model" onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (ready) void add()
+        }}
+      >
+        <Stack gap={4}>
+          <Muted size="xs">
+            The name is what the client asks for, and what its model picker lists. What it serves can be
+            changed later, like any other name&rsquo;s.
+          </Muted>
+          <Field label="Model name" value={name} onChange={setName} mono autoFocus />
+          <Select label="Serves" value={serves} options={options} onChange={setServes} />
+          <ErrorBanner error={error} />
+          <Actions>
+            <Button type="submit" busy={busy === 'add'} disabled={!ready}>
+              Add
+            </Button>
+            <Button variant="text" onClick={onClose}>
+              Cancel
+            </Button>
+          </Actions>
+        </Stack>
+      </form>
+    </Modal>
   )
 }
