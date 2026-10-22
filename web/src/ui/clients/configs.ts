@@ -8,13 +8,14 @@
  * with the facts of the model it serves
  * now: the context window, the output cap, the effort levels. Those facts are
  * read once, when the file is written, which is why switching a slot to a
- * model with other limits means running the install command again.
+ * model with other limits means running the install command again — or, on a
+ * client set up already, the update command, which carries no key.
  *
  * Pure: strings in, strings out, so `make test-web` checks every rewrite
  * against the real committed files.
  */
 
-import type { Model } from '../../api/types'
+import type { InstallFile, Model } from '../../api/types'
 
 /** One slot as a file is written from it. */
 export interface SlotSetup {
@@ -315,4 +316,53 @@ export function opencodeJsonc(body: string, setup: Setup): string {
   if (small) json.small_model = `${id}/${small.name}`
   const text = JSON.stringify(json, null, 2)
   return head.length > 0 ? `${text.replace(/^\{\n/, `{\n${head.join('\n')}\n`)}\n` : `${text}\n`
+}
+
+// ── updates ──────────────────────────────────────────────────────────────────
+
+/**
+ * How an update writes a file once the client is set up, without its key
+ * (internal/service/install, Bundle.Update). A JSON config names the paths
+ * that carry the key, taken out of the update's copy, and the model paths it
+ * rewrites, which leave those out; an env file names the variables whose
+ * lines stay as they are on disk.
+ */
+export type UpdateRule = { strip: string[]; owns: string[] } | { keep: string[] }
+
+/** A JSON or JSONC body with the dotted paths taken out; comments go too. */
+export function withoutPaths(body: string, paths: readonly string[]): string {
+  const json = JSON.parse(stripComments(body)) as Record<string, unknown>
+  for (const p of paths) {
+    const keys = p.split('.')
+    let at: unknown = json
+    for (const k of keys.slice(0, -1)) {
+      at = at !== null && typeof at === 'object' ? (at as Record<string, unknown>)[k] : undefined
+    }
+    if (at !== null && typeof at === 'object') delete (at as Record<string, unknown>)[keys.at(-1) ?? '']
+  }
+  return `${JSON.stringify(json, null, 2)}\n`
+}
+
+/**
+ * A file as an update hands it to the installer: one with no rule holds no
+ * key and goes as an install's would. A JSON config loses its key's paths and
+ * owns only the model ones; an env file keeps its key's lines from the file on
+ * disk, and its own copy of them is emptied, so the key could not ride along
+ * even if the body had it. Either must already be on the machine: written
+ * fresh, it would configure the client without a key.
+ */
+export function forUpdate(file: InstallFile, rule: UpdateRule | undefined): InstallFile {
+  if (rule === undefined) return file
+  if ('keep' in rule) {
+    const kept = new Set(rule.keep)
+    const body = file.body
+      .split('\n')
+      .map((l) => {
+        const m = /^export ([A-Za-z_][A-Za-z0-9_]*)=/.exec(l)
+        return m !== null && kept.has(m[1] ?? '') ? `export ${m[1]}=` : l
+      })
+      .join('\n')
+    return { ...file, body, merge: { format: 'env', keep: rule.keep }, existing: true }
+  }
+  return { ...file, body: withoutPaths(file.body, rule.strip), merge: { format: 'json', owns: rule.owns }, existing: true }
 }

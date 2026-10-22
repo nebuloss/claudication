@@ -283,7 +283,8 @@ for the admin screens; no client is offered any of them until an account serves 
 Each client's files also carry what each name's model can do — Claude Code's
 `behavesAs`, opencode's declared limits, the crush and Codex model lists —
 because a client sizes its requests from those. Rebinding a slot to a model
-with a smaller window means running the client's install command again. They
+with a smaller window means running the client's install command again, or its
+keyless update command once it is set up. They
 also set what a client would otherwise read off a real model's id — opencode's
 tool-call streaming, crush's thinking display — so a plain name behaves as the
 model it serves ([docs/clients.md](docs/clients.md), "What a client reads off

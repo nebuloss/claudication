@@ -34,7 +34,9 @@ export const RECIPES: ClientRecipe[] = [
         lang: 'sh',
         body: claudeCodeSh,
         write: write.claudeCodeSh,
-        install: { path: '.config/claudication/claude-code.sh', env: true },
+        // The file is the gateway's whole, key and all; an update rewrites
+        // it keeping the key's line from the one on disk.
+        install: { path: '.config/claudication/claude-code.sh', env: true, update: { keep: ['ANTHROPIC_AUTH_TOKEN'] } },
       },
     ],
   }),
@@ -55,6 +57,9 @@ export const RECIPES: ClientRecipe[] = [
         lang: 'toml',
         body: codexToml,
         write: write.codexToml,
+        // Neither Codex file holds the key — config.toml names the variable
+        // it is in, which no file here sets — so an update writes both as an
+        // install does.
         install: { path: '.codex/config.toml', merge: { format: 'toml' } },
       },
       {
@@ -107,6 +112,9 @@ export const RECIPES: ClientRecipe[] = [
         install: {
           path: '.config/opencode/opencode.jsonc',
           merge: { format: 'json', owns: ['provider.anthropic', 'model', 'small_model'] },
+          // An update owns the declared models and the two defaults, and
+          // never the provider's options, where the key is.
+          update: { strip: ['provider.anthropic.options.apiKey'], owns: ['provider.anthropic.models', 'model', 'small_model'] },
         },
       },
     ],
@@ -142,6 +150,9 @@ export const RECIPES: ClientRecipe[] = [
         install: {
           path: '.config/crush/crush.json',
           merge: { format: 'json', owns: ['providers.claudication', 'models.large', 'models.small'] },
+          // An update owns the provider's model list and the two picks, and
+          // never its api_key.
+          update: { strip: ['providers.claudication.api_key'], owns: ['providers.claudication.models', 'models.large', 'models.small'] },
           // Installs before 2026-10-22 wrote it there on Windows. Only the
           // provider is taken back: models.large and models.small in that
           // file are the user's own picks now, which crush reads over ours.

@@ -87,7 +87,7 @@ func TestAnExpiredLinkDropsItsKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.mu.Lock()
-	k := l.byClient["c1"]
+	k := l.byClient[linkKey{"c1", false}]
 	held := len(k.bundle.Files) > 0 || k.bundle.Key != "" || k.token != ""
 	l.mu.Unlock()
 	if held {

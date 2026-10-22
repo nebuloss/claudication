@@ -23,6 +23,16 @@
 // config — crush's, opencode's, Codex's — is merged rather than replaced: the
 // gateway's sections are rewritten and the rest of the file is left alone
 // (see Merge, and the helpers under merge/).
+//
+// An update link (Bundle.Update) is the same thing without the key: once a
+// client is set up its key is never shown again, yet its model names and
+// what they serve still change. Its files carry no key — the admin API
+// refuses one that does — and own only what is not the key: a JSON merge
+// names the model paths alone, and the Claude Code env file is rewritten
+// keeping its key's line from the file on disk (the "env" merge). A file
+// whose key the update keeps from disk must be there (File.Existing): the
+// script checks every one before it writes anything, and refuses a machine
+// that was never set up rather than leave it a configuration with no key.
 package install
 
 import (
@@ -33,6 +43,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +62,8 @@ var (
 	mergeAwk string
 	//go:embed merge/merge.ps1
 	mergePS1 string
+	//go:embed merge/env.awk
+	envAwk string
 )
 
 // File is one file a client is configured with, and where it goes.
@@ -81,7 +94,15 @@ type File struct {
 	// file, if they are in it, and leaves the rest. crush's config went to its
 	// data file under AppData, which holds the user's model picks.
 	Stale *Stale `json:"stale,omitempty"`
+	// Existing is a file that must already be there: an update's file whose
+	// key stays as it is on disk. Written fresh, it would configure the
+	// client without one, so a script finding it missing changes nothing
+	// and says the machine was never set up with this client.
+	Existing bool `json:"existing,omitempty"`
 }
+
+// NeverSetUp is what a script says when an update finds no setup to update.
+const NeverSetUp = "this machine was never set up with this client; regenerate the key to install it"
 
 // Stale is a wrong place an earlier install wrote to, on Windows.
 type Stale struct {
@@ -93,7 +114,7 @@ type Stale struct {
 // the gateway's settings: crush's other providers, opencode's theme, Codex's
 // MCP servers. Writing the whole file over it lost all of that.
 type Merge struct {
-	// Format is "json" (JSONC too) or "toml".
+	// Format is "json" (JSONC too), "toml", or "env" for an env file.
 	Format string `json:"format"`
 	// Owns is, for JSON, the dotted paths the gateway owns: each is replaced
 	// whole, so a setting the gateway stopped sending does not linger inside
@@ -102,16 +123,39 @@ type Merge struct {
 	// top-level keys and the tables — since none of it is a map shared with
 	// anything else.
 	Owns []string `json:"owns,omitempty"`
+	// Keep is, for an env file, the variables whose lines stay as they are in
+	// the file on disk — on Windows, the user variables as they are set — the
+	// rest being rewritten from the new file: an update keeping the key the
+	// client was installed with. Each must be there, or nothing is written.
+	Keep []string `json:"keep,omitempty"`
 }
 
 // ownedPath is a dotted JSON path of plain names, safe to pass to a shell.
 var ownedPath = regexp.MustCompile(`^[A-Za-z0-9_$-]+(\.[A-Za-z0-9_$-]+)*$`)
 
-func (m *Merge) validate() error {
+// envName is a variable's name, safe to pass to a shell.
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func (m *Merge) validate(env bool) error {
 	if m == nil {
 		return nil
 	}
+	if (m.Format == "env") != env {
+		return errors.New("an env file merges as env, and only an env file does")
+	}
+	if m.Format != "env" && len(m.Keep) != 0 {
+		return errors.New("only an env merge keeps variables")
+	}
 	switch m.Format {
+	case "env":
+		if len(m.Keep) == 0 || len(m.Owns) != 0 {
+			return errors.New("an env merge names the variables it keeps, and owns nothing")
+		}
+		for _, v := range m.Keep {
+			if !envName.MatchString(v) {
+				return fmt.Errorf("%q is not a variable's name", v)
+			}
+		}
 	case "json":
 		if len(m.Owns) == 0 {
 			return errors.New("a JSON merge names what it owns")
@@ -134,11 +178,16 @@ func (m *Merge) validate() error {
 // Bundle is what one command installs: one client's files.
 type Bundle struct {
 	// ClientID is the client's id, which the link is kept under: a client
-	// has one live link at a time.
+	// has one live link of each kind at a time.
 	ClientID string
 	// Key is the client's name, for the script's first line.
 	Key   string
 	Files []File
+	// Update is a link that updates a client already set up, and carries no
+	// key: its fetch does not mark the client configured (it is already),
+	// and its state is the client's update state rather than its install's,
+	// so the record of where the client was installed from stays.
+	Update bool
 }
 
 // Limits on what the admin UI may hand over: enough for every client there is
@@ -183,8 +232,13 @@ func (b Bundle) Validate() error {
 				return fmt.Errorf("%q is not a path under the home directory", p)
 			}
 		}
-		if err := f.Merge.validate(); err != nil {
+		if err := f.Merge.validate(f.Env); err != nil {
 			return fmt.Errorf("%s: %w", f.Path, err)
+		}
+		// An update carries no key, so an env file written whole would put
+		// the placeholder where the key was.
+		if b.Update && f.Env && f.Merge == nil {
+			return fmt.Errorf("%s: an update keeps the key's line of an env file, and names it", f.Path)
 		}
 		total += len(f.Body)
 	}
@@ -201,9 +255,15 @@ type Links struct {
 	now func() time.Time
 
 	mu sync.Mutex
-	// byClient is each client's latest link; a new one replaces it, and the
-	// old token stops working.
-	byClient map[string]*link
+	// byClient is each client's latest link of each kind, install and
+	// update; a new one replaces the last of its kind, and the old token
+	// stops working.
+	byClient map[linkKey]*link
+}
+
+type linkKey struct {
+	client string
+	update bool
 }
 
 type link struct {
@@ -239,12 +299,12 @@ type State struct {
 
 // New returns an empty set of links that each live for ttl.
 func New(ttl time.Duration) *Links {
-	return &Links{ttl: ttl, now: time.Now, byClient: map[string]*link{}}
+	return &Links{ttl: ttl, now: time.Now, byClient: map[linkKey]*link{}}
 }
 
 // Create keeps a client's bundle and returns the token that fetches it once,
-// and when that token stops working. The client's previous link, if any, is
-// gone.
+// and when that token stops working. The client's previous link of the same
+// kind, if any, is gone; an update link leaves the install link's record be.
 func (l *Links) Create(b Bundle) (string, time.Time, error) {
 	if err := b.Validate(); err != nil {
 		return "", time.Time{}, err
@@ -262,7 +322,7 @@ func (l *Links) Create(b Bundle) (string, time.Time, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweep()
-	l.byClient[b.ClientID] = &link{token: token, bundle: b, expires: expires}
+	l.byClient[linkKey{b.ClientID, b.Update}] = &link{token: token, bundle: b, expires: expires}
 	return token, expires, nil
 }
 
@@ -277,17 +337,17 @@ func (l *Links) sweep() {
 	for _, k := range l.byClient {
 		if k.used == nil && !now.Before(k.expires) {
 			k.token = ""
-			k.bundle = Bundle{ClientID: k.bundle.ClientID}
+			k.bundle = Bundle{ClientID: k.bundle.ClientID, Update: k.bundle.Update}
 		}
 	}
 }
 
 // ErrUsed is Take's answer for a link already fetched once.
-var ErrUsed = errors.New("this install command was already used; make a new one on the client's page")
+var ErrUsed = errors.New("this command was already used; make a new one on the client's page")
 
 // ErrUnknown is Take's answer for a token that is no client's current link,
 // or one past its time.
-var ErrUnknown = errors.New("this install command has expired or its token is wrong; make a new one on the client's page")
+var ErrUnknown = errors.New("this command has expired or its token is wrong; make a new one on the client's page")
 
 // Take is the one fetch a link allows: the bundle, the first time and while
 // it lasts; ErrUsed after that, and ErrUnknown for a token that is no live
@@ -312,18 +372,23 @@ func (l *Links) Take(token, ip, shell string) (Bundle, error) {
 		b := k.bundle
 		// The files carry the key; once served there is no reason to hold
 		// them.
-		k.bundle = Bundle{ClientID: b.ClientID, Key: b.Key}
+		k.bundle = Bundle{ClientID: b.ClientID, Key: b.Key, Update: b.Update}
 		return b, nil
 	}
 	return Bundle{}, ErrUnknown
 }
 
-// StateOf is a client's latest link as its page shows it.
-func (l *Links) StateOf(clientID string) State {
+// StateOf is a client's latest install link as its page shows it.
+func (l *Links) StateOf(clientID string) State { return l.stateOf(linkKey{clientID, false}) }
+
+// UpdateStateOf is a client's latest update link as its page shows it.
+func (l *Links) UpdateStateOf(clientID string) State { return l.stateOf(linkKey{clientID, true}) }
+
+func (l *Links) stateOf(key linkKey) State {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweep()
-	k, ok := l.byClient[clientID]
+	k, ok := l.byClient[key]
 	switch {
 	case !ok:
 		return State{State: None}
@@ -335,11 +400,13 @@ func (l *Links) StateOf(clientID string) State {
 	return State{State: Waiting, Token: k.token, Expires: k.expires}
 }
 
-// Forget drops a client's link: its key changed, or the client is gone.
+// Forget drops both of a client's links: its key changed, or the client is
+// gone. An update link goes too, since what it keeps on disk is the old key.
 func (l *Links) Forget(clientID string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.byClient, clientID)
+	delete(l.byClient, linkKey{clientID, false})
+	delete(l.byClient, linkKey{clientID, true})
 }
 
 // heredocEnd is a terminator no file can contain by accident: random, and
@@ -363,6 +430,9 @@ const profileMarker = "# claudication"
 func Shell(b Bundle) string {
 	var s strings.Builder
 	fmt.Fprintf(&s, "#!/bin/sh\n# claudication: client configuration for the key %q.\n", b.Key)
+	if b.Update {
+		s.WriteString("# An update: the model names and what they serve. The key stays as it is here.\n")
+	}
 	s.WriteString(`set -eu
 stamp=$(date +%Y%m%d%H%M%S)
 put() {
@@ -376,12 +446,16 @@ put() {
 	if b.merges() {
 		s.WriteString(shellMergeHelpers())
 	}
+	s.WriteString(shellPreflight(b))
 	var sourced []string
 	for _, f := range b.Files {
 		path := `$HOME/` + f.Path
-		if f.Merge == nil {
+		switch {
+		case f.Merge == nil:
 			fmt.Fprintf(&s, "\n# %s\nput \"%s\" ", f.Client, path)
-		} else {
+		case f.Merge.Format == "env":
+			fmt.Fprintf(&s, "\n# %s\nmerge_env \"%s\" %s ", f.Client, path, strings.Join(f.Merge.Keep, " "))
+		default:
 			fmt.Fprintf(&s, "\n# %s\nmerge_into \"%s\" %s", f.Client, path, f.Merge.Format)
 			for _, p := range f.Merge.Owns {
 				s.WriteString(" " + shQuote(p))
@@ -434,13 +508,48 @@ func writeHeredoc(s *strings.Builder, body string) {
 	s.WriteString(end + "\n")
 }
 
-func (b Bundle) merges() bool {
+// merges reports whether any file is merged, in one of formats or any.
+func (b Bundle) merges(formats ...string) bool {
 	for _, f := range b.Files {
-		if f.Merge != nil {
+		if f.Merge != nil && (len(formats) == 0 || slices.Contains(formats, f.Merge.Format)) {
 			return true
 		}
 	}
 	return false
+}
+
+// preflight is, for each file an update needs to find on disk, the file and
+// the variables in it that must be there. An install has none.
+func (b Bundle) preflight() []File {
+	var out []File
+	for _, f := range b.Files {
+		if f.Existing || (f.Merge != nil && f.Merge.Format == "env") {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// shellPreflight checks, before the script writes anything, that each file
+// an update keeps the key of is there and holds it: one update half applied
+// to a machine never set up would leave it configured without a key.
+func shellPreflight(b Bundle) string {
+	need := b.preflight()
+	if len(need) == 0 {
+		return ""
+	}
+	var s strings.Builder
+	fmt.Fprintf(&s, "\n# What this update keeps is on disk, or nothing is written.\nnever() { echo \"claudication: $1: %s.\" >&2; exit 1; }\n", NeverSetUp)
+	for _, f := range need {
+		path := `$HOME/` + f.Path
+		fmt.Fprintf(&s, "[ -s \"%[1]s\" ] || never \"there is no %[1]s\"\n", path)
+		if f.Merge != nil {
+			for _, v := range f.Merge.Keep {
+				fmt.Fprintf(&s, "grep -q '^export %[2]s=' \"%[1]s\" || never \"%[1]s sets no %[2]s\"\n", path, v)
+			}
+		}
+	}
+	return s.String()
 }
 
 // shellMergeHelpers defines merge_into, which folds the file on its stdin
@@ -458,7 +567,7 @@ helpers=$(mktemp -d)
 trap 'rm -rf "$helpers"' EXIT
 `)
 	for _, h := range []struct{ name, body string }{
-		{"merge.py", mergePy}, {"merge.js", mergeJS}, {"merge.awk", mergeAwk},
+		{"merge.py", mergePy}, {"merge.js", mergeJS}, {"merge.awk", mergeAwk}, {"env.awk", envAwk},
 	} {
 		fmt.Fprintf(&s, "cat > \"$helpers/%s\" ", h.name)
 		writeHeredoc(&s, h.body)
@@ -497,6 +606,19 @@ merge_into() {
   esac
   rm -f "$helpers/new" "$helpers/merged"
 }
+# An env file rewritten from the one on stdin, keeping the lines of the
+# variables named from the file at $1: the key it was installed with, which an
+# update does not carry. The preflight has checked the file and the lines are
+# there.
+merge_env() {
+  target=$1; shift
+  cat > "$helpers/new"
+  cp "$target" "$target.bak.$stamp"
+  awk -v keep="$*" -f "$helpers/env.awk" "$target" "$helpers/new" > "$helpers/merged"
+  cat "$helpers/merged" > "$target"
+  rm -f "$helpers/new" "$helpers/merged"
+  echo "claudication: updated $target, keeping its $* (it was $target.bak.$stamp)"
+}
 `)
 	return s.String()
 }
@@ -512,6 +634,9 @@ var exportLine = regexp.MustCompile(`^export ([A-Za-z_][A-Za-z0-9_]*)=(.*)$`)
 func PowerShell(b Bundle) string {
 	var s strings.Builder
 	fmt.Fprintf(&s, "# claudication: client configuration for the key %s.\n", psQuote(b.Key))
+	if b.Update {
+		s.WriteString("# An update: the model names and what they serve. The key stays as it is here.\n")
+	}
 	s.WriteString(`$ErrorActionPreference = 'Stop'
 $stamp = Get-Date -Format 'yyyyMMddHHmmss'
 function Put-ClaudicationFile([string]$rel, [string]$b64) {
@@ -522,7 +647,7 @@ function Put-ClaudicationFile([string]$rel, [string]$b64) {
   Write-Host "claudication: wrote $path"
 }
 `)
-	if b.merges() {
+	if b.merges("json", "toml") {
 		s.WriteString(mergePS1)
 		s.WriteString(`
 # A file that is not there yet is written; one that cannot be read as what it
@@ -561,12 +686,19 @@ function Merge-ClaudicationFile([string]$rel, [string]$format, [string]$b64, [st
 }
 `)
 	}
+	s.WriteString(psPreflight(b))
 	for _, f := range b.Files {
 		if f.Env {
+			var keep []string
+			if f.Merge != nil {
+				keep = f.Merge.Keep
+			}
 			fmt.Fprintf(&s, "\n# %s: user environment variables\n", f.Client)
 			for _, line := range strings.Split(f.Body, "\n") {
 				m := exportLine.FindStringSubmatch(strings.TrimSpace(line))
-				if m == nil {
+				// A kept variable stays as the user has it set: the key, which
+				// an update does not carry.
+				if m == nil || slices.Contains(keep, m[1]) {
 					continue
 				}
 				fmt.Fprintf(&s, "[Environment]::SetEnvironmentVariable(%s, %s, 'User')\n",
@@ -601,6 +733,39 @@ function Merge-ClaudicationFile([string]$rel, [string]$format, [string]$b64, [st
 		}
 	}
 	s.WriteString("\nWrite-Host 'claudication: done. Open a new terminal for the variables to apply.'\n")
+	return s.String()
+}
+
+// psPreflight is shellPreflight for Windows, where an env file is the user's
+// variables: each kept one must be set, and each file that must exist is
+// there, before anything is written. A throw under ErrorActionPreference Stop
+// ends the script that iex is running.
+func psPreflight(b Bundle) string {
+	need := b.preflight()
+	if len(need) == 0 {
+		return ""
+	}
+	var s strings.Builder
+	s.WriteString("\n# What this update keeps is there, or nothing is written.\n")
+	for _, f := range need {
+		if f.Env {
+			if f.Merge == nil {
+				continue
+			}
+			for _, v := range f.Merge.Keep {
+				fmt.Fprintf(&s, "if (-not [Environment]::GetEnvironmentVariable(%s, 'User')) { throw %s }\n",
+					psQuote(v), psQuote("claudication: the user variable "+v+" is not set: "+NeverSetUp+"."))
+			}
+			continue
+		}
+		path := f.Path
+		if f.WindowsPath != "" {
+			path = f.WindowsPath
+		}
+		rel := strings.ReplaceAll(path, "/", `\`)
+		fmt.Fprintf(&s, "if (-not (Test-Path (Join-Path $HOME %s))) { throw %s }\n",
+			psQuote(rel), psQuote("claudication: there is no ~\\"+rel+": "+NeverSetUp+"."))
+	}
 	return s.String()
 }
 

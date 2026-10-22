@@ -56,8 +56,12 @@ func (s *Gateway) handleInstall(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusUnauthorized, err.Error()+".")
 		return
 	}
-	if err := s.store.MarkConfigured(r.Context(), bundle.ClientID); err != nil {
-		s.log.Warn("could not mark a client configured", "client", bundle.ClientID, "err", err)
+	// An update's client is configured already, and its fetch is recorded as
+	// the update link's own use (install.Bundle, Update).
+	if !bundle.Update {
+		if err := s.store.MarkConfigured(r.Context(), bundle.ClientID); err != nil {
+			s.log.Warn("could not mark a client configured", "client", bundle.ClientID, "err", err)
+		}
 	}
 	script := install.Shell(bundle)
 	if ps {

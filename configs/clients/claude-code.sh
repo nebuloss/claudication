@@ -26,8 +26,10 @@ export CLAUDE_CODE_AUTO_MODE_MODEL=auto
 # plain name is handled as the model it serves. Without it, it treats
 # them as unknown and caps them at a 200k window. The gateway writes what each
 # serves when it hands out this file; switching one to a model with other
-# limits means running the install command again. The auto-mode classifier's
-# name is not listed: nobody picks it.
+# limits means running the install command (or, once set up, the update
+# command) again. The auto-mode classifier's name is not listed: nobody
+# picks it. A name added on the client's page has a row and no variable:
+# /model <name> switches a session to it.
 # A function rather than a command, so sourcing this file — from a shell
 # profile, as the one-line installer does — sets things up rather than
 # starting Claude Code.

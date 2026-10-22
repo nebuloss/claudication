@@ -164,6 +164,7 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /admin/keys/{id}", admin(s.handleDeleteKey))
 	mux.Handle("POST /admin/keys/{id}/rotate", admin(s.handleRotateKey))
 	mux.Handle("POST /admin/keys/{id}/install", admin(s.handleKeyInstall))
+	mux.Handle("POST /admin/keys/{id}/update", admin(s.handleKeyUpdate))
 	mux.Handle("GET /admin/keys/{id}/secret", admin(s.handleKeySecret))
 	mux.Handle("GET /admin/keys/{id}/models", admin(s.handleKeyModels))
 	mux.Handle("POST /admin/keys/{id}/models", admin(s.handleSetKeyModel))

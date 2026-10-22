@@ -457,6 +457,34 @@ console.log('\n— client configs: the committed files, with the client\'s names
   check('the committed file names a new client\'s slots', [ocCommitted.model, ocCommitted.small_model, Object.keys(ocCommitted.provider.anthropic.models)],
     ['anthropic/large', 'anthropic/small', ['large', 'small']])
   check('and streams their tool calls', Object.values(ocCommitted.provider.anthropic.models).map((m) => m.options.toolStreaming), [true, true])
+
+  // The update command's files: written as an install's, but holding no key
+  // even when handed one, owning only the model paths, and each file that
+  // holds the key on disk required to be there.
+  const { forUpdate, withoutPaths } = await import(`${OUT}/clients/configs.js`)
+  const key = 'clc_0123456789abcdefSECRET'
+  const keyed = (body) => body.split('clc_...').join(key)
+  const file = (path, body, extra = {}) => ({ client_id: 'x', client: 'x', path, body, ...extra })
+  const crushU = forUpdate(file('.config/crush/crush.json', keyed(crushJson(committed('crush.json'), { slots: crushSlots }, 'https://gw')),
+    { merge: { format: 'json', owns: ['providers.claudication', 'models.large', 'models.small'] } }),
+  { strip: ['providers.claudication.api_key'], owns: ['providers.claudication.models', 'models.large', 'models.small'] })
+  check('crush: an update holds no key, owns the models and needs the file', [crushU.body.includes('clc_'), crushU.merge, crushU.existing],
+    [false, { format: 'json', owns: ['providers.claudication.models', 'models.large', 'models.small'] }, true])
+  check('and keeps the rest of the provider', Object.keys(JSON.parse(crushU.body).providers.claudication).sort(),
+    ['base_url', 'models', 'name', 'provider_options', 'type'])
+  const ocU = forUpdate(file('.config/opencode/opencode.jsonc', keyed(opencodeJsonc(committed('opencode.jsonc'), { slots: ocSlots }))),
+    { strip: ['provider.anthropic.options.apiKey'], owns: ['provider.anthropic.models', 'model', 'small_model'] })
+  check('opencode: an update holds no key, and parses', [ocU.body.includes('clc_'), JSON.parse(ocU.body).provider.anthropic.options.baseURL],
+    [false, 'https://claudication.example.com/v1'])
+  const ccU = forUpdate(file('.config/claudication/claude-code.sh', keyed(claudeCodeSh(committed('claude-code.sh'), { slots: ccSlots })), { env: true }),
+    { keep: ['ANTHROPIC_AUTH_TOKEN'] })
+  check('claude code: an update empties the key\'s line and keeps it from disk', [ccU.body.includes('clc_'), /^export ANTHROPIC_AUTH_TOKEN=$/m.test(ccU.body), ccU.merge, ccU.existing],
+    [false, true, { format: 'env', keep: ['ANTHROPIC_AUTH_TOKEN'] }, true])
+  check('and rewrites every other line', ccU.body.split('\n').filter((l) => !l.startsWith('export ANTHROPIC_AUTH_TOKEN')),
+    keyed(claudeCodeSh(committed('claude-code.sh'), { slots: ccSlots })).split('\n').filter((l) => !l.startsWith('export ANTHROPIC_AUTH_TOKEN')))
+  const codexF = file('.codex/config.toml', toml, { merge: { format: 'toml' } })
+  check('codex: a file holding no key goes as an install\'s', forUpdate(codexF, undefined), codexF)
+  check('a path missing from the body is no error', withoutPaths('{"a": {"b": 1}} // c', ['a.x.y', 'q', 'a.b']), '{\n  "a": {}\n}\n')
 }
 
 console.log('\n— client specs: a slot\'s binding is one menu value —')

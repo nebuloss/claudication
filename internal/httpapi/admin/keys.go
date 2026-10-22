@@ -340,3 +340,69 @@ func (s *Admin) handleKeyInstall(w http.ResponseWriter, r *http.Request) {
 		"expires_at": expires.UTC().Format(time.RFC3339),
 	})
 }
+
+// handleKeyUpdate keeps a configured client's update files, which carry no
+// key, and answers the token that fetches them, as handleKeyInstall does.
+//
+// Once a client is set up its key is never shown again, and its model names
+// and what they serve go on changing; an update is how its machines catch up
+// without the key going anywhere. The page builds the files with the key left
+// out and its paths left unowned (internal/service/install, Bundle.Update);
+// here they are refused if the key is in them all the same — the secret
+// itself, or its prefix, which is enough of it to know it by — so a page that
+// got it wrong cannot put the key on a screen or into a pasted command.
+func (s *Admin) handleKeyUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	key, err := s.store.Key(r.Context(), id)
+	if errors.Is(err, store.ErrKeyNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such key")
+		return
+	}
+	if err != nil {
+		httpx.Internal(w, s.log, "read the key", err)
+		return
+	}
+	c, err := s.store.Client(r.Context(), id)
+	if err != nil {
+		httpx.Internal(w, s.log, "read the client", err)
+		return
+	}
+	if c.ConfiguredAt == nil {
+		httpx.WriteError(w, http.StatusConflict, "not_configured",
+			"this client is not set up yet; its install command sets it up, key and all")
+		return
+	}
+	var body struct {
+		Files []install.File `json:"files"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	marks := []string{store.KeyPrefix + key.Prefix}
+	switch plaintext, err := s.store.KeySecret(r.Context(), id); {
+	case err == nil:
+		marks = append(marks, plaintext)
+	case !errors.Is(err, store.ErrSecretNotKept):
+		httpx.Internal(w, s.log, "read the key's secret", err)
+		return
+	}
+	for _, f := range body.Files {
+		for _, m := range marks {
+			if strings.Contains(f.Body, m) {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_request_error",
+					f.Path+" carries the client's key; an update carries none, and keeps the one on disk")
+				return
+			}
+		}
+	}
+	token, expires, err := s.install.Create(install.Bundle{ClientID: key.ID, Key: key.Name, Files: body.Files, Update: true})
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	s.log.Info("client update command made", "id", id, "ip", httpx.ClientIP(r.Context()))
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"token":      token,
+		"expires_at": expires.UTC().Format(time.RFC3339),
+	})
+}

@@ -34,6 +34,25 @@ nor the install command is offered again: a key that is in use has nowhere it
 still needs to go. To set the client up again, regenerate its key on its page;
 the old one stops working at once.
 
+A configured client's files still change: a name added, renamed or rebound to
+a model with another window. Its page then offers **Update config**, a
+one-line command like the install one — single use, fifteen minutes, its state
+shown live — whose files carry **no key**. It rewrites only the model parts of
+each file and keeps the key that is on the machine:
+
+| Client | What an update rewrites | What it keeps |
+|---|---|---|
+| Claude Code | every line of `claude-code.sh`; on Windows every user variable | the `ANTHROPIC_AUTH_TOKEN` line; on Windows that variable |
+| Codex CLI | `config.toml`'s gateway keys and tables, and the whole catalog | nothing to keep: neither file holds the key, which is in `CLAUDICATION_API_KEY` |
+| opencode | `provider.anthropic.models`, `model`, `small_model` | the provider's `options`, its `apiKey` included |
+| crush | `providers.claudication.models`, `models.large`, `models.small` | the rest of the provider, its `api_key` included |
+
+A machine that was never set up with the client — no `claude-code.sh`, no key
+line in it, no `crush.json` or `opencode.jsonc` — is refused before anything is
+written: *this machine was never set up with this client; regenerate the key
+to install it*. The admin API refuses an update whose files contain the key, or
+its prefix, so the command is safe on a screen.
+
 From a shell, for a provisioning script:
 
 ```sh
@@ -158,7 +177,8 @@ crush and Codex do not discover a model's limits, and opencode takes them only
 from its config, so a client's files describe each name with the model it
 serves now: its context window, output cap and effort levels. They are written
 when the page or the install command writes them; after rebinding a slot to a
-model with other limits, run the install command again (`make test-web` checks
+model with other limits, run the install command again — or, once the client
+is set up, its **Update config** command (`make test-web` checks
 every rewrite against the committed files; `web/src/ui/clients/configs.ts`).
 
 ## Chats
@@ -216,7 +236,8 @@ Claude Code takes a `/model <name>` that is a `modelPicker` row at once, and
 handles it as the model its `behavesAs` names; a name with no row is first
 probed with a one-token request and then run as an unknown model, at a guessed
 200k window. Measured on 2.1.308 against a stub; the record is in
-`go doc ./internal/service/clients` (ClaudeCode).
+`go doc ./internal/service/clients` (ClaudeCode). On a client already set up,
+**Update config** (above) puts a new name on each machine without the key.
 
 ### crush's picker
 

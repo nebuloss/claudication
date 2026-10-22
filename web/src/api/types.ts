@@ -583,6 +583,8 @@ export interface InstallFile {
   body: string
   merge?: InstallMerge
   stale?: { windows_path: string; owns: string[] }
+  /** An update's file whose key stays as it is on disk: it must be there already. */
+  existing?: boolean
 }
 
 /** A wrong place an earlier install wrote to on Windows, as a recipe names it. */
@@ -590,9 +592,11 @@ export type InstallStale = { windowsPath: string; owns: string[] }
 
 /**
  * Folds a file into the client's own config instead of replacing it: JSON
- * names the dotted paths the gateway owns; TOML owns what its file defines.
+ * names the dotted paths the gateway owns; TOML owns what its file defines;
+ * an env file keeps the named variables' lines from the one on disk, the key
+ * an update does not carry.
  */
-export type InstallMerge = { format: 'json'; owns: string[] } | { format: 'toml' }
+export type InstallMerge = { format: 'json'; owns: string[] } | { format: 'toml' } | { format: 'env'; keep: string[] }
 
 export interface SetupStatus {
   needs_setup: boolean
@@ -703,6 +707,8 @@ export interface ClientWire extends ApiKey {
   fit_images: boolean
   configured_at?: string
   install: InstallState
+  /** Its update link's state: the keyless command a configured client's page offers. */
+  update: InstallState
   slots: SlotWire[]
   /** What its slots can be bound to now; on its own page, not in the list. */
   choices?: BindingChoice[]

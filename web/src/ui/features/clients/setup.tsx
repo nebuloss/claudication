@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { api, type GatewayConfig, type InstallState } from '../../../api/client'
+import { api, type GatewayConfig, type InstallFile, type InstallState } from '../../../api/client'
 import { useAction, useLoader, useNow } from '../../hooks'
 import {
   Button,
@@ -10,6 +10,7 @@ import {
   Loading,
   Muted,
   Note,
+  Section,
   Segmented,
   Stack,
   useConfirm,
@@ -31,9 +32,11 @@ import type { Client, ClientTypes } from '../../clients/specs'
  * that nothing here shows the key again, and the gateway refuses to — a key in
  * use somewhere has no reason to be on a screen. Regenerating it is how a
  * client is set up again: the old key stops, and this card comes back with a
- * new one. The page re-reads the client every few seconds while it is open, so
- * a command run on another machine turns this into the "configured" note
- * without a reload.
+ * new one. A configured typed client gets an update command instead of the
+ * install one: its files without the key, for a machine set up already. The
+ * page re-reads the client every few seconds while it is open, so a command
+ * run on another machine turns this into the "configured" note without a
+ * reload.
  */
 export function SetupCard({
   client: c,
@@ -68,17 +71,21 @@ export function SetupCard({
     const used = c.wire.install.used
     return (
       <Card title="Set up">
-        <Note>
-          Configured on {dateTime(c.wire.configured_at)}
-          {used !== undefined && ` — its install command ran from ${used.ip || 'an unknown address'} (${platformName(used.shell)})`}
-          . To set it up again, regenerate its key: the current one stops working at once.
-        </Note>
-        <div className="mt-4">
-          <Button variant="outlined" tone="error" busy={busy === 'rotate'} onClick={() => void regenerate()}>
-            Regenerate key
-          </Button>
-        </div>
-        <ErrorBanner error={error} className="mt-4" />
+        <Stack>
+          <Note>
+            Configured on {dateTime(c.wire.configured_at)}
+            {used !== undefined && ` — its install command ran from ${used.ip || 'an unknown address'} (${platformName(used.shell)})`}
+            . Its key is not shown again. To set it up afresh, regenerate the key: the current one stops working at
+            once.
+          </Note>
+          <div>
+            <Button variant="outlined" tone="error" busy={busy === 'rotate'} onClick={() => void regenerate()}>
+              Regenerate key
+            </Button>
+          </div>
+          <ErrorBanner error={error} />
+          {c.installs && <UpdateConfig client={c} gateway={gateway} onChanged={onChanged} />}
+        </Stack>
       </Card>
     )
   }
@@ -125,17 +132,14 @@ function useSecret(c: Client): string {
 }
 
 /**
- * A typed client's files, written with its own names and the facts of the
- * models they serve now, and the one command that installs them.
+ * What a client's files are written from: its names, each with the facts of
+ * the model it serves now — /v1/models as this client sees it.
  */
-function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway: string; onChanged: () => void }) {
-  const recipe = recipeFor(c.type.id)
-  const secret = useSecret(c)
-  // /v1/models as this client sees it: its names, each with its model's facts.
+function useSetup(c: Client): Setup {
   const offered = useLoader((signal) => api.clients.offeredModels(c.id, signal), {
     deps: [c.id, c.slots.map((s) => `${s.name}=${s.serving}`).join()],
   })
-  const setup = useMemo<Setup>(
+  return useMemo<Setup>(
     () => ({
       slots: c.slots.map((s) => ({
         id: s.id, role: s.role, field: s.field, name: s.name,
@@ -144,6 +148,16 @@ function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway
     }),
     [c, offered.data],
   )
+}
+
+/**
+ * A typed client's files, written with its own names and the facts of the
+ * models they serve now, and the one command that installs them.
+ */
+function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway: string; onChanged: () => void }) {
+  const recipe = recipeFor(c.type.id)
+  const secret = useSecret(c)
+  const setup = useSetup(c)
   if (recipe === undefined) return null
   if (secret === '') return <Loading>Reading the key…</Loading>
   return (
@@ -153,10 +167,39 @@ function TypedSetup({ client: c, gateway, onChanged }: { client: Client; gateway
       <Note>
         Each file carries this client&rsquo;s key and its model names, each described as the model it serves
         now. Switching a name to a model with other limits — a smaller window, other effort levels — means
-        running the install command again.
+        running the install command again, or once the client is set up, its update command, which carries no
+        key.
       </Note>
       <ClientBody recipe={recipe} gateway={gateway} secret={secret} setup={setup} />
     </>
+  )
+}
+
+/**
+ * Updating a configured client's files on a machine already set up: its
+ * model names and what each serves, written with the facts of the models
+ * they serve now, and no key. The command keeps the key that is on the
+ * machine — Claude Code's line, crush's and opencode's provider key — and
+ * refuses a machine that has none, so it is safe to put on a screen: it is
+ * the one way to catch a client up after a name is added or rebound without
+ * regenerating its key.
+ */
+function UpdateConfig({ client: c, gateway, onChanged }: { client: Client; gateway: string; onChanged: () => void }) {
+  const recipe = recipeFor(c.type.id)
+  const setup = useSetup(c)
+  if (recipe === undefined) return null
+  const used = c.wire.update.used
+  return (
+    <Section title="Update config">
+      <Stack gap={3}>
+        <Muted>Updates the model names and what they serve on a machine already set up; the key stays as it is.</Muted>
+        <InstallCommand client={c} gateway={gateway} state={c.wire.update} onChanged={onChanged} kind="update"
+          files={() => recipe.updateFiles(c.type.label, gateway, setup)} />
+        {used !== undefined && (
+          <KeyValue items={[['Last update', `${dateTime(used.at)} from ${used.ip || 'an unknown address'} (${platformName(used.shell)})`]]} />
+        )}
+      </Stack>
+    </Section>
   )
 }
 
@@ -167,7 +210,8 @@ const platformName = (shell: string) => (shell === 'ps1' ? 'Windows' : 'Linux or
 /**
  * One command that writes the client's configuration into place: a link made
  * on asking, good for one fetch and a quarter of an hour, and its state as it
- * goes — waiting, with the time left; used, from where; expired.
+ * goes — waiting, with the time left; used, from where; expired. An install
+ * carries the key; an update the same files without it (UpdateConfig).
  */
 function InstallCommand({
   client: c,
@@ -175,12 +219,14 @@ function InstallCommand({
   state,
   files,
   onChanged,
+  kind = 'install',
 }: {
   client: Client
   gateway: string
   state: InstallState
-  files: () => ReturnType<NonNullable<ReturnType<typeof recipeFor>>['installFiles']>
+  files: () => InstallFile[]
   onChanged: () => void
+  kind?: 'install' | 'update'
 }) {
   const [platform, setPlatform] = useState<Platform>(() => (/windows/i.test(navigator.userAgent) ? 'windows' : 'unix'))
   const { busy, error, run } = useAction()
@@ -188,7 +234,7 @@ function InstallCommand({
 
   const create = () =>
     run('create', async () => {
-      await api.clients.createInstall(c.id, files())
+      await (kind === 'update' ? api.clients.createUpdate : api.clients.createInstall)(c.id, files())
       onChanged()
     })
 
@@ -221,7 +267,7 @@ function InstallCommand({
           )}
           <div>
             <Button busy={busy === 'create'} onClick={() => void create()}>
-              {state.state === 'none' ? 'Create install command' : 'New command'}
+              {state.state === 'none' ? (kind === 'update' ? 'Create update command' : 'Create install command') : 'New command'}
             </Button>
           </div>
         </>
@@ -230,6 +276,7 @@ function InstallCommand({
         A command works once, for fifteen minutes. A client&rsquo;s own config gets only the gateway&rsquo;s
         sections rewritten — its other providers and settings stay — and every file it changes is kept beside
         it as a .bak.
+        {kind === 'update' && ' It carries no key, and changes nothing on a machine that was never set up with this client.'}
         {c.type.id === 'claude-code' &&
           (platform === 'windows'
             ? ' Claude Code gets its settings as user environment variables, for new terminals.'

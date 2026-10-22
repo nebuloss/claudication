@@ -276,6 +276,13 @@ const clients = {
   createInstall: (id: string, files: InstallFile[]) =>
     http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/install`, { files }),
 
+  /**
+   * Keeps a configured client's update files, which carry no key, for one
+   * command; refused if the key is in them after all.
+   */
+  createUpdate: (id: string, files: InstallFile[]) =>
+    http.post<{ token: string; expires_at: string }>(path`/admin/keys/${id}/update`, { files }),
+
   /** Every model the gateway serves, each with whether a direct-mode client may ask for it. */
   models: async (id: string, signal?: AbortSignal): Promise<ModelSwitches> => {
     const res = await http.get<{ models: AccountModel[] | null }>(path`/admin/keys/${id}/models`, signal)

@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react'
 import { type InstallFile, type InstallMerge, type InstallStale } from '../../api/client'
 import { type Lang } from '../primitives/code'
-import { type Setup } from './configs'
+import { forUpdate, type Setup, type UpdateRule } from './configs'
 
 /**
  * The example address inside configs/clients/*.
@@ -62,6 +62,13 @@ export type InstallTarget = {
    * there: the installer takes those keys back out of that file.
    */
   stale?: InstallStale
+  /**
+   * How the update command writes it once the client is set up, carrying no
+   * key: the paths or variables that hold the key, kept as they are on disk
+   * (configs.ts, UpdateRule). Absent on a file that holds no key, which an
+   * update writes as an install does.
+   */
+  update?: UpdateRule
 }
 
 /** What a client type's files need, before any of it is resolved. */
@@ -136,7 +143,20 @@ export class ClientRecipe {
 
   /** The files as the one-line installer takes them. */
   installFiles(label: string, gateway: string, key: string, setup: Setup): InstallFile[] {
-    return this.files(gateway, key, setup).map((f) => ({
+    return this.files(gateway, key, setup).map((f) => this.installFile(label, f))
+  }
+
+  /**
+   * The files as the update command takes them: written without the key —
+   * the example's stands where it would go — and each file that holds the
+   * key told to keep the one on disk, so the key goes nowhere.
+   */
+  updateFiles(label: string, gateway: string, setup: Setup): InstallFile[] {
+    return this.files(gateway, '', setup).map((f) => forUpdate(this.installFile(label, f), f.install.update))
+  }
+
+  private installFile(label: string, f: ConfigFile): InstallFile {
+    return {
       client_id: this.data.id,
       client: label,
       path: f.install.path,
@@ -145,6 +165,6 @@ export class ClientRecipe {
       merge: f.install.merge,
       stale: f.install.stale && { windows_path: f.install.stale.windowsPath, owns: f.install.stale.owns },
       body: f.body,
-    }))
+    }
   }
 }

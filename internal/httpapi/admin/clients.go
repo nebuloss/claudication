@@ -45,7 +45,11 @@ type ClientJSON struct {
 	ConfiguredAt string `json:"configured_at,omitempty"`
 	// Install is its install link's state, polled while its page is open.
 	Install install.State `json:"install"`
-	Slots   []SlotJSON    `json:"slots"`
+	// Update is its update link's state, once it is configured: the command
+	// that rewrites its model names on a machine set up already, keeping the
+	// key there (handleKeyUpdate).
+	Update install.State `json:"update"`
+	Slots  []SlotJSON    `json:"slots"`
 	// Choices are what its slots can be bound to now: only what is
 	// available to it (internal/service/models, available.go), so its page
 	// offers nothing that would be refused. On its own page, not the list.
@@ -92,6 +96,7 @@ func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) Cli
 		out.ConfiguredAt = c.ConfiguredAt.UTC().Format(time.RFC3339)
 	}
 	out.Install = s.install.StateOf(c.ID)
+	out.Update = s.install.UpdateStateOf(c.ID)
 	t := c.Spec()
 	for _, sl := range c.Slots {
 		spec, _ := t.SlotFor(sl.Slot)

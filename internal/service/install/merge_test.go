@@ -65,7 +65,7 @@ func mergeBundle() Bundle {
 func toolbox(t *testing.T, engines ...string) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, tool := range append([]string{"sh", "cat", "cp", "mv", "mkdir", "dirname", "date", "rm", "mktemp", "awk"}, engines...) {
+	for _, tool := range append([]string{"sh", "cat", "cp", "mv", "mkdir", "dirname", "date", "rm", "mktemp", "awk", "grep"}, engines...) {
 		p, err := exec.LookPath(tool)
 		if err != nil {
 			t.Skipf("no %s here", tool)
