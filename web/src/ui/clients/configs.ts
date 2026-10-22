@@ -120,12 +120,51 @@ export function claudeCodeSh(body: string, setup: Setup): string {
       return whole
     }
     const before = new Map((committed.modelPicker?.options ?? []).map((o) => [o.model, o.behavesAs]))
+    const fallback = [...before.values()].filter(isClaude)
     const options = unique(setup.slots)
       .filter((s) => s.role !== 'classifier')
-      .map((s) => ({ model: s.name, behavesAs: servingOf(s) || before.get(s.name) || '' }))
+      .map((s) => ({ model: s.name, behavesAs: behavesAs(s, setup, fallback) || before.get(s.name) || '' }))
       .filter((o) => o.behavesAs !== '')
     return `--settings '${JSON.stringify({ ...committed, modelPicker: { ...committed.modelPicker, options } })}'`
   })
+}
+
+function isClaude(id: string): boolean {
+  return id.startsWith('claude-')
+}
+
+/**
+ * Which model Claude Code should take a name to be. Its own id, for a Claude
+ * model. A name served by a GPT model needs a Claude model in its place:
+ * behavesAs is how Claude Code picks the prompt, the thinking and effort it
+ * sends and the window it compacts at, and an id it does not know left it on
+ * an unrecognised model's 32k cap with a warning. The stand-in is the largest
+ * Claude model this client serves whose window and output both fit inside
+ * the GPT model's, so Claude Code never plans for more room than there is;
+ * the smallest when none fits; and, with no Claude model's figures to hand,
+ * the middle of the committed rows (the gateway clamps max_tokens to the real
+ * cap whatever Claude Code sends).
+ */
+function behavesAs(s: SlotSetup, setup: Setup, fallback: readonly string[]): string {
+  const serving = servingOf(s)
+  if (serving === '' || isClaude(serving)) return serving
+  const claude = setup.slots
+    .map((x) => x.served)
+    .filter(
+      (m): m is Model =>
+        m !== undefined && isClaude(m.serving ?? '') && m.max_input_tokens !== undefined && m.max_tokens !== undefined,
+    )
+  const size = (m: Model) => (m.max_input_tokens ?? 0) * 1e6 + (m.max_tokens ?? 0)
+  const fits = claude.filter(
+    (m) =>
+      (m.max_input_tokens ?? 0) <= (s.served?.max_input_tokens ?? Infinity) &&
+      (m.max_tokens ?? 0) <= (s.served?.max_tokens ?? Infinity),
+  )
+  const pick = (list: Model[], better: (a: number, b: number) => boolean) =>
+    list.reduce<Model | undefined>((acc, m) => (acc === undefined || better(size(m), size(acc)) ? m : acc), undefined)
+  const chosen = pick(fits, (a, b) => a > b) ?? pick(claude, (a, b) => a < b)
+  if (chosen !== undefined) return chosen.serving ?? ''
+  return fallback[Math.floor(fallback.length / 2)] ?? ''
 }
 
 // ── Codex ────────────────────────────────────────────────────────────────────

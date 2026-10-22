@@ -414,6 +414,21 @@ console.log('\n— client configs: the committed files, with the client\'s names
   check('claude code: each picker name has its row, after the built-ins', pickerX.map((o) => `${o.model}=${o.behavesAs}`).slice(-2),
     ['deep=claude-opus-5-5', 'quick=claude-sonnet-4-5-20250929'])
   check('and no variable', [/=deep$/m.test(shX), /=quick$/m.test(shX), shX.split('\n').length], [false, false, sh.split('\n').length])
+  // A name served by GPT behaves as a Claude model Claude Code knows: the
+  // largest of the client's that fits inside the GPT model (400k/128k here,
+  // so Sonnet's 200k/64k, not Opus's 1M), never the GPT id it does not know.
+  const shG = claudeCodeSh(committed('claude-code.sh'), {
+    slots: [...ccSlots, { id: 's-g', role: 'picker', field: '', name: 'gpt', served: gpt }],
+  })
+  const gRow = JSON.parse(shG.match(/--settings '(\{.*\})'/)[1]).modelPicker.options.find((o) => o.model === 'gpt')
+  check('claude code: a GPT-served name behaves as the largest Claude model that fits inside it', gRow?.behavesAs,
+    'claude-sonnet-4-5-20250929')
+  const shOnlyG = claudeCodeSh(committed('claude-code.sh'), {
+    slots: [{ id: 'large', role: 'main', field: 'ANTHROPIC_MODEL', name: 'large', served: gpt }],
+  })
+  const onlyG = JSON.parse(shOnlyG.match(/--settings '(\{.*\})'/)[1]).modelPicker.options
+  check('and with no Claude model to measure against, a committed Claude row, not the GPT id',
+    /^claude-/.test(onlyG[0]?.behavesAs ?? ''), true)
   // The committed file is a new client's: the plain names, each in the picker
   // but the classifier's.
   const ccCommitted = committed('claude-code.sh')
