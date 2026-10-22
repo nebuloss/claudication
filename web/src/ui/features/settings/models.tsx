@@ -59,6 +59,9 @@ function ProviderCard({ report: p, onChanged }: { report: FamilyReport; onChange
       onChanged()
     })
   const names = new Map(p.accounts.map((a) => [a.id, a.name]))
+  // A family no switched-on account serves is not offered, so not shown —
+  // unless it is pinned, which is a choice in force the operator must see.
+  const families = p.families.filter((f) => f.versions.some((v) => v.on.length > 0) || (f.pinned ?? '') !== '')
 
   return (
     <Card title={p.title}>
@@ -85,8 +88,8 @@ function ProviderCard({ report: p, onChanged }: { report: FamilyReport; onChange
           </Note>
         ) : p.by_family ? (
           <>
-            {p.families.length === 0 && <Muted>The connected accounts list no model of a family.</Muted>}
-            {p.families.map((f) => (
+            {families.length === 0 && <Muted>No switched-on account serves a model of a family.</Muted>}
+            {families.map((f) => (
               <FamilyBinding key={f.follows} family={f} names={names} onChanged={onChanged}
                 connected={p.accounts.filter((a) => !a.disabled).map((a) => a.id)} />
             ))}
@@ -126,12 +129,17 @@ function FamilyBinding({
     })
   const options = [
     { value: '', label: 'Latest', hint: f.serving !== '' ? `now ${f.serving}` : 'each account its newest' },
-    ...f.versions.map((v) => ({
-      value: v.model,
-      label: v.title || v.model,
-      hint: v.model,
-      disabled: v.on.length === 0,
-    })),
+    // Only what some switched-on account serves: a version switched off on
+    // every account leaves the menu, and comes back when one switches it on
+    // — the page reads the accounts afresh each time it opens. A pinned one
+    // stays while pinned, marked, so the choice in force is never hidden.
+    ...f.versions
+      .filter((v) => v.on.length > 0 || v.model === pinned)
+      .map((v) => ({
+        value: v.model,
+        label: v.title || v.model,
+        hint: v.on.length > 0 ? v.model : 'no account serves it',
+      })),
   ]
   const pinnedVersion = f.versions.find((v) => v.model === pinned)
   const lacking = pinned !== '' ? connected.filter((id) => !(pinnedVersion?.on ?? []).includes(id)) : []
