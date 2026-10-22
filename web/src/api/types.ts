@@ -582,7 +582,11 @@ export interface InstallFile {
   env?: boolean
   body: string
   merge?: InstallMerge
+  stale?: { windows_path: string; owns: string[] }
 }
+
+/** A wrong place an earlier install wrote to on Windows, as a recipe names it. */
+export type InstallStale = { windowsPath: string; owns: string[] }
 
 /**
  * Folds a file into the client's own config instead of replacing it: JSON

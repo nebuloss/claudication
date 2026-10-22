@@ -249,3 +249,36 @@ func TestPowerShellScriptMerges(t *testing.T) {
 		}
 	}
 }
+
+// A file with a stale place takes the gateway's keys back out of it on
+// Windows, and only those; the stale place is validated like any path.
+func TestPowerShellClearsAStalePlace(t *testing.T) {
+	b := mergeBundle()
+	b.Files[0].Stale = &Stale{WindowsPath: "AppData/Local/crush/crush.json", Owns: []string{"providers.claudication"}}
+	if err := b.Validate(); err != nil {
+		t.Fatalf("a real stale place was refused: %v", err)
+	}
+	ps := PowerShell(b)
+	for _, want := range []string{
+		"function Remove-ClaudicationJson",
+		"function Clear-ClaudicationStale",
+		`Clear-ClaudicationStale 'AppData\Local\crush\crush.json' @('providers.claudication')`,
+	} {
+		if !strings.Contains(ps, want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+	if strings.Contains(Shell(b), "AppData") {
+		t.Error("the Unix script touched a Windows-only stale place")
+	}
+	for _, bad := range []*Stale{
+		{WindowsPath: "../x", Owns: []string{"a"}},
+		{WindowsPath: "AppData/x.json"},
+		{WindowsPath: "AppData/x.json", Owns: []string{"a;b"}},
+	} {
+		b.Files[0].Stale = bad
+		if b.Validate() == nil {
+			t.Errorf("%+v was accepted", *bad)
+		}
+	}
+}

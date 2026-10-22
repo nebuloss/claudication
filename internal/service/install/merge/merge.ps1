@@ -62,6 +62,35 @@ function Merge-ClaudicationJson([string]$path, [string]$new, [string[]]$owned) {
   $true
 }
 
+# Takes what the gateway once wrote out of a JSON file it no longer owns —
+# where an earlier install put it by mistake — and leaves the rest. Returns
+# $true when it removed something. A file that does not parse is left alone.
+function Remove-ClaudicationJson([string]$path, [string[]]$owned) {
+  try {
+    $text = (ConvertFrom-ClaudicationJsonc ([IO.File]::ReadAllText($path))).Trim()
+    if ($text -eq '') { return $false }
+    $cur = $text | ConvertFrom-Json
+  } catch { return $false }
+  if (-not ($cur -is [pscustomobject])) { return $false }
+  $removed = $false
+  foreach ($p in $owned) {
+    $keys = $p.Split('.')
+    $d = $cur
+    for ($i = 0; $i -lt $keys.Count - 1; $i++) {
+      $k = $keys[$i]
+      if ($d -is [pscustomobject] -and ($d.PSObject.Properties.Name -contains $k)) { $d = $d.$k } else { $d = $null; break }
+    }
+    if ($d -is [pscustomobject] -and ($d.PSObject.Properties.Name -contains $keys[-1])) {
+      $d.PSObject.Properties.Remove($keys[-1]); $removed = $true
+    }
+  }
+  if ($removed) {
+    $json = ConvertTo-Json -InputObject $cur -Depth 64
+    [IO.File]::WriteAllText($path, $json + "`n", (New-Object Text.UTF8Encoding $false))
+  }
+  $removed
+}
+
 function Merge-ClaudicationToml([string]$path, [string]$new) {
   $mark = "# >>> claudication: written by the gateway's install command, rewritten on each run"
   $done = '# <<< claudication'

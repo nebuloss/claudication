@@ -142,6 +142,10 @@ export const RECIPES: ClientRecipe[] = [
         install: {
           path: '.config/crush/crush.json',
           merge: { format: 'json', owns: ['providers.claudication', 'models.large', 'models.small'] },
+          // Installs before 2026-10-22 wrote it there on Windows. Only the
+          // provider is taken back: models.large and models.small in that
+          // file are the user's own picks now, which crush reads over ours.
+          stale: { windowsPath: 'AppData/Local/crush/crush.json', owns: ['providers.claudication'] },
         },
       },
     ],

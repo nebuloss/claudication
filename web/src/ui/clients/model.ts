@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react'
-import { type InstallFile, type InstallMerge } from '../../api/client'
+import { type InstallFile, type InstallMerge, type InstallStale } from '../../api/client'
 import { type Lang } from '../primitives/code'
 import { type Setup } from './configs'
 
@@ -57,6 +57,11 @@ export type InstallTarget = {
    * keeps the rest. Absent on a file that is the gateway's alone.
    */
   merge?: InstallMerge
+  /**
+   * Where an earlier install wrote it on Windows by mistake, and what it put
+   * there: the installer takes those keys back out of that file.
+   */
+  stale?: InstallStale
 }
 
 /** What a client type's files need, before any of it is resolved. */
@@ -138,6 +143,7 @@ export class ClientRecipe {
       windows_path: f.install.windowsPath,
       env: f.install.env,
       merge: f.install.merge,
+      stale: f.install.stale && { windows_path: f.install.stale.windowsPath, owns: f.install.stale.owns },
       body: f.body,
     }))
   }

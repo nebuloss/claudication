@@ -76,6 +76,17 @@ type File struct {
 	// Merge, when set, folds the file into the one the client already has
 	// instead of replacing it. Absent for a file that is the gateway's alone.
 	Merge *Merge `json:"merge,omitempty"`
+	// Stale is where an earlier install wrote this file on Windows by mistake,
+	// and what it owned there: the script takes those keys back out of that
+	// file, if they are in it, and leaves the rest. crush's config went to its
+	// data file under AppData, which holds the user's model picks.
+	Stale *Stale `json:"stale,omitempty"`
+}
+
+// Stale is a wrong place an earlier install wrote to, on Windows.
+type Stale struct {
+	WindowsPath string   `json:"windows_path"`
+	Owns        []string `json:"owns"`
 }
 
 // Merge is how a file is folded into a client config that holds more than
@@ -155,6 +166,17 @@ func (b Bundle) Validate() error {
 		paths := []string{f.Path}
 		if f.WindowsPath != "" {
 			paths = append(paths, f.WindowsPath)
+		}
+		if f.Stale != nil {
+			if f.Stale.WindowsPath == "" || len(f.Stale.Owns) == 0 {
+				return fmt.Errorf("%s: a stale place names a path and what to take out of it", f.Path)
+			}
+			for _, o := range f.Stale.Owns {
+				if !ownedPath.MatchString(o) {
+					return fmt.Errorf("%s: %q is not a path of plain names", f.Path, o)
+				}
+			}
+			paths = append(paths, f.Stale.WindowsPath)
 		}
 		for _, p := range paths {
 			if !safePath.MatchString(p) || strings.Contains("/"+p+"/", "/../") || strings.Contains("/"+p+"/", "/./") {
@@ -505,6 +527,22 @@ function Put-ClaudicationFile([string]$rel, [string]$b64) {
 		s.WriteString(`
 # A file that is not there yet is written; one that cannot be read as what it
 # should be is left as it was, with the gateway's version beside it.
+# Takes what an earlier install wrongly wrote to $rel back out of it, keeping
+# a backup; nothing happens when the file is not there or holds none of it.
+function Clear-ClaudicationStale([string]$rel, [string[]]$owned) {
+  $path = Join-Path $HOME $rel
+  if (-not (Test-Path $path)) { return }
+  $copy = "$path.bak.$stamp"
+  Copy-Item $path $copy
+  $removed = $false
+  try { $removed = Remove-ClaudicationJson $path $owned } catch { $removed = $false }
+  if ($removed) {
+    Write-Host "claudication: took what an earlier install put in $path back out (it was $copy)"
+  } else {
+    Remove-Item $copy
+  }
+}
+
 function Merge-ClaudicationFile([string]$rel, [string]$format, [string]$b64, [string[]]$owned) {
   $path = Join-Path $HOME $rel
   $new = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
@@ -553,6 +591,14 @@ function Merge-ClaudicationFile([string]$rel, [string]$format, [string]$b64, [st
 		}
 		fmt.Fprintf(&s, "\n# %s\nMerge-ClaudicationFile %s %s '%s' @(%s)\n", f.Client, rel,
 			psQuote(f.Merge.Format), b64, strings.Join(owns, ", "))
+		if f.Stale != nil {
+			stale := make([]string, len(f.Stale.Owns))
+			for i, p := range f.Stale.Owns {
+				stale[i] = psQuote(p)
+			}
+			fmt.Fprintf(&s, "Clear-ClaudicationStale %s @(%s)\n",
+				psQuote(strings.ReplaceAll(f.Stale.WindowsPath, "/", `\`)), strings.Join(stale, ", "))
+		}
 	}
 	s.WriteString("\nWrite-Host 'claudication: done. Open a new terminal for the variables to apply.'\n")
 	return s.String()
