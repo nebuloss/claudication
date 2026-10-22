@@ -63,7 +63,7 @@ type Change = { model: AccountModel; enabled: boolean }
  * None, and Newest only.
  *
  * A box moves at once, then the server is told; on a failure it moves back
- * and says why. Anything that sets several models — a folded group's box, a
+ * and says why. Anything that sets several models — a group's box, a
  * preset — is the same per-model call, one after another under one busy
  * state: the API takes a model per call, the list is a dozen or two, and a
  * failure stops the rest and puts their boxes back.

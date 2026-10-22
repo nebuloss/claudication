@@ -11,16 +11,15 @@ import { tile } from './surface'
  * — and the mixed group was a switch stuck halfway that looked broken. A
  * checklist is what the list is: which of these are in.
  *
- * One box per visible thing. An open group shows its items, each with its
- * own box, and no box of its own: a box over boxes that are right there says
- * the same thing twice. A folded group shows one tri-state box in the column
- * its items' boxes would take, standing for them. To set a whole group from
- * the keyboard, fold it — Enter on its heading — and the box is the next Tab
- * stop; the list's own All and None do every group at once.
+ * Every group has its tri-state box, open or folded, in the column its items'
+ * boxes take: the hierarchy reads as one column of boxes, each level's
+ * standing for everything under it. Hiding an open group's box (tried, on
+ * the reasoning that its items' boxes were right there) left holes in that
+ * column and made a group's state something to work out rather than see.
  *
  * The geometry is a step of 1.5rem per level: a group's chevron sits in the
- * step, its box (when folded) in the 2rem after it, its name after that. An
- * item one level down puts its box in that same 2rem, so a family's folded
+ * step, its box in the 2rem after it, its name after that. An
+ * item one level down puts its box in that same 2rem, so a family's
  * box and its models' boxes share a column, and a model's name starts where
  * its family's does: the hierarchy is told by the outdented chevron and the
  * heading's weight, not by more controls.
@@ -74,7 +73,7 @@ export function TreeGroup({
    */
   onToggle?: () => void
   state: 'on' | 'off' | 'mixed'
-  /** The folded group's box: every item in it in, or every one out. */
+  /** The group's box: every item in it in, or every one out. */
   onSet: (on: boolean) => void
   disabled?: boolean
   level?: 0 | 1
@@ -117,19 +116,17 @@ export function TreeGroup({
         ) : (
           <div className="col-span-full row-start-1 flex h-9 min-w-0 items-center pl-6">{name}</div>
         )}
-        {!open && (
-          <span className="relative z-10 col-start-2 row-start-1 grid place-items-center">
-            <Checkbox
-              dense
-              quiet
-              label={`All of ${title}`}
-              checked={state === 'on'}
-              indeterminate={state === 'mixed'}
-              onChange={onSet}
-              disabled={disabled}
-            />
-          </span>
-        )}
+        <span className="relative z-10 col-start-2 row-start-1 grid place-items-center">
+          <Checkbox
+            dense
+            quiet
+            label={`All of ${title}`}
+            checked={state === 'on'}
+            indeterminate={state === 'mixed'}
+            onChange={onSet}
+            disabled={disabled}
+          />
+        </span>
       </div>
       {open && <ul className="m-0 list-none p-0">{children}</ul>}
     </li>
