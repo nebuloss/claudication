@@ -300,7 +300,7 @@ count against the client's rate limit.
 | Tool | Tier | What it does |
 |---|---|---|
 | `status` | read | The gateway switch, this client's limits and what it used of them, its open requests, its share of each provider's 5-hour and 7-day windows |
-| `list_models` | read | What its names may be bound to now — each follow target with what it serves, each model with its window, output cap, effort levels — from the same rule as the page's menu |
+| `list_models` | read | What its names may be bound to now — each model once, with its window, output cap, effort levels, and under `follow` the targets that serve it today — from the same rule as the page's menu |
 | `client` | read | Its type, API and mode, each name with its binding and what serves it now (or why nothing can), whether it takes names of its own |
 | `chats` | read | Its chats of the last week, most recent first: id, title, last activity |
 | `name_chat` | read | Sets a chat's title, as an operator's rename does (below) |

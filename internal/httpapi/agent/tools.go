@@ -30,7 +30,7 @@ const manageNeeded = "Needs the client's \"Agent may manage this client\" switch
 
 // bindingSchema is a binding's two forms, as a tool takes them.
 const bindingProps = `"model": {"type": "string", "description": "A real model id from list_models, e.g. claude-opus-5-5 or gpt-5.5. Give this or follows, not both."},
-    "follows": {"type": "string", "description": "A moving target from list_models that follows the newest model of a kind, e.g. claude:opus, claude:sonnet, openai:first. Give this or model, not both."}`
+    "follows": {"type": "string", "description": "A moving target, from a model's follow in list_models, that follows the newest model of a kind, e.g. claude:opus, claude:sonnet, openai:first. Give this or model, not both."}`
 
 func (a *Agent) tools() []mcp.Tool {
 	return []mcp.Tool{
@@ -46,11 +46,12 @@ func (a *Agent) tools() []mcp.Tool {
 		},
 		{
 			Name: "list_models", Title: "Models this client may use", ReadOnly: true,
-			Description: "What this client's model names may be bound to now: each moving target (the newest Claude " +
-				"Opus, Sonnet..., ChatGPT's first-ranked) with the model it serves today, then each real model, with " +
-				"its context window, output limit, effort levels and whether it takes images. Only what an account " +
-				"connected to the gateway serves now is listed, so anything here is a valid model or follows for " +
-				"bind_model and add_model. Changes nothing.",
+			Description: "What this client's model names may be bound to now: each real model once, with its " +
+				"context window, output limit, effort levels and whether it takes images, and under follow the " +
+				"moving targets that serve it today (claude:opus for the newest Claude Opus, openai:first for " +
+				"ChatGPT's first-ranked...). Only what an account connected to the gateway serves now is listed, " +
+				"so any model here is a valid model, and any follow a valid follows, for bind_model and add_model. " +
+				"Changes nothing.",
 			InputSchema: json.RawMessage(`{"type": "object", "properties": {}, "additionalProperties": false}`),
 			Call:        a.listModels,
 		},
@@ -273,42 +274,38 @@ func (a *Agent) listModels(ctx context.Context, _ json.RawMessage) (any, error) 
 		return nil, err
 	}
 	known := a.factsByID(ctx)
+	// Each model once, with the targets that serve it now under "follow":
+	// listing the targets beside the models named every followed model
+	// twice, as the admin page's menu did (internal/service/models,
+	// Choice.FollowedBy).
 	type entry struct {
-		Model    string         `json:"model,omitempty"`
-		Follows  clients.Follow `json:"follows,omitempty"`
-		Title    string         `json:"title"`
-		Serving  string         `json:"serving"`
-		Provider string         `json:"provider"`
+		Model    string           `json:"model"`
+		Title    string           `json:"title"`
+		Provider string           `json:"provider"`
+		Follow   []clients.Follow `json:"follow,omitempty"`
 		facts
 	}
-	var targets, models []entry
 	choices := a.d.Models.Choices(ctx)
 	if c.Mode == clients.Direct {
 		choices = a.d.Models.Available(ctx)
 	}
+	models := []entry{}
 	for _, ch := range choices {
-		e := entry{Model: ch.Model, Follows: ch.Follows, Title: ch.Title, Serving: ch.Serving,
-			Provider: clients.ProviderTitle(ch.Provider), facts: known[store.ModelKey(ch.Serving)]}
-		if ch.Follows != "" {
-			targets = append(targets, e)
-		} else {
-			models = append(models, e)
+		e := entry{Model: ch.Model, Title: ch.Title, Provider: clients.ProviderTitle(ch.Provider),
+			facts: known[store.ModelKey(ch.Serving)]}
+		for _, t := range ch.FollowedBy {
+			e.Follow = append(e.Follow, t.Follows)
 		}
+		models = append(models, e)
 	}
-	out := map[string]any{"follow_targets": orEmpty(targets), "models": orEmpty(models)}
+	out := map[string]any{"models": models}
 	if c.Mode == clients.Direct {
 		out["note"] = "This client names real models: it asks for any of these ids by itself, and has no names to bind."
 	} else {
-		out["note"] = "Bind a name with bind_model to a model (its id) or a follow target (its follows). " + perChat
+		out["note"] = "Bind a name with bind_model to a model (its id) to keep it on that model, or to one of the " +
+			"model's follow targets (as follows) to serve it now and move on to each newer release. " + perChat
 	}
 	return out, nil
-}
-
-func orEmpty[T any](list []T) []T {
-	if list == nil {
-		return []T{}
-	}
-	return list
 }
 
 func (a *Agent) client(ctx context.Context, _ json.RawMessage) (any, error) {

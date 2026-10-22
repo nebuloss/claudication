@@ -5,6 +5,7 @@ import {
   Actions,
   Button,
   Card,
+  Checkbox,
   Chip,
   ErrorBanner,
   Field,
@@ -16,7 +17,7 @@ import {
   Stack,
   Tile,
 } from '../../primitives'
-import { Binding, bindingOptions, providerTitle, type Client } from '../../clients/specs'
+import { Binding, BindingMenu, providerTitle, type Client } from '../../clients/specs'
 
 /**
  * The client's model names: one per model setting its configuration has,
@@ -25,9 +26,10 @@ import { Binding, bindingOptions, providerTitle, type Client } from '../../clien
  * here and nothing else: both APIs reach both providers.
  *
  * The menus offer only what the server says is available to this client now
- * (its `choices`): listed by a connected account, and on there. A binding
- * that has since become unavailable is kept and shown, with why, until it is
- * replaced.
+ * (its `choices`): listed by a connected account, and on there, each model
+ * once. Following the newest of a kind is the checkbox beside the menu, not
+ * an entry of its own (BindingMenu). A binding that has since become
+ * unavailable is kept and shown, with why, until it is replaced.
  */
 export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
   const choices = c.wire.choices ?? []
@@ -48,7 +50,8 @@ export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged:
       info={
         <p>
           A name is this client&rsquo;s alone: another client may have one by the same name, bound to something
-          else. Following a target serves the newest model of its kind as accounts list it.
+          else. When the model picked is the newest of its kind, the box beside it keeps the name on the newest
+          as accounts list new releases.
         </p>
       }
     >
@@ -57,7 +60,7 @@ export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged:
           <Note tone="warn">
             {c.unavailable.map((s) => s.name).join(', ')} {c.unavailable.length === 1 ? 'is' : 'are'} bound to
             something this client cannot be served now, and {c.unavailable.length === 1 ? 'is' : 'are'} left out
-            of its model list. Pick an available model or target to serve {c.unavailable.length === 1 ? 'it' : 'them'}.
+            of its model list. Pick an available model to serve {c.unavailable.length === 1 ? 'it' : 'them'}.
           </Note>
         )}
         {choices.length === 0 && (
@@ -99,7 +102,7 @@ function SlotRow({
     })
   // The current binding is always in the menu, so it says what the slot is
   // bound to — marked, and not choosable, once it is no longer available.
-  const all = bindingOptions(choices, s)
+  const menu = new BindingMenu(choices, binding, s)
   const unavailable = s.unavailable ?? ''
 
   return (
@@ -119,8 +122,9 @@ function SlotRow({
               Rename
             </Button>
           )}
-          <Select label="Serves" value={binding.value} options={all} onChange={(v) => void save(Binding.parse(v))}
+          <Select label="Serves" value={menu.value} options={menu.options} onChange={(v) => void save(menu.pick(v))}
             disabled={busy !== ''} />
+          <FollowBox menu={menu} disabled={busy !== ''} onChange={(b) => void save(b)} />
           {s.removable && (
             <IconButton label={`Remove ${s.name}`} onClick={() => void remove()}>
               <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
@@ -184,14 +188,16 @@ function AddSlotDialog({
   onClose: () => void
   onAdded: () => void
 }) {
-  const options = bindingOptions(choices)
   const [name, setName] = useState('')
-  const [serves, setServes] = useState(options[0]?.value ?? '')
+  // A new name starts following, as the server's own default does: shown as
+  // the model it serves now with the box checked.
+  const [serves, setServes] = useState(() => BindingMenu.initial(choices))
+  const menu = new BindingMenu(choices, serves)
   const { busy, error, run } = useAction()
-  const ready = name.trim() !== '' && serves !== ''
+  const ready = name.trim() !== '' && (serves.model !== '' || serves.follows !== '')
   const add = () =>
     run('add', async () => {
-      await api.clients.addSlot(c.id, name.trim(), Binding.parse(serves).body)
+      await api.clients.addSlot(c.id, name.trim(), serves.body)
       onAdded()
     })
   return (
@@ -208,7 +214,10 @@ function AddSlotDialog({
             changed later, like any other name&rsquo;s.
           </Muted>
           <Field label="Model name" value={name} onChange={setName} mono autoFocus />
-          <Select label="Serves" value={serves} options={options} onChange={setServes} />
+          <div className="flex flex-col gap-1">
+            <Select label="Serves" value={menu.value} options={menu.options} onChange={(v) => setServes(menu.pick(v))} />
+            <FollowBox menu={menu} onChange={setServes} />
+          </div>
           <ErrorBanner error={error} />
           <Actions>
             <Button type="submit" busy={busy === 'add'} disabled={!ready}>
@@ -221,5 +230,33 @@ function AddSlotDialog({
         </Stack>
       </form>
     </Modal>
+  )
+}
+
+/**
+ * The checkbox beside a binding menu, when a target resolves to the model
+ * picked: checked, the name follows the target and moves with the next
+ * release; unchecked, it stays on this model. Nothing at all for a model no
+ * target serves now, so the box never offers what it could not do.
+ */
+function FollowBox({
+  menu,
+  onChange,
+  disabled,
+}: {
+  menu: BindingMenu
+  onChange: (b: Binding) => void
+  disabled?: boolean
+}) {
+  const f = menu.follow
+  if (f === undefined) return null
+  return (
+    <Checkbox
+      checked={f.checked}
+      label={f.label}
+      disabled={disabled}
+      title={`${f.title}: serves this model now, and moves to each newer one as accounts list it`}
+      onChange={(on) => onChange(menu.setFollow(on))}
+    />
   )
 }

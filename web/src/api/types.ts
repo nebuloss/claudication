@@ -661,6 +661,8 @@ export interface BindingChoice {
   title: string
   serving: string
   provider: string
+  /** The targets that resolve to this model now: following one serves it today and the next release after. */
+  followed_by?: { follows: string; title: string }[]
 }
 
 /** One of a client's slots, resolved. */

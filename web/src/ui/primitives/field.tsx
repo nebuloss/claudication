@@ -284,6 +284,57 @@ export function Switch({
 }
 
 /**
+ * MD3 checkbox: an option qualifying the control beside it, where a Switch
+ * would read as a setting of its own — "and follow new releases" of the
+ * model a menu has picked.
+ *
+ * A real input, drawn over: the keyboard, the label's click and a screen
+ * reader's checkbox come with it. The 40px round state layer is MD3's touch
+ * target, so the 18px box is not the only thing a pointer can hit.
+ */
+export function Checkbox({
+  checked,
+  onChange,
+  label,
+  disabled,
+  title,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  label: string
+  disabled?: boolean
+  /** Said on hover: what checking it does, where the label has no room. */
+  title?: string
+}) {
+  return (
+    <label
+      title={title}
+      className={`inline-flex items-center gap-1 pr-2 text-sm text-on-surface select-none ${
+        disabled === true ? 'cursor-default opacity-40' : 'cursor-pointer'
+      }`}
+    >
+      <span className="state-layer relative grid size-10 shrink-0 place-items-center rounded-md3-full">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          className="peer size-[18px] cursor-[inherit] appearance-none rounded-[2px] border-2 border-on-surface-variant transition-colors checked:border-primary checked:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        />
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden
+          className="pointer-events-none absolute hidden size-[14px] fill-on-primary peer-checked:block"
+        >
+          <path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+        </svg>
+      </span>
+      {label}
+    </label>
+  )
+}
+
+/**
  * One setting that is a switch, in its own tile: the switch, what it does, and
  * whatever has to stay on the page under it — a cost, where it is published.
  *

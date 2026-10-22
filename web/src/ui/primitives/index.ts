@@ -14,7 +14,7 @@ export { ConfirmDialog, ConfirmProvider, useConfirm, type ConfirmRequest } from 
 export { CONCEAL, CopyButton, CopyField, RevealButton, copyText, saveAs, useCopy } from './copy'
 export { Chip, Figure, Figures, InputChip, KeyValue, Overline, Stat, StatGrid } from './data'
 export { Banner, Empty, ErrorBanner, ErrorState, Freshness, Loading, Muted, Verbatim } from './feedback'
-export { Field, Select, SettingSwitch, StepSlider, Switch, outlinedField } from './field'
+export { Checkbox, Field, Select, SettingSwitch, StepSlider, Switch, outlinedField } from './field'
 export type { SelectOption } from './field'
 export { Help, InfoTip, Note } from './info'
 export { AppLink, InlineLink, appLinkClass, follow, isPlainLeftClick, openRow, rowClick } from './link'

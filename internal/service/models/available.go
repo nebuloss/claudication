@@ -51,25 +51,49 @@ type Choice struct {
 	// the target resolves to — and Provider whose accounts serve it.
 	Serving  string `json:"serving"`
 	Provider string `json:"provider"`
+	// FollowedBy are the targets that resolve to this model now, in
+	// Choices only. A target is not a choice of its own beside the model
+	// it serves: the owner (2026-10-22) found the menu listing "Newest
+	// Claude Opus — now claude-opus-5-5" and claude-opus-5-5 as one model
+	// twice. Following is a property of picking the model instead — a
+	// slot bound to one of these serves the same model today, and moves on
+	// with the next release.
+	FollowedBy []Target `json:"followed_by,omitempty"`
 }
 
-// Choices are everything a slot can be bound to now: each target that
-// resolves to an available model, then each available model, provider by
-// provider in the gateway's order. Nothing unavailable is in it.
+// Target is a follow target, as a model it resolves to carries it.
+type Target struct {
+	Follows clients.Follow `json:"follows"`
+	Title   string         `json:"title"`
+}
+
+// Choices are everything a slot can be bound to now: each available model,
+// provider by provider in the gateway's order, once, with the targets that
+// resolve to it. Nothing unavailable is in it.
+//
+// A target that resolves is always on a model here: it resolves only to a
+// model an account lists and can serve (Resolve), which is what Available
+// lists — so no target is left without a model to ride on.
 func (s *Catalog) Choices(ctx context.Context) []Choice {
-	s.refreshFamilies(ctx)
-	out := []Choice{}
+	out := s.Available(ctx)
 	var targets []clients.Follow
 	for _, f := range s.Families(ctx) {
 		targets = append(targets, clients.ClaudeFollow(f))
 	}
 	targets = append(targets, clients.FollowFirst, clients.FollowLight)
 	for _, f := range targets {
-		if c, why := s.Resolve(ctx, store.Binding{Follows: f}); why == "" {
-			out = append(out, c)
+		c, why := s.Resolve(ctx, store.Binding{Follows: f})
+		if why != "" {
+			continue
+		}
+		for i := range out {
+			if out[i].Provider == c.Provider && store.ModelKey(out[i].Model) == store.ModelKey(c.Serving) {
+				out[i].FollowedBy = append(out[i].FollowedBy, Target{Follows: f, Title: c.Title})
+				break
+			}
 		}
 	}
-	return append(out, s.Available(ctx)...)
+	return out
 }
 
 // Available are the real models a client can be served now, each as a

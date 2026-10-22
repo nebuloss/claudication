@@ -283,25 +283,56 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
 
 console.log('\n— client specs: a slot\'s binding is one menu value —')
 {
-  const { Binding, bindingOptions } = await import(`${OUT}/clients/specs.js`)
+  const { Binding, BindingMenu, followLabel } = await import(`${OUT}/clients/specs.js`)
   check('a model round-trips', Binding.parse(Binding.model('claude-opus-5-5').value).body, { model: 'claude-opus-5-5' })
   check('a target too', Binding.parse(Binding.follow('claude:opus').value).body, { follows: 'claude:opus' })
   check('a model id with a colon survives', Binding.parse('model:a:b').model, 'a:b')
   check('a slot reads as its binding', Binding.of({ model: '', bound: 'openai:first' }).value, 'follow:openai:first')
+  const opus = { follows: 'claude:opus', title: 'Newest Claude Opus' }
   const choices = [
-    { follows: 'claude:opus', title: 'Newest Claude Opus', serving: 'claude-opus-5-5', provider: 'anthropic' },
-    { model: 'claude-opus-5-5', title: 'Claude Opus 5.5', serving: 'claude-opus-5-5', provider: 'anthropic' },
-    { model: 'gpt-5.5', title: 'GPT-5.5', serving: 'gpt-5.5', provider: 'openai' },
+    { model: 'claude-opus-5-5', title: 'Claude Opus 5.5', serving: 'claude-opus-5-5', provider: 'anthropic', followed_by: [opus] },
+    { model: 'claude-opus-5', title: 'Claude Opus 5', serving: 'claude-opus-5', provider: 'anthropic' },
+    { model: 'gpt-5.5', title: 'GPT-5.5', serving: 'gpt-5.5', provider: 'openai',
+      followed_by: [{ follows: 'openai:first', title: 'ChatGPT\'s first-ranked model' }] },
   ]
-  const opts = bindingOptions(choices)
-  check('the server\'s choices, targets first, then each provider\'s models', opts.map((o) => [o.group, o.value]), [
-    ['Follow the newest', 'follow:claude:opus'], ['Claude', 'model:claude-opus-5-5'], ['ChatGPT', 'model:gpt-5.5'],
+  const at = (b, slot) => new BindingMenu(choices, b, slot)
+  const plain = at(Binding.model('claude-opus-5'))
+  check('each model once, by provider, by name with its id as the hint', plain.options.map((o) => [o.group, o.value, o.label, o.hint]), [
+    ['Claude', 'model:claude-opus-5-5', 'Claude Opus 5.5', 'claude-opus-5-5'],
+    ['Claude', 'model:claude-opus-5', 'Claude Opus 5', 'claude-opus-5'],
+    ['ChatGPT', 'model:gpt-5.5', 'GPT-5.5', 'gpt-5.5'],
   ])
-  check('a target says what it serves now', opts[0].hint, 'now claude-opus-5-5')
-  check('a current binding that is a choice adds nothing', bindingOptions(choices, { model: 'gpt-5.5', title: 'GPT-5.5' }).length, 3)
-  const kept = bindingOptions(choices, { model: 'claude-haiku-4-5', title: 'claude-haiku-4-5', unavailable: 'no connected account lists it' })
-  check('an unavailable binding stays visible, first, marked and not choosable', [kept.length, kept[0].value, kept[0].disabled, kept[0].hint],
-    [4, 'model:claude-haiku-4-5', true, 'unavailable: no connected account lists it'])
+  check('no target is an entry of its own', plain.options.some((o) => o.value.startsWith('follow:')), false)
+  check('a model no target serves has no checkbox', plain.follow, undefined)
+
+  const following = at(Binding.follow('claude:opus'), { title: 'Newest Claude Opus', serving: 'claude-opus-5-5' })
+  check('a slot following shows the model it resolves to, the box checked', [following.value, following.follow?.checked, following.follow?.follows],
+    ['model:claude-opus-5-5', true, 'claude:opus'])
+  check('and the menu still lists each model once', following.options.length, 3)
+  check('unchecking binds the model it serves now', following.setFollow(false).body, { model: 'claude-opus-5-5' })
+  const fixed = at(Binding.model('claude-opus-5-5'))
+  check('the same model bound as itself: the box offered, unchecked', [fixed.value, fixed.follow?.checked, fixed.follow?.label],
+    ['model:claude-opus-5-5', false, 'Follow new Opus releases'])
+  check('checking binds the target', fixed.setFollow(true).body, { follows: 'claude:opus' })
+  check('picking another model while following follows its target', following.pick('model:gpt-5.5').body, { follows: 'openai:first' })
+  check('or binds it as itself when no target serves it', following.pick('model:claude-opus-5').body, { model: 'claude-opus-5' })
+  check('picking while not following binds the model', fixed.pick('model:gpt-5.5').body, { model: 'gpt-5.5' })
+  check('ChatGPT\'s targets are worded by what they follow', [followLabel('openai:first'), followLabel('openai:light')],
+    ["Follow ChatGPT's top model", "Follow ChatGPT's light model"])
+
+  const kept = at(Binding.model('claude-haiku-4-5'), { title: 'claude-haiku-4-5', serving: 'claude-haiku-4-5', unavailable: 'no connected account lists it' })
+  check('an unavailable binding stays visible, first, marked and not choosable, with no checkbox',
+    [kept.options.length, kept.value, kept.options[0].value, kept.options[0].disabled, kept.options[0].hint, kept.follow],
+    [4, 'model:claude-haiku-4-5', 'model:claude-haiku-4-5', true, 'unavailable: no connected account lists it', undefined])
+  const lost = at(Binding.follow('claude:sonnet'), { title: 'Newest Claude Sonnet', serving: 'claude:sonnet', unavailable: 'no account lists a Claude sonnet' })
+  check('an unresolved target too', [lost.value, lost.options[0].label, lost.options[0].disabled, lost.follow],
+    ['follow:claude:sonnet', 'Newest Claude Sonnet', true, undefined])
+
+  check('a new name follows the newest Opus', BindingMenu.initial(choices).body, { follows: 'claude:opus' })
+  check('or the first target there is', BindingMenu.initial(choices.slice(1)).body, { follows: 'openai:first' })
+  check('or the first model', BindingMenu.initial([choices[1]]).body, { model: 'claude-opus-5' })
+  const fresh = at(BindingMenu.initial(choices))
+  check('shown as the model it serves, the box checked', [fresh.value, fresh.follow?.checked], ['model:claude-opus-5-5', true])
 }
 
 console.log('\n— model tests: a few at a time, each result as it lands —')

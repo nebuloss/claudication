@@ -31,7 +31,8 @@ func accountOf(t *testing.T, st *store.Store, provider string) string {
 	return ""
 }
 
-// choiceValues is a menu as values: model:<id> or follow:<target>=<serving>.
+// choiceValues is a menu as values: model:<id> for each model, then
+// follow:<target>=<id> for each target riding on it.
 func choiceValues(cs []modelsvc.Choice) []string {
 	out := make([]string, 0, len(cs))
 	for _, c := range cs {
@@ -39,6 +40,9 @@ func choiceValues(cs []modelsvc.Choice) []string {
 			out = append(out, "model:"+c.Model)
 		} else {
 			out = append(out, "follow:"+string(c.Follows)+"="+c.Serving)
+		}
+		for _, f := range c.FollowedBy {
+			out = append(out, "follow:"+string(f.Follows)+"="+c.Model)
 		}
 	}
 	return out
@@ -53,9 +57,24 @@ func TestAvailability(t *testing.T) {
 	ctx := context.Background()
 	m := srv.models
 
-	choices := choiceValues(m.Choices(ctx))
-	if !slices.Equal(choices[:2], []string{"follow:claude:sonnet=claude-sonnet-5", "follow:claude:haiku=claude-haiku-5"}) {
-		t.Errorf("choices = %v, want the Claude targets first", choices)
+	// Each model once, and no target a choice of its own: a target rides on
+	// the model it serves now, so the menu does not name that model twice.
+	all := m.Choices(ctx)
+	seen := map[string]bool{}
+	for _, c := range all {
+		if c.Model == "" || seen[c.Model] {
+			t.Errorf("a choice that is a target, or a model twice: %+v", c)
+		}
+		seen[c.Model] = true
+	}
+	choices := choiceValues(all)
+	if !slices.Equal(choices[:4], []string{"model:claude-sonnet-5", "follow:claude:sonnet=claude-sonnet-5",
+		"model:claude-haiku-5", "follow:claude:haiku=claude-haiku-5"}) {
+		t.Errorf("choices = %v, want the Claude models first, each with its target", choices)
+	}
+	if sol := all[slices.IndexFunc(all, func(c modelsvc.Choice) bool { return c.Model == "gpt-6.1-sol" })]; len(sol.FollowedBy) != 1 ||
+		sol.FollowedBy[0] != (modelsvc.Target{Follows: clients.FollowFirst, Title: "ChatGPT's first-ranked model"}) {
+		t.Errorf("gpt-6.1-sol is followed by %+v, want openai:first alone", sol.FollowedBy)
 	}
 	for _, v := range []string{"follow:openai:first=gpt-6.1-sol", "follow:openai:light=gpt-6-luna",
 		"model:claude-sonnet-5", "model:claude-haiku-5", "model:gpt-6.1-sol"} {

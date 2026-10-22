@@ -139,12 +139,28 @@ func TestMCPHandshakeAndTools(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if !strings.Contains(text, `"follows": "claude:sonnet"`) || !strings.Contains(text, `"model": "gpt-6.1-sol"`) ||
-		strings.Contains(text, "claude:opus") {
+	if !strings.Contains(text, `"model": "gpt-6.1-sol"`) || strings.Contains(text, "claude:opus") {
 		t.Errorf("list_models is not the client's choices:\n%s", text)
 	}
-	if sc["models"] == nil {
-		t.Errorf("list_models: %v", sc)
+	// Each model once, a target only under the model it serves now.
+	if sc["follow_targets"] != nil {
+		t.Errorf("list_models still lists the targets apart: %v", sc)
+	}
+	listed := map[string]bool{}
+	var sonnet map[string]any
+	for _, e := range sc["models"].([]any) {
+		m := e.(map[string]any)
+		id, _ := m["model"].(string)
+		if id == "" || listed[id] {
+			t.Errorf("list_models: a model twice, or an entry with none: %v", m)
+		}
+		listed[id] = true
+		if id == "claude-sonnet-5" {
+			sonnet = m
+		}
+	}
+	if f, _ := sonnet["follow"].([]any); len(f) != 1 || f[0] != "claude:sonnet" {
+		t.Errorf("claude-sonnet-5 in list_models: %v, want follow [claude:sonnet]", sonnet)
 	}
 	sc, text, isErr = cl.tool("status", `{}`)
 	if isErr || sc["gateway"].(map[string]any)["accepting"] != true || sc["limits"] == nil {
