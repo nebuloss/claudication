@@ -139,7 +139,13 @@ function FamilyBinding({
   // pinned, it offers the versions. Unchecking pins what is served now, so
   // the switch changes nothing until another version is chosen.
   const options = latest
-    ? [{ value: '', label: f.serving || 'no account serves it' }]
+    ? [
+        {
+          value: '',
+          label: f.versions.find((v) => v.model === f.serving)?.title || f.serving || 'no account serves it',
+          hint: f.serving,
+        },
+      ]
     : served.map((v) => ({
         value: v.model,
         label: v.title || v.model,
