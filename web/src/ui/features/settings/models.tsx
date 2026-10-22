@@ -7,6 +7,7 @@ import {
   Chip,
   ErrorBanner,
   ErrorState,
+  Field,
   InlineLink,
   Loading,
   Muted,
@@ -147,7 +148,6 @@ function FamilyBinding({
   return (
     <BindingRow
       title={f.title}
-      hint={<code>{f.id}</code>}
       status={
         <>
           {f.serving !== '' ? (
@@ -167,6 +167,7 @@ function FamilyBinding({
       }
       error={error}
     >
+      <Field label="Model name" value={f.id} mono readOnly />
       <Select label="Serves" value={pinned} options={options} disabled={busy !== ''} onChange={(v) => void set(v)} />
     </BindingRow>
   )

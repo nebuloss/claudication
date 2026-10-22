@@ -37,10 +37,12 @@ export function Field({
   mono,
   autoComplete = 'off',
   grow = false,
+  readOnly = false,
 }: {
   label: string
   value: string
-  onChange: (v: string) => void
+  /** Left out with readOnly: a value shown in the field it would be edited in. */
+  onChange?: (v: string) => void
   type?: string
   autoFocus?: boolean
   mono?: boolean
@@ -48,6 +50,11 @@ export function Field({
   autoComplete?: string
   /** Takes the room left in a row of controls, wrapping under them below 16rem. */
   grow?: boolean
+  /**
+   * A name that is not this page's to change — a family's — drawn in the
+   * field beside its menu, so the row reads as an editable one does.
+   */
+  readOnly?: boolean
 }) {
   return (
     <label className={`block ${grow ? 'min-w-0 flex-1 basis-64' : ''}`}>
@@ -59,7 +66,8 @@ export function Field({
           placeholder=" "
           spellCheck={false}
           autoComplete={autoComplete}
-          onChange={(e) => onChange(e.target.value)}
+          readOnly={readOnly}
+          onChange={(e) => onChange?.(e.target.value)}
           className={`peer ${outlinedField(false, type === 'password' ? 'dots' : 'label')} text-base ${
             mono ? 'font-mono text-sm' : ''
           } ${type === 'password' ? 'tracking-[0.15em]' : ''}`}
