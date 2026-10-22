@@ -204,6 +204,12 @@ function FittedIncidents({ report, limit }: { report: StatusReport; limit: numbe
           <IncidentRow key={i.start} incident={i} now={report.generated} cut={n >= fits} />
         ))}
       </ul>
+      {/* Not one row fits: a line of text does, so the card is not empty. */}
+      {fits === 0 && (
+        <p className="absolute inset-x-0 top-0 truncate text-sm text-on-surface-variant">
+          {report.incidents.length} in 90 days, the latest {whenFormat.format(report.incidents[0].start)} UTC
+        </p>
+      )}
     </div>
   )
 }
