@@ -669,6 +669,9 @@ export interface BindingChoice {
   provider: string
   /** A family's versions some account would serve it with now, newest first. */
   versions?: string[]
+  /** Available, but every account that would serve it is at its limit; `back` when one has room. */
+  limited?: boolean
+  back?: string
 }
 
 /** One provider's families, as the Models settings page shows them (internal/service/models, Report). */
@@ -727,6 +730,9 @@ export interface SlotWire extends SlotSpec {
   provider?: string
   /** Why the binding is not available to this client now; absent when it is. */
   unavailable?: string
+  /** Available, but every account that would serve it is at its limit; `back` when one has room. */
+  limited?: boolean
+  back?: string
   /** One of the operator's own, which can be taken away; a type's own slots stay. */
   removable: boolean
 }

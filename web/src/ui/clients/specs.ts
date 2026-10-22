@@ -181,10 +181,15 @@ export class BindingMenu {
         ? {
             value: Binding.follow(c.follows ?? '').value,
             label: familyLabel(c.family ?? c.title, c.serving),
-            hint: servedHint(c),
+            hint: limitedHint(c, servedHint(c)),
             group: providerTitle(c.provider),
           }
-        : { value: Binding.model(c.model ?? '').value, label: c.title || (c.model ?? ''), hint: c.model, group: providerTitle(c.provider) },
+        : {
+            value: Binding.model(c.model ?? '').value,
+            label: c.title || (c.model ?? ''),
+            hint: limitedHint(c, c.model ?? ''),
+            group: providerTitle(c.provider),
+          },
     )
     this.value = binding.value
     if (current !== undefined && !this.options.some((o) => o.value === binding.value)) {
@@ -224,6 +229,11 @@ export class BindingMenu {
  */
 export function familyLabel(family: string, serving: string): string {
   return serving !== '' && serving !== family ? `${family} (${serving})` : family
+}
+
+/** A choice whose every account is at its limit says so first, so it is not picked to get going again. */
+function limitedHint(c: BindingChoice, hint: string): string {
+  return c.limited === true ? (hint !== '' ? `limit reached · ${hint}` : 'limit reached') : hint
 }
 
 /** What a family's entry says under its name: the other versions an account without the newest serves. */

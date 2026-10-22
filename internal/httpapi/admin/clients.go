@@ -83,6 +83,10 @@ type SlotJSON struct {
 	// is empty when it is. Such a binding is kept and shown, and replaced only
 	// by one of Choices.
 	Unavailable string `json:"unavailable,omitempty"`
+	// Limited is a binding that is available but whose every account has
+	// reached its limit, Back when the first has room (modelsvc.Choice).
+	Limited bool      `json:"limited,omitempty"`
+	Back    time.Time `json:"back,omitzero"`
 	// Removable is a slot the operator may take away: one of their own, on a
 	// type that has them (clients.Type, Removable). Said here so the page
 	// does not decide it a second time.
@@ -113,7 +117,7 @@ func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) Cli
 		}
 		b, why := s.models.Resolve(ctx, c.ModelsOff, store.Binding{Model: sl.Model, Follows: sl.Follows})
 		out.Slots = append(out.Slots, SlotJSON{Slot: spec, Name: sl.Name, Model: sl.Model, Bound: sl.Follows,
-			Title: b.Title, Family: b.Family, Serving: b.Serving, Provider: b.Provider, Unavailable: why,
+			Title: b.Title, Family: b.Family, Serving: b.Serving, Provider: b.Provider, Unavailable: why, Limited: b.Limited, Back: b.Back,
 			Removable: t.Removable(sl.Slot)})
 	}
 	return out

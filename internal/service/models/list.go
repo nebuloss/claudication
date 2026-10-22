@@ -51,6 +51,7 @@ type Store interface {
 type Pool interface {
 	AccessToken(ctx context.Context, id string) (string, error)
 	Offers(ctx context.Context, provider, model string) bool
+	Limited(ctx context.Context, provider, model string) (bool, time.Time)
 	Candidates(ctx context.Context, provider string) ([]store.Account, error)
 }
 

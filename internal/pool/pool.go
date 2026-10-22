@@ -308,6 +308,68 @@ func (p *Pool) Offers(ctx context.Context, provider, model string) bool {
 	return len(candidatesFor(accounts, provider, model, nil, p.now())) > 0
 }
 
+// Limited reports whether every account that would serve model is sidelined
+// now — cooling down after a refusal, or out of room by its quota — and when
+// the first of them is back, zero when none said. It is not a refusal: pick
+// still serves from such an account rather than none (its second and third
+// passes), so this is what the admin page warns of, that requests will be
+// refused upstream until then, and never what decides availability. False
+// when no account would serve it at all: that is Offers' answer.
+func (p *Pool) Limited(ctx context.Context, provider, model string) (bool, time.Time) {
+	accounts, err := p.store.ListAccounts(ctx)
+	if err != nil {
+		return false, time.Time{}
+	}
+	now := p.now()
+	candidates := candidatesFor(accounts, provider, model, nil, now)
+	if v, ok := versionsOf(ctx); ok {
+		candidates, _ = byVersion(candidatesFor(accounts, provider, "", nil, now), v)
+	}
+	return p.limited(candidates)
+}
+
+// limited is Limited over candidates already chosen.
+func (p *Pool) limited(candidates []store.Account) (bool, time.Time) {
+	if len(candidates) == 0 {
+		return false, time.Time{}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.now()
+	var back time.Time
+	for _, a := range candidates {
+		cool := p.stateOf(a.ID).cooldownUntil
+		if !cool.After(now) && !outOfRoom(a) {
+			return false, time.Time{}
+		}
+		at := roomBack(a)
+		if cool.After(at) {
+			at = cool
+		}
+		if !at.IsZero() && (back.IsZero() || at.Before(back)) {
+			back = at
+		}
+	}
+	return true, back
+}
+
+// roomBack is when an account out of room has room again: the reset of the
+// latest of its full windows, zero when it is not out or no reset was said.
+func roomBack(a store.Account) time.Time {
+	q := a.Quota
+	full := func(util float64, status string) bool {
+		return util >= store.AtLimit || (status != "" && status != "allowed")
+	}
+	var at time.Time
+	if full(q.FiveHourUtil, q.FiveHourStatus) && q.FiveHourReset.After(at) {
+		at = q.FiveHourReset
+	}
+	if full(q.SevenDayUtil, q.SevenDayStatus) && q.SevenDayReset.After(at) {
+		at = q.SevenDayReset
+	}
+	return at
+}
+
 // Acquire picks an account that has model on, refreshing its token first if
 // it has expired. An empty model is served by any account. A request marked
 // WithVersions is served by an account that has any of them, the lease saying

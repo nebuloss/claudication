@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api, type BindingChoice, type SlotWire } from '../../../api/client'
+import { relative } from '../../format'
 import { useAction } from '../../hooks'
 import {
   Actions,
@@ -33,6 +34,7 @@ import { Binding, BindingMenu, type Client } from '../../clients/specs'
  */
 export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
   const choices = c.wire.choices ?? []
+  const limited = c.slots.filter((s) => s.limited === true && (s.unavailable ?? '') === '')
 
   if (!c.namesSlots) {
     return (
@@ -61,6 +63,14 @@ export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged:
             {c.unavailable.map((s) => s.name).join(', ')} {c.unavailable.length === 1 ? 'is' : 'are'} bound to
             something this client cannot be served now, and {c.unavailable.length === 1 ? 'is' : 'are'} left out
             of its model list. Pick an available model to serve {c.unavailable.length === 1 ? 'it' : 'them'}.
+          </Note>
+        )}
+        {limited.length > 0 && (
+          <Note tone="warn">
+            {limited.map((s) => s.name).join(', ')} {limited.length === 1 ? 'is' : 'are'} served by accounts that
+            have all reached their usage limit: requests still go to them, and are refused upstream until one has
+            room again. Bind {limited.length === 1 ? 'it' : 'them'} to a model another account serves to go on
+            working now.
           </Note>
         )}
         {choices.length === 0 && (
@@ -114,7 +124,13 @@ function SlotRow({
         </>
       }
       // What it serves is the menu's own label; under it only why it cannot.
-      status={unavailable !== '' ? <Chip tone="error">unavailable: {unavailable}</Chip> : undefined}
+      status={
+        unavailable !== '' ? (
+          <Chip tone="error">unavailable: {unavailable}</Chip>
+        ) : s.limited === true ? (
+          <Chip tone="warn">{limitedText(s.back)}</Chip>
+        ) : undefined
+      }
       error={error}
     >
           <Field label="Model name" value={name} onChange={setName} mono />
@@ -133,6 +149,14 @@ function SlotRow({
           )}
     </BindingRow>
   )
+}
+
+/**
+ * What a name at its accounts' limit says: that, and when the first is back
+ * — an hour or a day off, as the accounts' own quotas read.
+ */
+export function limitedText(back: string | undefined): string {
+  return back !== undefined && back !== '' ? `limit reached · back ${relative(back, 'now')}` : 'limit reached'
 }
 
 /**

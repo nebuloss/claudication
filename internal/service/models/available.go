@@ -3,7 +3,9 @@ package models
 import (
 	"context"
 	"strings"
+	"time"
 
+	"claudication/internal/pool"
 	"claudication/internal/service/clients"
 	"claudication/internal/store"
 )
@@ -84,6 +86,14 @@ type Choice struct {
 	// account's (family.go), or the one the family is set to. One, when every
 	// account has the same.
 	Versions []string `json:"versions,omitempty"`
+	// Limited is set when it is available but every account that would
+	// serve it has reached its limit or is cooling down after a refusal, and
+	// Back is when the first of them has room again (zero when no account
+	// said). Requests still go upstream — an account at its limit is tried
+	// rather than none — and are refused there until then, which is what a
+	// client's page has to say: "available" alone read as working.
+	Limited bool      `json:"limited,omitempty"`
+	Back    time.Time `json:"back,omitzero"`
 }
 
 // Choices are everything a slot can be bound to now, provider by provider in
@@ -172,6 +182,9 @@ func (s *Catalog) Resolve(ctx context.Context, off Off, b store.Binding) (Choice
 		} else if len(r.allowed) > 0 {
 			c.Serving = r.allowed[0]
 		}
+		if why == "" {
+			c.Limited, c.Back = s.pool.Limited(pool.WithVersions(ctx, s.versionsFor(r.allowed)), c.Provider, "")
+		}
 		return c, why
 	}
 	c.Provider = s.ServingProvider(ctx, c.Serving)
@@ -180,7 +193,11 @@ func (s *Catalog) Resolve(ctx context.Context, off Off, b store.Binding) (Choice
 	if !off.allows(c.Serving) {
 		return c, whyNotAllowed
 	}
-	return c, s.unavailable(ctx, c.Provider, c.Serving)
+	why := s.unavailable(ctx, c.Provider, c.Serving)
+	if why == "" {
+		c.Limited, c.Back = s.pool.Limited(ctx, c.Provider, c.Serving)
+	}
+	return c, why
 }
 
 // NewSlot is the binding a name added to a client starts on, what it serves,

@@ -184,3 +184,34 @@ func TestPickTakesTheSoonestToRecover(t *testing.T) {
 		t.Errorf("picked %s, want the one recovering soonest", got.ID)
 	}
 }
+
+// Limited is what the admin page warns of: every account that would serve is
+// out of room or cooling, and the first back is the soonest of them — the
+// later of a cooldown and a full window's reset for each.
+func TestLimitedOnlyWhenEveryAccountIsSidelined(t *testing.T) {
+	p := newTestPool()
+	reset := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	out := account("out", 100, "allowed")
+	out.Quota.FiveHourReset = reset
+	free := account("free", 20, "allowed")
+
+	if limited, _ := p.limited([]store.Account{out, free}); limited {
+		t.Fatal("one account with room is not limited")
+	}
+	limited, back := p.limited([]store.Account{out})
+	if !limited || !back.Equal(reset) {
+		t.Fatalf("got %v, back %v; want limited, back at the window's reset %v", limited, back, reset)
+	}
+
+	p.coolDown("free", time.Hour)
+	limited, back = p.limited([]store.Account{out, free})
+	if !limited {
+		t.Fatal("a cooling account and a full one: limited")
+	}
+	if d := time.Until(back); d < 55*time.Minute || d > time.Hour {
+		t.Fatalf("back in %v, want the cooldown's hour, the sooner of the two", d)
+	}
+	if limited, _ := p.limited(nil); limited {
+		t.Fatal("no account at all is unavailable, not limited")
+	}
+}
