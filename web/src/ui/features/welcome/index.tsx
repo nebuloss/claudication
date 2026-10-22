@@ -73,7 +73,7 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
     <Card title="Status">
       {/* A live region, so a screen reader hears the gateway come back
           without having to go looking for it. */}
-      <div aria-live="polite" className={`flex items-center gap-4 rounded-md3-l px-5 py-5 ${toneContainer[s.tone]}`}>
+      <div aria-live="polite" className={`flex items-center gap-4 rounded-md3-l px-5 py-4 ${toneContainer[s.tone]}`}>
         <span className="relative grid size-4 shrink-0 place-items-center" aria-hidden>
           {/* The ripple is the one movement on the page, and only on a good
               answer: it says "live" without a word. Off under reduced
@@ -87,12 +87,12 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
       </div>
       <p className="mt-4 text-sm leading-relaxed text-on-surface">{s.detail}</p>
       {quarter !== null && (
-        <p className="mt-6 flex items-baseline gap-2">
+        <p className="mt-4 flex items-baseline gap-2">
           <span className="text-4xl leading-tight tabular-nums text-on-surface">{percent(quarter)}</span>
           <span className="text-sm text-on-surface-variant">uptime over 90 days</span>
         </p>
       )}
-      <div className="mt-6 border-t border-outline-variant/40 pt-4">
+      <div className="mt-4 border-t border-outline-variant/40 pt-3">
         <Muted size="xs">
           {result.kind !== 'checking' ? `Checked at ${clock.format(result.at)}. ` : ''}
           Checked again every minute while this page is open.
@@ -118,32 +118,36 @@ function Now({ result, last }: { result: StatusResult; last: StatusReport | null
  * Only what someone who opened it can use: is it up, and has it been. The
  * paragraphs that explained the address and told visitors what to do said
  * nothing a person with a key needs, or anyone else can act on, and went.
- * On a desktop the title takes the left and the status the right, with the
- * history across the width below; on a phone they stack.
+ *
+ * One screen, no scrollbar, on a desktop as small as 1280×720 (the owner's
+ * ask): the title is one line over three cards side by side — the status,
+ * the history, the last few incidents. A hero on the left with the history
+ * under it ran to 979px; a page about whether something is up should be
+ * read at a glance. On a phone they stack.
  */
 export default function Welcome() {
   const { result, last } = useStatus()
   return (
-    <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-8">
-      <section aria-labelledby="welcome-title" className="flex flex-col gap-6 py-4 lg:py-8">
-        <BrandMark size="lg" />
-        <h1 id="welcome-title" className="text-4xl leading-tight font-normal tracking-tight text-on-surface sm:text-5xl">
+    <div className="flex w-full flex-col gap-6">
+      <section aria-labelledby="welcome-title" className="flex items-center gap-4">
+        <BrandMark />
+        <h1 id="welcome-title" className="text-3xl leading-tight font-normal tracking-tight text-on-surface sm:text-4xl">
           {COPY.title}
         </h1>
       </section>
-      <div className="lg:self-center">
+      <div className="grid gap-6 lg:grid-cols-3">
         <Now result={result} last={last} />
+        {last !== null && (
+          <>
+            <Card title="History">
+              <UptimeStrips report={last} />
+            </Card>
+            <Card title="Recent incidents">
+              <IncidentList report={last} limit={4} />
+            </Card>
+          </>
+        )}
       </div>
-      {last !== null && (
-        <div className="grid gap-6 lg:col-span-2 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-8">
-          <Card title="History">
-            <UptimeStrips report={last} />
-          </Card>
-          <Card title="Recent incidents">
-            <IncidentList report={last} limit={6} />
-          </Card>
-        </div>
-      )}
     </div>
   )
 }

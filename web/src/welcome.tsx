@@ -30,11 +30,11 @@ createRoot(root).render(
         aria-hidden
         className="pointer-events-none absolute -top-48 left-1/2 -z-10 size-[48rem] -translate-x-1/2 rounded-full bg-primary-container opacity-40 blur-3xl lg:left-1/4"
       />
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 pt-6 sm:px-8">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 pt-4 sm:px-8">
         <span className="text-sm font-medium tracking-wide text-on-surface-variant">claudication</span>
         <ThemeToggle />
       </header>
-      <main className="mx-auto flex w-full max-w-6xl flex-1 items-center px-4 py-10 sm:px-8 lg:py-16">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 items-center px-4 py-6 sm:px-8">
         <Welcome />
       </main>
     </div>
