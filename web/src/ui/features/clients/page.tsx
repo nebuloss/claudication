@@ -1,13 +1,13 @@
-import { useEffect, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { api, type GatewayConfig } from '../../../api/client'
 import { useLoader } from '../../hooks'
-import { omitPages } from '../../names'
 import { type ClientPageId } from '../../route'
 import { DetailHeader } from '../detail'
 import { ChatsPage } from '../chats'
 import RequestsPanel from '../requests'
 import { KeyModels } from '../models/switches'
 import { Card, Empty, ErrorBanner, Figures, Loading, Note, Page } from '../../primitives'
+import { SlotsCard } from './slots'
 import { Client } from '../../clients/specs'
 import { ClientChips, EnableSwitch } from './index'
 import { ClientOverview } from './overview'
@@ -27,8 +27,8 @@ const QUIET_MS = 20_000
 
 /**
  * One client, on its overview and the pages beside it: its usage and limits,
- * its chats, its requests, and — for a custom client — the models a direct
- * mode lets it name.
+ * its chats, its requests, and its models — its names and what they serve,
+ * and the models it is allowed.
  */
 export function ClientPage({
   id,
@@ -45,11 +45,6 @@ export function ClientPage({
     (signal) => api.clients.get(id, signal),
     { refreshMs: page === '' ? LIVE_MS : QUIET_MS, deps: [id] },
   )
-  const custom = data !== null && types !== null && types.type(data.type).custom
-  useEffect(() => {
-    if (data !== null) omitPages('clients', id, custom ? [] : ['models'])
-  }, [data, custom, id])
-
   if ((loading && data === null) || types === null) return <Loading />
   if (data === null) {
     return (
@@ -70,22 +65,22 @@ export function ClientPage({
     usage: () => <ClientUsage client={client} onChanged={changed} />,
     chats: () => <ChatsPage scope={{ key: client.id }} />,
     requests: () => <RequestsPanel scope={{ key: client.id }} />,
-    models: () =>
-      client.type.custom ? (
-        <Card title="Models it may name in direct mode">
-          {client.namesSlots && (
-            <Note className="mb-4">
-              This client is in binding mode and names its own model names; these switches apply once
-              it is switched to direct mode, and are kept until then.
-            </Note>
-          )}
+    // Its names and the models they may serve, on one page: the switches
+    // below bound the menus above, so changing one is seen in the other.
+    models: () => (
+      <>
+        <SlotsCard client={client} onChanged={changed} />
+        <Card title="Allowed models">
+          <Note className="mb-4">
+            The agent can only switch to allowed models. A model switched off here is out of this client&rsquo;s
+            menus above, out of what its agent sees through the gateway&rsquo;s MCP server and may bind, and
+            refused for it{client.type.custom ? ', named directly or through a name' : ''}; a name bound to it
+            shows as unavailable until it is allowed again or rebound. Every other client is unaffected.
+          </Note>
           <KeyModels apiKey={client.wire} onChanged={changed} />
         </Card>
-      ) : (
-        <Card>
-          <Empty>A {client.type.label} client names its own model names; they are on its overview.</Empty>
-        </Card>
-      ),
+      </>
+    ),
   }
 
   return (

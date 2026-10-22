@@ -113,10 +113,13 @@ func (s *Admin) handleKeyModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read as if everything were allowed: these are the switches that say
+	// what is, and a model switched off has to stay here to be switched
+	// back on.
 	var available map[string]bool
 	if key.ClientType != "" {
 		available = map[string]bool{}
-		for _, c := range s.models.Available(ctx) {
+		for _, c := range s.models.Available(ctx, nil) {
 			available[c.Model] = true
 		}
 	}

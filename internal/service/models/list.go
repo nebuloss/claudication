@@ -161,7 +161,7 @@ func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
 		// The gateway's own key is no client: it is offered the list as it
 		// stands, and the request says what it gets.
 		if key.ClientType != "" {
-			body = s.onlyAvailable(ctx, body)
+			return s.onlyAvailable(ctx, key.ModelsOff, body), nil
 		}
 		// Less what the key may not use, for the reason the switched-off
 		// models are left out.
@@ -177,7 +177,7 @@ func (s *Catalog) For(ctx context.Context, key store.APIKey) ([]byte, error) {
 	var entries []virtualEntry
 	own := map[string]bool{}
 	for _, sl := range slots {
-		c, why := s.Resolve(ctx, store.Binding{Model: sl.Model, Follows: sl.Follows})
+		c, why := s.Resolve(ctx, key.ModelsOff, store.Binding{Model: sl.Model, Follows: sl.Follows})
 
 		if why != "" {
 			continue
@@ -551,14 +551,20 @@ func (s *Catalog) FollowTarget(ctx context.Context, f clients.Follow) (target, w
 
 // SlotTarget is the real model one of a client's slots serves now: the model
 // it is bound to, or what the target it follows points at. why is non-empty
-// when it cannot serve, naming the slot, the model and what chose it.
-func (s *Catalog) SlotTarget(ctx context.Context, sl store.ClientSlot) (target, why string) {
+// when it cannot serve, naming the slot, the model and what chose it — a
+// model the client is not allowed (off) included, by the rule its menus are
+// offered by (available.go).
+func (s *Catalog) SlotTarget(ctx context.Context, off Off, sl store.ClientSlot) (target, why string) {
 	target, chose := sl.Model, ""
 	if target == "" {
 		if target, why = s.FollowTarget(ctx, sl.Follows); why != "" {
 			return "", sl.Name + " follows " + sl.Follows.Title() + ", and " + why
 		}
 		chose = " (" + sl.Follows.Title() + ")"
+	}
+	if !off.allows(target) {
+		return target, sl.Name + " is " + target + chose + ", which is " + whyNotAllowed +
+			"; an administrator allows it, or binds the name to another, on the client's Models page"
 	}
 	if !s.pool.Offers(ctx, s.ServingProvider(ctx, target), target) {
 		return target, sl.Name + " is " + target + chose + ", which no connected account has on"

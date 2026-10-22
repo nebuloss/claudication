@@ -109,7 +109,7 @@ func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) Cli
 			// the operator knows it by.
 			spec.Label = sl.Name
 		}
-		b, why := s.models.Resolve(ctx, store.Binding{Model: sl.Model, Follows: sl.Follows})
+		b, why := s.models.Resolve(ctx, c.ModelsOff, store.Binding{Model: sl.Model, Follows: sl.Follows})
 		out.Slots = append(out.Slots, SlotJSON{Slot: spec, Name: sl.Name, Model: sl.Model, Bound: sl.Follows,
 			Title: b.Title, Serving: b.Serving, Provider: b.Provider, Unavailable: why,
 			Removable: t.Removable(sl.Slot)})
@@ -178,7 +178,7 @@ func (s *Admin) writeClient(w http.ResponseWriter, r *http.Request, id string, e
 		return
 	}
 	j := s.clientJSON(ctx, c, s.keyStats(ctx, c.ID).of(s, c.APIKey))
-	j.Choices = s.models.Choices(ctx)
+	j.Choices = s.models.Choices(ctx, c.ModelsOff)
 	out := map[string]any{"client": j}
 	for k, v := range extra {
 		out[k] = v
@@ -299,7 +299,7 @@ func (s *Admin) handleAddSlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The MCP server's add_model holds a new name to the same rule.
-	b, choice, why := s.models.NewSlot(r.Context(), store.Binding{Model: body.Model, Follows: body.Follows})
+	b, choice, why := s.models.NewSlot(r.Context(), c.ModelsOff, store.Binding{Model: body.Model, Follows: body.Follows})
 	if why != "" {
 		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest,
 			choice.Title+" is not available to this client: "+why)
@@ -330,7 +330,7 @@ func (s *Admin) available(w http.ResponseWriter, r *http.Request, c store.Client
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	choice, why := s.models.Resolve(ctx, store.Binding{
+	choice, why := s.models.Resolve(ctx, c.ModelsOff, store.Binding{
 		Model: strings.TrimSpace(b.Model), Follows: b.Follows})
 	if why == "" {
 		return true

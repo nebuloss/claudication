@@ -39,7 +39,7 @@ export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged:
       <Card title="Models">
         <Note>
           In direct mode this client names real models: the ones the accounts serve, less those switched off
-          on its Models page. Its model names below are kept for when it is switched back.
+          under Allowed models below. Its model names are kept for when it is switched back.
         </Note>
       </Card>
     )

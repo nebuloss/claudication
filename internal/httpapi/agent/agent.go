@@ -79,10 +79,10 @@ type Store interface {
 type Models interface {
 	List(ctx context.Context) ([]byte, error)
 	For(ctx context.Context, key store.APIKey) ([]byte, error)
-	Choices(ctx context.Context) []modelsvc.Choice
-	Available(ctx context.Context) []modelsvc.Choice
-	Resolve(ctx context.Context, b store.Binding) (modelsvc.Choice, string)
-	NewSlot(ctx context.Context, b store.Binding) (store.Binding, modelsvc.Choice, string)
+	Choices(ctx context.Context, off modelsvc.Off) []modelsvc.Choice
+	Available(ctx context.Context, off modelsvc.Off) []modelsvc.Choice
+	Resolve(ctx context.Context, off modelsvc.Off, b store.Binding) (modelsvc.Choice, string)
+	NewSlot(ctx context.Context, off modelsvc.Off, b store.Binding) (store.Binding, modelsvc.Choice, string)
 }
 
 // Deps is what the server is built from. Every field is required.

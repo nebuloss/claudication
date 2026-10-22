@@ -8,7 +8,7 @@ import Settings from './features/settings'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import { usePath, useLive, useLoader, useUpdateAvailable } from './hooks'
-import { nameOf, omittedPages, useNames } from './names'
+import { nameOf, useNames } from './names'
 import { SessionProvider } from './session'
 import {
   ACCOUNT_PAGES,
@@ -188,7 +188,7 @@ export default function App() {
   // One value for the header, the nav and the page, so the tab underline stays
   // over its tab when the measure changes.
   const measure = MEASURE
-  const level = navLevel(here, omittedPages(tab, item))
+  const level = navLevel(here)
   const trail = trailOf(here, nameOf)
 
   return (

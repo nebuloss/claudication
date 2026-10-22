@@ -20,24 +20,49 @@ import (
 //     accounts' own lists, never the public catalogue the model list falls
 //     back on before the first sign-in, and
 //  2. at least one such account has it on, and can serve now (pool.Offers,
-//     the candidates Acquire picks from).
+//     the candidates Acquire picks from), and
+//  3. the client is allowed it: the operator has not switched it off on the
+//     client's Models page (Off, api_key_models_off in schema.sql).
+//
+// The third is the owner's (2026-10-22): it is what an agent working through
+// the gateway's MCP server may switch its client to, so it has to hold for
+// every way a model reaches the client — the admin menu, list_models,
+// bind_model and add_model, and the request itself — which is why it is
+// here, in the one rule, and not beside each of them.
 //
 // The client's API is no part of it: both APIs reach both providers, a model
 // of the other one's translated (internal/api), so what a client is offered
 // is the same whichever it speaks. It was a third rule while Messages reached
 // Claude alone.
 //
-// A target a slot follows is available when what it points at now is. A
+// A target a slot follows is available when what it points at now is —
+// allowed included, so a target is offered only while it resolves to a model
+// the client is allowed, and stops serving it the release it moves onto one
+// that is not. A
 // binding made before something became unavailable is kept, and said: the
 // operator sees what it was and why, and replaces it with something
 // available; the gateway's own refusal of such a request is unchanged.
 
 // The reasons a binding is unavailable, as the admin UI shows them beside it.
 const (
-	whyNotListed = "no connected account lists it"
-	whyOff       = "it is switched off on every account that lists it"
-	whyNoAccount = "no account that has it on can serve now"
+	whyNotAllowed = "not allowed for this client"
+	whyNotListed  = "no connected account lists it"
+	whyOff        = "it is switched off on every account that lists it"
+	whyNoAccount  = "no account that has it on can serve now"
 )
+
+// Off is what one client may not be served: the models switched off on its
+// Models page, as the store keeps them (store.APIKey.ModelsOff). Kept as
+// what is off, so a model released tomorrow arrives allowed. nil allows
+// everything — what the admin's own list of switches is read with, so a
+// model switched off can still be found and switched back on.
+type Off []string
+
+// allows reports whether the client may be served model, matched as the
+// store matches a switch (store.ModelKey).
+func (o Off) allows(model string) bool {
+	return store.APIKey{ModelsOff: o}.Allows(model)
+}
 
 // Choice is one thing a slot can be bound to: a real model, or a target to
 // follow, with what it serves now.
@@ -74,15 +99,15 @@ type Target struct {
 // A target that resolves is always on a model here: it resolves only to a
 // model an account lists and can serve (Resolve), which is what Available
 // lists — so no target is left without a model to ride on.
-func (s *Catalog) Choices(ctx context.Context) []Choice {
-	out := s.Available(ctx)
+func (s *Catalog) Choices(ctx context.Context, off Off) []Choice {
+	out := s.Available(ctx, off)
 	var targets []clients.Follow
 	for _, f := range s.Families(ctx) {
 		targets = append(targets, clients.ClaudeFollow(f))
 	}
 	targets = append(targets, clients.FollowFirst, clients.FollowLight)
 	for _, f := range targets {
-		c, why := s.Resolve(ctx, store.Binding{Follows: f})
+		c, why := s.Resolve(ctx, off, store.Binding{Follows: f})
 		if why != "" {
 			continue
 		}
@@ -98,7 +123,7 @@ func (s *Catalog) Choices(ctx context.Context) []Choice {
 
 // Available are the real models a client can be served now, each as a
 // Choice: what a custom client in direct mode may name.
-func (s *Catalog) Available(ctx context.Context) []Choice {
+func (s *Catalog) Available(ctx context.Context, off Off) []Choice {
 	s.refreshFamilies(ctx)
 	out := []Choice{}
 	for _, r := range s.relays {
@@ -107,7 +132,7 @@ func (s *Catalog) Available(ctx context.Context) []Choice {
 		models := append([]listedModel(nil), s.listed[p]...)
 		s.rolesMu.Unlock()
 		for _, m := range models {
-			if c, why := s.Resolve(ctx, store.Binding{Model: m.ID}); why == "" && c.Provider == p {
+			if c, why := s.Resolve(ctx, off, store.Binding{Model: m.ID}); why == "" && c.Provider == p {
 				if m.Name != "" {
 					c.Title = m.Name
 				}
@@ -121,7 +146,7 @@ func (s *Catalog) Available(ctx context.Context) []Choice {
 // Resolve is what binding b serves now, and why it cannot when it cannot: ""
 // for a binding a client can be offered. The Choice is filled either way, so
 // a binding that has become unavailable is still shown as what it is.
-func (s *Catalog) Resolve(ctx context.Context, b store.Binding) (Choice, string) {
+func (s *Catalog) Resolve(ctx context.Context, off Off, b store.Binding) (Choice, string) {
 	c := Choice{Model: b.Model, Follows: b.Follows, Title: b.Model, Serving: b.Model}
 	if b.Model == "" {
 		c.Title = b.Follows.Title()
@@ -133,6 +158,11 @@ func (s *Catalog) Resolve(ctx context.Context, b store.Binding) (Choice, string)
 		c.Serving = target
 	}
 	c.Provider = s.ServingProvider(ctx, c.Serving)
+	// The operator's decision for this client first: it holds whatever the
+	// accounts do, and is the one thing on the client's own page to change.
+	if !off.allows(c.Serving) {
+		return c, whyNotAllowed
+	}
 	return c, s.unavailable(ctx, c.Provider, c.Serving)
 }
 
@@ -143,18 +173,18 @@ func (s *Catalog) Resolve(ctx context.Context, b store.Binding) (Choice, string)
 // account serves it yet — the page then shows it unavailable, as a new
 // client's own names are until an account is connected. One given has to be
 // available now, as a rebinding has to.
-func (s *Catalog) NewSlot(ctx context.Context, b store.Binding) (store.Binding, Choice, string) {
+func (s *Catalog) NewSlot(ctx context.Context, off Off, b store.Binding) (store.Binding, Choice, string) {
 	b.Model = strings.TrimSpace(b.Model)
 	if b.Model == "" && b.Follows == "" {
 		b.Follows = clients.FollowOpus
-		c, _ := s.Resolve(ctx, b)
+		c, _ := s.Resolve(ctx, off, b)
 		return b, c, ""
 	}
 	if b.Follows != "" && !b.Follows.Valid() {
 		// The store says what is wrong with it.
 		return b, Choice{Follows: b.Follows, Title: string(b.Follows)}, ""
 	}
-	c, why := s.Resolve(ctx, b)
+	c, why := s.Resolve(ctx, off, b)
 	return b, c, why
 }
 
@@ -198,10 +228,10 @@ func (s *Catalog) unavailable(ctx context.Context, provider, model string) strin
 	return whyNoAccount
 }
 
-// onlyAvailable is a model list less what a client cannot be served now. A
-// list it cannot read is returned with nothing in it: what it would have
-// offered could not be checked.
-func (s *Catalog) onlyAvailable(ctx context.Context, body []byte) []byte {
+// onlyAvailable is a model list less what a client cannot be served now,
+// what it is not allowed included. A list it cannot read is returned with
+// nothing in it: what it would have offered could not be checked.
+func (s *Catalog) onlyAvailable(ctx context.Context, off Off, body []byte) []byte {
 	keep := map[string]bool{}
 	var l struct {
 		Data []struct {
@@ -210,7 +240,7 @@ func (s *Catalog) onlyAvailable(ctx context.Context, body []byte) []byte {
 	}
 	_ = json.Unmarshal(body, &l)
 	for _, e := range l.Data {
-		if _, why := s.Resolve(ctx, store.Binding{Model: e.ID}); why == "" {
+		if _, why := s.Resolve(ctx, off, store.Binding{Model: e.ID}); why == "" {
 
 			keep[e.ID] = true
 		}

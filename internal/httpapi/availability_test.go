@@ -59,7 +59,7 @@ func TestAvailability(t *testing.T) {
 
 	// Each model once, and no target a choice of its own: a target rides on
 	// the model it serves now, so the menu does not name that model twice.
-	all := m.Choices(ctx)
+	all := m.Choices(ctx, nil)
 	seen := map[string]bool{}
 	for _, c := range all {
 		if c.Model == "" || seen[c.Model] {
@@ -88,7 +88,7 @@ func TestAvailability(t *testing.T) {
 
 	why := func(b store.Binding) string {
 		t.Helper()
-		_, w := m.Resolve(ctx, b)
+		_, w := m.Resolve(ctx, nil, b)
 		return w
 	}
 	if w := why(store.Binding{Model: "gpt-6.1-sol"}); w != "" {
@@ -113,7 +113,7 @@ func TestAvailability(t *testing.T) {
 	if w := why(store.Binding{Follows: clients.FollowHaiku}); w == "" {
 		t.Error("a target resolving to a model off is available")
 	}
-	if got := choiceValues(m.Choices(ctx)); slices.ContainsFunc(got, func(s string) bool {
+	if got := choiceValues(m.Choices(ctx, nil)); slices.ContainsFunc(got, func(s string) bool {
 		return strings.Contains(s, "haiku")
 	}) || !slices.Contains(got, "model:claude-sonnet-5") {
 		t.Errorf("choices with haiku off = %v", got)
@@ -127,7 +127,7 @@ func TestAvailability(t *testing.T) {
 	if w := why(store.Binding{Model: "claude-sonnet-5"}); w != "no connected account lists it" {
 		t.Errorf("the account off: %q", w)
 	}
-	if got := choiceValues(m.Choices(ctx)); slices.ContainsFunc(got, func(s string) bool {
+	if got := choiceValues(m.Choices(ctx, nil)); slices.ContainsFunc(got, func(s string) bool {
 		return strings.Contains(s, "claude")
 	}) {
 		t.Errorf("choices with no Claude account on = %v", got)

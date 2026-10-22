@@ -237,7 +237,7 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
 // lists every level. Names come from the pages, by id.
 {
   const name = (kind, id) => `${kind}:${id}`
-  const lvl = (p, omit) => navLevel(canonical(p), omit)
+  const lvl = (p) => navLevel(canonical(p))
   const hrefs = (l) => l.items.map((i) => i.href)
 
   check('the top level has no way up', lvl('/').back, undefined)
@@ -255,10 +255,6 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   ])
   check('a client too', hrefs(lvl('/clients/c1/usage')), [
     '/clients/c1/usage', '/clients/c1/chats', '/clients/c1/requests', '/clients/c1/models',
-  ])
-  // A typed client's names are on its overview; it has no Models page.
-  check('a page it has no use for is left out', hrefs(lvl('/clients/c1/usage', ['models'])), [
-    '/clients/c1/usage', '/clients/c1/chats', '/clients/c1/requests',
   ])
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
   check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')

@@ -86,16 +86,16 @@ type Models interface {
 	// /v1/models answers it, and what its client's configs are written from.
 	For(ctx context.Context, key store.APIKey) ([]byte, error)
 	// Choices are what a client's slot can be bound to now, and nothing that
-	// is not available.
-	Choices(ctx context.Context) []modelsvc.Choice
+	// is not available — to that client: off is what it is not allowed.
+	Choices(ctx context.Context, off modelsvc.Off) []modelsvc.Choice
 	// Available are the real models a client can be served now.
-	Available(ctx context.Context) []modelsvc.Choice
+	Available(ctx context.Context, off modelsvc.Off) []modelsvc.Choice
 	// Resolve is what a binding serves now, and why it is unavailable when it
 	// is.
-	Resolve(ctx context.Context, b store.Binding) (modelsvc.Choice, string)
+	Resolve(ctx context.Context, off modelsvc.Off, b store.Binding) (modelsvc.Choice, string)
 	// NewSlot is the binding a name added to a client starts on, and why it
 	// cannot be made.
-	NewSlot(ctx context.Context, b store.Binding) (store.Binding, modelsvc.Choice, string)
+	NewSlot(ctx context.Context, off modelsvc.Off, b store.Binding) (store.Binding, modelsvc.Choice, string)
 }
 
 // New builds an Admin with no session open.

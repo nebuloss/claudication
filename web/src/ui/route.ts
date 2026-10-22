@@ -66,10 +66,11 @@ export type AccountPageId = (typeof ACCOUNT_PAGES)[number]['id'] | ''
 
 /**
  * A client's pages under /clients/<id>, its overview being that path itself:
- * its name, type, switches, model names, key and setup are all there. The
- * pages beside it are only what adds something: its usage with its limits
- * beside the figures they bound, its chats, its requests, and — for a custom
- * client, whose direct mode names real models — which models it may ask for.
+ * its name, type, switches, key and setup, and a line of what its model names
+ * serve. The pages beside it: its usage with its limits beside the figures
+ * they bound, its chats, its requests, and its Models — every client's, since
+ * each has names to bind and models it may be allowed — where the names are
+ * edited and the models it may be served are switched.
  */
 export const CLIENT_PAGES = [
   { id: 'usage', label: 'Usage', kind: 'traffic' },
@@ -214,18 +215,15 @@ const HOME: NavLink = { href: '/', label: 'Main menu' }
 /** The first step of every trail: the gateway's overview, at the root. */
 export const ROOT_CRUMB: NavLink = { href: '/', label: 'Overview' }
 
-/**
- * The navigation level of a canonical path. `omit` are an item's pages it has
- * no use for — a typed client's Models, its slots being on its overview.
- */
-export function navLevel(pathname: string, omit: readonly string[] = []): NavLevel {
+/** The navigation level of a canonical path. */
+export function navLevel(pathname: string): NavLevel {
   const [top, id, page] = segments(pathname)
   if ((top === 'accounts' || top === 'clients') && id !== undefined) {
     const base = pathOf(top, id)
     const list = TABS.find((t) => t.id === top)!
     return {
       back: { href: pathOf(top), label: list.label },
-      items: links(base, pagesOf(top).filter((p) => !omit.includes(p.id))),
+      items: links(base, pagesOf(top)),
       // On the item's overview, no entry: the overview is the item itself.
       current: page === undefined ? base : `${base}/${page}`,
     }

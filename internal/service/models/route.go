@@ -57,7 +57,7 @@ func (s *Catalog) Route(ctx context.Context, key store.APIKey, requested string)
 		case !ok:
 			return Route{Provider: s.defaultProvider(), Model: requested, Why: s.ownNamesOnly(ctx, key, requested)}
 		}
-		target, why := s.SlotTarget(ctx, sl)
+		target, why := s.SlotTarget(ctx, key.ModelsOff, sl)
 		return Route{Provider: s.ServingProvider(ctx, target), Model: target, Slot: sl.Name, Why: why}
 	}
 	if p := s.ProviderOf(ctx, requested); p != "" {
@@ -76,14 +76,14 @@ func (s *Catalog) ownNamesOnly(ctx context.Context, key store.APIKey, requested 
 	slots, err := s.store.ClientSlots(ctx, key.ID)
 	if err != nil || len(slots) == 0 {
 		return "this client has no model names yet, and " + what + " is not one; an administrator adds " +
-			"them on the client's page"
+			"them on the client's Models page"
 	}
 	names := make([]string, 0, len(slots))
 	for _, sl := range slots {
 		names = append(names, sl.Name)
 	}
 	return "this client asks for its own model names (" + strings.Join(names, ", ") + "), and " +
-		what + " is not one; an administrator changes what each serves on the client's page"
+		what + " is not one; an administrator changes what each serves on the client's Models page"
 }
 
 // ServingProvider is the provider a resolved model is sent to: the one whose

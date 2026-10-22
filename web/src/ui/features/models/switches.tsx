@@ -217,10 +217,11 @@ export default function AccountModels({
 }
 
 /**
- * The models a custom client in direct mode may ask for: every model the
- * gateway serves, each with a switch. Off is refused for this client alone,
- * before anything reaches an account, and left out of the model list it is
- * given.
+ * The models a client is allowed: every model available to it, each with a
+ * switch. Off is what its names may not be bound to — by the operator, or by
+ * its agent through the MCP server — and, in a custom client's direct mode,
+ * what it may not name; refused for this client alone, before anything
+ * reaches an account, and left out of every list it is given.
  */
 export function KeyModels({ apiKey, onChanged }: { apiKey: ApiKey; onChanged: () => void }) {
   return (
@@ -229,8 +230,7 @@ export function KeyModels({ apiKey, onChanged }: { apiKey: ApiKey; onChanged: ()
       set={(model, enabled) => api.clients.setModel(apiKey.id, model, enabled)}
       loadingText="Reading the models this gateway serves…"
       explain={(on, total) =>
-        `${on} of ${total} allowed. A model off here is refused for this client — every other client ` +
-        'is unaffected — and left out of the list it is shown. New models arrive allowed.'
+        `${on} of ${total} allowed. New models arrive allowed.'
       }
       onChanged={onChanged}
       deps={[apiKey.id]}

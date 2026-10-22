@@ -110,11 +110,13 @@ CREATE TABLE clients (
     base          TEXT    NOT NULL DEFAULT ''
 ) WITHOUT ROWID;
 
--- A direct-mode client's models switched off. Kept as what is off, so a model
--- released tomorrow is usable until someone decides otherwise. model is as the
--- operator switched it; requests are matched by store.ModelKey, so a dated id
--- and its short form are one model. A binding-mode client keeps its rows, for
--- when it is switched back, and is not held to them: it names its slots.
+-- A client's models switched off: what it may not name in direct mode, and
+-- what its model names may not be bound to (internal/service/models,
+-- available.go) -- which is what bounds the models its agent may switch it to
+-- through the MCP server. Kept as what is off, so a model released tomorrow
+-- is usable until someone decides otherwise. model is as the operator
+-- switched it; requests are matched by store.ModelKey, so a dated id and its
+-- short form are one model.
 CREATE TABLE api_key_models_off (
     key_id TEXT    NOT NULL REFERENCES api_keys (id) ON DELETE CASCADE,
     model  TEXT    NOT NULL,

@@ -49,9 +49,10 @@ func (a *Agent) tools() []mcp.Tool {
 			Description: "What this client's model names may be bound to now: each real model once, with its " +
 				"context window, output limit, effort levels and whether it takes images, and under follow the " +
 				"moving targets that serve it today (claude:opus for the newest Claude Opus, openai:first for " +
-				"ChatGPT's first-ranked...). Only what an account connected to the gateway serves now is listed, " +
-				"so any model here is a valid model, and any follow a valid follows, for bind_model and add_model. " +
-				"Changes nothing.",
+				"ChatGPT's first-ranked...). Only what an account connected to the gateway serves now and the " +
+				"operator allows this client (on its Models page) is listed: the agent can only switch to allowed " +
+				"models. So any model here is a valid model, and any follow a valid follows, for bind_model and " +
+				"add_model. Changes nothing.",
 			InputSchema: json.RawMessage(`{"type": "object", "properties": {}, "additionalProperties": false}`),
 			Call:        a.listModels,
 		},
@@ -96,7 +97,8 @@ func (a *Agent) tools() []mcp.Tool {
 		{
 			Name: "bind_model", Title: "Switch a model name", Destructive: true,
 			Description: manageNeeded + "Binds one of this client's model names (from the client tool) to another model " +
-				"or moving target from list_models; only what list_models offers is accepted. " + perChat +
+				"or moving target from list_models; only what list_models offers is accepted — the models the operator " +
+				"allows this client, so the agent can only switch to allowed models. " + perChat +
 				" The client reads a model's limits from its configuration file, so after binding a name to a model " +
 				"with another context window or effort levels, run update_config to catch the file up.",
 			InputSchema: json.RawMessage(`{
@@ -113,7 +115,8 @@ func (a *Agent) tools() []mcp.Tool {
 		{
 			Name: "add_model", Title: "Add a model name",
 			Description: manageNeeded + "Gives this client a model name of its own beside its type's, bound to a model " +
-				"or moving target from list_models (the newest Claude Opus when neither is given), for its model " +
+				"or moving target from list_models, which are the models the operator allows this client (the newest " +
+				"Claude Opus when neither is given), for its model " +
 				"picker to list — only on a type that takes them (the client tool says). The client lists it once its " +
 				"configuration is updated: run update_config after. " + perChat,
 			InputSchema: json.RawMessage(`{
@@ -285,9 +288,11 @@ func (a *Agent) listModels(ctx context.Context, _ json.RawMessage) (any, error) 
 		Follow   []clients.Follow `json:"follow,omitempty"`
 		facts
 	}
-	choices := a.d.Models.Choices(ctx)
+	// Only what the client is allowed: the operator's Models page is what
+	// bounds what its agent may switch it to.
+	choices := a.d.Models.Choices(ctx, c.ModelsOff)
 	if c.Mode == clients.Direct {
-		choices = a.d.Models.Available(ctx)
+		choices = a.d.Models.Available(ctx, c.ModelsOff)
 	}
 	models := []entry{}
 	for _, ch := range choices {
@@ -335,7 +340,7 @@ func (a *Agent) client(ctx context.Context, _ json.RawMessage) (any, error) {
 		if _, typed := t.Slot(sl.Slot); !typed {
 			label = "added name"
 		}
-		b, why := a.d.Models.Resolve(ctx, store.Binding{Model: sl.Model, Follows: sl.Follows})
+		b, why := a.d.Models.Resolve(ctx, c.ModelsOff, store.Binding{Model: sl.Model, Follows: sl.Follows})
 		names = append(names, name{Name: sl.Name, Slot: sl.Slot, Label: label, Hint: spec.Hint, Field: spec.Field,
 			Model: sl.Model, Follows: sl.Follows, Title: b.Title, Serving: b.Serving,
 			Provider: clients.ProviderTitle(b.Provider), Unavailable: why, Removable: t.Removable(sl.Slot)})
@@ -525,8 +530,8 @@ func binding(model, follows string) (store.Binding, error) {
 // available refuses a binding the client cannot be offered now, as the admin
 // API does: the same rule (internal/service/models, available.go), the same
 // words.
-func (a *Agent) available(ctx context.Context, b store.Binding) (string, error) {
-	choice, why := a.d.Models.Resolve(ctx, b)
+func (a *Agent) available(ctx context.Context, c store.Client, b store.Binding) (string, error) {
+	choice, why := a.d.Models.Resolve(ctx, c.ModelsOff, b)
 	if why != "" {
 		return "", mcp.Refuse(choice.Title + " is not available to this client: " + why + "; list_models lists what is")
 	}
@@ -575,7 +580,7 @@ func (a *Agent) bindModel(ctx context.Context, c store.Client, args json.RawMess
 	if b.Model == "" && b.Follows == "" {
 		return nil, sl.Name, "", &mcp.ParamsError{Message: "give model or follows: what the name is to serve"}
 	}
-	serving, err := a.available(ctx, b)
+	serving, err := a.available(ctx, c, b)
 	if err != nil {
 		return nil, sl.Name, b.Model + string(b.Follows), err
 	}
@@ -605,7 +610,7 @@ func (a *Agent) addModel(ctx context.Context, c store.Client, args json.RawMessa
 	}
 	// The admin page's rule for a new name, the same helper: none given
 	// follows the newest Opus whether or not an account serves it yet.
-	b, choice, why := a.d.Models.NewSlot(ctx, b)
+	b, choice, why := a.d.Models.NewSlot(ctx, c.ModelsOff, b)
 	if why != "" {
 		return nil, name, b.Model + string(b.Follows),
 			mcp.Refuse(choice.Title + " is not available to this client: " + why + "; list_models lists what is")

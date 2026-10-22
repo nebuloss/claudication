@@ -69,7 +69,8 @@ type APIKey struct {
 
 // NamesSlots reports whether the key's client asks for its own slot names
 // rather than real models: every typed client, and a custom one in binding
-// mode. ModelsOff is a direct-mode client's, and does not apply here.
+// mode. ModelsOff holds here too, over what its names may be bound to
+// (internal/service/models, available.go).
 func (k APIKey) NamesSlots() bool {
 	return k.ClientType != "" && k.ClientMode != clients.Direct
 }

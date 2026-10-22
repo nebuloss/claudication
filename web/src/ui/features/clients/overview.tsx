@@ -1,9 +1,11 @@
 import { api, type GatewayConfig } from '../../../api/client'
 import { useAction } from '../../hooks'
-import { navigate } from '../../route'
+import { clientHref, navigate } from '../../route'
 import {
+  AppLink,
   Button,
   Card,
+  Chip,
   DangerZone,
   ErrorBanner,
   Note,
@@ -13,12 +15,13 @@ import {
 } from '../../primitives'
 import type { Client, ClientTypes } from '../../clients/specs'
 import { SetupCard } from './setup'
-import { SlotsCard } from './slots'
 
 /**
  * A client at a glance, on its own path: how to set it up (or that it is), its
  * model names and what each serves, its switches, and deleting it. Its name,
- * type and API are the page's header, where it is renamed. Its usage and limits, chats and requests are a page away.
+ * type and API are the page's header, where it is renamed. Its usage and
+ * limits, chats and requests are a page away, and so is changing what its
+ * names serve: the Models page, beside the models it is allowed.
  */
 export function ClientOverview({
   client,
@@ -34,10 +37,42 @@ export function ClientOverview({
   return (
     <>
       <SetupCard client={client} types={types} config={config} onChanged={onChanged} />
-      <SlotsCard client={client} onChanged={onChanged} />
+      <NamesSummary client={client} />
       <SettingsCard client={client} onChanged={onChanged} />
       <DeleteCard client={client} />
     </>
+  )
+}
+
+/**
+ * What each of the client's names serves now, read-only: the editor is on its
+ * Models page, beside the switches that bound what the names may serve, and
+ * a second copy of it here would be two places to change one thing.
+ */
+function NamesSummary({ client: c }: { client: Client }) {
+  const href = `${clientHref(c.id)}/models`
+  return (
+    <Card title="Model names" aside={<AppLink href={href}>Change on Models</AppLink>}>
+      {!c.namesSlots ? (
+        <p className="text-sm text-on-surface-variant">
+          In direct mode: it names real models, the ones it is allowed on its <AppLink href={href}>Models</AppLink>{' '}
+          page.
+        </p>
+      ) : c.slots.length === 0 ? (
+        <p className="text-sm text-on-surface-variant">No model names yet.</p>
+      ) : (
+        <ul className="m-0 flex list-none flex-wrap gap-x-6 gap-y-2 p-0 text-sm">
+          {c.slots.map((s) => (
+            <li key={s.id} className="flex items-center gap-2">
+              <code className="text-on-surface">{s.name}</code>
+              <span aria-hidden className="text-on-surface-variant">→</span>
+              <code className="text-on-surface-variant">{s.serving || '—'}</code>
+              {(s.unavailable ?? '') !== '' && <Chip tone="error">unavailable</Chip>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   )
 }
 
