@@ -305,29 +305,38 @@ function CustomSetup({ client: c, types, gateway }: { client: Client; types: Cli
     `export OPENAI_BASE_URL=${gateway}/v1`,
     'export OPENAI_API_KEY=clc_…',
   ].join('\n')
+  // gemini-cli's "gateway" auth type: these two and nothing else. It names
+  // real Gemini ids for its own side calls, so a direct-mode client suits it.
+  const geminiEnv = [`export GOOGLE_GEMINI_BASE_URL=${gateway}`, 'export GEMINI_API_KEY=clc_…'].join('\n')
   const curlMessages =
     `curl ${gateway}/v1/messages -H 'x-api-key: clc_…' -H 'anthropic-version: 2023-06-01' ` +
     `-H 'content-type: application/json' -d '{"model":"${model}","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}'`
   const curlResponses =
     `curl ${gateway}/v1/responses -H 'Authorization: Bearer clc_…' -H 'content-type: application/json' ` +
     `-d '{"model":"${model}","input":"hi","stream":true}'`
+  const curlGemini =
+    `curl '${gateway}/v1beta/models/${model}:streamGenerateContent?alt=sse' -H 'x-goog-api-key: clc_…' ` +
+    `-H 'content-type: application/json' -d '{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}'`
   return (
     <Stack gap={3}>
       <KeyValue
         items={[
           [types.dialectTitle('anthropic'), `${gateway} for SDKs that add /v1 themselves (Anthropic's), ${gateway}/v1 for the rest — x-api-key or Authorization: Bearer`],
           [types.dialectTitle('openai'), `${gateway}/v1 — Authorization: Bearer`],
+          [types.dialectTitle('gemini'), `${gateway} — x-goog-api-key`],
           ['Models', c.namesSlots ? c.slots.map((s) => s.name).join(', ') || 'none yet' : 'real model ids, less the ones switched off'],
           ['MCP server', `${gateway}${types.mcpPath} — Streamable HTTP, Authorization: Bearer with the same key`],
         ]}
       />
       <Note>
-        The key works on both, and both reach every model: one served by the other API&rsquo;s provider is
-        translated. Paste the key in place of <code>clc_…</code>.
+        The key works on all three, and each reaches every model: one served by another API&rsquo;s provider
+        is translated. Paste the key in place of <code>clc_…</code>.
       </Note>
       <CopyField label="SDK environment" value={env} />
       <CopyField label="curl, Anthropic Messages" value={curlMessages} />
       <CopyField label="curl, OpenAI Responses" value={curlResponses} />
+      <CopyField label="gemini-cli environment" value={geminiEnv} />
+      <CopyField label="curl, Gemini API" value={curlGemini} />
       <Note>
         The gateway&rsquo;s MCP server gives an agent tools about this client: what its names serve, the models
         it may use, its limits and usage, its chats — and, with <em>Agent may manage this client</em> on, switching

@@ -134,7 +134,7 @@ func (s *Admin) handleClientTypes(w http.ResponseWriter, r *http.Request) {
 		Title string          `json:"title"`
 	}
 	dialects := []dialectJSON{}
-	for _, d := range []clients.Dialect{clients.Messages, clients.Responses} {
+	for _, d := range clients.Dialects {
 		dialects = append(dialects, dialectJSON{ID: d, Title: d.Title()})
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"types": clients.All, "dialects": dialects,

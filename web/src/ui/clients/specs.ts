@@ -89,9 +89,9 @@ export class ClientTypes {
     return this.wire.dialects.find((x) => x.id === d)?.title ?? d
   }
 
-  /** The API a type speaks, named; both for a custom client. */
+  /** The API a type speaks, named; every one for a custom client. */
   apiTitle(t: ClientType): string {
-    return t.api !== undefined ? this.dialectTitle(t.api) : 'both APIs'
+    return t.api !== undefined ? this.dialectTitle(t.api) : 'any API'
   }
 }
 

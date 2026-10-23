@@ -1,17 +1,19 @@
 # The client-facing APIs
 
-The gateway has two upstreams: Claude subscription accounts, which answer
-Anthropic Messages, and ChatGPT subscription accounts, which answer the Codex
-backend's OpenAI Responses API. Everything a *client* may speak is an adapter
-onto one of them.
+The gateway has three upstreams: Claude subscription accounts, which answer
+Anthropic Messages; ChatGPT subscription accounts, which answer the Codex
+backend's OpenAI Responses API; and Google accounts, which answer Code
+Assist — the Gemini API's request inside an envelope naming the account's
+project. Everything a *client* may speak is an adapter onto them.
 
-Two surfaces exist today, and each client type speaks one of them, fixed by
-the type; a custom client's key works on both.
+Three surfaces exist today, and each client type speaks one of them, fixed by
+the type; a custom client's key works on all three.
 
 | Surface | Routes | Who speaks it |
 |---|---|---|
 | Anthropic Messages | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` | Claude Code, opencode and crush, and anything written against the Anthropic SDK |
 | OpenAI Responses | `/v1/responses` | Codex CLI |
+| Gemini API | `/v1beta/models/{model}:streamGenerateContent`, `:generateContent`, `:countTokens` | gemini-cli pointed at a gateway (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_KEY`), and anything written against @google/genai |
 
 Beside them, on the same listener and behind the same key check, is the
 gateway's **MCP server** at `/mcp`: no dialect and no upstream, but tools a
@@ -58,9 +60,33 @@ Then the dialect and the upstream decide what happens:
 | Responses → Claude | translated, in `internal/api/openai` |
 | Responses → ChatGPT | as it came, to `/responses`; only the credential and the workspace are added |
 | Messages → ChatGPT | translated into Responses, in `internal/api/anthropic`, and the answer back |
+| Messages → Gemini | translated into Code Assist's envelope, in `internal/api/anthropic` (togemini.go), and the answer back |
+| Responses → Gemini | through Messages: read into Messages, then translated on (`api.Chain`) |
+| Gemini → Gemini | rewrapped, in `internal/api/gemini` (native.go): the caller's request inside the envelope, the answer unwrapped |
+| Gemini → Claude | translated into Messages, in `internal/api/gemini`, and the answer back |
+| Gemini → ChatGPT | through Messages, then on to Responses (`api.Chain`) |
 
-So every client can be served by either provider, and moving a slot from
-Claude to GPT is a choice on the client's page, not a new configuration.
+So every client can be served by any provider, and moving a slot from Claude
+to GPT or Gemini is a choice on the client's page, not a new configuration. A
+pair with no translation of its own goes through Messages, which every
+surface reads and every upstream is reached from; what Messages cannot carry
+— a Gemini thought signature, on the way through Responses — is kept by the
+gateway instead.
+
+To Gemini, in short (`go doc ./internal/provider/google` and the files named
+above have the tables; none of it is measured yet):
+
+- **Always streamed upstream**, `:streamGenerateContent?alt=sse`, and a
+  caller that did not stream is answered whole from the stream.
+- **The project is stamped in per attempt** (`provider.Stamper`): it is the
+  account's, known once one is leased, and a retry elsewhere names that one.
+- **Thought signatures.** Gemini 3 refuses a model turn whose first call has
+  none. A signature rides back to a Messages client in a thinking block
+  (`claudication:gemini-thought:v1:…`) and is kept by the gateway too; history
+  that has none is sent with the value gemini-cli puts on its own.
+- **Thinking** is a budget, not a level: the model is settled after the
+  translation, and Gemini 2.5 takes no level.
+- **count_tokens** and `:countTokens` are estimated, as for ChatGPT.
 
 Messages → ChatGPT, in short (`go doc ./internal/api/anthropic` has the whole
 table, each line with its measurement):
@@ -92,8 +118,11 @@ ChatGPT's families are its lines, the slug's last word — `sol`, `astra`,
 `luna`, `terra` — because the backend describes them so across releases
 (`gpt-6.1-sol` "Latest workhorse", `gpt-6-sol` "Previous generation
 workhorse", on 2026-10-19). A slot following one is served the newest version
-of it, by version, that the account a request lands on has. Any slot may
-follow, or be pinned to, either provider's model.
+of it, by version, that the account a request lands on has. Gemini's are its tiers —
+`pro`, `flash`, `flash-lite` — a preview of a tier counting as the tier
+(`gemini-3-pro-preview` is Pro), a variant past it (`…-customtools`) as a
+model of its own. Any slot may follow, or be pinned to, any provider's
+model.
 
 So every model an account serves works on every API that can reach it, and a
 new one works the day it appears. A client's page reads the live list through
@@ -107,6 +136,8 @@ internal/api/anthropic/  the Anthropic surface: the identity to Claude, and its
                          translation into Responses for the ChatGPT backend
 internal/api/openai/     the OpenAI surface: its mapping both ways, and the
                          identity exchange (native.go) for the ChatGPT backend
+internal/api/gemini/     the Gemini API surface: its mapping to Messages both
+                         ways, and the rewrap (native.go) for Code Assist
 internal/service/clients each client type's model fields, names and session headers
 internal/service/models  the targets a slot follows, and the route a model takes (route.go)
 internal/provider/       the upstreams, one package each

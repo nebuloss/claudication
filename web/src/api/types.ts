@@ -607,7 +607,7 @@ export interface SetupStatus {
 
 
 /** One of the gateway's two APIs: Anthropic Messages, or OpenAI Responses. */
-export type DialectId = 'anthropic' | 'openai'
+export type DialectId = 'anthropic' | 'openai' | 'gemini'
 
 /** How a custom client names models: its own slots, or real model ids. */
 export type ClientMode = 'binding' | 'direct'

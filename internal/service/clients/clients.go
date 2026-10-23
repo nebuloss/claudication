@@ -45,9 +45,9 @@ import (
 )
 
 // Dialect is a client-facing API, by the id of the gateway's protocol that
-// serves it (internal/api/anthropic, api/openai). Both reach both providers:
-// a model of the provider that speaks the client's API as the client wrote
-// the request, one of the other translated.
+// serves it (internal/api/anthropic, api/openai, api/gemini). Each reaches
+// every provider: a model of the provider that speaks the client's API as
+// the client wrote the request, any other translated.
 type Dialect string
 
 const (
@@ -55,7 +55,13 @@ const (
 	Messages Dialect = "anthropic"
 	// Responses is the OpenAI Responses API, /v1/responses.
 	Responses Dialect = "openai"
+	// GeminiAPI is the Gemini API, /v1beta/models/{model}:…, which
+	// gemini-cli speaks pointed at a gateway.
+	GeminiAPI Dialect = "gemini"
 )
+
+// Dialects are every client-facing API, in the order the UI lists them.
+var Dialects = []Dialect{Messages, Responses, GeminiAPI}
 
 // Title is how the UI names a dialect.
 func (d Dialect) Title() string {
@@ -64,6 +70,8 @@ func (d Dialect) Title() string {
 		return "Anthropic Messages"
 	case Responses:
 		return "OpenAI Responses"
+	case GeminiAPI:
+		return "Gemini API"
 	}
 	return string(d)
 }
@@ -687,9 +695,11 @@ var Crush = Type{
 }
 
 // Custom is a tool the gateway has no recipe for: its page shows the key, the
-// two base URLs and the slot names, and the operator names its slots — or, in
+// base URLs and the slot names, and the operator names its slots — or, in
 // direct mode, lets it name real models. It starts with one slot, and its key
-// works on both APIs: which one the tool speaks is the tool's.
+// works on every API: which one the tool speaks is the tool's. gemini-cli is
+// one, in direct mode: it names real Gemini ids, its own side calls among
+// them, which a fixed set of slot names would not cover.
 var Custom = Type{
 	ID: "custom", Label: "Custom",
 	Custom:     true,

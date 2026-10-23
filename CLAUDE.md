@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Working on claudication
 
-A gateway that proxies Claude and ChatGPT subscription accounts over OAuth,
-with an embedded admin UI. Go, no CGO; the UI is built into the binary with
-`go:embed`.
+A gateway that proxies Claude, ChatGPT and Google subscription accounts over
+OAuth, with an embedded admin UI. Go, no CGO; the UI is built into the binary
+with `go:embed`.
 
-It serves two client-facing APIs — Anthropic Messages and OpenAI Responses,
-which is what Codex CLI speaks — and has two upstreams: Anthropic, and
-ChatGPT's Codex backend. One Gateway switch in Settings turns client traffic
+It serves three client-facing APIs — Anthropic Messages, OpenAI Responses,
+which is what Codex CLI speaks, and the Gemini API, which gemini-cli speaks —
+and has three upstreams: Anthropic, ChatGPT's Codex backend, and Google's
+Code Assist. One Gateway switch in Settings turns client traffic
 on and off at runtime; each client and each account has its own switch too.
 
 A client is a top-level thing — a type (Claude Code, Codex, opencode, crush,
@@ -26,8 +27,10 @@ that it has, or the one version Settings › Models set the family to
 (family.go, pool.Versions, relay.Rebind); Settings › Models also chooses per
 provider whether clients are offered families or every version. Responses reaches ChatGPT as it
 came and Claude translated; Messages reaches Claude as it came and ChatGPT
-translated (`go doc ./internal/api/anthropic`). Every model is reachable from
-either API.
+and Gemini translated (`go doc ./internal/api/anthropic`); the Gemini API
+reaches Gemini rewrapped and Claude translated (`go doc ./internal/api/gemini`).
+A pair with no translation of its own goes through Messages (`api.Chain`).
+Every model is reachable from every API.
 
 ## Where code goes
 
@@ -59,10 +62,12 @@ update commands and the MCP server's `update_config` carry it.
    itself: accounts, retries, streaming, the stall retry. There is one relay
    per provider. `go doc ./internal/provider` is the line between the relay
    and the upstreams — `Wire` for the relay, `Accounts` for the pool, the
-   poller and the admin API — and `internal/provider/anthropic` and
-   `internal/provider/openai` the only places each one's URLs, headers, event
-   names and error shapes appear. `go doc ./internal/provider/openai` is the
-   measurement record for the ChatGPT backend.
+   poller and the admin API — and `internal/provider/anthropic`,
+   `internal/provider/openai` and `internal/provider/google` the only places
+   each one's URLs, headers, event names and error shapes appear. `go doc
+   ./internal/provider/openai` is the measurement record for the ChatGPT
+   backend; `go doc ./internal/provider/google` says what of Code Assist is
+   read from gemini-cli and what is measured.
 2. [`docs/`](docs/) — `refused-requests.md` first: every refusal with the
    measurements behind it. Then `upstream-request-pipeline.md` for what the
    official client sends, and `reversing.md` for how to check any of it.

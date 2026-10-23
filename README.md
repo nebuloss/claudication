@@ -5,26 +5,29 @@ starves the muscle under load: it comes on when you push, and eases when you
 rest. Also contains Claude. The name is a promise about the failure mode — it
 keeps walking, and it tells you where the narrowing is.
 
-**A gateway that puts your Claude subscription — and your ChatGPT one — behind
-the APIs your tools already speak.** Point Claude Code, opencode or crush at
-its Anthropic Messages API, or Codex CLI at its OpenAI Responses API: the
-gateway authenticates with subscription OAuth accounts, pools several of them
-in an order you choose, and relays requests byte for byte — translating only
-where a client's API is not its upstream's. One static binary, with the admin
-UI inside it.
+**A gateway that puts your Claude subscription — and your ChatGPT and Google
+ones — behind the APIs your tools already speak.** Point Claude Code, opencode
+or crush at its Anthropic Messages API, Codex CLI at its OpenAI Responses API,
+or gemini-cli at its Gemini API: the gateway authenticates with subscription
+OAuth accounts, pools several of them in an order you choose, and relays
+requests byte for byte — translating only where a client's API is not its
+upstream's. One static binary, with the admin UI inside it.
 
     Claude Code ─┐
     opencode  ───┼──►  /v1/messages  ──┐                   ┌──►  api.anthropic.com
-    crush     ───┘                     ├──►  claudication ─┤     your Claude subscription
-    Codex     ──────►  /v1/responses ──┘      your API key └──►  chatgpt.com (Codex backend)
-                                                                 your ChatGPT subscription
+    crush     ───┘                     │                   │     your Claude subscription
+    Codex     ──────►  /v1/responses ──┼──►  claudication ─┼──►  chatgpt.com (Codex backend)
+    gemini-cli ─────►  /v1beta/models ─┘      your API key │     your ChatGPT subscription
+                                                           └──►  cloudcode-pa.googleapis.com
+                                                                 your Google account (Gemini)
 
 Each tool is a **client** of the gateway: a type, one key, and model names of
 its own — `large`, `small`, `review` — each bound on the client's page to a
 real model or to the newest of a family. Which upstream serves a request is
 decided by the model that name resolves to, served by the accounts that list
-it. Every client reaches both: Codex speaks OpenAI Responses and Claude Code,
-crush and opencode Anthropic Messages, and the gateway translates either way.
+it. Every client reaches all three: Codex speaks OpenAI Responses, gemini-cli
+the Gemini API, and Claude Code, crush and opencode Anthropic Messages, and
+the gateway translates between them.
 
 The gateway, each client and each account can be switched off from the admin
 UI without a restart.
@@ -105,7 +108,7 @@ a link to one opens on it.
 
 **Overview** — whether the gateway can serve a request, and today's traffic.
 
-**Accounts** — the Claude and ChatGPT accounts the pool draws on, each
+**Accounts** — the Claude, ChatGPT and Google accounts the pool draws on, each
 provider's in its own priority order, each showing its 5-hour and 7-day
 subscription usage, which clients drew on it, and a switch to pause it.
 
@@ -186,6 +189,35 @@ subscriptions behind shared keys may breach OpenAI's terms and get accounts
 flagged — as with Claude, that is the operator's decision to make knowingly.
 What was measured against it, and how, is in
 `go doc ./internal/provider/openai`.
+
+## Gemini accounts
+
+A Google account — the free tier, Google AI Pro or Ultra — can serve Gemini
+the way it serves gemini-cli after "Login with Google": through Code Assist,
+on the account's own allowance, not the metered Gemini API and its key. **Add
+account → Gemini** opens Google's consent screen; approve, and paste back the
+code Google shows. It is the flow gemini-cli uses without a local browser, so
+it works for a gateway on another machine. Signing in also sets the account up
+on its Code Assist tier, as gemini-cli does before its first turn; an account
+that would need a Google Cloud project of its own — Workspace, Cloud — is
+refused then, with Google's reasons.
+
+Gemini's quota is per model — a spent Pro leaves Flash serving — so an account
+shows one row per model rather than the 5-hour and 7-day columns. Its models
+group as families by tier — Pro, Flash, Flash-Lite — and a name following one
+is served the newest the account has.
+
+Every client reaches it: a Messages client translated, a Responses client
+through Messages, and gemini-cli with its own request rewrapped — point it at
+the gateway with a custom client in direct mode:
+
+    export GOOGLE_GEMINI_BASE_URL=http://your-gateway:8317
+    export GEMINI_API_KEY=clc_…
+
+Code Assist is not a public API, and pooling several people's Google accounts
+may breach Google's terms, as with the other two. Everything about it so far
+is read from gemini-cli's source and not yet measured;
+`go doc ./internal/provider/google` says which is which.
 
 ### Subscription usage
 
