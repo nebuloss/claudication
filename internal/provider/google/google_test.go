@@ -495,8 +495,10 @@ func TestMeasuredQuotaIsPerModel(t *testing.T) {
 		if strings.Contains(r.Kind, "_") || strings.HasPrefix(r.Kind, "claude-") {
 			t.Errorf("%s has a row", r.Kind)
 		}
-		if r.ResetsAt == "" && strings.HasPrefix(r.Kind, "gemini-") {
-			t.Errorf("%s has no reset", r.Kind)
+		// Recorded before any use: no allowance had a window yet, so none
+		// has a reset to show, and each is a week long.
+		if r.ResetsAt != "" || r.WindowSeconds != 7*24*60*60 {
+			t.Errorf("%s: reset %q, window %d", r.Kind, r.ResetsAt, r.WindowSeconds)
 		}
 	}
 	if len(rows) != 2 || !strings.HasPrefix(rows[0].Title, "Gemini — ") || !strings.HasPrefix(rows[1].Kind, "gpt-oss") {
@@ -547,6 +549,20 @@ func TestAuthorizeSaysAntigravity(t *testing.T) {
 	Provider{}.Authorize(req, provider.Credential{Token: "ya29.x"})
 	if req.Header.Get("User-Agent") != UserAgent || req.Header.Get("Authorization") != "Bearer ya29.x" {
 		t.Errorf("headers = %v", req.Header)
+	}
+}
+
+// A used allowance keeps its reset; one never used shows none, its reset
+// being a week from whenever it was asked.
+func TestAnUnusedAllowanceHasNoReset(t *testing.T) {
+	used, unused := 0.96, 1.0
+	q := quotaResponse{Buckets: []bucket{
+		{ModelID: "gemini-3.8-flash-high", RemainingFraction: &used, ResetTime: "2026-10-30T09:46:47Z"},
+		{ModelID: "gpt-oss-120b-medium", RemainingFraction: &unused, ResetTime: "2026-10-30T12:15:49Z"},
+	}}
+	rows := Accounts{}.Limits(q.quota().Detail)
+	if len(rows) != 2 || rows[0].ResetsAt != "2026-10-30T09:46:47Z" || rows[1].ResetsAt != "" {
+		t.Errorf("rows = %+v", rows)
 	}
 }
 

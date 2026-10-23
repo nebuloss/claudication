@@ -90,8 +90,12 @@ A free account was offered Gemini 2.5 Pro, 3 Flash, 3.1 and 3.5 Flash Lite,
 and 3.5 and 3.8 Flash at three thinking levels each, with GPT-OSS 120B.
 Antigravity also offers Claude Opus and Sonnet; the gateway leaves those out,
 because a `claude-` model always goes to the Claude accounts. The quota is
-per model and resets weekly — a spent Pro leaves Flash serving — so an
-account shows one row per model rather than the 5-hour and 7-day columns.
+an allowance per line of models — every Gemini model shares one, GPT-OSS has
+its own — counted in tokens over a week that starts at the line's first use;
+a free account's Gemini allowance measured at about 670,000 tokens a week.
+So an account shows a row per allowance, with its share left and its reset,
+rather than the 5-hour and 7-day columns; an allowance not yet used has no
+reset, because its week has not started.
 Its models group as families by tier — Pro, Flash, Flash-Lite — and a name
 following one is served the newest the account has, at the highest thinking
 level offered.

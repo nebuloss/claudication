@@ -100,11 +100,14 @@
 // # Quota
 //
 // retrieveUserQuota, POST with the project, answers one bucket per model:
-// the fraction left and when it refills — measured on a free account, token
-// type WTUS, every reset a week out. The limits are per model, so nothing
-// maps onto the five-hour and weekly columns; the accounts screen shows a
-// row per model, and a refusal that was one model's sits the account out
-// for that model alone (provider.Verdict Model).
+// the fraction left and when it refills, nothing more. Measured on a free
+// account by spending tokens between snapshots (usage.go has the figures):
+// one allowance per line of models — every Gemini model shares one, GPT-OSS
+// and each Claude have their own — counted in tokens, thinking included,
+// over a week that starts at the line's first use. So nothing maps onto the
+// account-wide five-hour and weekly columns; the accounts screen shows a row
+// per allowance, and a refusal that was one model's sits the account out for
+// that model alone (provider.Verdict Model).
 //
 // # Models
 //

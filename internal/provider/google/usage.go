@@ -21,11 +21,27 @@ import (
 //	              "remainingAmount", "resetTime"}, …]}
 //
 // One bucket per model and kind of token, each with the fraction left and
-// when it refills. Measured on a free account: token type WTUS, every reset
-// a week out. The windows are per model rather than per account — a spent
-// Pro quota leaves Flash serving — and their length is not said, only their
-// reset; so nothing maps onto the store's five-hour and weekly columns, and
-// the rows live in the detail, one per model, for the accounts screen.
+// when it refills — nothing else: no amount, no window length.
+//
+// How it behaves, measured 2026-10-23 on a free account (three turns of
+// gemini-3.8-flash-high, two of gpt-oss-120b-medium, a snapshot around
+// each):
+//
+//   - One allowance per line of models, not per model: every Gemini bucket
+//     moved together, by the same amount, and GPT-OSS alone moved for its
+//     turns. Claude Opus and Sonnet have one each.
+//   - Counted in tokens, thinking included: Gemini fell 2.835% for 18,963
+//     tokens, about 670,000 a week; GPT-OSS 0.111% for 6,335, about
+//     5.7 million.
+//   - A window is a week from its line's first use: Gemini's reset sat at
+//     the first turn's time plus seven days, and GPT-OSS's settled on its
+//     first turn's. An allowance never used has no window yet, and reports
+//     a reset a week from whenever it is asked.
+//
+// The windows are per line rather than per account — a spent Gemini
+// allowance leaves GPT-OSS serving — so nothing maps onto the store's
+// five-hour and weekly columns, which the pool reads for the whole account;
+// the rows live in the detail, for the accounts screen.
 
 // bucket is BucketInfo (types.ts).
 type bucket struct {
@@ -40,6 +56,9 @@ type bucket struct {
 type quotaResponse struct {
 	Buckets []bucket `json:"buckets"`
 }
+
+// window is every allowance's length (measured; see above).
+const window = 7 * 24 * 60 * 60
 
 // quotaRow is one model's quota as the detail keeps it.
 type quotaRow struct {
@@ -66,7 +85,9 @@ func (q quotaResponse) quota() provider.Quota {
 		if b.RemainingFraction != nil {
 			row.UsedPercent = min(max((1-*b.RemainingFraction)*100, 0), 100)
 		}
-		if t, err := time.Parse(time.RFC3339, b.ResetTime); err == nil {
+		// An allowance not yet used has no window: its reset is a week from
+		// the moment it was asked, and moves with every read.
+		if t, err := time.Parse(time.RFC3339, b.ResetTime); err == nil && row.UsedPercent > 0 {
 			row.ResetAt = t.Unix()
 		}
 		if row.UsedPercent >= 100 {
@@ -147,11 +168,12 @@ func limitRows(detail string) []provider.Limit {
 			title = displayName(g.line) + " — " + strconv.Itoa(g.n) + " models"
 		}
 		l := provider.Limit{
-			Title:    title,
-			Kind:     g.first.Model,
-			Percent:  g.first.UsedPercent,
-			Severity: severity(g.first.UsedPercent),
-			IsActive: i == binding,
+			Title:         title,
+			Kind:          g.first.Model,
+			Percent:       g.first.UsedPercent,
+			Severity:      severity(g.first.UsedPercent),
+			IsActive:      i == binding,
+			WindowSeconds: window,
 		}
 		if g.first.ResetAt > 0 {
 			l.ResetsAt = time.Unix(g.first.ResetAt, 0).UTC().Format(time.RFC3339)
