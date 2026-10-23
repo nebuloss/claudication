@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="res/images/logo.svg" alt="claudication" width="520">
+  <img src="res/images/claudication.svg" alt="claudication" width="520">
 </p>
 
 *claudication*, n. — a limp. In medicine, the kind caused by a narrowing that
