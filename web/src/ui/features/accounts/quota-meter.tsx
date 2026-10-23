@@ -18,22 +18,25 @@ import { providerOf } from '../../providers'
  * which is which is a matter of length, not of name.
  *
  * An account with neither window but rows of its own — Google's, an
- * allowance per line of models — shows the one that binds, or its first,
- * labelled by its window's length as every gauge is ("7d"), and named in
- * full on hover: two empty windows would say nothing was read when it was.
- * One, because the label's slot holds a length and not a line's name; the
- * account's page lists them all.
+ * allowance per line of models — has no one figure for the whole account:
+ * its allowances are spent apart, and an average of them would describe
+ * none. So its gauge is the fullest allowance, the one that refuses first,
+ * as an account's binding window is; labelled by its length as every gauge
+ * is ("7d"), and on hover every allowance with its share, so the gauge
+ * answers for all the account's models. One gauge, because the label's slot
+ * holds a length and not a line's name; the account's page draws them all.
  */
 export function QuotaGauges({ quota }: { quota: Quota }) {
   const windowed = quota.five_hour_util >= 0 || quota.seven_day_util >= 0
   const rows = quota.limits ?? []
-  const row = rows.find((l) => l.is_active) ?? rows[0]
-  if (!windowed && row !== undefined) {
+  if (!windowed && rows.length > 0) {
+    const fullest = rows.reduce((a, b) => (b.percent > a.percent ? b : a))
+    const all = rows.map((l) => `${l.title}: ${new QuotaWindow(l.percent, l.severity).label} used`)
     return (
       <Gauge
-        label={windowShort(row.window_seconds ?? 0)}
-        name={row.title}
-        window={new QuotaWindow(row.percent, row.severity)}
+        label={windowShort(fullest.window_seconds ?? 0)}
+        window={new QuotaWindow(fullest.percent, fullest.severity)}
+        hover={`The fullest allowance, of ${String(rows.length)}:\n${all.join('\n')}`}
       />
     )
   }
@@ -51,7 +54,7 @@ export function QuotaGauges({ quota }: { quota: Quota }) {
   )
 }
 
-function Gauge({ label, name = label, window: w }: { label: string; name?: string; window: QuotaWindow }) {
+function Gauge({ label, hover, window: w }: { label: string; hover?: string; window: QuotaWindow }) {
   return (
     <InlineMeter
       label={label}
@@ -59,7 +62,7 @@ function Gauge({ label, name = label, window: w }: { label: string; name?: strin
       tone={w.tone}
       figure={w.percent === null ? '–' : w.label}
       alert={w.level === 'critical'}
-      title={w.percent === null ? `${name}: not read yet` : `${name}: ${w.label} used`}
+      title={hover ?? (w.percent === null ? `${label}: not read yet` : `${label}: ${w.label} used`)}
     />
   )
 }
