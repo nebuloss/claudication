@@ -67,7 +67,8 @@ type catalogModel struct {
 type catalogCache struct {
 	mu sync.Mutex
 	// models is each provider's models by the provider's models.dev id —
-	// "anthropic" and "openai", the gateway's own provider ids — newest release first.
+	// "anthropic", "openai" and "google", the gateway's own provider ids —
+	// newest release first.
 	models map[string][]catalogModel
 	at     time.Time     // last read finished, successful or not
 	done   chan struct{} // closed when the read in flight finishes; nil when none is

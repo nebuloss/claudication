@@ -189,8 +189,9 @@ func TestFamilyReport(t *testing.T) {
 		}](t, body).Providers
 	}
 	rep := report()
-	if len(rep) != 2 || rep[0].Provider != "anthropic" || !rep[0].Connected || !rep[0].ByFamily ||
-		rep[1].Provider != "openai" || rep[1].Connected || len(rep[1].Families) != 0 {
+	if len(rep) != 3 || rep[0].Provider != "anthropic" || !rep[0].Connected || !rep[0].ByFamily ||
+		rep[1].Provider != "openai" || rep[1].Connected || len(rep[1].Families) != 0 ||
+		rep[2].Provider != "google" || rep[2].Connected || len(rep[2].Families) != 0 {
 		t.Fatalf("report = %+v", rep)
 	}
 	var opus modelsvc.FamilyRow

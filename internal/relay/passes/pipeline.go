@@ -209,6 +209,15 @@ func OpenAI(o Options) Pipeline {
 	return Pipeline{surrogates(log)}
 }
 
+// Gemini is the pipeline for Code Assist's wire: empty. Every body sent there
+// is the gateway's own translation, encoded by encoding/json, which writes
+// no lone surrogate — the one it decoded from a caller's \ud800 became
+// U+FFFD on the way in — so the repair the other wires run has nothing to
+// find. The project is stamped per attempt by the provider
+// (provider.Stamper), not by a pass: it is the account's, known only once
+// one is leased.
+func Gemini(Options) Pipeline { return Pipeline{} }
+
 // surrogates is FixLoneSurrogates as a pass, the same on every pipeline.
 func surrogates(log *slog.Logger) Pass {
 	return Pass{

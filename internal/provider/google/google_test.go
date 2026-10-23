@@ -417,12 +417,12 @@ func TestModelListRanksTheQuotasModels(t *testing.T) {
 	for _, m := range l.Data {
 		ids = append(ids, m.ID)
 	}
-	want := "gemini-3.1-flash-lite gemini-3-pro gemini-3-pro-preview gemini-3-flash gemini-2.5-pro gemini-2.5-flash"
+	want := "gemini-3-pro gemini-3-pro-preview gemini-2.5-pro gemini-3-flash gemini-2.5-flash gemini-3.1-flash-lite"
 	if got := strings.Join(ids, " "); got != want {
 		t.Errorf("order = %s\nwant    %s", got, want)
 	}
-	if l.Data[1].DisplayName != "Gemini 3 Pro" || l.Data[1].Provider != ID || l.FirstID != "gemini-3.1-flash-lite" {
-		t.Errorf("entry = %+v, first %q", l.Data[1], l.FirstID)
+	if l.Data[0].DisplayName != "Gemini 3 Pro" || l.Data[0].Provider != ID || l.FirstID != "gemini-3-pro" {
+		t.Errorf("entry = %+v, first %q", l.Data[0], l.FirstID)
 	}
 	method, path, body := Provider{}.ModelsRequest("limit=5", provider.Credential{AccountID: "proj-9"})
 	if method != http.MethodPost || path != "/v1internal:retrieveUserQuota" || string(body) != `{"project":"proj-9"}` {

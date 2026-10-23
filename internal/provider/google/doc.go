@@ -104,8 +104,8 @@
 // # Models
 //
 // There is no model list. The quota buckets name every model the account may
-// call, and are read as its list (Provider.ModelsRequest), ranked newest
-// first and Pro before Flash before Flash-Lite. gemini-cli knows of
+// call, and are read as its list (Provider.ModelsRequest), ranked Pro, then
+// Flash, then Flash-Lite, each newest first. gemini-cli knows of
 // gemini-2.5-pro, gemini-3-pro-preview, gemini-3.1-pro-preview,
 // gemini-3-flash-preview, gemini-3.5-flash and gemini-3.1-flash-lite among
 // others (config/models.ts), and maps some of its names onto others on this

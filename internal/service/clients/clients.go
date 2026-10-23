@@ -151,13 +151,16 @@ const (
 	FollowLuna   Follow = "openai:luna"
 )
 
-var familyName = regexp.MustCompile(`^[a-z]+$`)
+// familyName is a family's word: a line, with one hyphened qualifier for
+// Gemini's flash-lite.
+var familyName = regexp.MustCompile(`^[a-z]+(-[a-z]+)?$`)
 
 // familyPrefixes are each provider's prefix in a Follow, and in the model id
 // a direct-mode client names the family by (Follow.ModelID).
 var familyPrefixes = []struct{ provider, follow, id string }{
 	{"anthropic", "claude:", "claude-"},
 	{"openai", "openai:", "gpt-"},
+	{"google", "gemini:", "gemini-"},
 }
 
 // ClaudeFollow is the family of a Claude line.
@@ -193,11 +196,13 @@ func ProviderTitle(provider string) string {
 		return "Claude"
 	case "openai":
 		return "ChatGPT"
+	case "google":
+		return "Gemini"
 	}
 	return provider
 }
 
-// Provider is whose models f follows: anthropic or openai.
+// Provider is whose models f follows: anthropic, openai or google.
 func (f Follow) Provider() string {
 	for _, p := range familyPrefixes {
 		if strings.HasPrefix(string(f), p.follow) {
@@ -233,15 +238,23 @@ func FollowOf(id string) Follow {
 	return ""
 }
 
-// Title is how the UI names a family: Claude Opus, GPT Sol.
+// Title is how the UI names a family: Claude Opus, GPT Sol, Gemini Flash
+// Lite.
 func (f Follow) Title() string {
 	fam := f.Family()
 	if fam == "" {
 		return string(f)
 	}
-	word := strings.ToUpper(fam[:1]) + fam[1:]
-	if f.Provider() == "openai" {
+	words := strings.Split(fam, "-")
+	for i, w := range words {
+		words[i] = strings.ToUpper(w[:1]) + w[1:]
+	}
+	word := strings.Join(words, " ")
+	switch f.Provider() {
+	case "openai":
 		return "GPT " + word
+	case "google":
+		return "Gemini " + word
 	}
 	return "Claude " + word
 }

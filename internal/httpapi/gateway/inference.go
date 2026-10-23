@@ -2,12 +2,14 @@ package gateway
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"claudication/internal/api"
+	anthropicapi "claudication/internal/api/anthropic"
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/pool"
 	"claudication/internal/relay"
@@ -142,7 +144,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		ex := first
 		if known && up.Native != p.ID() {
 			target := api.Target{Dialect: up.Native, Route: route, Conversation: conversation}
-			if ex, err = translate(p, body, target); err != nil {
+			if ex, err = s.translate(p, body, target); err != nil {
 				ev := rejection(r, key, http.StatusBadRequest, err.Error())
 				ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Slot, route
 				s.recorder.Record(ev, 0)
@@ -510,13 +512,30 @@ func decodeNative(p api.Protocol, body []byte) (api.Exchange, error) {
 }
 
 // translate rebuilds a request for an upstream speaking to.Dialect: through
-// the dialect's Translator when it has one, else its Decode, which for a
-// dialect whose only other upstream is Anthropic's is that translation.
-func translate(p api.Protocol, body []byte, to api.Target) (api.Exchange, error) {
+// the dialect's Translator when it has one for that dialect; else its Decode,
+// which is the translation into Messages, and for any other upstream that
+// Messages request translated on by the Anthropic surface (api.Chain).
+func (s *Gateway) translate(p api.Protocol, body []byte, to api.Target) (api.Exchange, error) {
 	if t, ok := p.(api.Translator); ok {
-		return t.Translate(body, to)
+		ex, err := t.Translate(body, to)
+		if !errors.Is(err, api.ErrNoTranslation) {
+			return ex, err
+		}
 	}
-	return p.Decode(body)
+	first, err := p.Decode(body)
+	if err != nil || to.Dialect == anthropicapi.ID {
+		return first, err
+	}
+	messages, ok := s.protocols.Find(anthropicapi.ID)
+	via, isTranslator := messages.(api.Translator)
+	if !ok || !isTranslator || p.ID() == anthropicapi.ID {
+		return nil, fmt.Errorf("the %s cannot be translated for a %q upstream", p.Title(), to.Dialect)
+	}
+	second, err := via.Translate(first.Request(), to)
+	if err != nil {
+		return nil, err
+	}
+	return api.Chain(first, second), nil
 }
 
 // unreachable says why a request was routed to an upstream its API cannot

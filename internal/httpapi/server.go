@@ -46,6 +46,7 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/provider"
 	"claudication/internal/provider/anthropic"
+	"claudication/internal/provider/google"
 	chatgpt "claudication/internal/provider/openai"
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
@@ -241,7 +242,7 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 	// below: the pool is handed each one's token refresh, the poller each
 	// one's usage endpoint, the recorder each one's error vocabulary and the
 	// relay its wire, and none of them knows whose they are.
-	s.providers = provider.Registry{anthropic.Accounts{}, chatgpt.Accounts{}}
+	s.providers = provider.Registry{anthropic.Accounts{}, chatgpt.Accounts{}, google.Accounts{}}
 
 	// What each request cost, classified in the vocabulary of the provider
 	// that answered and credited to the key's budget. A request no account
@@ -271,6 +272,10 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 	// encrypted reasoning was made there, and whether another account can
 	// read it is not measured. See internal/pool, affinity.go.
 	s.pool.PreferLastAccount(chatgpt.ID)
+	// So does a Gemini one: its thought signatures were made on that
+	// account, and whether another account's backend takes them is not
+	// measured; and Gemini caches a conversation's prefix per project.
+	s.pool.PreferLastAccount(google.ID)
 	s.poller = &accountsvc.Poller{
 		Store:  st,
 		Tokens: s.pool,
@@ -316,7 +321,17 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 		StallTimeout: 0,
 		Client:       relayClient,
 	}
-	s.relays = map[string]*relay.Relay{anthropic.ID: s.relay, chatgpt.ID: openaiRelay}
+	googleRelay := &relay.Relay{
+		Wire:   google.Provider{},
+		Pool:   s.pool,
+		Log:    log,
+		Passes: passes.Gemini(passes.Options{Log: log}),
+		// No stall hold: the stream names no events for it to tell a
+		// keep-alive from content by (internal/provider/google, wire.go).
+		StallTimeout: 0,
+		Client:       relayClient,
+	}
+	s.relays = map[string]*relay.Relay{anthropic.ID: s.relay, chatgpt.ID: openaiRelay, google.ID: googleRelay}
 
 	s.uptime = &uptime.Sampler{
 		Store:     st,
@@ -328,6 +343,9 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 	// Chat titles, once the relays and the recorder they use exist: a title
 	// is asked of the provider that served the chat, at the path the
 	// gateway's own routes send that provider a client's turn.
+	// Not Google's yet: the titler writes its question in Messages or
+	// Responses, and Code Assist takes neither, so a chat Gemini served is
+	// left with the title its client gave it.
 	ups := s.upstreams()
 	return titles.New(titles.Deps{
 		Store: st,
@@ -377,7 +395,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	installs := install.New(15 * time.Minute)
 	s.models = modelsvc.New(modelsvc.Deps{
 		Config: cfg, Log: log, Store: st, Settings: st, Pool: s.pool,
-		Relays:     []*relay.Relay{s.relays[anthropic.ID], s.relays[chatgpt.ID]},
+		Relays:     []*relay.Relay{s.relays[anthropic.ID], s.relays[chatgpt.ID], s.relays[google.ID]},
 		HTTPClient: s.httpClient,
 	})
 	s.gateway = gateway.New(gateway.Deps{
@@ -426,21 +444,30 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	})
 }
 
+// geminiDialect is the dialect Code Assist is reached in, which no client
+// speaks as it is: every request is translated into it.
+const geminiDialect = "gemini"
+
 // upstreams are the providers as the gateway reaches them: which client
 // routes may, and where each goes.
 //
-//	                  Anthropic                  ChatGPT
-//	/v1/messages      /v1/messages?beta=true     /responses (translated)
-//	…/count_tokens    …/count_tokens?beta=true   answered here (estimated)
-//	/v1/responses     /v1/messages?beta=true     /responses
-//	                  (translated)               (as it came)
+//	                  Anthropic                  ChatGPT                    Gemini
+//	/v1/messages      /v1/messages?beta=true     /responses (translated)    :streamGenerateContent
+//	                                                                        (translated)
+//	…/count_tokens    …/count_tokens?beta=true   answered here (estimated)  answered here (estimated)
+//	/v1/responses     /v1/messages?beta=true     /responses                 :streamGenerateContent
+//	                  (translated)               (as it came)               (through Messages)
 //
 // The ?beta=true is the official client's own. Each API reaches the other's
 // provider translated: Responses into Messages for Claude
 // (internal/api/openai), Messages into Responses for ChatGPT
-// (internal/api/anthropic). count_tokens has no path on ChatGPT because the
-// backend counts nothing; the translation answers it with an estimate that
-// says it is one, and the gateway never relays it.
+// (internal/api/anthropic). Code Assist speaks no client's dialect as it is:
+// Messages is translated into it (internal/api/anthropic, togemini.go), and
+// Responses reaches it through Messages (api.Chain). It is always sent the
+// streamed method, and a caller that did not stream is answered whole from
+// the stream. count_tokens has no path on ChatGPT or Gemini; the translation
+// answers it with an estimate that says it is one, and the gateway never
+// relays it.
 func (s *Server) upstreams() map[string]gateway.Upstream {
 	return map[string]gateway.Upstream{
 		anthropic.ID: {
@@ -456,6 +483,13 @@ func (s *Server) upstreams() map[string]gateway.Upstream {
 			Paths: map[string]string{
 				"/v1/messages":  "/responses",
 				"/v1/responses": "/responses",
+			},
+		},
+		google.ID: {
+			Relay: s.relays[google.ID], Title: "Gemini", Native: geminiDialect, FitOutput: passes.FitGeminiMaxOutputTokens,
+			Paths: map[string]string{
+				"/v1/messages":  google.StreamPath,
+				"/v1/responses": google.StreamPath,
 			},
 		},
 	}
@@ -946,7 +980,7 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 // modeSwitches are the model list's mode switches, in its providers' order.
 func modeSwitches(m *modelsvc.Catalog) []*settings.Switch {
 	var out []*settings.Switch
-	for _, p := range []string{anthropic.ID, chatgpt.ID} {
+	for _, p := range []string{anthropic.ID, chatgpt.ID, google.ID} {
 		if sw := m.Modes()[p]; sw != nil {
 			out = append(out, sw)
 		}

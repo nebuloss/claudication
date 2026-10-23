@@ -163,6 +163,7 @@ var prefixes = []struct {
 }{
 	{"anthropic", regexp.MustCompile(`^claude-`)},
 	{"openai", regexp.MustCompile(`^(gpt-|codex-|o[0-9])`)},
+	{"google", regexp.MustCompile(`^gemini-`)},
 }
 
 // ProviderOf is the provider whose accounts list model, or "" when none does.

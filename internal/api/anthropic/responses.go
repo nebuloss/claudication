@@ -43,7 +43,7 @@ func (a API) Translate(body []byte, to api.Target) (api.Exchange, error) {
 		}
 		return &responsesExchange{tr: tr, up: fromGemini}, nil
 	}
-	return nil, fmt.Errorf("the Anthropic Messages API cannot be translated for a %q upstream", to.Dialect)
+	return nil, fmt.Errorf("the Anthropic Messages API cannot be translated for a %q upstream: %w", to.Dialect, api.ErrNoTranslation)
 }
 
 // responsesExchange is one Messages request in flight to a translating

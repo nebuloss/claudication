@@ -22,7 +22,7 @@ import (
 //	text                               text block, text_delta
 //	functionCall                       tool_use block, its args at once
 //	thoughtSignature on a call         a thinking block carrying it (when
-//	                                     thinking was asked for), else kept
+//	                                     thinking was asked for), and kept
 //	                                     by the gateway for the next turn
 //	finishReason STOP                  end_turn, or tool_use after a call
 //	finishReason MAX_TOKENS            max_tokens
@@ -165,14 +165,17 @@ func (c *geminiConverter) part(p geminiwire.Part) {
 }
 
 // call says a function call as a tool_use block, after the thinking block
-// that carries its signature when the caller keeps thinking; otherwise the
-// gateway keeps the signature against the call's id.
+// that carries its signature when the caller keeps thinking. The gateway
+// keeps the signature against the call's id either way: a caller that asked
+// for thinking may still not send it back — a Responses client reached
+// through Messages has nowhere to keep a signature at all.
 func (c *geminiConverter) call(p geminiwire.Part) {
 	id := p.FunctionCall.ID
 	if !validToolID(id) {
 		id = newCallID()
 	}
 	if sig := p.ThoughtSignature; sig != "" {
+		c.tr.reasoning.put(c.tr.conversation, callKey(id), []carriedReasoning{{Encrypted: sig}})
 		if c.tr.Thinking {
 			// The open thinking block, unless it is signed already: then the
 			// call's own signature needs a block of its own.
@@ -181,8 +184,6 @@ func (c *geminiConverter) call(p geminiwire.Part) {
 				b = c.begin("thinking", map[string]any{"type": "thinking", "thinking": "", "signature": ""})
 			}
 			c.sign(b, sig)
-		} else {
-			c.tr.reasoning.put(c.tr.conversation, callKey(id), []carriedReasoning{{Encrypted: sig}})
 		}
 	}
 	c.closeOpen()

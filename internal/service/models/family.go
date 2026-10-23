@@ -52,7 +52,8 @@ import (
 // Families are read off the accounts' own lists, never written down here: a
 // Claude line is the word after claude- (claude-opus-5-5 is opus), a ChatGPT
 // one the slug's last word (gpt-6.1-sol is sol; internal/service/clients,
-// Follow, has the backend's own descriptions that make it the line). A model
+// Follow, has the backend's own descriptions that make it the line), a
+// Gemini one its tier (gemini-3-pro-preview is pro). A model
 // whose id fits neither is no family's, and is offered as itself in either
 // mode, so nothing an account lists is out of reach.
 
@@ -60,6 +61,9 @@ import (
 var familyPattern = map[string]*regexp.Regexp{
 	"anthropic": regexp.MustCompile(`^claude-([a-z]+)-`),
 	"openai":    regexp.MustCompile(`^gpt-\d+(?:\.\d+)*-([a-z]+)$`),
+	// A tier, and a preview of it, are the family; a variant past the tier
+	// (gemini-3.1-pro-preview-customtools) is a model of its own.
+	"google": regexp.MustCompile(`^gemini-\d+(?:\.\d+)*-(pro|flash-lite|flash)(?:-preview)?$`),
 }
 
 // FamilyOf is the family a provider's model belongs to, or "".

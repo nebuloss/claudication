@@ -97,6 +97,38 @@ func FitMaxOutputTokens(body []byte, limit int) (out []byte, ok bool) {
 	return out, true
 }
 
+// FitGeminiMaxOutputTokens fits a Code Assist body's maxOutputTokens, which
+// sits in request.generationConfig rather than at the top, to limit. The
+// body is the gateway's own translation, so it is decoded and encoded again
+// rather than spliced. ok is false when nothing needed to change. Gemini is
+// not measured over a cap either; fitted on ChatGPT's reasoning.
+func FitGeminiMaxOutputTokens(body []byte, limit int) (out []byte, ok bool) {
+	if limit <= 0 {
+		return body, false
+	}
+	var env, req, gc map[string]json.RawMessage
+	if json.Unmarshal(body, &env) != nil || json.Unmarshal(env["request"], &req) != nil ||
+		json.Unmarshal(req["generationConfig"], &gc) != nil {
+		return body, false
+	}
+	n, isInt := plainInt(gc["maxOutputTokens"])
+	if !isInt || n <= limit {
+		return body, false
+	}
+	gc["maxOutputTokens"] = json.RawMessage(strconv.Itoa(limit))
+	var err error
+	if req["generationConfig"], err = json.Marshal(gc); err != nil {
+		return body, false
+	}
+	if env["request"], err = json.Marshal(req); err != nil {
+		return body, false
+	}
+	if out, err = json.Marshal(env); err != nil {
+		return body, false
+	}
+	return out, true
+}
+
 // fitTopLevel lowers a top-level integer field to limit when it is above it.
 func fitTopLevel(body []byte, key string, limit int) ([]byte, bool) {
 	if limit <= 0 {

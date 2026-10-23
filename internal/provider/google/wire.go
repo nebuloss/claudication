@@ -120,9 +120,9 @@ func (Provider) ModelsRequest(_ string, c provider.Credential) (string, string, 
 }
 
 // ModelList implements provider.Wire: the quota buckets' models as the
-// gateway's list, newest first and Pro before Flash before Flash-Lite within
-// a version, which is the order the Gemini families are ranked in
-// (internal/service/models, family.go).
+// gateway's list: Pro, then Flash, then Flash-Lite, each newest first, which
+// is the order the Gemini families are offered in (internal/service/models,
+// family.go).
 func (Provider) ModelList(body []byte) ([]byte, error) {
 	var q quotaResponse
 	if err := json.Unmarshal(body, &q); err != nil {
@@ -146,8 +146,10 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 	return json.Marshal(list)
 }
 
-// modelRank orders Gemini model ids: by version, newest first; then by tier;
-// then generally available before preview.
+// modelRank orders Gemini model ids: by tier, largest first; then by version,
+// newest first; then generally available before preview. Tier first because
+// the order the list gives is the order the families are offered in, and an
+// operator looks for Pro before Flash-Lite whichever had the newer release.
 type modelRank struct {
 	version []int
 	tier    int
@@ -207,6 +209,9 @@ func (a modelRank) before(b modelRank) bool {
 	if a.gemini != b.gemini {
 		return a.gemini
 	}
+	if a.tier != b.tier {
+		return a.tier < b.tier
+	}
 	for i := 0; i < max(len(a.version), len(b.version)); i++ {
 		var x, y int
 		if i < len(a.version) {
@@ -218,9 +223,6 @@ func (a modelRank) before(b modelRank) bool {
 		if x != y {
 			return x > y
 		}
-	}
-	if a.tier != b.tier {
-		return a.tier < b.tier
 	}
 	return !a.preview && b.preview
 }
