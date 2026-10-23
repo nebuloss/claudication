@@ -136,7 +136,10 @@ The binary's subcommands are `serve`, `clients`, `login-url`, `passwd`,
 `vacuum`, `backup` and `restore` (`cmd/claudication`).
 
 The tests do not need credentials or a network. Anything that probes the real
-API is a script under `scripts/`, run by hand, and says so.
+API is a script under `scripts/`, run by hand, and says so. A package whose
+tests build an HTTP client calls `testenv.Offline` from its `TestMain`, which
+points every proxy at a dead port so a test that forgets its fake fails
+instead of reaching the real API (`go doc ./internal/testenv`).
 
 ## Conventions
 
