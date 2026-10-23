@@ -86,7 +86,7 @@ func affinityKey(provider, conversation string) string {
 // preferred is the account that last served conversation, when the provider
 // keeps affinity and that account can serve now — neither cooling nor out of
 // room, the same tests pick's first pass applies.
-func (p *Pool) preferred(provider, conversation string, candidates []store.Account) (store.Account, bool) {
+func (p *Pool) preferred(provider, conversation string, candidates []store.Account, served func(id string) string) (store.Account, bool) {
 	if conversation == "" {
 		return store.Account{}, false
 	}
@@ -104,7 +104,7 @@ func (p *Pool) preferred(provider, conversation string, candidates []store.Accou
 		if a.ID != last.account {
 			continue
 		}
-		if p.stateOf(a.ID).cooldownUntil.After(now) || outOfRoom(a) {
+		if p.until(a.ID, served(a.ID)).After(now) || outOfRoom(a) {
 			return store.Account{}, false
 		}
 		return a, true

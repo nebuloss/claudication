@@ -215,3 +215,32 @@ func TestLimitedOnlyWhenEveryAccountIsSidelined(t *testing.T) {
 		t.Fatal("no account at all is unavailable, not limited")
 	}
 }
+
+// A model sitting out on an account passes the account over for that model
+// alone: Google's quotas are per model, and the account still serves the
+// rest.
+func TestAModelCooldownIsTheModelsOnly(t *testing.T) {
+	p := newTestPool()
+	candidates := []store.Account{account("first", 0, "allowed"), account("second", 0, "allowed")}
+	p.mu.Lock()
+	p.stateOf("first").models = map[string]time.Time{"gemini-2.5-pro": p.now().Add(time.Hour)}
+	p.mu.Unlock()
+
+	serving := func(model string) func(string) string { return func(string) string { return model } }
+	if got, _ := p.pickFor(candidates, serving("gemini-2.5-pro")); got.ID != "second" {
+		t.Errorf("Pro picked %s, want second", got.ID)
+	}
+	if got, _ := p.pickFor(candidates, serving("gemini-2.5-flash")); got.ID != "first" {
+		t.Errorf("Flash picked %s, want first", got.ID)
+	}
+	if got, _ := p.pick(candidates); got.ID != "first" {
+		t.Errorf("no model picked %s, want first", got.ID)
+	}
+	// With every account out for the model, the one back soonest serves.
+	p.mu.Lock()
+	p.stateOf("second").models = map[string]time.Time{"gemini-2.5-pro": p.now().Add(2 * time.Hour)}
+	p.mu.Unlock()
+	if got, ok := p.pickFor(candidates, serving("gemini-2.5-pro")); !ok || got.ID != "first" {
+		t.Errorf("all out picked %s, want first", got.ID)
+	}
+}

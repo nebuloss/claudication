@@ -86,6 +86,9 @@ type AccountPool interface {
 	// ReportFailureUntil is ReportFailure for an upstream that named when the
 	// account can serve again.
 	ReportFailureUntil(id string, kind pool.FailureKind, detail string, until time.Time)
+	// ReportModelFailureUntil cools down one model on the account, for a
+	// refusal that was the model's (provider.Verdict Model).
+	ReportModelFailureUntil(id, model string, kind pool.FailureKind, detail string, until time.Time)
 	ReportSuccess(id string)
 	Refresh(ctx context.Context, id string) error
 	// NoteQuota records the quota an answer reported for its account.
@@ -331,7 +334,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 					continue
 				}
 			}
-			r.Pool.ReportFailureUntil(lease.Account.ID, kind, detail, verdict.Until)
+			r.report(lease, p, kind, detail, verdict)
 			tried[lease.Account.ID] = true
 			continue
 		}
@@ -354,7 +357,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 			r.Pool.NoteQuota(lease.Account.ID, *verdict.Quota)
 		}
 		if kind != "" {
-			r.Pool.ReportFailureUntil(lease.Account.ID, kind, res.UpstreamError, verdict.Until)
+			r.report(lease, p, kind, res.UpstreamError, verdict)
 		}
 
 		// Hold the opening of a stream until it carries content, and send the
@@ -406,6 +409,21 @@ func failureKind(status pool.FailureKind, v provider.Verdict) pool.FailureKind {
 		return status
 	}
 	return pool.FailureKind(v.Kind)
+}
+
+// report cools down what a failure was about: the model on the account, when
+// the provider said the refusal was the model's (provider.Verdict Model),
+// else the account.
+func (r *Relay) report(lease pool.Lease, p request.Prologue, kind pool.FailureKind, detail string, v provider.Verdict) {
+	if v.Model {
+		model := lease.Model
+		if model == "" {
+			model = p.Model
+		}
+		r.Pool.ReportModelFailureUntil(lease.Account.ID, model, kind, detail, v.Until)
+		return
+	}
+	r.Pool.ReportFailureUntil(lease.Account.ID, kind, detail, v.Until)
 }
 
 // build copies the client's request onto the upstream, changing only what has

@@ -29,11 +29,12 @@ func (versionPool) Acquire(_ context.Context, _, _ string, exclude map[string]bo
 	}
 	return pool.Lease{}, pool.ErrAllCoolingUp
 }
-func (versionPool) ReportFailure(string, pool.FailureKind, string)                 {}
-func (versionPool) ReportFailureUntil(string, pool.FailureKind, string, time.Time) {}
-func (versionPool) NoteQuota(string, provider.Quota)                               {}
-func (versionPool) ReportSuccess(string)                                           {}
-func (versionPool) Refresh(context.Context, string) error                          { return nil }
+func (versionPool) ReportFailure(string, pool.FailureKind, string)                              {}
+func (versionPool) ReportFailureUntil(string, pool.FailureKind, string, time.Time)              {}
+func (versionPool) ReportModelFailureUntil(string, string, pool.FailureKind, string, time.Time) {}
+func (versionPool) NoteQuota(string, provider.Quota)                                            {}
+func (versionPool) ReportSuccess(string)                                                        {}
+func (versionPool) Refresh(context.Context, string) error                                       { return nil }
 
 // Each attempt sends the version its account serves, rebuilt from the passes'
 // body rather than the previous attempt's, and the result says which version

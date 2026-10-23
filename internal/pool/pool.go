@@ -96,6 +96,11 @@ func (l Lease) Release() {
 type health struct {
 	cooldownUntil time.Time
 	failures      int
+	// models are cooldowns of one model on the account: a refusal that was
+	// about the model a request named, not the account (provider.Verdict
+	// Model) — Google's quotas are per model, and a spent Pro leaves Flash
+	// serving.
+	models map[string]time.Time
 	// refreshing is held for the duration of a token refresh so concurrent
 	// requests wait rather than each burning a refresh. Rotating refresh
 	// tokens make a double refresh actively harmful.
@@ -190,6 +195,17 @@ func New(st *store.Store, client *http.Client, log *slog.Logger, refresh map[str
 		quotaSeen:  map[string]quotaNote{},
 		open:       map[string]int{},
 	}
+}
+
+// until is when an account can serve model again: its own cooldown, or the
+// model's on it, whichever ends later. Called with p.mu held.
+func (p *Pool) until(id, model string) time.Time {
+	h := p.stateOf(id)
+	t := h.cooldownUntil
+	if m := h.models[model]; model != "" && m.After(t) {
+		t = m
+	}
+	return t
 }
 
 func (p *Pool) stateOf(id string) *health {
@@ -400,10 +416,18 @@ func (p *Pool) Acquire(ctx context.Context, provider, model string, exclude map[
 		return Lease{}, ErrNoAccounts
 	}
 
+	// The model each account would serve: a version of its own for a
+	// family, the one model otherwise.
+	served := func(id string) string {
+		if best != nil {
+			return best[id]
+		}
+		return model
+	}
 	conversation := conversationOf(ctx)
-	chosen, ok := p.preferred(provider, conversation, candidates)
+	chosen, ok := p.preferred(provider, conversation, candidates, served)
 	if !ok {
-		chosen, ok = p.pick(candidates)
+		chosen, ok = p.pickFor(candidates, served)
 	}
 	if !ok {
 		return Lease{}, ErrAllCoolingUp
@@ -459,14 +483,27 @@ func (p *Pool) hold(id string) func() {
 // account's 5-hour and 7-day utilisation on every response, so "out of room" is
 // something we know rather than something we discover by being refused.
 func (p *Pool) pick(candidates []store.Account) (store.Account, bool) {
+	return p.pickFor(candidates, nil)
+}
+
+// pickFor is pick for a request, served tells which model each account
+// would serve it, so an account sitting out that model alone is passed
+// over for it and no other. nil serves no model in particular.
+func (p *Pool) pickFor(candidates []store.Account, served func(id string) string) (store.Account, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	now := p.now()
+	until := func(id string) time.Time {
+		if served == nil {
+			return p.until(id, "")
+		}
+		return p.until(id, served(id))
+	}
 
 	// First pass: the top account that is neither cooling down nor out.
 	for _, a := range candidates {
-		if p.stateOf(a.ID).cooldownUntil.After(now) || outOfRoom(a) {
+		if until(a.ID).After(now) || outOfRoom(a) {
 			continue
 		}
 		return a, true
@@ -477,7 +514,7 @@ func (p *Pool) pick(candidates []store.Account) (store.Account, bool) {
 	// all — being told "no" by the upstream is a better outcome than inventing
 	// one here.
 	for _, a := range candidates {
-		if p.stateOf(a.ID).cooldownUntil.After(now) {
+		if until(a.ID).After(now) {
 			continue
 		}
 		return a, true
@@ -497,9 +534,9 @@ func (p *Pool) pick(candidates []store.Account) (store.Account, bool) {
 	best, found := store.Account{}, false
 	var soonest time.Time
 	for _, a := range candidates {
-		until := p.stateOf(a.ID).cooldownUntil
-		if !found || until.Before(soonest) {
-			best, soonest, found = a, until, true
+		t := until(a.ID)
+		if !found || t.Before(soonest) {
+			best, soonest, found = a, t, true
 		}
 	}
 	return best, found
@@ -793,6 +830,40 @@ func (p *Pool) ReportFailureUntil(id string, kind FailureKind, detail string, un
 	p.store.MarkAccountError(ctx, id, string(kind)+": "+detail)
 	p.log.Warn("account cooling down",
 		"account", id, "kind", kind, "failures", failures, "for", wait.String())
+}
+
+// ReportModelFailureUntil cools one model down on an account, for a refusal
+// that was about the model and not the account: the account goes on serving
+// every other. The wait is the upstream's own when it said one, else the
+// failure kind's first step of backoff; it does not grow the account's
+// failure count, which is for an account that keeps failing.
+func (p *Pool) ReportModelFailureUntil(id, model string, kind FailureKind, detail string, until time.Time) {
+	if model == "" {
+		p.ReportFailureUntil(id, kind, detail, until)
+		return
+	}
+	p.mu.Lock()
+	h := p.stateOf(id)
+	b, ok := backoff[kind]
+	if !ok {
+		b = backoff[FailureServer]
+	}
+	wait := b.base
+	now := p.now()
+	if reported := until.Sub(now); reported > wait {
+		wait = min(reported, maxReportedWait)
+	}
+	if h.models == nil {
+		h.models = map[string]time.Time{}
+	}
+	h.models[model] = now.Add(wait)
+	p.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), bookkeepingTimeout)
+	defer cancel()
+	p.store.MarkAccountError(ctx, id, string(kind)+": "+model+": "+detail)
+	p.log.Warn("model cooling down on account",
+		"account", id, "model", model, "kind", kind, "for", wait.String())
 }
 
 // RetryAfter reports how long until some account frees up, for a Retry-After

@@ -207,11 +207,12 @@ func (p *fakePool) Acquire(_ context.Context, _, _ string, exclude map[string]bo
 	return pool.Lease{}, pool.ErrAllCoolingUp
 }
 
-func (p *fakePool) ReportFailure(string, pool.FailureKind, string)                 {}
-func (p *fakePool) ReportFailureUntil(string, pool.FailureKind, string, time.Time) {}
-func (p *fakePool) NoteQuota(string, provider.Quota)                               {}
-func (p *fakePool) ReportSuccess(string)                                           {}
-func (p *fakePool) Refresh(context.Context, string) error                          { return nil }
+func (p *fakePool) ReportFailure(string, pool.FailureKind, string)                              {}
+func (p *fakePool) ReportFailureUntil(string, pool.FailureKind, string, time.Time)              {}
+func (p *fakePool) ReportModelFailureUntil(string, string, pool.FailureKind, string, time.Time) {}
+func (p *fakePool) NoteQuota(string, provider.Quota)                                            {}
+func (p *fakePool) ReportSuccess(string)                                                        {}
+func (p *fakePool) Refresh(context.Context, string) error                                       { return nil }
 
 // fakeUpstream is the Messages endpoint, recording what the titler sent.
 type fakeUpstream struct {

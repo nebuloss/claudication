@@ -105,17 +105,22 @@ func verdict(status int, body []byte) provider.Verdict {
 	switch {
 	case r == "VALIDATION_REQUIRED":
 		// Until someone opens the link, nothing this account sends will be
-		// answered. Another account may well be.
+		// answered. Another account may well be. The account's, not a
+		// model's.
 		v.Kind = "forbidden"
 	case r == "MODEL_CAPACITY_EXHAUSTED" || r == "MODEL_CAPACITY_EXCEEDED":
-		// Google's capacity, not the account's quota: a server problem to
-		// back off from briefly, not a limit to sit out.
-		v.Kind = "server"
+		// Google's capacity for the model, not the account's quota: a
+		// server problem to back off from briefly, for that model.
+		v.Kind, v.Model = "server", true
 	case status == 429 && zeroLimit.MatchString(strings.ToLower(s.Message)):
 		// The plan has no quota for the model at all. Waiting will not help;
-		// another account's plan may include it.
-		v.Kind = "forbidden"
+		// another account's plan may include it, and this one still serves
+		// the models it has.
+		v.Kind, v.Model = "forbidden", true
 	case status == 429:
+		// Every quota Code Assist has is a model's (usage.go), so a limit
+		// reached is that model's on this account.
+		v.Model = true
 		// A rate limit, or the model's quota spent (QUOTA_EXHAUSTED, or a
 		// QuotaFailure naming a per-day quota): either way the delay says
 		// when to come back,

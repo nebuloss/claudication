@@ -178,6 +178,9 @@ func (p *recordingPool) ReportFailure(string, pool.FailureKind, string) { p.fail
 func (p *recordingPool) ReportFailureUntil(string, pool.FailureKind, string, time.Time) {
 	p.failures++
 }
+func (p *recordingPool) ReportModelFailureUntil(string, string, pool.FailureKind, string, time.Time) {
+	p.failures++
+}
 func (p *recordingPool) NoteQuota(string, provider.Quota)      {}
 func (p *recordingPool) ReportSuccess(string)                  { p.successes++ }
 func (p *recordingPool) Refresh(context.Context, string) error { p.refreshes++; return nil }

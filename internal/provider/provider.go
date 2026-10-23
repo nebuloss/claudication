@@ -144,6 +144,11 @@ type Verdict struct {
 	// Until is when the upstream said the account can serve again — a usage
 	// limit's reset. Zero leaves the pool's own backoff to decide.
 	Until time.Time
+	// Model is that the refusal was about the model the request named, not
+	// the account: Google's quotas are per model, and an account whose Pro
+	// is spent still serves Flash. The pool then sits the account out for
+	// that model alone.
+	Model bool
 	// Quota is the account's windows as the answer's headers reported them,
 	// or nil when they reported none.
 	Quota *Quota
