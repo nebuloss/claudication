@@ -367,7 +367,7 @@ export interface RequestRow {
   key_name?: string
   /** And the account that served it, as it is called now: its name, or its address. */
   account_email?: string
-  /** Whose account served it: anthropic, openai. */
+  /** Whose account served it: anthropic, openai, google. */
   provider?: string
   model?: string
   /** The part of output_tokens spent reasoning, where the provider said. */
@@ -516,7 +516,7 @@ export interface Model {
   slot?: string
   /** The family this entry stands for, when it is one offered as one: claude:opus. */
   follows?: string
-  /** Whose accounts serve it, when not Anthropic's: openai. */
+  /** Whose accounts serve it, when not Anthropic's: openai, google. */
   provider?: string
   /** The provider's own ranking of its models, best first (ChatGPT's). */
   priority?: number

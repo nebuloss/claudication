@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import AddAccount from './add'
 import { QuotaGauges } from './quota-meter'
-import { byProvider, planLabel, providerLabel } from '../../providers'
+import { byProvider, planLabel, providerLabel, providerOf } from '../../providers'
 import { accountHref } from '../../route'
 import { api, type Account } from '../../../api/client'
 import { useAction, useLoader } from '../../hooks'
@@ -137,7 +137,7 @@ export default function Accounts() {
             // The browser decides which account approves, so "add" in a browser
             // still signed in to a connected account renews that one. Say so,
             // or it looks as though nothing happened.
-            const site = account.provider === 'openai' ? 'chatgpt.com' : 'claude.ai'
+            const site = providerOf(account.provider)?.site ?? account.provider
             setNotice(
               renewed
                 ? `${accountName(account)} was already connected, so it was renewed rather than added. ` +

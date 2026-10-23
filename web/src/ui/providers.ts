@@ -5,16 +5,21 @@
  * Listed rather than assumed, so adding an account starts by choosing one and
  * the accounts are grouped by one. The id is the gateway's own
  * (store.Account.Provider), which is also models.dev's key for the same
- * provider. `signIn` is how its accounts connect: Claude by consenting and
- * pasting back the code Anthropic shows, ChatGPT by entering a device code on
- * OpenAI's own page — which needs nothing to come back from the browser, so
- * it works the same for a gateway on another machine.
+ * provider. `signIn` is how its accounts connect: Claude and Gemini by
+ * consenting and pasting back the code Anthropic or Google shows, ChatGPT by
+ * entering a device code on OpenAI's own page — neither needs anything to
+ * come back from the browser, so both work the same for a gateway on
+ * another machine.
  */
 export type Provider = {
   id: string
   label: string
   detail: string
   signIn: 'paste' | 'device'
+  /** Who runs the sign-in, as a sentence names them: "Anthropic shows you a code". */
+  vendor: string
+  /** Where the browser is signed in, which decides the account that approves. */
+  site: string
   /** Whose figures the usage endpoint reports, and which client shows the same ones. */
   usage: { source: string; client: string }
 }
@@ -25,6 +30,8 @@ export const PROVIDERS: [Provider, ...Provider[]] = [
     label: 'Claude',
     detail: 'A Claude Pro or Max subscription, signed in through Anthropic.',
     signIn: 'paste',
+    vendor: 'Anthropic',
+    site: 'claude.ai',
     usage: { source: 'Anthropic', client: '/usage in Claude Code' },
   },
   {
@@ -32,7 +39,19 @@ export const PROVIDERS: [Provider, ...Provider[]] = [
     label: 'ChatGPT',
     detail: 'A ChatGPT Plus, Pro or Team subscription, signed in with a device code.',
     signIn: 'device',
+    vendor: 'OpenAI',
+    site: 'chatgpt.com',
     usage: { source: 'OpenAI', client: '/status in Codex' },
+  },
+  {
+    id: 'google',
+    label: 'Gemini',
+    detail:
+      'A Google account — the free tier, Google AI Pro or Ultra — signed in the way gemini-cli signs in.',
+    signIn: 'paste',
+    vendor: 'Google',
+    site: 'accounts.google.com',
+    usage: { source: 'Google', client: '/stats in gemini-cli' },
   },
 ]
 

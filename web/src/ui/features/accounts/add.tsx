@@ -31,7 +31,7 @@ type Phase = 'idle' | 'starting' | 'waiting' | 'exchanging'
 
 /**
  * An account's sign-in, as its provider runs it: a consent page and a pasted
- * code for Claude, a device code for ChatGPT (see providers.ts). With
+ * code for Claude and Gemini, a device code for ChatGPT (see providers.ts). With
  * `account`, the same flow reconnects that account instead of adding one.
  */
 export function ConsentFlow({
@@ -53,17 +53,17 @@ export function ConsentFlow({
 }
 
 /**
- * The Claude OAuth login, driven from the browser.
+ * A pasted-code OAuth login — Claude's, or Gemini's — driven from the browser.
  *
  * "Start" opens the consent screen in a new tab; the operator approves, and an
  * authorization code comes back to be pasted here.
  *
- * Anthropic renders the code on its own page and it is pasted back here. The
- * client also has a loopback variant for its own local listener, but nothing
- * listens on the operator's machine, so that only ever produced an address bar
- * to copy from.
+ * Anthropic and Google each render the code on a page of their own and it is
+ * pasted back here. Both clients also have a loopback variant for a local
+ * listener, but nothing listens on the operator's machine, so that only ever
+ * produced an address bar to copy from.
  *
- * On a reconnect the gateway names the account to Anthropic and refuses the
+ * On a reconnect the gateway names the account to the provider and refuses the
  * result if it comes back as anyone else — which is what happens when the
  * browser is signed in to a different Claude account, because the browser,
  * not the gateway, decides who approves. So a reconnect says who to sign in
@@ -88,6 +88,10 @@ function PasteFlow({
   const [blocked, setBlocked] = useState(false)
   const session = useSession()
   const who = account?.email
+  const p = providerOf(provider)
+  const label = p?.label ?? provider
+  const vendor = p?.vendor ?? provider
+  const site = p?.site ?? vendor
 
   /**
    * Deliberately not an async function. The tab has to be opened inside the
@@ -176,16 +180,16 @@ function PasteFlow({
             <p className="mb-4 text-sm text-on-surface-variant">
               Sign in as <span className="font-medium text-on-surface">{who}</span> to give this
               account fresh credentials. It keeps its place in the list and its history. If your
-              browser is signed in to a different Claude account, Anthropic approves as that one
-              and the gateway refuses it — sign out of claude.ai first, or use the private-window
+              browser is signed in to a different {label} account, {vendor} approves as that one
+              and the gateway refuses it — sign out of {site} first, or use the private-window
               link offered on the next step.
             </p>
           ) : (
             <p className="mb-4 text-sm text-on-surface-variant">
-              Opens the Claude consent screen in a new tab and authorises this gateway using OAuth
+              Opens the {label} consent screen in a new tab and authorises this gateway using OAuth
               with PKCE. Add one account per subscription: they are served in the order listed
-              below, and the next takes over when Anthropic says one has run out. The account
-              added is whichever one your browser is signed in to on claude.ai.
+              below, and the next takes over when {vendor} says one has run out. The account
+              added is whichever one your browser is signed in to on {site}.
             </p>
           )}
           <Button onClick={begin} busy={phase === 'starting'}>
@@ -193,7 +197,7 @@ function PasteFlow({
               ? 'Opening…'
               : who !== undefined
                 ? 'Start reconnect'
-                : 'Start Claude login'}
+                : `Start ${label} login`}
           </Button>
         </>
       ) : (
@@ -217,7 +221,7 @@ function PasteFlow({
                   (reopen it)
                 </InlineLink>
               </li>
-              <li>Anthropic then shows you an authorization code.</li>
+              <li>{vendor} then shows you an authorization code.</li>
               <li>Paste it below — the whole callback URL works too.</li>
             </ol>
 

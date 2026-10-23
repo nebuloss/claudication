@@ -18,7 +18,7 @@ import type {
 } from '../../api/types'
 
 /** What each provider is called on a screen. */
-export const PROVIDER_TITLES: Record<string, string> = { anthropic: 'Claude', openai: 'ChatGPT' }
+export const PROVIDER_TITLES: Record<string, string> = { anthropic: 'Claude', openai: 'ChatGPT', google: 'Gemini' }
 
 /** A provider's name, or the id itself for one this UI does not know. */
 export function providerTitle(id: string | undefined): string {

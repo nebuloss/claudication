@@ -19,6 +19,10 @@
  *     generation is what goes out of date as a whole, which is what folding
  *     the older families away is for, and it is what openai:light reads as
  *     "that one's generation".
+ *   - Gemini by tier — Pro, Flash, Flash Lite — from the id
+ *     (gemini-3-pro-preview is pro), the rule the gateway's own
+ *     gemini:<family> targets follow; a variant past the tier
+ *     (…-preview-customtools) is Other, as the gateway offers it as itself.
  *
  * Newest first: a family by its newest model, a model by its release date.
  * The ChatGPT backend lists no dates, so there a generation is ordered by its
@@ -86,6 +90,15 @@ export function familyOf(m: TreeModel): { key: string; title: string } {
     const v = /^gpt-(\d+(?:\.\d+)*)/.exec(id)?.[1]
     return v !== undefined ? { key: `gpt-${v}`, title: `GPT-${v}` } : { key: OTHER, title: 'Other' }
   }
+  if (provider === 'google') {
+    const tier = /^gemini-\d+(?:\.\d+)*-(pro|flash-lite|flash)(?:-preview)?$/.exec(id)?.[1]
+    if (tier === undefined) return { key: OTHER, title: 'Other' }
+    const title = tier
+      .split('-')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ')
+    return { key: tier, title }
+  }
   // A line may be a word or a phrase ("Claude Opus"); its last word is the
   // family either way.
   const line = (m.line ?? '').trim().toLowerCase().split(/\s+/).pop() ?? ''
@@ -119,9 +132,9 @@ function compareFamilies<T extends TreeModel>(a: ModelFamily<T>, b: ModelFamily<
   return compareVersions(version(a.title), version(b.title))
 }
 
-const PROVIDER_ORDER = ['anthropic', 'openai']
+const PROVIDER_ORDER = ['anthropic', 'openai', 'google']
 
-/** The models as a tree, each level newest first; providers Claude, then ChatGPT, then any other. */
+/** The models as a tree, each level newest first; providers Claude, then ChatGPT, then Gemini, then any other. */
 export function modelTree<T extends TreeModel>(models: readonly T[]): ModelProvider<T>[] {
   const byProvider = new Map<string, Map<string, ModelFamily<T>>>()
   for (const m of models) {
