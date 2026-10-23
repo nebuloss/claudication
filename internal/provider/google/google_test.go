@@ -487,13 +487,20 @@ func TestMeasuredQuotaIsPerModel(t *testing.T) {
 	if len(rows) == 0 {
 		t.Fatal("no rows")
 	}
+	// Measured: every Gemini model on one allowance, GPT-OSS on its own,
+	// Claude's not shown.
+	var titles []string
 	for _, r := range rows {
-		if strings.Contains(r.Kind, "_") {
-			t.Errorf("an internal model has a row: %s", r.Kind)
+		titles = append(titles, r.Title)
+		if strings.Contains(r.Kind, "_") || strings.HasPrefix(r.Kind, "claude-") {
+			t.Errorf("%s has a row", r.Kind)
 		}
 		if r.ResetsAt == "" && strings.HasPrefix(r.Kind, "gemini-") {
 			t.Errorf("%s has no reset", r.Kind)
 		}
+	}
+	if len(rows) != 2 || !strings.HasPrefix(rows[0].Title, "Gemini — ") || !strings.HasPrefix(rows[1].Kind, "gpt-oss") {
+		t.Errorf("rows = %q", titles)
 	}
 }
 
@@ -553,8 +560,16 @@ func TestQuotaIsPerModel(t *testing.T) {
 		t.Errorf("quota = %+v", got)
 	}
 	rows := Accounts{}.Limits(got.Detail)
-	if len(rows) != 7 {
-		t.Fatalf("%d rows", len(rows))
+	// Three models untouched with no reset are one allowance's row.
+	if len(rows) != 5 {
+		t.Fatalf("%d rows: %+v", len(rows), rows)
+	}
+	folded := false
+	for _, r := range rows {
+		folded = folded || r.Title == "Gemini — 3 models"
+	}
+	if !folded {
+		t.Errorf("no folded row: %+v", rows)
 	}
 	var spent provider.Limit
 	for _, r := range rows {

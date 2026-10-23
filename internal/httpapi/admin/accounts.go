@@ -119,7 +119,7 @@ func toAccountJSON(a store.Account, prov provider.Accounts) AccountJSON {
 	if a.RefreshDeadAt != nil {
 		out.RefreshDeadAt = a.RefreshDeadAt.UTC().Format(time.RFC3339)
 	}
-	if a.Quota.Known() {
+	if a.Quota.Reported() {
 		q := quotaJSON{
 			FiveHourUtil:   a.Quota.FiveHourUtil,
 			FiveHourStatus: a.Quota.FiveHourStatus,

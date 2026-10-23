@@ -321,6 +321,19 @@ func TestAccountQuotaHelpers(t *testing.T) {
 	}
 }
 
+// A quota of rows only — Google's, per model — is shown and never reckoned
+// in windows: Reported, not Known, so it neither hides on the accounts screen
+// nor counts as an idle account in the subscription shares.
+func TestAQuotaOfRowsIsReportedNotKnown(t *testing.T) {
+	q := AccountQuota{FiveHourUtil: -1, SevenDayUtil: -1, Detail: `[{"model":"gemini-2.5-pro","used_percent":10}]`}
+	if !q.Reported() || q.Known() {
+		t.Errorf("Reported=%v Known=%v", q.Reported(), q.Known())
+	}
+	if (AccountQuota{FiveHourUtil: -1, SevenDayUtil: -1}).Reported() {
+		t.Error("a quota never read was reported")
+	}
+}
+
 // The reauth helpers drive the operator's warnings; a wrong boundary means
 // either a false alarm or an account that silently stops.
 func TestAccountReauthHelpers(t *testing.T) {

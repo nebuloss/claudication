@@ -73,8 +73,17 @@ type AccountQuota struct {
 	Detail string
 }
 
-// Known reports whether the upstream has ever told us about this account.
+// Known reports whether the upstream has told us about this account's
+// five-hour or weekly window: what the pool and the subscription shares
+// reckon with.
 func (q AccountQuota) Known() bool { return q.FiveHourUtil >= 0 || q.SevenDayUtil >= 0 }
+
+// Reported reports whether the upstream has told us anything about this
+// account's quota: a window, or rows of its own in the detail. Google's
+// quota is per model and has no window (internal/provider/google, usage.go),
+// so its accounts are Reported and never Known — shown on the accounts
+// screen, and left out of what reckons in windows.
+func (q AccountQuota) Reported() bool { return q.Known() || q.Detail != "" }
 
 // AtLimit is the percentage at which an account counts as out of room. Not
 // 100: the figure is a poll rather than a live reading, and an account at

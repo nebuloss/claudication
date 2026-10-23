@@ -63,6 +63,16 @@ def reveal(encoded):
 CLIENT_ID = reveal("bW9jLnRuZXRub2NyZXN1ZWxnb29nLnNwcGEucGUzMDRnNGhqb2xvdHY1MzJlcmNsMTJoMm5pc3NobXQtMTk1MDYwNjAwMTcwMQ==")
 CLIENT_SECRET = reveal("ZkFEcTZ6NENYczhCTG0xSkxkTDY4NFJXRjg1Sy1YUFNDT0c=")
 REDIRECT = "http://localhost:51121/oauth-callback"
+
+# An operator's own OAuth client instead, to measure whether Code Assist serves
+# a token from a client that is not Antigravity's:
+# ~/.config/claudication-probe/own-client.json, {"client_id", "client_secret",
+# "redirect"} — redirect as registered on the client.
+_own = pathlib.Path.home() / ".config/claudication-probe/own-client.json"
+if os.environ.get("PROBE_OWN_CLIENT") == "1":
+    _c = json.loads(_own.read_text())
+    CLIENT_ID, CLIENT_SECRET = _c["client_id"], _c["client_secret"]
+    REDIRECT = _c.get("redirect", "https://claudication.dmz.patapouf.club/admin/oauth/callback/google")
 SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -74,6 +84,10 @@ DAILY = "https://daily-cloudcode-pa.googleapis.com/v1internal"
 CONFIG = pathlib.Path.home() / ".config/claudication-probe"
 TOKENS = CONFIG / "antigravity.json"
 PENDING = CONFIG / "antigravity-pending.json"
+if os.environ.get("PROBE_OWN_CLIENT") == "1":
+    # Its own token chain, beside Antigravity's rather than over it.
+    TOKENS = CONFIG / "own-client-tokens.json"
+    PENDING = CONFIG / "own-client-pending.json"
 UA = "claudication-probe/0"
 # Antigravity's User-Agent, in the form CLIProxyAPI sends
 # (internal/misc/antigravity_version.go). Google serves the free tier only to
