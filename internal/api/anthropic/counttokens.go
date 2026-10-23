@@ -108,7 +108,11 @@ func estimateTokens(r responsesRequest) int {
 
 // countExchange answers count_tokens itself: there is nothing upstream to
 // ask.
-type countExchange struct{ tr Translation }
+type countExchange struct {
+	tr Translation
+	// note says, in the estimate's header, why the upstream was not asked.
+	note string
+}
 
 func (e countExchange) Request() []byte     { return nil }
 func (e countExchange) Model() string       { return e.tr.Model }
@@ -121,7 +125,7 @@ func (e countExchange) Sink(w http.ResponseWriter) api.Sink { return api.Passthr
 // Answer writes the estimate.
 func (e countExchange) Answer(w http.ResponseWriter) int {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set(EstimateHeader, "bytes/4, images 1600, pdf bytes/8; the ChatGPT backend counts no tokens")
+	w.Header().Set(EstimateHeader, "bytes/4, images 1600, pdf bytes/8; "+e.note)
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]int{"input_tokens": e.tr.Estimate})
 	return http.StatusOK

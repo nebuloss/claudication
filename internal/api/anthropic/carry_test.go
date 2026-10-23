@@ -19,7 +19,7 @@ func TestAWholeAnswerStartsNoPinger(t *testing.T) {
 		``,
 	} {
 		rec := httptest.NewRecorder()
-		s := newResponsesSink(rec, Translation{Model: "m", Stream: true})
+		s := newResponsesSink(rec, Translation{Model: "m", Stream: true}, fromResponses)
 		s.WriteHeader(http.StatusOK)
 		if body != "" {
 			_, _ = s.Write([]byte(body))

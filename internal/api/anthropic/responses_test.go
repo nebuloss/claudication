@@ -208,7 +208,7 @@ func TestLongToolNamesAreShortenedAndRestored(t *testing.T) {
 func run(t *testing.T, tr Translation, status int, body string) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	s := newResponsesSink(rec, tr)
+	s := newResponsesSink(rec, tr, fromResponses)
 	s.WriteHeader(status)
 	// In pieces, as a network delivers them.
 	for len(body) > 0 {
@@ -403,7 +403,7 @@ func TestRefusalsAreAnthropicErrors(t *testing.T) {
 		{500, `oops`, "api_error", "oops"},
 	} {
 		rec := httptest.NewRecorder()
-		s := newResponsesSink(rec, Translation{Model: "m", Stream: true})
+		s := newResponsesSink(rec, Translation{Model: "m", Stream: true}, fromResponses)
 		s.Header().Set("Retry-After", "30")
 		s.Header().Set("X-Codex-Primary-Used-Percent", "100")
 		s.WriteHeader(tc.status)
@@ -437,7 +437,7 @@ func TestAFailureMidStreamIsAnErrorEvent(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	s := newResponsesSink(rec, Translation{Model: "m"})
+	s := newResponsesSink(rec, Translation{Model: "m"}, fromResponses)
 	_, _ = s.Write([]byte(failed))
 	s.Close(nil)
 	if rec.Code != 529 || !strings.Contains(rec.Body.String(), `"overloaded_error"`) {
@@ -454,7 +454,7 @@ func TestASilentStreamIsPinged(t *testing.T) {
 	defer func(d time.Duration) { pingEvery = d }(pingEvery)
 	pingEvery = 20 * time.Millisecond
 	rec := httptest.NewRecorder()
-	s := newResponsesSink(rec, Translation{Model: "m", Stream: true})
+	s := newResponsesSink(rec, Translation{Model: "m", Stream: true}, fromResponses)
 	s.WriteHeader(http.StatusOK)
 	_, _ = s.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_1"}}` + "\n\n"))
 	time.Sleep(120 * time.Millisecond)

@@ -16,26 +16,41 @@ const responsesDialect = "openai"
 const countTokensRoute = "/v1/messages/count_tokens"
 
 // Translate rebuilds a Messages request for an upstream that speaks another
-// dialect. ChatGPT's Codex backend is the one there is; see doc.go.
+// dialect: ChatGPT's Codex backend (doc.go), or Code Assist (togemini.go).
 func (a API) Translate(body []byte, to api.Target) (api.Exchange, error) {
-	if to.Dialect != responsesDialect {
-		return nil, fmt.Errorf("the Anthropic Messages API cannot be translated for a %q upstream", to.Dialect)
-	}
 	count := to.Route == countTokensRoute
-	tr, err := translateMessages(body, options{conversation: to.Conversation, reasoning: a.reasoning, count: count})
-	if err != nil {
-		return nil, err
+	o := options{conversation: to.Conversation, reasoning: a.reasoning, count: count}
+	switch to.Dialect {
+	case responsesDialect:
+		tr, err := translateMessages(body, o)
+		if err != nil {
+			return nil, err
+		}
+		if count {
+			return countExchange{tr: tr, note: "the ChatGPT backend counts no tokens"}, nil
+		}
+		return &responsesExchange{tr: tr, up: fromResponses}, nil
+	case geminiDialect:
+		tr, err := translateGemini(body, o)
+		if err != nil {
+			return nil, err
+		}
+		if count {
+			// Code Assist has a countTokens, but its body names the model
+			// where a client's model name cannot be mapped onto it (inside
+			// the request, as models/<id>), so it is estimated here too.
+			return countExchange{tr: tr, note: "Gemini is not asked to count"}, nil
+		}
+		return &responsesExchange{tr: tr, up: fromGemini}, nil
 	}
-	if count {
-		return countExchange{tr: tr}, nil
-	}
-	return &responsesExchange{tr: tr}, nil
+	return nil, fmt.Errorf("the Anthropic Messages API cannot be translated for a %q upstream", to.Dialect)
 }
 
-// responsesExchange is one Messages request in flight to the ChatGPT
-// backend.
+// responsesExchange is one Messages request in flight to a translating
+// upstream: the ChatGPT backend, or Code Assist. up reads its answer.
 type responsesExchange struct {
 	tr Translation
+	up upstreamAnswer
 }
 
 // Request hands the body over once and lets go of it: the exchange lives as
@@ -58,7 +73,7 @@ func (e *responsesExchange) Streaming() bool { return e.tr.Stream }
 // prompt_cache_key; the pool keeps it on its account by the same id.
 //
 // The body is JSON and the answer a stream, whatever the caller accepts:
-// the backend streams every answer (sink.go).
+// both backends are asked for a stream (sink.go).
 func (e *responsesExchange) Headers(h http.Header) {
 	for name := range h {
 		lower := strings.ToLower(name)
@@ -73,5 +88,5 @@ func (e *responsesExchange) Headers(h http.Header) {
 }
 
 func (e *responsesExchange) Sink(w http.ResponseWriter) api.Sink {
-	return newResponsesSink(w, e.tr)
+	return newResponsesSink(w, e.tr, e.up)
 }

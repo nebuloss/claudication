@@ -84,6 +84,29 @@ func newConverter(tr Translation, out emitter) *converter {
 	return &converter{tr: tr, out: out, open: map[string]*openBlock{}, seen: map[string]bool{}}
 }
 
+func (c *converter) live() bool { return c.started && !c.finished }
+func (c *converter) done() bool { return c.finished }
+
+// whole reads a whole Responses object: its items as if each had streamed
+// done, then its end.
+func (c *converter) whole(body []byte) (func(), error) {
+	var r responseObject
+	if err := json.Unmarshal(body, &r); err != nil {
+		return nil, err
+	}
+	return func() {
+		c.start(&r)
+		for i := range r.Output {
+			c.itemDone(i, &r.Output[i])
+		}
+		if r.Status == "incomplete" && r.IncompleteDetails != nil {
+			c.finish(&r, r.IncompleteDetails.Reason)
+		} else {
+			c.finish(&r, "")
+		}
+	}, nil
+}
+
 // responsesEvent is any event of the stream, in the fields some event uses.
 type responsesEvent struct {
 	Type         string          `json:"type"`
