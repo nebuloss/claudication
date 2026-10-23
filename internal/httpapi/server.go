@@ -33,6 +33,7 @@ import (
 
 	"claudication/internal/api"
 	anthropicapi "claudication/internal/api/anthropic"
+	geminiapi "claudication/internal/api/gemini"
 	"claudication/internal/api/openai"
 	"claudication/internal/config"
 	"claudication/internal/handover"
@@ -219,6 +220,7 @@ func (s *Server) loadSwitches(ctx context.Context) {
 	s.protocols = api.Registry{
 		anthropicapi.New(),
 		openai.New(),
+		geminiapi.New(),
 	}
 	// On unless an operator switched it off: a switch that cannot be read
 	// leaves the gateway serving, which is the state it was in before there
@@ -444,10 +446,6 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	})
 }
 
-// geminiDialect is the dialect Code Assist is reached in, which no client
-// speaks as it is: every request is translated into it.
-const geminiDialect = "gemini"
-
 // upstreams are the providers as the gateway reaches them: which client
 // routes may, and where each goes.
 //
@@ -457,6 +455,9 @@ const geminiDialect = "gemini"
 //	…/count_tokens    …/count_tokens?beta=true   answered here (estimated)  answered here (estimated)
 //	/v1/responses     /v1/messages?beta=true     /responses                 :streamGenerateContent
 //	                  (translated)               (as it came)               (through Messages)
+//	/v1beta/models/   /v1/messages?beta=true     /responses                 :streamGenerateContent
+//	  {model}:…       (translated)               (through Messages)         (rewrapped)
+//	…:countTokens     answered here (estimated)  answered here (estimated)  answered here (estimated)
 //
 // The ?beta=true is the official client's own. Each API reaches the other's
 // provider translated: Responses into Messages for Claude
@@ -476,20 +477,26 @@ func (s *Server) upstreams() map[string]gateway.Upstream {
 				"/v1/messages":              "/v1/messages?beta=true",
 				"/v1/messages/count_tokens": "/v1/messages/count_tokens?beta=true",
 				"/v1/responses":             "/v1/messages?beta=true",
+				geminiapi.StreamRoute:       "/v1/messages?beta=true",
+				geminiapi.GenerateRoute:     "/v1/messages?beta=true",
 			},
 		},
 		chatgpt.ID: {
 			Relay: s.relays[chatgpt.ID], Title: "ChatGPT", Native: openai.ID, FitOutput: passes.FitMaxOutputTokens,
 			Paths: map[string]string{
-				"/v1/messages":  "/responses",
-				"/v1/responses": "/responses",
+				"/v1/messages":          "/responses",
+				"/v1/responses":         "/responses",
+				geminiapi.StreamRoute:   "/responses",
+				geminiapi.GenerateRoute: "/responses",
 			},
 		},
 		google.ID: {
-			Relay: s.relays[google.ID], Title: "Gemini", Native: geminiDialect, FitOutput: passes.FitGeminiMaxOutputTokens,
+			Relay: s.relays[google.ID], Title: "Gemini", Native: geminiapi.ID, FitOutput: passes.FitGeminiMaxOutputTokens,
 			Paths: map[string]string{
-				"/v1/messages":  google.StreamPath,
-				"/v1/responses": google.StreamPath,
+				"/v1/messages":          google.StreamPath,
+				"/v1/responses":         google.StreamPath,
+				geminiapi.StreamRoute:   google.StreamPath,
+				geminiapi.GenerateRoute: google.StreamPath,
 			},
 		},
 	}

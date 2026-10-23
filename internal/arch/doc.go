@@ -9,7 +9,7 @@
 //	                  service/install service/clients configs
 //	                  testenv handover
 //	1  records        store config provider relay/passes api/anthropic
-//	                  api/openai
+//	                  api/openai api/gemini
 //	2  accounts       pool provider/anthropic provider/openai provider/google
 //	                  service/accounts service/usage service/uptime
 //	                  service/clientconfig

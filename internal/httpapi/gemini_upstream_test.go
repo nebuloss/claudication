@@ -215,6 +215,129 @@ func TestCodexReachesAGeminiSlotThroughMessages(t *testing.T) {
 	}
 }
 
+// sendGemini posts a Gemini API request as @google/genai sends one: the key
+// in x-goog-api-key, the model and method in the path.
+func sendGemini(t *testing.T, base, key, model, method, body string) (*http.Response, []byte) {
+	t.Helper()
+	url := base + "/v1beta/models/" + model + ":" + method
+	if method == "streamGenerateContent" {
+		url += "?alt=sse"
+	}
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("x-goog-api-key", key)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "GeminiCLI/0.30.0/gemini-2.5-pro (linux; x64; terminal)")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	return resp, out
+}
+
+const cliRequest = `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],` +
+	`"systemInstruction":{"parts":[{"text":"be terse"}]},"generationConfig":{"temperature":0}}`
+
+// gemini-cli, asking for a Gemini model, reaches Code Assist with its own
+// request wrapped, and reads the answer unwrapped.
+func TestGeminiCLIReachesAGeminiAccount(t *testing.T) {
+	st, base, claude, google := geminiUpstream(t)
+	_, key, err := st.CreateKey(context.Background(), "cli", store.KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, body := sendGemini(t, base, key, "gemini-2.5-pro", "streamGenerateContent", cliRequest)
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("status = %d, type %q: %s", resp.StatusCode, resp.Header.Get("Content-Type"), body)
+	}
+	for _, want := range []string{`"text":"hi"`, `"finishReason":"STOP"`, `"responseId":"t1"`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the stream lacks %s:\n%s", want, body)
+		}
+	}
+	if strings.Contains(string(body), `"response":`) {
+		t.Errorf("a chunk went out still wrapped:\n%s", body)
+	}
+	if n := len(claude.turns()); n != 0 {
+		t.Errorf("%d turns reached Claude", n)
+	}
+	turns := google.geminiTurns()
+	if len(turns) != 1 {
+		t.Fatalf("Code Assist was sent %d turns", len(turns))
+	}
+	if got := string(turns[0].body); got != `{"project":"proj-9","model":"gemini-2.5-pro","request":`+cliRequest+`}` {
+		t.Errorf("sent %s", got)
+	}
+	if turns[0].header.Get("X-Goog-Api-Key") != "" {
+		t.Error("the caller's key went to Code Assist")
+	}
+	if e := nthEvent(t, st, 1); e.Provider != "google" || e.InputTokens != 20 || e.OutputTokens != 9 || e.Path != "/v1beta/models:streamGenerateContent" {
+		t.Errorf("recorded %+v", e)
+	}
+
+	// generateContent: one response, gathered from the stream.
+	resp, body = sendGemini(t, base, key, "gemini-2.5-pro", "generateContent", cliRequest)
+	var r struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct{ Text string }
+			}
+			FinishReason string
+		}
+	}
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(body, &r) != nil || len(r.Candidates) != 1 ||
+		r.Candidates[0].Content.Parts[0].Text != "hi" || r.Candidates[0].FinishReason != "STOP" {
+		t.Errorf("status = %d: %s", resp.StatusCode, body)
+	}
+}
+
+// gemini-cli asking for a Claude model is translated into Messages, and
+// Claude's answer said back as Gemini chunks.
+func TestGeminiCLIReachesClaude(t *testing.T) {
+	st, base, claude, google := geminiUpstream(t)
+	_, key, err := st.CreateKey(context.Background(), "cli", store.KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, body := sendGemini(t, base, key, "claude-sonnet-5", "streamGenerateContent", cliRequest)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"text":"hi"`) || !strings.Contains(string(body), `"finishReason":"STOP"`) {
+		t.Errorf("answer:\n%s", body)
+	}
+	if n := len(google.geminiTurns()); n != 0 {
+		t.Errorf("%d turns reached Code Assist", n)
+	}
+	turns := claude.turns()
+	if len(turns) != 1 || turns[0].path != "/v1/messages" {
+		t.Fatalf("Claude was sent %+v", turns)
+	}
+	for _, want := range []string{`"model":"claude-sonnet-5"`, `"text":"be terse"`, `"text":"hi"`, `"stream":true`} {
+		if !strings.Contains(string(turns[0].body), want) {
+			t.Errorf("the translated request lacks %s: %s", want, turns[0].body)
+		}
+	}
+
+	resp, body = sendGemini(t, base, key, "claude-sonnet-5", "countTokens", cliRequest)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"totalTokens":`) {
+		t.Errorf("count = %d %s", resp.StatusCode, body)
+	}
+	if n := len(claude.turns()); n != 1 {
+		t.Errorf("the count reached Claude: %d turns", n)
+	}
+
+	// A refusal of the gateway's own is in Google's envelope.
+	resp, body = sendGemini(t, base, "clc_nobody", "claude-sonnet-5", "generateContent", cliRequest)
+	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(string(body), `"status":"UNAUTHENTICATED"`) {
+		t.Errorf("unknown key = %d %s", resp.StatusCode, body)
+	}
+}
+
 // A name following Gemini Pro is served the newest Pro the account has.
 func TestAGeminiFamilyServesTheNewestVersion(t *testing.T) {
 	st, base, _, google := geminiUpstream(t)

@@ -39,6 +39,7 @@ var layers = map[string]int{
 	"internal/relay/passes":  1,
 	"internal/api/anthropic": 1,
 	"internal/api/openai":    1,
+	"internal/api/gemini":    1,
 
 	"internal/pool":                 2,
 	"internal/provider/anthropic":   2,
@@ -77,6 +78,7 @@ var onlyImportedBy = map[string][]string{
 	// The client dialects: registered by the root, served by the gateway.
 	"internal/api/anthropic": {"internal/httpapi", "internal/httpapi/gateway"},
 	"internal/api/openai":    {"internal/httpapi", "internal/httpapi/gateway"},
+	"internal/api/gemini":    {"internal/httpapi", "internal/httpapi/gateway"},
 }
 
 func TestImportsFollowTheLayers(t *testing.T) {

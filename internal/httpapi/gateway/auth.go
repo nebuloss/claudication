@@ -14,16 +14,24 @@ import (
 
 // extractCredential reads the presented key.
 //
-// Both header styles are accepted because the gateway contract says Claude
-// Code sends the credential "in one or both headers depending on which
-// credential variable they set", and OpenAI clients use Authorization.
+// Every header style a client uses is accepted: the gateway contract says
+// Claude Code sends the credential "in one or both headers depending on
+// which credential variable they set", OpenAI clients use Authorization, and
+// @google/genai — gemini-cli pointed at a gateway — sends x-goog-api-key, or
+// the key query parameter the Gemini API also takes.
 func extractCredential(r *http.Request) string {
 	if v := r.Header.Get("Authorization"); v != "" {
 		if len(v) > 7 && strings.EqualFold(v[:7], "bearer ") {
 			return strings.TrimSpace(v[7:])
 		}
 	}
-	return strings.TrimSpace(r.Header.Get("X-Api-Key"))
+	if v := strings.TrimSpace(r.Header.Get("X-Api-Key")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(r.Header.Get("X-Goog-Api-Key")); v != "" {
+		return v
+	}
+	return strings.TrimSpace(r.URL.Query().Get("key"))
 }
 
 // rejection is the row for a request refused before it reached the upstream.

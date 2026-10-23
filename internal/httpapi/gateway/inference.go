@@ -526,6 +526,10 @@ func (s *Gateway) translate(p api.Protocol, body []byte, to api.Target) (api.Exc
 	if err != nil || to.Dialect == anthropicapi.ID {
 		return first, err
 	}
+	// One the dialect answers itself goes nowhere further.
+	if _, ok := first.(api.Answerer); ok {
+		return first, nil
+	}
 	messages, ok := s.protocols.Find(anthropicapi.ID)
 	via, isTranslator := messages.(api.Translator)
 	if !ok || !isTranslator || p.ID() == anthropicapi.ID {

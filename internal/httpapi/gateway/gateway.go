@@ -11,6 +11,7 @@ import (
 
 	"claudication/internal/api"
 	anthropicapi "claudication/internal/api/anthropic"
+	geminiapi "claudication/internal/api/gemini"
 	"claudication/internal/api/openai"
 	"claudication/internal/config"
 	"claudication/internal/httpapi/httpx"
@@ -152,6 +153,13 @@ func (s *Gateway) Routes(mux *http.ServeMux) {
 
 	mux.Handle("POST /v1/responses",
 		s.serving(responses, s.requireAPIKey(responses, s.inference(responses, "/v1/responses"))))
+
+	// The Gemini API, which gemini-cli speaks pointed at a gateway: the
+	// model and the method in one path segment (gemini.go).
+	if gemini, ok := s.protocols.Find(geminiapi.ID); ok {
+		mux.Handle("POST /v1beta/models/{call}",
+			s.serving(gemini, s.requireAPIKey(gemini, s.geminiCall(gemini))))
+	}
 }
 
 // Guard is what fronts every client-facing route, for one outside this

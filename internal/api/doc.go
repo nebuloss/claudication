@@ -29,6 +29,9 @@
 //	                        for ChatGPT
 //	internal/api/openai     the OpenAI surface: /v1/responses today, which is
 //	                        what Codex CLI speaks
+//	internal/api/gemini     the Gemini API surface, which gemini-cli speaks
+//	                        pointed at a gateway, and Code Assist's own
+//	                        request wrapped for a Google account
 //
 // One package per surface, and a surface may own several routes — Routes()
 // returns a list for exactly that reason. A dialect's own translation code

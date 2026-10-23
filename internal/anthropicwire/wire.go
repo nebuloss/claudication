@@ -41,12 +41,15 @@ type Usage struct {
 // ContentBlock is one block of a message: text, thinking, or a tool call.
 // Fields a given type does not carry stay zero.
 type ContentBlock struct {
-	Type     string          `json:"type"`
-	Text     string          `json:"text"`
-	Thinking string          `json:"thinking"`
-	ID       string          `json:"id"`
-	Name     string          `json:"name"`
-	Input    json.RawMessage `json:"input"`
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	Thinking string `json:"thinking"`
+	// Signature is a thinking block's; Data a redacted_thinking block's.
+	Signature string          `json:"signature"`
+	Data      string          `json:"data"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Input     json.RawMessage `json:"input"`
 }
 
 // Message is a complete answer, and the message a message_start opens.
@@ -64,6 +67,7 @@ type Delta struct {
 	Text        string `json:"text"`
 	PartialJSON string `json:"partial_json"`
 	Thinking    string `json:"thinking"`
+	Signature   string `json:"signature"`
 	StopReason  string `json:"stop_reason"`
 }
 
