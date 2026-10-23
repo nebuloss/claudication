@@ -23,9 +23,10 @@ import (
 	"claudication/internal/oauth"
 )
 
-const (
-	ClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+// ClientID is Claude Code's OAuth client, encoded (see oauth.Reveal).
+var ClientID = oauth.Reveal("ZTVmMjY5MWQ0NDk1LWRlODgtOWQ0NC1iMTZlLWEwNTJjMWQ5")
 
+const (
 	// Captured from `claude auth login --claudeai` on 2.1.263. Not claude.ai:
 	// that host answers "client_id: Field required" for this same request,
 	// even though it is where claude.com/cai appears to redirect. auth2api

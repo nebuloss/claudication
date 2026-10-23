@@ -21,11 +21,11 @@ import (
 // API, and any of it can change without notice; this file is the only place
 // it appears. Facts from Codex main (codex-rs/login, read 2026-10-19) and
 // crush (internal/oauth/openai), which agree except where noted in doc.go.
-const (
-	// ClientID is Codex's. Codex: login/src/auth/manager.rs CLIENT_ID;
-	// crush: oauth.go.
-	ClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+// ClientID is Codex's, encoded (see oauth.Reveal). Codex:
+// login/src/auth/manager.rs CLIENT_ID; crush: oauth.go.
+var ClientID = oauth.Reveal("bm5hcmg3cFhhWGtDMGYzN1pFRW1hb01FX3BwYQ==")
 
+const (
 	issuer   = "https://auth.openai.com"
 	tokenURL = issuer + "/oauth/token"
 

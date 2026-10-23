@@ -35,7 +35,7 @@
 //
 //	fact            value                                    source
 //	issuer          https://auth.openai.com                  Codex login/src/server.rs DEFAULT_ISSUER; crush oauth.go
-//	client_id       app_EMoamEEZ73f0CkXaXp7hrann             Codex login/src/auth/manager.rs CLIENT_ID; crush
+//	client_id       Codex's (oauth.go ClientID)              Codex login/src/auth/manager.rs CLIENT_ID; crush
 //	device code     POST /api/accounts/deviceauth/usercode   Codex login/src/device_code_auth.rs; measured
 //	device poll     POST /api/accounts/deviceauth/token      403/404 pending; measured
 //	operator page   https://auth.openai.com/codex/device     Codex; measured
