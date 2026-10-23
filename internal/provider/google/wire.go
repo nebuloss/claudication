@@ -312,13 +312,20 @@ func (a modelRank) before(b modelRank) bool {
 }
 
 // displayName is an id as a person would write it: "gemini-2.5-pro" becomes
-// "Gemini 2.5 Pro". The backend names none.
+// "Gemini 2.5 Pro", "gpt-oss-120b-medium" "GPT OSS 120b Medium". The quota
+// names no model, only its id.
 func displayName(id string) string {
 	words := strings.Split(id, "-")
 	for i, w := range words {
-		if w != "" {
+		switch {
+		case acronyms[w]:
+			words[i] = strings.ToUpper(w)
+		case w != "":
 			words[i] = strings.ToUpper(w[:1]) + w[1:]
 		}
 	}
 	return strings.Join(words, " ")
 }
+
+// acronyms are the words of a model id written in capitals.
+var acronyms = map[string]bool{"gpt": true, "oss": true}

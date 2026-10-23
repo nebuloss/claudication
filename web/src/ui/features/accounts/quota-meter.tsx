@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api, type Quota } from '../../../api/client'
+import { api, type Quota, type UsageLimitRow } from '../../../api/client'
 import { FIVE_HOURS_S, QuotaWindow, SEVEN_DAYS_S, windowShort, windowTitle } from '../../domain/quota'
 import { Button, InlineMeter, MeterRow, Muted, Stack, UsageBar } from '../../primitives'
 import { relative } from '../../format'
@@ -16,8 +16,25 @@ import { providerOf } from '../../providers'
  * Labelled from the windows' length, which is what put each provider's
  * figures in them: ChatGPT calls its windows primary and secondary, and
  * which is which is a matter of length, not of name.
+ *
+ * An account with neither window but rows of its own — Google's, an
+ * allowance per line of models — shows its rows instead, the binding one
+ * first, each labelled by its line: two empty windows would say nothing was
+ * read when it was.
  */
 export function QuotaGauges({ quota }: { quota: Quota }) {
+  const windowed = quota.five_hour_util >= 0 || quota.seven_day_util >= 0
+  const rows = quota.limits ?? []
+  if (!windowed && rows.length > 0) {
+    const shown = [...rows].sort((a, b) => Number(b.is_active) - Number(a.is_active)).slice(0, 2)
+    return (
+      <>
+        {shown.map((l) => (
+          <Gauge key={l.kind} label={rowShort(l)} name={l.title} window={new QuotaWindow(l.percent, l.severity)} />
+        ))}
+      </>
+    )
+  }
   return (
     <>
       <Gauge
@@ -32,7 +49,12 @@ export function QuotaGauges({ quota }: { quota: Quota }) {
   )
 }
 
-function Gauge({ label, window: w }: { label: string; window: QuotaWindow }) {
+/** A row's line as a gauge says it: "Gemini — 15 models" is Gemini. */
+function rowShort(l: UsageLimitRow): string {
+  return l.title.split(/\s+/)[0] ?? l.title
+}
+
+function Gauge({ label, name = label, window: w }: { label: string; name?: string; window: QuotaWindow }) {
   return (
     <InlineMeter
       label={label}
@@ -40,7 +62,7 @@ function Gauge({ label, window: w }: { label: string; window: QuotaWindow }) {
       tone={w.tone}
       figure={w.percent === null ? '–' : w.label}
       alert={w.level === 'critical'}
-      title={w.percent === null ? `${label}: not read yet` : `${label}: ${w.label} used`}
+      title={w.percent === null ? `${name}: not read yet` : `${name}: ${w.label} used`}
     />
   )
 }
