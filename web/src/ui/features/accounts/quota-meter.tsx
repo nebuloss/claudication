@@ -31,35 +31,40 @@ import { providerOf } from '../../providers'
  * line's name; the bubble names them all.
  */
 export function QuotaGauges({ quota, stacked = false }: { quota: Quota; stacked?: boolean }) {
-  const windowed = quota.five_hour_util >= 0 || quota.seven_day_util >= 0
-  const limits = quota.limits ?? []
-  let gauges
-  if (!windowed && limits.length > 0) {
-    const fullest = limits.reduce((a, b) => (b.percent > a.percent ? b : a))
-    gauges = (
-      <Gauge label={windowShort(fullest.window_seconds ?? 0)} window={new QuotaWindow(fullest.percent, fullest.severity)} />
-    )
-  } else {
-    gauges = (
-      <>
-        <Gauge
-          label={windowShort(FIVE_HOURS_S)}
-          window={new QuotaWindow(quota.five_hour_util, quota.five_hour_status)}
-        />
-        <Gauge
-          label={windowShort(SEVEN_DAYS_S)}
-          window={new QuotaWindow(quota.seven_day_util, quota.seven_day_status)}
-        />
-      </>
-    )
-  }
   return (
     <HoverTip label="Subscription usage" tip={<UsageTip rows={usageRows(quota)} />}>
       {/* The row the list and the page header lay gauges in, or the column
           the activity table stacks them in. */}
-      <span className={stacked ? 'inline-flex flex-col gap-1' : 'inline-flex items-center gap-3'}>{gauges}</span>
+      <span className={stacked ? 'inline-flex flex-col gap-1' : 'inline-flex items-center gap-3'}>
+        {headline(quota).map((h) => (
+          <Gauge key={h.seconds} label={windowShort(h.seconds)} window={h.window} />
+        ))}
+      </span>
     </HoverTip>
   )
+}
+
+/** A headline window: its length, and how much of it is spent. */
+type Headline = { seconds: number; window: QuotaWindow }
+
+/**
+ * What an account's headline says: the two windows, or the fullest
+ * allowance for an account with neither (see QuotaGauges). The gauges and
+ * the account page's figures both read it, so neither prints a window the
+ * account does not have — the page used to print Google's absent windows as
+ * "-1%".
+ */
+export function headline(quota: Quota): Headline[] {
+  const windowed = quota.five_hour_util >= 0 || quota.seven_day_util >= 0
+  const limits = quota.limits ?? []
+  if (!windowed && limits.length > 0) {
+    const fullest = limits.reduce((a, b) => (b.percent > a.percent ? b : a))
+    return [{ seconds: fullest.window_seconds ?? 0, window: new QuotaWindow(fullest.percent, fullest.severity) }]
+  }
+  return [
+    { seconds: FIVE_HOURS_S, window: new QuotaWindow(quota.five_hour_util, quota.five_hour_status) },
+    { seconds: SEVEN_DAYS_S, window: new QuotaWindow(quota.seven_day_util, quota.seven_day_status) },
+  ]
 }
 
 function Gauge({ label, window: w }: { label: string; window: QuotaWindow }) {

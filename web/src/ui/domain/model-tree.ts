@@ -92,7 +92,9 @@ export function familyOf(m: TreeModel): { key: string; title: string } {
     return v !== undefined ? { key: `gpt-${v}`, title: `GPT-${v}` } : { key: OTHER, title: 'Other' }
   }
   if (provider === 'google') {
-    const tier = /^gemini-\d+(?:\.\d+)*-(pro|flash-lite|flash)(?:-preview|-high|-medium|-low)?$/.exec(id)?.[1]
+    // The word after the version, as internal/service/models reads it:
+    // pro, flash, flash-lite, or a name such as argon.
+    const tier = /^gemini-\d+(?:\.\d+)*-([a-z]+(?:-lite)?)(?:-preview|-high|-medium|-low)?$/.exec(id)?.[1]
     if (tier === undefined) return { key: OTHER, title: 'Other' }
     const title = tier
       .split('-')

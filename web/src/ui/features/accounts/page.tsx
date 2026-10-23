@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import AccountSettings, { type AccountSettingsSection } from './settings'
 import { DetailHeader } from '../detail'
-import QuotaMeter, { QuotaGauges, ReadAgain, useQuotaRead } from './quota-meter'
+import QuotaMeter, { QuotaGauges, ReadAgain, headline, useQuotaRead } from './quota-meter'
 import RequestsPanel from '../requests'
 import { AccountUsage } from './usage'
 import { AccountSwitch } from './index'
@@ -24,6 +24,7 @@ import {
 } from '../../primitives'
 import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact, dateTime, relative } from '../../format'
+import { windowTitle } from '../../domain/quota'
 
 /** As on the list: the server says how often it re-reads the quota. */
 const REFRESH_MS = 20_000
@@ -177,16 +178,18 @@ function AccountOverview({
       <StatGrid>
         <Stat label="Requests" value={compact(account.requests)} hint={`over ${windowDays}d`} />
         <Stat label="Tokens" value={compact(account.tokens)} hint={`over ${windowDays}d`} />
-        <Stat
-          label="5-hour window"
-          value={account.quota !== undefined ? `${Math.round(account.quota.five_hour_util)}%` : '—'}
-          hint="used"
-        />
-        <Stat
-          label="7-day window"
-          value={account.quota !== undefined ? `${Math.round(account.quota.seven_day_util)}%` : '—'}
-          hint="used"
-        />
+        {account.quota !== undefined ? (
+          headline(account.quota).map((h) => (
+            <Stat
+              key={h.seconds}
+              label={windowTitle(h.seconds)}
+              value={h.window.percent === null ? '—' : h.window.label}
+              hint="used"
+            />
+          ))
+        ) : (
+          <Stat label="Windows" value="—" hint="not read yet" />
+        )}
       </StatGrid>
       <Card
         title="Subscription"

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -136,6 +137,14 @@ func (Provider) ModelsRequest(_ string, c provider.Credential) (string, string, 
 // 2026-10-23, testdata/antigravity-models.json): every model by id, with
 // what Antigravity's picker shows of it.
 type available struct {
+	// AgentModelSorts is the picker's order, best first: Recommended's
+	// groups, each a list of ids (measured 2026-10-23 on Google AI Pro:
+	// gemini-4-argon-medium, -high, -low, then gemini-3.8-flash-high, …).
+	AgentModelSorts []struct {
+		Groups []struct {
+			ModelIDs []string `json:"modelIds"`
+		} `json:"groups"`
+	} `json:"agentModelSorts"`
 	Models map[string]struct {
 		DisplayName     string `json:"displayName"`
 		MaxTokens       int    `json:"maxTokens"`
@@ -148,9 +157,9 @@ type available struct {
 }
 
 // ModelList implements provider.Wire: the models an account may chat with,
-// as the gateway's list, ranked Pro, then Flash, then Flash-Lite, each
-// newest first, which is the order the Gemini families are offered in
-// (internal/service/models, family.go).
+// as the gateway's list, ranked family by family in the order Antigravity's
+// picker shows them (modelRank), each newest first, which is the order the
+// Gemini families are offered in (internal/service/models, family.go).
 //
 // Of the 23 the account measured was offered, kept are those Antigravity's
 // picker would show and could serve: with a display name (the rest —
@@ -171,7 +180,13 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 		}
 		ids = append(ids, id)
 	}
-	sortModels(ids)
+	var picked []string
+	for _, s := range in.AgentModelSorts {
+		for _, g := range s.Groups {
+			picked = append(picked, g.ModelIDs...)
+		}
+	}
+	sortModelsBy(ids, pickerOrder(picked))
 	data := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
 		m := in.Models[id]
@@ -197,30 +212,49 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 	return json.Marshal(list)
 }
 
-// modelRank orders Gemini model ids: by tier, largest first; then by version,
-// newest first; then generally available before preview; then by thinking
-// level, most first. Tier first because the order the list gives is the
-// order the families are offered in, and an operator looks for Pro before
-// Flash-Lite whichever had the newer release; level last because
-// Antigravity offers each recent model at several (gemini-3.8-flash-high,
-// -medium, -low), and a family is served the first.
+// modelRank orders Gemini model ids: by family, in the order Antigravity's
+// picker shows them; then by version, newest first; then generally
+// available before preview; then by thinking level, most first. Family
+// first because the order the list gives is the order the families are
+// offered in, and an operator looks for the plan's best before Flash-Lite
+// whichever had the newer release; level last because Antigravity offers
+// each recent model at several (gemini-3.8-flash-high, -medium, -low), and
+// a family is served the first.
+//
+// The family is the word after the version, whatever it is: Google AI Pro
+// was offered gemini-4-argon (measured 2026-10-23), a name and not a size,
+// and a list of sizes put the plan's best model last. So the families'
+// order is the picker's (pickerOrder), and the sizes only order the
+// families the picker does not show.
 type modelRank struct {
 	version []int
+	family  string
 	tier    int
 	preview bool
 	level   int
 	gemini  bool
 }
 
-// tiers rank the size words, largest first. Anything else ranks after them.
+// tiers rank the size words, largest first, after the picker's families.
+// Anything else ranks after them.
 var tiers = []string{"pro", "flash", "flash-lite"}
+
+// pickerOrder is each family's place in the picker's ids, first seen first.
+func pickerOrder(ids []string) map[string]int {
+	order := map[string]int{}
+	for _, id := range ids {
+		if r := rank(id, nil); r.gemini && r.family != "" {
+			if _, seen := order[r.family]; !seen {
+				order[r.family] = len(order)
+			}
+		}
+	}
+	return order
+}
 
 // levels rank Antigravity's thinking levels, most first; an id naming none
 // sits between high and medium.
 var levels = map[string]int{"high": 0, "": 1, "medium": 2, "low": 3, "extra-low": 4}
-
-// flashTier is "flash"'s rank in tiers.
-const flashTier = 1
 
 // models are the buckets' model ids, each once, ranked, less Antigravity's
 // internal ones (chat_20706, tab_jump_flash_lite_preview), which carry an
@@ -235,15 +269,15 @@ func (q quotaResponse) models() []string {
 		seen[b.ModelID] = true
 		ids = append(ids, b.ModelID)
 	}
-	sortModels(ids)
+	sortModelsBy(ids, nil)
 	return ids
 }
 
-// sortModels ranks ids, the id itself breaking a tie so the order never
-// depends on a map's.
-func sortModels(ids []string) {
+// sortModelsBy ranks ids, families in order first, the id itself breaking a
+// tie so the order never depends on a map's.
+func sortModelsBy(ids []string, order map[string]int) {
 	sort.Slice(ids, func(i, j int) bool {
-		a, b := rank(ids[i]), rank(ids[j])
+		a, b := rank(ids[i], order), rank(ids[j], order)
 		if a.before(b) {
 			return true
 		}
@@ -254,10 +288,11 @@ func sortModels(ids []string) {
 	})
 }
 
-// rank reads an id like gemini-3.8-flash-high or gemini-3-pro-preview:
-// "gemini", a dotted version, a tier, and qualifiers.
-func rank(id string) modelRank {
-	r := modelRank{tier: len(tiers), level: levels[""]}
+// rank reads an id like gemini-3.8-flash-high or gemini-4-argon-low:
+// "gemini", a dotted version, a family, and qualifiers. order places the
+// families the picker shows; nil places by size alone.
+func rank(id string, order map[string]int) modelRank {
+	r := modelRank{tier: len(order) + len(tiers), level: levels[""]}
 	rest, ok := strings.CutPrefix(id, "gemini-")
 	if !ok {
 		return r
@@ -271,15 +306,16 @@ func rank(id string) modelRank {
 		}
 		r.version = append(r.version, n)
 	}
-	qualifier := ""
-	for i, t := range tiers {
-		if rest == t || strings.HasPrefix(rest, t+"-") {
-			// flash-lite also starts with flash-; the longer word wins.
-			r.tier = i
-			qualifier = strings.TrimPrefix(strings.TrimPrefix(rest, t), "-")
-		}
+	r.family, rest, _ = strings.Cut(rest, "-")
+	if q, ok := strings.CutPrefix(rest, "lite"); ok && (q == "" || q[0] == '-') {
+		r.family, rest = r.family+"-lite", strings.TrimPrefix(q, "-")
 	}
-	if l, ok := levels[qualifier]; ok {
+	if p, ok := order[r.family]; ok {
+		r.tier = p
+	} else if i := slices.Index(tiers, r.family); i >= 0 {
+		r.tier = len(order) + i
+	}
+	if l, ok := levels[rest]; ok {
 		r.level = l
 	}
 	r.preview = strings.Contains(rest, "preview") || strings.Contains(rest, "exp")

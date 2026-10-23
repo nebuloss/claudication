@@ -456,8 +456,11 @@ func TestModelListReadsTheMeasuredList(t *testing.T) {
 		}
 	}
 	got := strings.Join(ids, " ")
+	// The picker leads with Gemini 3.8 Flash, so Flash leads here; Pro,
+	// which it does not show, comes after it.
 	for _, want := range []string{
-		"gemini-2.5-pro gemini-3.8-flash-high gemini-3.8-flash-medium gemini-3.8-flash-low",
+		"gemini-3.8-flash-high gemini-3.8-flash-medium gemini-3.8-flash-low",
+		"gemini-2.5-pro gemini-3.5-flash-lite gemini-3.1-flash-lite",
 		"gemini-3.5-flash-lite gemini-3.1-flash-lite",
 	} {
 		if !strings.Contains(got, want) {
@@ -468,8 +471,8 @@ func TestModelListReadsTheMeasuredList(t *testing.T) {
 		t.Errorf("a non-Gemini model ranks last: %s", got)
 	}
 	first := l.Data[0]
-	if first.ID != "gemini-2.5-pro" || first.DisplayName != "Gemini 2.5 Pro" || first.Provider != ID ||
-		first.MaxInput != 1048576 || first.MaxTokens != 65535 {
+	if first.ID != "gemini-3.8-flash-high" || first.DisplayName != "Gemini 3.8 Flash (High)" || first.Provider != ID ||
+		first.MaxInput != 1048576 || first.MaxTokens != 65536 {
 		t.Errorf("first = %+v", first)
 	}
 	method, path, body := Provider{}.ModelsRequest("limit=5", provider.Credential{AccountID: "proj-9"})
@@ -483,7 +486,7 @@ func TestMeasuredQuotaIsPerModel(t *testing.T) {
 	if err := json.Unmarshal(readFixture(t, "antigravity-quota.json").Body, &q); err != nil {
 		t.Fatal(err)
 	}
-	rows := Accounts{}.Limits(q.quota().Detail)
+	rows := Accounts{}.Limits(q.quota(quotaRead).Detail)
 	if len(rows) == 0 {
 		t.Fatal("no rows")
 	}
@@ -560,7 +563,7 @@ func TestAnUnusedAllowanceHasNoReset(t *testing.T) {
 		{ModelID: "gemini-3.8-flash-high", RemainingFraction: &used, ResetTime: "2026-10-30T09:46:47Z"},
 		{ModelID: "gpt-oss-120b-medium", RemainingFraction: &unused, ResetTime: "2026-10-30T12:15:49Z"},
 	}}
-	rows := Accounts{}.Limits(q.quota().Detail)
+	rows := Accounts{}.Limits(q.quota(quotaRead).Detail)
 	if len(rows) != 2 || rows[0].ResetsAt != "2026-10-30T09:46:47Z" || rows[1].ResetsAt != "" {
 		t.Errorf("rows = %+v", rows)
 	}
@@ -571,7 +574,7 @@ func TestQuotaIsPerModel(t *testing.T) {
 	if err := json.Unmarshal([]byte(quotaBody), &q); err != nil {
 		t.Fatal(err)
 	}
-	got := q.quota()
+	got := q.quota(quotaRead)
 	if got.Limited || len(got.Windows) != 0 {
 		t.Errorf("quota = %+v", got)
 	}
@@ -597,7 +600,71 @@ func TestQuotaIsPerModel(t *testing.T) {
 		t.Errorf("spent row = %+v", spent)
 	}
 	q.Buckets = []bucket{{ModelID: "gemini-2.5-pro", RemainingFraction: new(float64)}}
-	if !q.quota().Limited {
+	if !q.quota(quotaRead).Limited {
 		t.Error("an account with every model spent was not limited")
+	}
+}
+
+// quotaRead is when antigravity-quota.json was recorded: its unused
+// allowances reset a week later.
+var quotaRead = time.Date(2026, 10, 23, 9, 46, 46, 0, time.UTC)
+
+// Measured on Google AI Pro, all unused: five hours for every allowance but
+// Gemini 4 Argon's, which is a week; so Argon is a row of its own, named by
+// what its ids share, and each row has its own length.
+func TestProAllowancesHaveTheirOwnLengths(t *testing.T) {
+	var q quotaResponse
+	if err := json.Unmarshal(readFixture(t, "antigravity-quota-pro.json").Body, &q); err != nil {
+		t.Fatal(err)
+	}
+	rows := Accounts{}.Limits(q.quota(time.Date(2026, 10, 23, 13, 17, 34, 0, time.UTC)).Detail)
+	got := map[string]int64{}
+	for _, r := range rows {
+		got[r.Title] = r.WindowSeconds
+	}
+	want := map[string]int64{
+		"Gemini — 15 models":        5 * 60 * 60,
+		"Gemini 4 Argon — 3 models": 7 * 24 * 60 * 60,
+		"GPT OSS 120b Medium":       5 * 60 * 60,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("rows = %v", got)
+	}
+	for title, w := range want {
+		if got[title] != w {
+			t.Errorf("%s: window %d, want %d (rows %v)", title, got[title], w, got)
+		}
+	}
+}
+
+// The families' order is the picker's, whatever their words, then the sizes
+// the picker does not show; a family's levels keep the most thinking first.
+func TestModelsFollowThePickersFamilies(t *testing.T) {
+	body := `{"agentModelSorts":[{"groups":[{"modelIds":["gemini-4-argon-medium","gemini-4-argon-high","gemini-3.8-flash-high"]}]}],
+	  "models":{
+	    "gemini-2.5-pro":{"displayName":"Gemini 2.5 Pro","quotaInfo":{}},
+	    "gemini-3.5-flash-lite":{"displayName":"Gemini 3.5 Flash Lite","quotaInfo":{}},
+	    "gemini-3.8-flash-high":{"displayName":"Gemini 3.8 Flash (High)","quotaInfo":{}},
+	    "gemini-4-argon-low":{"displayName":"Gemini 4 Argon (Low)","quotaInfo":{}},
+	    "gemini-4-argon-high":{"displayName":"Gemini 4 Argon (High)","quotaInfo":{}},
+	    "gemini-4-argon-medium":{"displayName":"Gemini 4 Argon (Medium)","quotaInfo":{}}}}`
+	raw, err := Provider{}.ModelList([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var l struct {
+		Data []struct{ ID string } `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &l); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range l.Data {
+		ids = append(ids, m.ID)
+	}
+	want := []string{"gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low",
+		"gemini-3.8-flash-high", "gemini-2.5-pro", "gemini-3.5-flash-lite"}
+	if strings.Join(ids, " ") != strings.Join(want, " ") {
+		t.Errorf("order = %v\nwant    %v", ids, want)
 	}
 }

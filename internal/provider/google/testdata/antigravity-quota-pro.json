@@ -1,0 +1,180 @@
+{
+ "status": 200,
+ "headers": {
+  "Content-Type": "application/json; charset=UTF-8"
+ },
+ "body": {
+  "buckets": [
+   {
+    "tokenType": "WTUS",
+    "modelId": "chat_20706",
+    "remainingFraction": 1
+   },
+   {
+    "tokenType": "WTUS",
+    "modelId": "chat_23310",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "claude-opus-5-5-high",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "claude-opus-5-5-low",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "claude-opus-5-5-medium",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "claude-sonnet-5-5-high",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "claude-sonnet-5-5-low",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "claude-sonnet-5-5-medium",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-2.5-flash",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-2.5-flash-lite",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-2.5-flash-thinking",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-2.5-pro",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3-flash",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3-flash-agent",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3.1-flash-image",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3.1-flash-lite",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3.5-flash-extra-low",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3.5-flash-lite",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3.5-flash-low",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3.8-flash-high",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3.8-flash-low",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3.8-flash-medium",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-3.8-flash-tiered",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-30T13:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-4-argon-high",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-30T13:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-4-argon-low",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-30T13:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gemini-4-argon-medium",
+    "remainingFraction": 1
+   },
+   {
+    "resetTime": "2026-10-23T18:17:34Z",
+    "tokenType": "WTUS",
+    "modelId": "gpt-oss-120b-medium",
+    "remainingFraction": 1
+   },
+   {
+    "tokenType": "WTUS",
+    "modelId": "tab_flash_lite_preview",
+    "remainingFraction": 1
+   },
+   {
+    "tokenType": "WTUS",
+    "modelId": "tab_jump_flash_lite_preview",
+    "remainingFraction": 1
+   }
+  ]
+ }
+}

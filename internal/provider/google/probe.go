@@ -134,7 +134,7 @@ func probeModel(ctx context.Context, client *http.Client, cred provider.Credenti
 		return "", fmt.Errorf("the account has quota for no model")
 	}
 	for _, id := range ids {
-		if r := rank(id); r.gemini && r.tier == flashTier {
+		if r := rank(id, nil); r.gemini && r.family == "flash" {
 			return id, nil
 		}
 	}

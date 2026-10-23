@@ -38,6 +38,14 @@ import (
 //     first turn's. An allowance never used has no window yet, and reports
 //     a reset a week from whenever it is asked.
 //
+// Measured again 2026-10-23 on the same account an hour after it moved to
+// Google AI Pro: the windows are not all a week. Every model but one line
+// reported a reset five hours out, gemini-4-argon's three a week out, all
+// unused — so an allowance's length is the plan's, and per line. Nothing
+// says it but the reset of an allowance not yet used, which is a window
+// from now; so windowOf reads it off the reset, as the shortest known
+// length that holds it.
+//
 // The windows are per line rather than per account — a spent Gemini
 // allowance leaves GPT-OSS serving — so nothing maps onto the store's
 // five-hour and weekly columns, which the pool reads for the whole account;
@@ -57,8 +65,23 @@ type quotaResponse struct {
 	Buckets []bucket `json:"buckets"`
 }
 
-// window is every allowance's length (measured; see above).
-const window = 7 * 24 * 60 * 60
+// windows are the allowance lengths seen, shortest first (measured; see
+// above): five hours on Google AI Pro, a week on the free tier and for
+// Gemini 4 Argon on Pro.
+var windows = []int64{5 * 60 * 60, 7 * 24 * 60 * 60}
+
+// windowOf is the length of a window that ends in left: the shortest known
+// one that holds it, give or take a minute for the read. A used window's
+// reset is nearer than its length, so a week with under five hours left
+// reads as five hours: the bound of reading lengths off resets.
+func windowOf(left time.Duration) int64 {
+	for _, w := range windows {
+		if left <= time.Duration(w)*time.Second+time.Minute {
+			return w
+		}
+	}
+	return windows[len(windows)-1]
+}
 
 // quotaRow is one model's quota as the detail keeps it.
 type quotaRow struct {
@@ -67,13 +90,15 @@ type quotaRow struct {
 	UsedPercent float64 `json:"used_percent"`
 	// ResetAt is unix seconds; 0 is not said.
 	ResetAt int64 `json:"reset_at,omitempty"`
+	// Window is the allowance's length in seconds (windowOf); 0 is not said.
+	Window int64 `json:"window,omitempty"`
 }
 
-// quota is the answer as the provider-neutral quota: no windows, the rows as
+// quota is the answer, read at now, as the provider-neutral quota: no windows, the rows as
 // its detail, and limited only when every model is spent — while one model
 // serves, the account does.
-func (q quotaResponse) quota() provider.Quota {
-	out := provider.Quota{At: time.Now()}
+func (q quotaResponse) quota(now time.Time) provider.Quota {
+	out := provider.Quota{At: now}
 	var rows []quotaRow
 	spent := 0
 	for _, b := range q.Buckets {
@@ -85,17 +110,20 @@ func (q quotaResponse) quota() provider.Quota {
 		if b.RemainingFraction != nil {
 			row.UsedPercent = min(max((1-*b.RemainingFraction)*100, 0), 100)
 		}
-		// An allowance not yet used has no window: its reset is a week from
-		// the moment it was asked, and moves with every read.
-		if t, err := time.Parse(time.RFC3339, b.ResetTime); err == nil && row.UsedPercent > 0 {
-			row.ResetAt = t.Unix()
+		// An allowance not yet used has no window running: its reset is a
+		// window from the moment it was asked, and moves with every read.
+		if t, err := time.Parse(time.RFC3339, b.ResetTime); err == nil {
+			row.Window = windowOf(t.Sub(now))
+			if row.UsedPercent > 0 {
+				row.ResetAt = t.Unix()
+			}
 		}
 		if row.UsedPercent >= 100 {
 			spent++
 		}
 		rows = append(rows, row)
 	}
-	sort.SliceStable(rows, func(i, j int) bool { return rank(rows[i].Model).before(rank(rows[j].Model)) })
+	sort.SliceStable(rows, func(i, j int) bool { return rank(rows[i].Model, nil).before(rank(rows[j].Model, nil)) })
 	out.Limited = len(rows) > 0 && spent == len(rows)
 	if raw, err := json.Marshal(rows); err == nil {
 		out.Detail = string(raw)
@@ -113,7 +141,16 @@ func FetchUsage(ctx context.Context, client *http.Client, cred provider.Credenti
 	if err := call(ctx, client, cred.Token, http.MethodPost, ":retrieveUserQuota", map[string]string{"project": cred.AccountID}, &q); err != nil {
 		return provider.Quota{}, fmt.Errorf("fetch usage: %w", err)
 	}
-	return q.quota(), nil
+	out := q.quota(time.Now())
+	// The plan, read again: it follows the account's Google One
+	// subscription, not its sign-in (an account signed in free reported
+	// paidTier "Google AI Pro" after an upgrade, measured 2026-10-23). A
+	// failure costs only the plan's name, so it is not the usage's.
+	var load loadResponse
+	if call(ctx, client, cred.Token, http.MethodPost, ":loadCodeAssist", map[string]any{"metadata": clientMetadata}, &load) == nil {
+		out.Plan = tierName(load.PaidTier, load.CurrentTier)
+	}
+	return out, nil
 }
 
 // limitRows reads the detail back as the accounts screen's rows.
@@ -121,9 +158,11 @@ func FetchUsage(ctx context.Context, client *http.Client, cred provider.Credenti
 // Models that draw on one allowance are one row. Measured 2026-10-23 on a
 // free account: every Gemini model reported the same fraction and the same
 // reset — one allowance, fifteen buckets — while Claude Opus, Claude Sonnet
-// and GPT-OSS each had their own. So rows of one line (gemini, gpt) that
-// agree on both are folded, "Gemini — 15 models", and a model alone keeps its
-// own name. Claude's rows are left out: the gateway never sends Claude there
+// and GPT-OSS each had their own; on Google AI Pro, Gemini 4 Argon had a
+// week's while the other Gemini models had five hours'. So rows of one line
+// (gemini, gpt) that agree on fraction, reset and length are folded, named
+// by what their ids share — "Gemini — 15 models", "Gemini 4 Argon — 3
+// models" — and a model alone keeps its own name. Claude's rows are left out: the gateway never sends Claude there
 // (ModelList), so their figure is nothing it spends. The binding row is the
 // fullest, as for ChatGPT: the backend does not say.
 func limitRows(detail string) []provider.Limit {
@@ -134,7 +173,7 @@ func limitRows(detail string) []provider.Limit {
 	type group struct {
 		line  string
 		first quotaRow
-		n     int
+		ids   []string
 	}
 	var groups []*group
 	for _, r := range rows {
@@ -144,7 +183,7 @@ func limitRows(detail string) []provider.Limit {
 		line, _, _ := strings.Cut(r.Model, "-")
 		var g *group
 		for _, h := range groups {
-			if h.line == line && h.first.UsedPercent == r.UsedPercent && h.first.ResetAt == r.ResetAt {
+			if h.line == line && h.first.UsedPercent == r.UsedPercent && h.first.ResetAt == r.ResetAt && h.first.Window == r.Window {
 				g = h
 				break
 			}
@@ -153,7 +192,7 @@ func limitRows(detail string) []provider.Limit {
 			g = &group{line: line, first: r}
 			groups = append(groups, g)
 		}
-		g.n++
+		g.ids = append(g.ids, r.Model)
 	}
 	binding := -1
 	for i, g := range groups {
@@ -164,8 +203,13 @@ func limitRows(detail string) []provider.Limit {
 	out := make([]provider.Limit, 0, len(groups))
 	for i, g := range groups {
 		title := displayName(g.first.Model)
-		if g.n > 1 {
-			title = displayName(g.line) + " — " + strconv.Itoa(g.n) + " models"
+		if len(g.ids) > 1 {
+			title = displayName(sharedPrefix(g.ids)) + " — " + strconv.Itoa(len(g.ids)) + " models"
+		}
+		length := g.first.Window
+		if length == 0 {
+			// A row kept before lengths were: the free tier's week.
+			length = windows[len(windows)-1]
 		}
 		l := provider.Limit{
 			Title:         title,
@@ -173,7 +217,7 @@ func limitRows(detail string) []provider.Limit {
 			Percent:       g.first.UsedPercent,
 			Severity:      severity(g.first.UsedPercent),
 			IsActive:      i == binding,
-			WindowSeconds: window,
+			WindowSeconds: length,
 		}
 		if g.first.ResetAt > 0 {
 			l.ResetsAt = time.Unix(g.first.ResetAt, 0).UTC().Format(time.RFC3339)
@@ -181,6 +225,21 @@ func limitRows(detail string) []provider.Limit {
 		out = append(out, l)
 	}
 	return out
+}
+
+// sharedPrefix is the words every id starts with: gemini-4-argon for
+// gemini-4-argon-high and -low, gemini for a line's several models.
+func sharedPrefix(ids []string) string {
+	words := strings.Split(ids[0], "-")
+	for _, id := range ids[1:] {
+		other := strings.Split(id, "-")
+		n := 0
+		for n < len(words) && n < len(other) && words[n] == other[n] {
+			n++
+		}
+		words = words[:n]
+	}
+	return strings.Join(words, "-")
 }
 
 // severity is the accounts screen's tone for a row, in the words Anthropic's

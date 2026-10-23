@@ -504,6 +504,15 @@ func (s *Store) SetAccountQuota(ctx context.Context, id string, q AccountQuota) 
 	return nil
 }
 
+// SetAccountPlan records an account's plan as its provider names it now,
+// for a plan that changed after sign-in.
+func (s *Store) SetAccountPlan(ctx context.Context, id, plan string) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE accounts SET plan = ? WHERE id = ?`, plan, id); err != nil {
+		return fmt.Errorf("record account plan: %w", err)
+	}
+	return nil
+}
+
 // AccountTokens unseals the credentials for one account.
 func (s *Store) AccountTokens(ctx context.Context, id string) (Tokens, error) {
 	var sealedAccess, sealedRefresh []byte

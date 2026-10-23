@@ -165,6 +165,7 @@ const (
 	FollowGeminiPro       Follow = "gemini:pro"
 	FollowGeminiFlash     Follow = "gemini:flash"
 	FollowGeminiFlashLite Follow = "gemini:flash-lite"
+	FollowGeminiArgon     Follow = "gemini:argon"
 )
 
 // familyName is a family's word: a line, with one hyphened qualifier for
@@ -741,7 +742,7 @@ var AntigravityCLI = Type{
 		{ID: "flash", Label: "Gemini 3.8 Flash", Role: RoleFlash, Name: "gemini-3.8-flash",
 			Follows: FollowGeminiFlash, Hint: "Gemini 3.8 Flash in agy's picker, at any level."},
 		{ID: "argon", Label: "Gemini 4 Argon", Role: RoleArgon, Name: "gemini-4-argon",
-			Follows: FollowGeminiPro, Hint: "Gemini 4 Argon in agy's picker, at either level."},
+			Follows: FollowGeminiArgon, Hint: "Gemini 4 Argon in agy's picker, at either level."},
 		{ID: "fast", Label: "Side calls", Role: RoleFast, Name: "gemini-3.1-flash-lite-preview",
 			Follows: FollowGeminiFlashLite, Hint: "The quick calls agy makes beside a turn."},
 	},

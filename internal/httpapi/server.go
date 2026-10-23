@@ -290,6 +290,11 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 			if err != nil {
 				return store.AccountQuota{}, err
 			}
+			if q.Plan != "" && q.Plan != a.Plan {
+				if err := st.SetAccountPlan(ctx, a.ID, q.Plan); err != nil {
+					log.Warn("could not record an account's plan", "account", a.Email, "err", err)
+				}
+			}
 			return pool.StoredQuota(q), nil
 		},
 		Idle:    cfg.Usage.PollIdle.D(),

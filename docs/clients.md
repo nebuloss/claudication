@@ -416,7 +416,7 @@ names, each bound on its page:
 |---|---|---|
 | `gemini-3.1-pro-preview` | Gemini 3.1 Pro, and agy's default | Gemini Pro |
 | `gemini-3.8-flash` | Gemini 3.8 Flash, any level | Gemini Flash |
-| `gemini-4-argon` | Gemini 4 Argon | Gemini Pro |
+| `gemini-4-argon` | Gemini 4 Argon | Gemini Argon |
 | `gemini-3.1-flash-lite-preview` | its side calls | Gemini Flash-Lite |
 
 A name can serve any model — Claude's or GPT's as well as Gemini's. When agy

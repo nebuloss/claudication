@@ -53,7 +53,8 @@ import (
 // Claude line is the word after claude- (claude-opus-5-5 is opus), a ChatGPT
 // one the slug's last word (gpt-6.1-sol is sol; internal/service/clients,
 // Follow, has the backend's own descriptions that make it the line), a
-// Gemini one its tier (gemini-3-pro-preview is pro). A model
+// Gemini one the word after its version (gemini-3-pro-preview is pro,
+// gemini-4-argon-high argon). A model
 // whose id fits neither is no family's, and is offered as itself in either
 // mode, so nothing an account lists is out of reach.
 
@@ -61,12 +62,15 @@ import (
 var familyPattern = map[string]*regexp.Regexp{
 	"anthropic": regexp.MustCompile(`^claude-([a-z]+)-`),
 	"openai":    regexp.MustCompile(`^gpt-\d+(?:\.\d+)*-([a-z]+)$`),
-	// A tier, and a preview of it or a thinking level of it (Antigravity
-	// offers gemini-3.8-flash-high, -medium, -low), are the family; another
-	// variant past the tier (gemini-3-flash-agent, …-customtools) is a model
-	// of its own. Which level a family serves is the list's order: the most
-	// thinking first (internal/provider/google, modelRank).
-	"google": regexp.MustCompile(`^gemini-\d+(?:\.\d+)*-(pro|flash-lite|flash)(?:-preview|-high|-medium|-low)?$`),
+	// The word after the version — a size (pro, flash, flash-lite) or a
+	// name (argon, which Google AI Pro was offered on 2026-10-23 and no
+	// list of sizes knew) — with a preview of it or a thinking level of it
+	// (Antigravity offers gemini-3.8-flash-high, -medium, -low), is the
+	// family; another variant past the word (gemini-3-flash-agent,
+	// …-customtools) is a model of its own. Which level a family serves is
+	// the list's order: the most thinking first (internal/provider/google,
+	// modelRank).
+	"google": regexp.MustCompile(`^gemini-\d+(?:\.\d+)*-([a-z]+(?:-lite)?)(?:-preview|-high|-medium|-low)?$`),
 }
 
 // FamilyOf is the family a provider's model belongs to, or "".

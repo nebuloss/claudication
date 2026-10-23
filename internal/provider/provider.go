@@ -170,6 +170,10 @@ type Quota struct {
 	Detail string
 	// At is when the figures were read.
 	At time.Time
+	// Plan is the account's plan as the provider names it now, for one whose
+	// plan changes under a signed-in account (Google's follows the Google
+	// One subscription); empty when not read.
+	Plan string
 }
 
 // Window is one rolling limit.
