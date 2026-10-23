@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"claudication/internal/config"
+	"claudication/internal/service/clients"
+	"claudication/internal/store"
 )
 
 // The catalogue's "(latest)" on a dated snapshot read as the newest model
@@ -30,9 +32,8 @@ func TestShownNameDropsLatest(t *testing.T) {
 // so its entries are matched by name. Each gets the catalogue's facts and
 // keeps its own name; an alias is described as the model it is; a name the
 // catalogue has only as a preview finds it; an entry it has no name for
-// falls back to its id; one it knows neither way is listed as it came. An
-// entry with no catalog_name is matched by id as before, and the field
-// never reaches a client.
+// falls back to its id; one it knows neither way is listed as it came. A
+// list matched twice — each account's, then their union — says the same.
 func TestMatchCatalogByName(t *testing.T) {
 	s := &Catalog{cfg: &config.Config{ModelsCatalog: "http://catalogue.invalid"}}
 	s.catalog.models = map[string][]catalogModel{"google": {
@@ -53,14 +54,12 @@ func TestMatchCatalogByName(t *testing.T) {
 	var l struct {
 		Data []map[string]any `json:"data"`
 	}
-	if err := json.Unmarshal(s.matchCatalog(context.Background(), "google", []byte(body)), &l); err != nil {
+	once := s.matchCatalog(context.Background(), "google", []byte(body))
+	if err := json.Unmarshal(s.matchCatalog(context.Background(), "google", once), &l); err != nil {
 		t.Fatal(err)
 	}
 	var got []string
 	for _, e := range l.Data {
-		if _, leaked := e["catalog_name"]; leaked {
-			t.Errorf("%v kept catalog_name", e["id"])
-		}
 		created, _ := e["created_at"].(string)
 		got = append(got, e["id"].(string)+"="+e["display_name"].(string)+"@"+strings.TrimSuffix(created, "T00:00:00Z"))
 	}
@@ -76,5 +75,31 @@ func TestMatchCatalogByName(t *testing.T) {
 	}
 	if l.Data[len(want)]["id"] != "gpt-oss-120b-medium" || l.Data[len(want)]["created_at"] != nil {
 		t.Errorf("unknown model = %v", l.Data[len(want)])
+	}
+}
+
+// A family a list gives is the model's, whatever its id says: an alias
+// joins the family it is, and a model the list puts in none stays out of
+// the one its id would suggest. An id no list names is read off the id.
+func TestListedFamilyOverTheIds(t *testing.T) {
+	var m remembered
+	list := []byte(`{"data":[
+	  {"id":"gemini-3.5-flash-lite","family":"flash-lite"},
+	  {"id":"gemini-2.5-flash","family":"flash-lite"},
+	  {"id":"gemini-3.1-flash","family":""}]}`)
+	m.rememberAccounts("google", [][]byte{list}, []store.Account{{ID: "a"}})
+	s := &Catalog{listed: m.listed}
+	for id, want := range map[string]clients.Follow{
+		"gemini-2.5-flash":   "gemini:flash-lite",
+		"gemini-3.1-flash":   "",
+		"gemini-3.8-flash":   "gemini:flash",
+		"gemini-4-argon-low": "",
+	} {
+		if got := s.familyOf("google", id); got != want {
+			t.Errorf("familyOf(%s) = %q, want %q", id, got, want)
+		}
+	}
+	if len(m.fams["google"]) != 1 || len(m.fams["google"][0].Versions) != 2 {
+		t.Errorf("families = %+v", m.fams["google"])
 	}
 }

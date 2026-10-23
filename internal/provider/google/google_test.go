@@ -457,10 +457,12 @@ func TestModelListReadsTheMeasuredList(t *testing.T) {
 	}
 	got := strings.Join(ids, " ")
 	// The picker leads with Gemini 3.8 Flash, so Flash leads here; Pro,
-	// which it does not show, comes after it.
+	// which it does not show, comes after it, then Flash Lite — where
+	// gemini-2.5-flash, -flash-lite and -flash-thinking sit, all three named
+	// Gemini 3.5 Flash Lite — its 3.5 before its 3.1.
 	for _, want := range []string{
 		"gemini-3.8-flash-high gemini-3.8-flash-medium gemini-3.8-flash-low",
-		"gemini-2.5-pro gemini-3.5-flash-lite gemini-3.1-flash-lite",
+		"gemini-2.5-pro gemini-2.5-flash gemini-2.5-flash-lite gemini-2.5-flash-thinking gemini-3.5-flash-lite gemini-3.1-flash-lite",
 		"gemini-3.5-flash-lite gemini-3.1-flash-lite",
 	} {
 		if !strings.Contains(got, want) {
@@ -666,5 +668,51 @@ func TestModelsFollowThePickersFamilies(t *testing.T) {
 		"gemini-3.8-flash-high", "gemini-2.5-pro", "gemini-3.5-flash-lite"}
 	if strings.Join(ids, " ") != strings.Join(want, " ") {
 		t.Errorf("order = %v\nwant    %v", ids, want)
+	}
+}
+
+// Measured 2026-10-23: the picker's names say a model's family and level
+// where its id does not. gemini-3-flash-agent is Gemini 3.5 Flash at High,
+// gemini-3.5-flash-low at Medium, -extra-low at Low; gemini-2.5-flash is
+// Gemini 3.5 Flash Lite. Each is listed under the family its name says,
+// most thinking first, and a model whose name is no Gemini family's says
+// so with an empty family.
+func TestModelListReadsFamilyAndLevelOffTheName(t *testing.T) {
+	body := `{"models":{
+	    "gemini-3.5-flash-extra-low":{"displayName":"Gemini 3.5 Flash (Low)","quotaInfo":{}},
+	    "gemini-3.5-flash-low":{"displayName":"Gemini 3.5 Flash (Medium)","quotaInfo":{}},
+	    "gemini-3-flash-agent":{"displayName":"Gemini 3.5 Flash (High)","quotaInfo":{}},
+	    "gemini-2.5-flash":{"displayName":"Gemini 3.5 Flash Lite","quotaInfo":{}},
+	    "gpt-oss-120b-medium":{"displayName":"GPT-OSS 120B (Medium)","quotaInfo":{}}}}`
+	raw, err := Provider{}.ModelList([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var l struct {
+		Data []struct {
+			ID          string  `json:"id"`
+			Family      *string `json:"family"`
+			CatalogName string  `json:"catalog_name"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &l); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range l.Data {
+		if m.Family == nil {
+			t.Fatalf("%s says no family at all", m.ID)
+		}
+		got = append(got, m.ID+":"+*m.Family+":"+m.CatalogName)
+	}
+	want := []string{
+		"gemini-3-flash-agent:flash:Gemini 3.5 Flash",
+		"gemini-3.5-flash-low:flash:Gemini 3.5 Flash",
+		"gemini-3.5-flash-extra-low:flash:Gemini 3.5 Flash",
+		"gemini-2.5-flash:flash-lite:Gemini 3.5 Flash Lite",
+		"gpt-oss-120b-medium::GPT-OSS 120B",
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("listed\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

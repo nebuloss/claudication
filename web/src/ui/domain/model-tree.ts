@@ -19,10 +19,10 @@
  *     generation is what goes out of date as a whole, which is what folding
  *     the older families away is for, and it is what openai:light reads as
  *     "that one's generation".
- *   - Gemini by tier — Pro, Flash, Flash Lite — from the id
- *     (gemini-3-pro-preview and gemini-3.8-flash-high are pro and flash),
- *     the rule the gateway's own
- *     gemini:<family> targets follow; a variant past the tier
+ *   - Gemini by family — Pro, Flash, Flash Lite, Argon — as the list gives
+ *     it (`family`, read off what Google says the model is), else from the
+ *     id (gemini-3-pro-preview is pro), the rule the gateway's own
+ *     gemini:<family> targets follow; a variant past the family
  *     (…-preview-customtools) is Other, as the gateway offers it as itself.
  *
  * Newest first: a family by its newest model, a model by its release date.
@@ -40,6 +40,11 @@ export interface TreeModel {
   line?: string
   provider?: string
   priority?: number
+  /**
+   * The family word the provider's list gave the model — Google's, read off
+   * what the upstream says the model is ("" for none) — over its id's.
+   */
+  family?: string
   /**
    * The family an entry stands for, when it is a family offered as one
    * (internal/service/models, Offered): drawn as a row of its own under its
@@ -92,9 +97,13 @@ export function familyOf(m: TreeModel): { key: string; title: string } {
     return v !== undefined ? { key: `gpt-${v}`, title: `GPT-${v}` } : { key: OTHER, title: 'Other' }
   }
   if (provider === 'google') {
-    // The word after the version, as internal/service/models reads it:
-    // pro, flash, flash-lite, or a name such as argon.
-    const tier = /^gemini-\d+(?:\.\d+)*-([a-z]+(?:-lite)?)(?:-preview|-high|-medium|-low)?$/.exec(id)?.[1]
+    // The list's family when it gave one, else the word after the version,
+    // as internal/service/models reads them: pro, flash, flash-lite, or a
+    // name such as argon.
+    const tier =
+      m.family !== undefined
+        ? m.family || undefined
+        : /^gemini-\d+(?:\.\d+)*-([a-z]+(?:-lite)?)(?:-preview)?$/.exec(id)?.[1]
     if (tier === undefined) return { key: OTHER, title: 'Other' }
     const title = tier
       .split('-')

@@ -134,7 +134,7 @@ func (s *Catalog) Available(ctx context.Context, off Off) []Choice {
 			}
 		}
 		for _, m := range models {
-			if FamilyOf(p, m.Model) == "" {
+			if s.familyOf(p, m.Model) == "" {
 				out = append(out, m)
 			}
 		}
@@ -237,7 +237,7 @@ func (s *Catalog) Bindable(ctx context.Context, off Off, b store.Binding) (Choic
 	case c.Follows != "" && !s.ByFamily(c.Provider):
 		return c, "Settings › Models offers every " + title + " model, so a name is bound to one of them"
 	case c.Follows == "" && s.ByFamily(c.Provider):
-		if f := FamilyOf(c.Provider, c.Serving); f != "" {
+		if f := s.familyOf(c.Provider, c.Serving); f != "" {
 			return c, "Settings › Models offers " + title + " models by family, so a name is bound to " + f.Title() +
 				", and which version it serves is set there"
 		}

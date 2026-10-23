@@ -64,16 +64,49 @@ var familyPattern = map[string]*regexp.Regexp{
 	"openai":    regexp.MustCompile(`^gpt-\d+(?:\.\d+)*-([a-z]+)$`),
 	// The word after the version — a size (pro, flash, flash-lite) or a
 	// name (argon, which Google AI Pro was offered on 2026-10-23 and no
-	// list of sizes knew) — with a preview of it or a thinking level of it
-	// (Antigravity offers gemini-3.8-flash-high, -medium, -low), is the
-	// family; another variant past the word (gemini-3-flash-agent,
-	// …-customtools) is a model of its own. Which level a family serves is
-	// the list's order: the most thinking first (internal/provider/google,
-	// modelRank).
-	"google": regexp.MustCompile(`^gemini-\d+(?:\.\d+)*-([a-z]+(?:-lite)?)(?:-preview|-high|-medium|-low)?$`),
+	// list of sizes knew) — with a preview of it, is the family; another
+	// variant past the word (…-customtools) is a model of its own. Only for
+	// an id no list describes — one a client sends, like agy's
+	// gemini-3.8-flash: a listed Google model's family is the one its list
+	// gives it (familyOf), read off the display name, because Antigravity's
+	// ids carry a level and some are another model's alias
+	// (internal/provider/google, catalogName).
+	"google": regexp.MustCompile(`^gemini-\d+(?:\.\d+)*-([a-z]+(?:-lite)?)(?:-preview)?$`),
 }
 
-// FamilyOf is the family a provider's model belongs to, or "".
+// familyOf is the family a provider's model belongs to: the one an
+// account's list gave it ("family", read by the provider off what its
+// upstream says the model is), else the one its id says (FamilyOf).
+func (s *Catalog) familyOf(provider, model string) clients.Follow {
+	k := store.ModelKey(model)
+	s.rolesMu.Lock()
+	defer s.rolesMu.Unlock()
+	for _, m := range s.listed[provider] {
+		if m.named && store.ModelKey(m.ID) == k {
+			return m.familyIn(provider)
+		}
+	}
+	return FamilyOf(provider, model)
+}
+
+// familyIn is a listed model's family: the one its list gave it, else its
+// id's.
+func (m listedModel) familyIn(provider string) clients.Follow {
+	if m.named {
+		return listedFamily(provider, m.family)
+	}
+	return FamilyOf(provider, m.ID)
+}
+
+// listedFamily is a family word a list gave, as a family; "" for none.
+func listedFamily(provider, word string) clients.Follow {
+	if word == "" {
+		return ""
+	}
+	return clients.FamilyFollow(provider, word)
+}
+
+// FamilyOf is the family a provider's model belongs to by its id, or "".
 func FamilyOf(provider, model string) clients.Follow {
 	re := familyPattern[provider]
 	if re == nil {
@@ -100,6 +133,9 @@ type versioned struct {
 	priority int
 	ranked   bool
 	seen     int
+	// fam is the family the list gave, when named; otherwise the id's.
+	fam   clients.Follow
+	named bool
 }
 
 var numbers = regexp.MustCompile(`\d+`)
@@ -152,7 +188,10 @@ func familiesOf(providerID string, entries []versioned) []family {
 	by := map[clients.Follow][]versioned{}
 	var order []clients.Follow
 	for _, e := range entries {
-		f := FamilyOf(providerID, e.id)
+		f := e.fam
+		if !e.named {
+			f = FamilyOf(providerID, e.id)
+		}
 		if f == "" {
 			continue
 		}
@@ -519,7 +558,7 @@ func (s *Catalog) Report(ctx context.Context) ([]FamilyReport, error) {
 		s.rolesMu.Unlock()
 		for _, m := range listed {
 			names[store.ModelKey(m.ID)] = m.Name
-			if FamilyOf(p, m.ID) == "" {
+			if m.familyIn(p) == "" {
 				rep.Other = append(rep.Other, m.ID)
 			}
 		}

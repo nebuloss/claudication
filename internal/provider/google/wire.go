@@ -186,7 +186,11 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 			picked = append(picked, g.ModelIDs...)
 		}
 	}
-	sortModelsBy(ids, pickerOrder(picked))
+	names := make(map[string]string, len(in.Models))
+	for id, m := range in.Models {
+		names[id] = m.DisplayName
+	}
+	sortModelsBy(ids, pickerOrder(picked, names), names)
 	data := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
 		m := in.Models[id]
@@ -197,6 +201,9 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 			"display_name": m.DisplayName,
 			"catalog_name": catalogName(m.DisplayName),
 		}
+		// Always said, "" for none: a model the display name puts in no
+		// family is not to be put in one by its id.
+		e["family"] = familyWord(m.DisplayName)
 		if m.MaxTokens > 0 {
 			e["max_input_tokens"] = m.MaxTokens
 		}
@@ -213,6 +220,17 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 	return json.Marshal(list)
 }
 
+// The picker's display names say what an id does not (measured 2026-10-23
+// on Google AI Pro): which model an id is — gemini-2.5-flash is "Gemini 3.5
+// Flash Lite" — and at which thinking level, which the id's own suffix does
+// not always say — gemini-3.5-flash-low is "Gemini 3.5 Flash (Medium)",
+// gemini-3.5-flash-extra-low "(Low)", gemini-3-flash-agent "Gemini 3.5
+// Flash (High)". So a listed model's catalogue name, family and level are
+// read off its display name, and its id is only what the upstream answers
+// to. An id the picker does not name — one a client sends, like agy's
+// gemini-3.8-flash — is read off the id (internal/service/models,
+// familyPattern).
+
 // catalogName is the model a picker entry is, as a catalogue names it: its
 // display name less the thinking level, "Gemini 4 Argon (High)" being
 // Gemini 4 Argon.
@@ -226,13 +244,39 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 // described them as models they are not. By name, 15 of 18 matched, each as
 // what it is.
 func catalogName(display string) string {
-	name := strings.TrimSpace(display)
+	name, _ := splitLevel(display)
+	return name
+}
+
+// splitLevel is a display name and the level in brackets at its end,
+// lowercased: "Gemini 4 Argon (High)" is Gemini 4 Argon and high.
+func splitLevel(display string) (name, level string) {
+	name = strings.TrimSpace(display)
 	if strings.HasSuffix(name, ")") {
 		if i := strings.LastIndex(name, " ("); i > 0 {
-			name = name[:i]
+			return name[:i], strings.ToLower(strings.TrimSpace(name[i+2 : len(name)-1]))
 		}
 	}
-	return name
+	return name, ""
+}
+
+// familyWord is the family a display name says: the words after "Gemini"
+// and a version, "flash-lite" for Gemini 3.5 Flash Lite, "argon" for Gemini
+// 4 Argon (High); "" for a name that is not a Gemini model's (GPT-OSS 120B)
+// or has more words than a family (a word and a qualifier).
+func familyWord(display string) string {
+	words := strings.Fields(strings.ToLower(catalogName(display)))
+	if len(words) < 3 || len(words) > 4 || words[0] != "gemini" || words[1] == "" || words[1][0] < '0' || words[1][0] > '9' {
+		return ""
+	}
+	for _, w := range words[2:] {
+		for _, c := range w {
+			if c < 'a' || c > 'z' {
+				return ""
+			}
+		}
+	}
+	return strings.Join(words[2:], "-")
 }
 
 // modelRank orders Gemini model ids: by family, in the order Antigravity's
@@ -263,10 +307,10 @@ type modelRank struct {
 var tiers = []string{"pro", "flash", "flash-lite"}
 
 // pickerOrder is each family's place in the picker's ids, first seen first.
-func pickerOrder(ids []string) map[string]int {
+func pickerOrder(ids []string, names map[string]string) map[string]int {
 	order := map[string]int{}
 	for _, id := range ids {
-		if r := rank(id, nil); r.gemini && r.family != "" {
+		if r := rankNamed(id, names[id], nil); r.gemini && r.family != "" {
 			if _, seen := order[r.family]; !seen {
 				order[r.family] = len(order)
 			}
@@ -292,15 +336,16 @@ func (q quotaResponse) models() []string {
 		seen[b.ModelID] = true
 		ids = append(ids, b.ModelID)
 	}
-	sortModelsBy(ids, nil)
+	sortModelsBy(ids, nil, nil)
 	return ids
 }
 
-// sortModelsBy ranks ids, families in order first, the id itself breaking a
-// tie so the order never depends on a map's.
-func sortModelsBy(ids []string, order map[string]int) {
+// sortModelsBy ranks ids, families in order first, each read off its display
+// name in names where it has one, the id itself breaking a tie so the order
+// never depends on a map's.
+func sortModelsBy(ids []string, order map[string]int, names map[string]string) {
 	sort.Slice(ids, func(i, j int) bool {
-		a, b := rank(ids[i], order), rank(ids[j], order)
+		a, b := rankNamed(ids[i], names[ids[i]], order), rankNamed(ids[j], names[ids[j]], order)
 		if a.before(b) {
 			return true
 		}
@@ -315,7 +360,8 @@ func sortModelsBy(ids []string, order map[string]int) {
 // "gemini", a dotted version, a family, and qualifiers. order places the
 // families the picker shows; nil places by size alone.
 func rank(id string, order map[string]int) modelRank {
-	r := modelRank{tier: len(order) + len(tiers), level: levels[""]}
+	r := modelRank{level: levels[""]}
+	r.place(order)
 	rest, ok := strings.CutPrefix(id, "gemini-")
 	if !ok {
 		return r
@@ -333,15 +379,46 @@ func rank(id string, order map[string]int) modelRank {
 	if q, ok := strings.CutPrefix(rest, "lite"); ok && (q == "" || q[0] == '-') {
 		r.family, rest = r.family+"-lite", strings.TrimPrefix(q, "-")
 	}
+	r.place(order)
+	if l, ok := levels[rest]; ok {
+		r.level = l
+	}
+	r.preview = strings.Contains(rest, "preview") || strings.Contains(rest, "exp")
+	return r
+}
+
+// place puts r's family in order: the picker's, then the sizes.
+func (r *modelRank) place(order map[string]int) {
+	r.tier = len(order) + len(tiers)
 	if p, ok := order[r.family]; ok {
 		r.tier = p
 	} else if i := slices.Index(tiers, r.family); i >= 0 {
 		r.tier = len(order) + i
 	}
-	if l, ok := levels[rest]; ok {
-		r.level = l
+}
+
+// rankNamed is rank with what the display name says over what the id does:
+// its version and family (gemini-3-flash-agent is "Gemini 3.5 Flash"), and
+// its level (gemini-3.5-flash-low is "(Medium)").
+func rankNamed(id, display string, order map[string]int) modelRank {
+	r := rank(id, order)
+	if f := familyWord(display); f != "" {
+		r.gemini, r.family = true, f
+		r.place(order)
+		r.version = nil
+		for _, p := range strings.Split(strings.Fields(display)[1], ".") {
+			n, err := strconv.Atoi(p)
+			if err != nil {
+				break
+			}
+			r.version = append(r.version, n)
+		}
 	}
-	r.preview = strings.Contains(rest, "preview") || strings.Contains(rest, "exp")
+	if _, lv := splitLevel(display); lv != "" {
+		if l, ok := levels[lv]; ok {
+			r.level = l
+		}
+	}
 	return r
 }
 

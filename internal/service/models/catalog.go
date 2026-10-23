@@ -298,8 +298,9 @@ func (s *Catalog) matchCatalog(ctx context.Context, provider string, body []byte
 			continue
 		}
 		seen[k] = true
+		// Kept on the entry: the gateway's list is matched again over the
+		// union of its accounts' lists, and must find the same model then.
 		name, _ := e["catalog_name"].(string)
-		delete(e, "catalog_name")
 		i, ok := -1, false
 		if name != "" {
 			if i, ok = byName[nameKey(name)]; !ok {

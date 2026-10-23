@@ -293,6 +293,11 @@ type listedModel struct {
 	// What orders a family's versions (family.go, newer).
 	at       string
 	priority *int
+	// family is the family word the list gave the model, when named: the
+	// provider read it off what the upstream says the model is (family.go,
+	// familyOf).
+	family string
+	named  bool
 }
 
 // rememberAccounts notes what one provider's accounts said themselves: every
@@ -331,7 +336,8 @@ func (m *remembered) rememberAccounts(providerID string, lists [][]byte, account
 	m.listed[providerID] = out
 	entries := make([]versioned, 0, len(out))
 	for i, e := range out {
-		v := versioned{id: e.ID, at: e.at, version: versionOf(e.ID), seen: i}
+		v := versioned{id: e.ID, at: e.at, version: versionOf(e.ID), seen: i,
+			fam: listedFamily(providerID, e.family), named: e.named}
 		if e.priority != nil {
 			v.priority, v.ranked = *e.priority, true
 		}
@@ -344,11 +350,12 @@ func (m *remembered) rememberAccounts(providerID string, lists [][]byte, account
 func listEntries(list []byte) []listedModel {
 	var l struct {
 		Data []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-			CreatedAt   string `json:"created_at"`
-			Priority    *int   `json:"priority"`
-			Virtual     bool   `json:"virtual"`
+			ID          string  `json:"id"`
+			DisplayName string  `json:"display_name"`
+			CreatedAt   string  `json:"created_at"`
+			Priority    *int    `json:"priority"`
+			Virtual     bool    `json:"virtual"`
+			Family      *string `json:"family"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(list, &l) != nil {
@@ -357,7 +364,11 @@ func listEntries(list []byte) []listedModel {
 	out := make([]listedModel, 0, len(l.Data))
 	for _, e := range l.Data {
 		if e.ID != "" && !e.Virtual {
-			out = append(out, listedModel{ID: e.ID, Name: e.DisplayName, at: e.CreatedAt, priority: e.Priority})
+			m := listedModel{ID: e.ID, Name: e.DisplayName, at: e.CreatedAt, priority: e.Priority}
+			if e.Family != nil {
+				m.family, m.named = *e.Family, true
+			}
+			out = append(out, m)
 		}
 	}
 	return out
