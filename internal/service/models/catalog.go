@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -256,9 +257,16 @@ func modelList(data []map[string]any) []byte {
 // account uses — the one its upstream answers to. Models the list names and
 // the catalogue does not know follow, as the list has them. With no
 // catalogue the list is returned as it was.
+//
+// An entry is matched by its id, or — when its provider sets catalog_name
+// (provider.Wire, ModelList) — by that name, failing that the same name as
+// a preview (Antigravity's "Gemini 3 Flash" is the catalogue's "Gemini 3
+// Flash Preview"), failing that by its id. A name keeps the entry's own
+// display name, which says what the catalogue's cannot (the level in
+// "Gemini 4 Argon (High)"), and several entries may be one model.
 func (s *Catalog) matchCatalog(ctx context.Context, provider string, body []byte) []byte {
 	models := s.catalogModels(ctx, provider)
-	if models == nil {
+	if models == nil && !bytes.Contains(body, []byte(`"catalog_name"`)) {
 		return body
 	}
 	var list struct {
@@ -267,29 +275,60 @@ func (s *Catalog) matchCatalog(ctx context.Context, provider string, body []byte
 	if json.Unmarshal(body, &list) != nil {
 		return body
 	}
-	listed := map[string]map[string]any{}
-	for _, e := range list.Data {
-		if id, _ := e["id"].(string); id != "" {
-			if k := store.ModelKey(id); listed[k] == nil {
-				listed[k] = e
+	byID, byName := map[string]int{}, map[string]int{}
+	for i, m := range models {
+		if k := store.ModelKey(m.ID); k != "" {
+			if _, ok := byID[k]; !ok {
+				byID[k] = i
+			}
+		}
+		if k := nameKey(m.DisplayName); k != "" {
+			if _, ok := byName[k]; !ok {
+				byName[k] = i
 			}
 		}
 	}
-	data := make([]map[string]any, 0, len(listed))
-	used := map[string]bool{}
-	for _, m := range models {
-		k := store.ModelKey(m.ID)
-		if e := listed[k]; e != nil && !used[k] {
-			used[k] = true
-			data = append(data, describe(e, m))
-		}
-	}
+	matched := make([][]map[string]any, len(models))
+	var rest []map[string]any
+	seen := map[string]bool{}
 	for _, e := range list.Data {
 		id, _ := e["id"].(string)
-		if k := store.ModelKey(id); id != "" && !used[k] {
-			used[k] = true
-			data = append(data, e)
+		k := store.ModelKey(id)
+		if id == "" || seen[k] {
+			continue
 		}
+		seen[k] = true
+		name, _ := e["catalog_name"].(string)
+		delete(e, "catalog_name")
+		i, ok := -1, false
+		if name != "" {
+			if i, ok = byName[nameKey(name)]; !ok {
+				i, ok = byName[nameKey(name+" preview")]
+			}
+		}
+		if !ok {
+			i, ok = byID[k]
+		}
+		if !ok {
+			rest = append(rest, e)
+			continue
+		}
+		own := e["display_name"]
+		describe(e, models[i])
+		if name != "" && own != nil {
+			e["display_name"] = own
+		}
+		matched[i] = append(matched[i], e)
 	}
-	return modelList(data)
+	data := make([]map[string]any, 0, len(list.Data))
+	for _, es := range matched {
+		data = append(data, es...)
+	}
+	return modelList(append(data, rest...))
+}
+
+// nameKey is a model name as names are compared: "Gemini 2.5 Flash-Lite" is
+// "Gemini 2.5 Flash Lite".
+func nameKey(name string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.ReplaceAll(name, "-", " "))), " ")
 }

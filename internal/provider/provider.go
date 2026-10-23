@@ -119,6 +119,10 @@ type Wire interface {
 	// {"data":[{"id","type":"model","display_name",...}]}, Anthropic's — so
 	// the catalogue reads every provider's list one way. A provider whose
 	// list already has that shape returns it as it came.
+	//
+	// An entry whose id is not a public model id sets "catalog_name", the
+	// model's name as the catalogue would write it, and is matched to the
+	// catalogue by that name instead (internal/service/models, matchCatalog).
 	ModelList(body []byte) ([]byte, error)
 }
 

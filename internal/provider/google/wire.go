@@ -195,6 +195,7 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 			"id":           id,
 			"provider":     ID,
 			"display_name": m.DisplayName,
+			"catalog_name": catalogName(m.DisplayName),
 		}
 		if m.MaxTokens > 0 {
 			e["max_input_tokens"] = m.MaxTokens
@@ -210,6 +211,28 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 		list["last_id"] = data[len(data)-1]["id"]
 	}
 	return json.Marshal(list)
+}
+
+// catalogName is the model a picker entry is, as a catalogue names it: its
+// display name less the thinking level, "Gemini 4 Argon (High)" being
+// Gemini 4 Argon.
+//
+// By name and not by id, because Antigravity's ids are its own (measured
+// 2026-10-23 on Google AI Pro, matched against models.dev): a level is part
+// of the id (gemini-4-argon-high), which no catalogue lists, so 12 of the 18
+// models matched none; and some ids are aliases for another model —
+// gemini-2.5-flash and gemini-2.5-flash-thinking are both "Gemini 3.5 Flash
+// Lite", gemini-3-flash-agent "Gemini 3.5 Flash (High)" — so matching by id
+// described them as models they are not. By name, 15 of 18 matched, each as
+// what it is.
+func catalogName(display string) string {
+	name := strings.TrimSpace(display)
+	if strings.HasSuffix(name, ")") {
+		if i := strings.LastIndex(name, " ("); i > 0 {
+			name = name[:i]
+		}
+	}
+	return name
 }
 
 // modelRank orders Gemini model ids: by family, in the order Antigravity's
