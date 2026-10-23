@@ -48,7 +48,6 @@ export function InlineMeter({
   percent,
   tone,
   figure,
-  title,
   alert = false,
 }: {
   /** A short name in front: 5h, 7d. */
@@ -56,12 +55,11 @@ export function InlineMeter({
   percent: number | null
   tone: Tone
   figure: ReactNode
-  title?: string
   /** The figure in the error colour, for a window about to refuse. */
   alert?: boolean
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 tabular-nums" title={title}>
+    <span className="inline-flex items-center gap-1.5 tabular-nums">
       {label !== undefined && <span className="w-5 text-on-surface-variant">{label}</span>}
       <UsageBar size="sm" percent={percent} tone={tone} />
       <span className={`w-[5.5ch] text-right ${alert ? 'text-error' : ''}`}>{figure}</span>

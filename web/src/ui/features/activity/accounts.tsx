@@ -78,9 +78,7 @@ export default function ActivityAccounts() {
                   u.account?.quota === undefined ? (
                     <Muted as="span">–</Muted>
                   ) : (
-                    <div className="flex flex-col gap-1">
-                      <QuotaGauges quota={u.account.quota} />
-                    </div>
+                    <QuotaGauges quota={u.account.quota} stacked />
                   ),
               },
             ]}
