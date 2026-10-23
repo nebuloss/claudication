@@ -33,6 +33,17 @@
 // backend was seen to do. They are to be measured against a live account, as
 // the other two providers were, and this table corrected where they differ.
 //
+// Measured once, 2026-10-23, one personal Google account: consent, the code
+// exchange and userinfo all worked, and loadCodeAssist answered; onboarding
+// onto the free tier ("Gemini Code Assist for individuals") was refused,
+// the backend's own reason being "This client is no longer supported for
+// Gemini Code Assist for individuals. To continue using Gemini, please
+// migrate to the Antigravity suite of products". So gemini-cli's OAuth
+// client no longer reaches the free tier, whatever gemini-cli's source
+// still does (it has no word of it at a713410). Whether a paid tier — Google
+// AI Pro, Ultra — or an account already onboarded is still served through it
+// is not measured.
+//
 // The constants are gemini-cli's own OAuth client and backend, which are not
 // a documented public API. Pooling several people's Google accounts behind
 // shared keys may breach Google's terms, as it may Anthropic's and OpenAI's;
