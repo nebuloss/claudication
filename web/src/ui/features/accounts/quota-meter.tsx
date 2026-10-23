@@ -121,16 +121,23 @@ function rowHint(r: UsageRow): string {
     .join(' · ')
 }
 
-/** The gauges' bubble: each row, its share and its reset, one point each. */
+/**
+ * The gauges' bubble: each row a point, its name on one line and its figures
+ * on the next. Two lines rather than one sentence, so a long name — "Gemini —
+ * 15 models" — wraps by itself and never carries half a figure with it: one
+ * line read "resets in" and the next "7d". The figures do not break inside.
+ */
 function UsageTip({ rows }: { rows: UsageRow[] }) {
   return (
     <>
       {rows.map((r) => {
-        const hint = rowHint(r)
+        const figures = [r.window.percent === null ? 'not read yet' : `${r.window.label} used`, rowHint(r)]
+          .filter((s) => s !== '')
+          .join(' · ')
         return (
           <p key={r.title}>
-            <span className="font-medium">{r.title}</span> · {r.window.percent === null ? 'not read yet' : `${r.window.label} used`}
-            {hint !== '' && <span className="text-on-surface-variant"> · {hint}</span>}
+            <span className="block font-medium">{r.title}</span>
+            <span className="block whitespace-nowrap text-on-surface-variant">{figures}</span>
           </p>
         )
       })}
