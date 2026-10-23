@@ -271,7 +271,26 @@ var recipes = []recipe{
 			owns:  []string{"providers.claudication.models", "models.large", "models.small"},
 		},
 	}}},
+	{id: "antigravity-cli", files: []fileSpec{{
+		label: "claudication.sh", filename: "antigravity-cli.sh", lang: "sh",
+		committed: "antigravity-cli.sh", write: asCommitted,
+		// The gateway's whole, sourced from the profile as Claude Code's is;
+		// an update keeps the key's line from the one on disk.
+		target: install.File{Path: ".config/claudication/antigravity-cli.sh", Env: true},
+		update: &updateRule{keep: []string{"GEMINI_API_KEY"}},
+	}, {
+		label: "~/.gemini/antigravity-cli/settings.json", filename: "settings.json", lang: "json",
+		committed: "antigravity-cli.json", write: asCommitted,
+		// The one setting that makes agy read the key; the user's other
+		// settings — theme, permissions, the model it last picked — stay.
+		target: install.File{Path: ".gemini/antigravity-cli/settings.json",
+			Merge: &install.Merge{Format: "json", Owns: []string{"modelProvider"}}},
+	}}},
 }
+
+// asCommitted writes a file as committed, the address and key aside: one
+// whose client reads no model names from it.
+func asCommitted(body string, _ Setup) (string, error) { return body, nil }
 
 // mcpUpdate: why an update leaves crush's and opencode's MCP entry alone.
 //

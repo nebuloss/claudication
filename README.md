@@ -9,8 +9,8 @@ keeps walking, and it tells you where the narrowing is.
 
 **A gateway that puts your Claude, ChatGPT and Google subscriptions behind the
 APIs your tools already speak.** Point Claude Code, opencode or crush at its
-Anthropic Messages API, Codex CLI at its OpenAI Responses API, or gemini-cli at
-its Gemini API. The gateway signs in with your subscription accounts, pools
+Anthropic Messages API, Codex CLI at its OpenAI Responses API, or the
+Antigravity CLI and gemini-cli at its Gemini API. The gateway signs in with your subscription accounts, pools
 several of them in the order you choose, and relays requests byte for byte —
 translating only where a client's API is not its upstream's. One static
 binary, with the admin UI inside it.
@@ -56,6 +56,7 @@ installs it.
 | Codex CLI | OpenAI Responses | [`codex.toml`](configs/clients/codex.toml) + [`codex-models.json`](configs/clients/codex-models.json) |
 | opencode | Anthropic Messages | [`opencode.jsonc`](configs/clients/opencode.jsonc) |
 | crush | Anthropic Messages | [`crush.json`](configs/clients/crush.json) |
+| Antigravity CLI | Gemini API | [`antigravity-cli.sh`](configs/clients/antigravity-cli.sh) + [`settings.json`](configs/clients/antigravity-cli.json) |
 | gemini-cli | Gemini API | a custom client in direct mode: `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY` |
 | anything else | any of the three | a custom client: the key, the base URLs, and its model names |
 

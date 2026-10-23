@@ -11,10 +11,11 @@ needs — the key, the address, its files and a one-line install command.
 | Codex CLI | [`codex.toml`](../configs/clients/codex.toml) + [`codex-models.json`](../configs/clients/codex-models.json) | OpenAI Responses | yes |
 | opencode | [`opencode.jsonc`](../configs/clients/opencode.jsonc) | Anthropic Messages | yes |
 | crush | [`crush.json`](../configs/clients/crush.json) | Anthropic Messages | no |
-| Custom | nothing: the key, both addresses, its names and a snippet per SDK | either | — |
+| Antigravity CLI | [`antigravity-cli.sh`](../configs/clients/antigravity-cli.sh) + [`settings.json`](../configs/clients/antigravity-cli.json) | Gemini API | no |
+| Custom | nothing: the key, the addresses, its names and a snippet per SDK | any | — |
 
 Each type speaks its own API, fixed by the type: there is no choice to make,
-because both APIs reach every model (see [client-apis.md](client-apis.md)).
+because every API reaches every model (see [client-apis.md](client-apis.md)).
 The files in `configs/clients/` are each type's starting point, complete and
 commented, with the names a new client of that type is given, and each
 registers the gateway's MCP server ([Agent tools](#agent-tools-mcp)). The
@@ -395,6 +396,42 @@ Checked live on 2026-10-22 against a throwaway gateway: Claude Code 2.1.308
 crush (v0.97.2) listed them as `mcp_claudication_*` and called the same tool.
 The manage tier refused `update_config` with the switch off, and with it on
 handed back a command that, run, rewrote Claude Code's file keeping its key.
+
+## Antigravity CLI
+
+`agy`, Google's Antigravity CLI, in its API-key mode: the gateway's address in
+`GOOGLE_GEMINI_BASE_URL`, the client's key in `GEMINI_API_KEY`, and
+`"modelProvider": "gemini"` in `~/.gemini/antigravity-cli/settings.json` —
+without that setting agy ignores the key. The install command writes both
+files; agy then skips its own sign-in and speaks the Gemini API to the
+gateway.
+
+agy offers only the models in its own catalogue, and refuses any other name.
+Each choice goes out as a base id, its thinking level in the request — Gemini
+3.8 Flash (Low) as `gemini-3.8-flash` with a small thinking budget — and its
+side calls as `gemini-3.1-flash-lite-preview`. Those ids are the client's
+names, each bound on its page:
+
+| Name | agy's choice | Follows by default |
+|---|---|---|
+| `gemini-3.1-pro-preview` | Gemini 3.1 Pro, and agy's default | Gemini Pro |
+| `gemini-3.8-flash` | Gemini 3.8 Flash, any level | Gemini Flash |
+| `gemini-4-argon` | Gemini 4 Argon | Gemini Pro |
+| `gemini-3.1-flash-lite-preview` | its side calls | Gemini Flash-Lite |
+
+A name can serve any model — Claude's or GPT's as well as Gemini's. When agy
+adds a model to its catalogue, or for its older entries (Gemini 3.7 and 3.6
+Flash, sent as `gemini-3.7-flash` and `gemini-3.6-flash`), add the id as a name
+of your own; the request log shows the id of anything it was refused. Measured
+with agy 1.4.6 (`go doc ./internal/service/clients`, AntigravityCLI).
+
+## gemini-cli
+
+gemini-cli speaks the same Gemini API, pointed at the gateway by the same
+two variables — `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY` — and needs no
+settings for it. It names real Gemini ids, its side calls among them, under
+names that follow its experiments, so make it a **Custom** client in direct
+mode and let it name the models the accounts serve.
 
 ## Before you run Codex
 

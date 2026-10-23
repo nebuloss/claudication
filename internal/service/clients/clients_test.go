@@ -44,7 +44,7 @@ func TestNameIsPlain(t *testing.T) {
 // are its own table.
 func TestTypesAreWellFormed(t *testing.T) {
 	native := map[string]Dialect{"claude-code": Messages, "crush": Messages, "opencode": Messages,
-		"codex": Responses, "custom": ""}
+		"codex": Responses, "antigravity-cli": GeminiAPI, "custom": ""}
 	for _, typ := range All {
 		if want, ok := native[typ.ID]; !ok || typ.API != want || (typ.API == "") != typ.Custom {
 			t.Errorf("%s speaks %q", typ.ID, typ.API)

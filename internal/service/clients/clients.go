@@ -109,6 +109,10 @@ const (
 	RoleSonnet     Role = "sonnet"
 	RoleHaiku      Role = "haiku"
 	RoleFable      Role = "fable"
+	// RoleFlash and RoleArgon are Antigravity CLI's: the Gemini Flash and
+	// Gemini 4 Argon entries of its model picker, each sent as one id.
+	RoleFlash Role = "flash"
+	RoleArgon Role = "argon"
 	// RoleCustom is an operator's own slot on a custom client: no type's
 	// field takes it.
 	RoleCustom Role = "custom"
@@ -157,6 +161,10 @@ const (
 	FollowFable  Follow = "claude:fable"
 	FollowSol    Follow = "openai:sol"
 	FollowLuna   Follow = "openai:luna"
+
+	FollowGeminiPro       Follow = "gemini:pro"
+	FollowGeminiFlash     Follow = "gemini:flash"
+	FollowGeminiFlashLite Follow = "gemini:flash-lite"
 )
 
 // familyName is a family's word: a line, with one hyphened qualifier for
@@ -694,6 +702,51 @@ var Crush = Type{
 	},
 }
 
+// AntigravityCLI is agy, Google's Antigravity CLI, in its API-key mode:
+// pointed at a Gemini-compatible endpoint (GOOGLE_GEMINI_BASE_URL) with
+// GEMINI_API_KEY and "modelProvider": "gemini" in its settings, as
+// Antigravity's docs give it (antigravity.google/docs/install, read
+// 2026-10-23).
+//
+// Its names are the model ids agy sends, because those are the only names it
+// sends: it offers its own catalogue and refuses any other ("model large is
+// not recognized as a known model or custom model in settings"). Captured
+// from agy 1.4.6 the same day against a stub endpoint, one request per entry
+// of its catalogue — each choice goes as a base id, its level in the
+// thinking settings:
+//
+//	choice                          id sent                   thinking sent
+//	Gemini 3.1 Pro (High, Low)      gemini-3.1-pro-preview    budget -1, 1024
+//	  — the default
+//	Gemini 3.8 Flash (High/Med/Low) gemini-3.8-flash          budget -1, 4000, 1000
+//	Gemini 3.7, 3.6 Flash (High)    gemini-3.7-flash, -3.6-   budget 10000
+//	Gemini 4 Argon (High, Low)      gemini-4-argon            level HIGH, LOW
+//	its side calls                  gemini-3.1-flash-lite-preview, budget -1
+//
+// Google's backend through Antigravity names its models otherwise
+// (gemini-3.8-flash-high, …) and has none of these ids: each 404s there. So
+// each is a name bound on the client's page — to a Gemini family by default,
+// served the newest the account has — and the thinking agy sends goes with
+// it. The older entries (3.7 and 3.6 Flash) and any model agy adds to its
+// catalogue are names the operator adds (RolePicker). It names no chats, and
+// sends no session id.
+var AntigravityCLI = Type{
+	ID: "antigravity-cli", Label: "Antigravity CLI",
+	API:        GeminiAPI,
+	ExtraSlots: RolePicker,
+	ExtraHint:  "A model id agy sends: run agy --model <choice> once and read the name in the request log.",
+	Slots: []Slot{
+		{ID: "main", Label: "Gemini 3.1 Pro", Role: RoleMain, Name: "gemini-3.1-pro-preview",
+			Follows: FollowGeminiPro, Hint: "agy's default model, and Gemini 3.1 Pro at either level."},
+		{ID: "flash", Label: "Gemini 3.8 Flash", Role: RoleFlash, Name: "gemini-3.8-flash",
+			Follows: FollowGeminiFlash, Hint: "Gemini 3.8 Flash in agy's picker, at any level."},
+		{ID: "argon", Label: "Gemini 4 Argon", Role: RoleArgon, Name: "gemini-4-argon",
+			Follows: FollowGeminiPro, Hint: "Gemini 4 Argon in agy's picker, at either level."},
+		{ID: "fast", Label: "Side calls", Role: RoleFast, Name: "gemini-3.1-flash-lite-preview",
+			Follows: FollowGeminiFlashLite, Hint: "The quick calls agy makes beside a turn."},
+	},
+}
+
 // Custom is a tool the gateway has no recipe for: its page shows the key, the
 // base URLs and the slot names, and the operator names its slots — or, in
 // direct mode, lets it name real models. It starts with one slot, and its key
@@ -711,7 +764,7 @@ var Custom = Type{
 }
 
 // All are the types, in the order the UI offers them.
-var All = []Type{ClaudeCode, Codex, Opencode, Crush, Custom}
+var All = []Type{ClaudeCode, Codex, Opencode, Crush, AntigravityCLI, Custom}
 
 // Find is a type by id.
 func Find(id string) (Type, bool) {

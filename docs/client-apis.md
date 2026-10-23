@@ -13,7 +13,7 @@ the type; a custom client's key works on all three.
 |---|---|---|
 | Anthropic Messages | `/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` | Claude Code, opencode and crush, and anything written against the Anthropic SDK |
 | OpenAI Responses | `/v1/responses` | Codex CLI |
-| Gemini API | `/v1beta/models/{model}:streamGenerateContent`, `:generateContent`, `:countTokens` | gemini-cli pointed at a gateway (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_KEY`), and anything written against @google/genai |
+| Gemini API | `/v1beta/models/{model}:streamGenerateContent`, `:generateContent`, `:countTokens` | Antigravity CLI and gemini-cli pointed at a gateway (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_KEY`), and anything written against Google's GenAI SDKs |
 
 Beside them, on the same listener and behind the same key check, is the
 gateway's **MCP server** at `/mcp`: no dialect and no upstream, but tools a
