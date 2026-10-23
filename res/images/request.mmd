@@ -1,0 +1,26 @@
+%% One request, start to finish. Rendered to request.svg by
+%% res/images/render.sh.
+%%{init: {'theme': 'base', 'themeVariables': {'fontFamily': 'Helvetica, Arial, sans-serif', 'primaryColor': '#fff8f3', 'primaryBorderColor': '#e2876a', 'primaryTextColor': '#2b211c', 'lineColor': '#7a6a62', 'secondaryColor': '#fbf7f4', 'tertiaryColor': '#fbf7f4', 'actorBkg': '#fff8f3', 'actorBorder': '#e2876a', 'actorTextColor': '#2b211c', 'actorLineColor': '#e8ddd5', 'signalColor': '#2b211c', 'signalTextColor': '#2b211c', 'labelBoxBkgColor': '#fdf4ee', 'labelBoxBorderColor': '#e2876a', 'labelTextColor': '#b4553d', 'loopTextColor': '#7a6a62', 'noteBkgColor': '#fdf4ee', 'sequenceNumberColor': '#fff8f3', 'edgeLabelBackground': '#ffffff'}}}%%
+sequenceDiagram
+  autonumber
+  participant Client
+  participant Gateway as claudication
+  participant Pool as Account pool
+  participant Up as Upstream
+
+  Client->>Gateway: request, naming one of its model names
+  Gateway->>Gateway: key check, limits, budget
+  Gateway->>Gateway: name → real model → provider
+  Gateway->>Gateway: translate, if the client's API is not the upstream's
+  loop until answered, or no account is left
+    Gateway->>Pool: lease an account that serves the model
+    Pool-->>Gateway: the highest-priority account with room
+    Gateway->>Up: the request, with the account's credential
+    alt refused for a reason another account may not have
+      Up-->>Gateway: 429 / 5xx
+      Gateway->>Pool: cool the account (or just that model) down
+    else answered
+      Up-->>Gateway: the answer, streamed
+    end
+  end
+  Gateway-->>Client: the answer in the client's own API, usage recorded

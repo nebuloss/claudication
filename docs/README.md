@@ -1,6 +1,21 @@
 # claudication docs
 
-Six documents, and one rule that matters more than any of them.
+The operator's guide first, then the record of how the upstreams behave — and
+one rule that matters more than any of it.
+
+## Running it
+
+| | |
+|---|---|
+| [install.md](install.md) | Installing, the first run, configuration, reverse proxies, exposing it safely, updating, backups, building from source. |
+| [accounts.md](accounts.md) | Connecting Claude, ChatGPT and Google accounts, what each serves, and how their usage is read. |
+| [admin.md](admin.md) | The admin UI, clients' keys and limits, and the request history. |
+| [models.md](models.md) | Model names, families, and where the gateway learns what a model can do. |
+| [relay.md](relay.md) | What the relay changes on the way upstream, and what it must never break. |
+| [endpoints.md](endpoints.md) | Every HTTP endpoint. |
+| [status-page.md](status-page.md) | The public status page a relay-only listener serves, and why each field is safe to publish. |
+
+## How the upstreams behave
 
 **The rule:** when a request starts failing for a reason its error message does
 not name, do not reason about it. Bisect it. None of the three content triggers
@@ -31,7 +46,7 @@ real system prompt out of your own binary, which that file cannot carry.
 | [reversing.md](reversing.md) | How all of it was obtained, how to check any single claim again, and what could not be determined. |
 | [clients.md](clients.md) | **Setting one up.** Working configuration for Claude Code, opencode, crush and Codex CLI, and what each failure mode actually means. |
 | [deploying.md](deploying.md) | **Updating it.** How an update hands over to the new binary without refusing a connection, under OpenRC and systemd, what falls back to a stop and a start, and what was measured. |
-| [client-apis.md](client-apis.md) | The APIs clients speak to the gateway — Anthropic Messages and OpenAI Responses — the Gateway switch, how a request is routed, and how to add a third. |
+| [client-apis.md](client-apis.md) | The APIs clients speak to the gateway — Anthropic Messages, OpenAI Responses and the Gemini API — the Gateway switch, how a request is routed, and how to add another. |
 
 The same record as `refused-requests.md`, condensed, is in the code:
 `go doc ./internal/relay/passes`. That is the copy a maintainer meets first, so if
