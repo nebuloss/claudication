@@ -32,7 +32,16 @@ import { Binding, BindingMenu, type Client } from '../../clients/specs'
  * unavailable, or was made in the other mode, is kept and shown until it is
  * replaced.
  */
-export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
+export function SlotsCard({
+  client: c,
+  onChanged,
+  onNamed,
+}: {
+  client: Client
+  onChanged: () => void
+  /** A name added, or one renamed to it: what the update command then has to carry. */
+  onNamed: (name: string) => void
+}) {
   const choices = c.wire.choices ?? []
   const limited = c.slots.filter((s) => s.limited === true && (s.unavailable ?? '') === '')
 
@@ -77,9 +86,9 @@ export function SlotsCard({ client: c, onChanged }: { client: Client; onChanged:
           <Note>Nothing is available to bind yet: connect an account, and switch on a model it serves.</Note>
         )}
         {c.slots.map((s) => (
-          <SlotRow key={s.id} client={c} slot={s} choices={choices} onChanged={onChanged} />
+          <SlotRow key={s.id} client={c} slot={s} choices={choices} onChanged={onChanged} onNamed={onNamed} />
         ))}
-        {c.type.extraSlots && <AddSlot client={c} choices={choices} onChanged={onChanged} />}
+        {c.type.extraSlots && <AddSlot client={c} choices={choices} onAdded={onNamed} />}
       </Stack>
     </Card>
   )
@@ -91,11 +100,13 @@ function SlotRow({
   slot: s,
   choices,
   onChanged,
+  onNamed,
 }: {
   client: Client
   slot: SlotWire
   choices: readonly BindingChoice[]
   onChanged: () => void
+  onNamed: (name: string) => void
 }) {
   const [name, setName] = useState(s.name)
   const { busy, error, run } = useAction()
@@ -103,6 +114,7 @@ function SlotRow({
   const save = (b: Binding, n = s.name) =>
     run('save', async () => {
       await api.clients.setSlot(c.id, s.id, n, b.body)
+      if (n !== s.name) onNamed(n)
       onChanged()
     })
   const remove = () =>
@@ -170,7 +182,7 @@ export function limitedText(back: string | undefined): string {
  * binding in one request, so it never exists for a moment bound to a default
  * nobody chose.
  */
-function AddSlot({ client: c, choices, onChanged }: { client: Client; choices: readonly BindingChoice[]; onChanged: () => void }) {
+function AddSlot({ client: c, choices, onAdded }: { client: Client; choices: readonly BindingChoice[]; onAdded: (name: string) => void }) {
   const [open, setOpen] = useState(false)
   return (
     <div>
@@ -182,9 +194,9 @@ function AddSlot({ client: c, choices, onChanged }: { client: Client; choices: r
           client={c}
           choices={choices}
           onClose={() => setOpen(false)}
-          onAdded={() => {
+          onAdded={(name) => {
             setOpen(false)
-            onChanged()
+            onAdded(name)
           }}
         />
       )}
@@ -201,7 +213,7 @@ function AddSlotDialog({
   client: Client
   choices: readonly BindingChoice[]
   onClose: () => void
-  onAdded: () => void
+  onAdded: (name: string) => void
 }) {
   const [name, setName] = useState('')
   // A new name starts on Claude Opus where it is offered, as the server's
@@ -213,7 +225,7 @@ function AddSlotDialog({
   const add = () =>
     run('add', async () => {
       await api.clients.addSlot(c.id, name.trim(), serves.body)
-      onAdded()
+      onAdded(name.trim())
     })
   return (
     <Modal title="Add a model" onClose={onClose}>

@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { api, type GatewayConfig } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { type ClientPageId } from '../../route'
@@ -8,6 +8,7 @@ import RequestsPanel from '../requests'
 import { KeyModels } from '../models/switches'
 import { Card, Empty, ErrorBanner, Figures, Loading, Note, Page } from '../../primitives'
 import { SlotsCard } from './slots'
+import { UpdateConfigCard } from './setup'
 import { Client } from '../../clients/specs'
 import { ClientChips, EnableSwitch } from './index'
 import { ClientOverview } from './overview'
@@ -65,22 +66,7 @@ export function ClientPage({
     usage: () => <ClientUsage client={client} onChanged={changed} />,
     chats: () => <ChatsPage scope={{ key: client.id }} />,
     requests: () => <RequestsPanel scope={{ key: client.id }} />,
-    // Its names and the models they may serve, on one page: the switches
-    // below bound the menus above, so changing one is seen in the other.
-    models: () => (
-      <>
-        <SlotsCard client={client} onChanged={changed} />
-        <Card title="Allowed models">
-          <Note className="mb-4">
-            The agent can only switch to allowed models. A model unchecked here is out of this client&rsquo;s
-            menus above, out of what its agent sees through the gateway&rsquo;s MCP server and may bind, and
-            refused for it{client.type.custom ? ', named directly or through a name' : ''}; a name bound to it
-            shows as unavailable until it is allowed again or rebound. Every other client is unaffected.
-          </Note>
-          <KeyModels apiKey={client.wire} onChanged={changed} />
-        </Card>
-      </>
-    ),
+    models: () => <ClientModels client={client} config={config} onChanged={changed} />,
   }
 
   return (
@@ -117,5 +103,43 @@ export function ClientPage({
       <ErrorBanner error={error} />
       {pages[page]()}
     </Page>
+  )
+}
+
+/**
+ * Its names and the models they may serve, on one page: the switches below
+ * bound the menus above, so changing one is seen in the other. Between them
+ * the update command that takes the names to the machine the client is set
+ * up on, naming the ones added or renamed here since it last ran.
+ */
+function ClientModels({
+  client,
+  config,
+  onChanged,
+}: {
+  client: Client
+  config: GatewayConfig | null
+  onChanged: () => void
+}) {
+  const [named, setNamed] = useState<{ names: string[]; at: number }>({ names: [], at: 0 })
+  const used = client.wire.update.used
+  // An update run since is carrying them now.
+  const pending = used !== undefined && new Date(used.at).getTime() >= named.at ? [] : named.names
+  const onNamed = (name: string) =>
+    setNamed(() => ({ names: [...pending.filter((n) => n !== name), name], at: Date.now() }))
+  return (
+    <>
+      <SlotsCard client={client} onChanged={onChanged} onNamed={onNamed} />
+      <UpdateConfigCard client={client} config={config} pending={pending} onChanged={onChanged} />
+      <Card title="Allowed models">
+        <Note className="mb-4">
+          The agent can only switch to allowed models. A model unchecked here is out of this client&rsquo;s
+          menus above, out of what its agent sees through the gateway&rsquo;s MCP server and may bind, and
+          refused for it{client.type.custom ? ', named directly or through a name' : ''}; a name bound to it
+          shows as unavailable until it is allowed again or rebound. Every other client is unaffected.
+        </Note>
+        <KeyModels apiKey={client.wire} onChanged={onChanged} />
+      </Card>
+    </>
   )
 }

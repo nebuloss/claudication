@@ -6,16 +6,17 @@ import {
   Card,
   CopyField,
   ErrorBanner,
+  InlineLink,
   KeyValue,
   Loading,
   Muted,
   Note,
-  Section,
   Segmented,
   Stack,
   useConfirm,
 } from '../../primitives'
 import { countdown, dateTime } from '../../format'
+import { pathOf } from '../../route'
 import { relayAddress } from '../../clients/address'
 import { ClientBody } from '../../clients/client-body'
 import { EXAMPLE_BASE } from '../../clients/model'
@@ -31,8 +32,9 @@ import type { Client, ClientTypes } from '../../clients/specs'
  * that nothing here shows the key again, and the gateway refuses to — a key in
  * use somewhere has no reason to be on a screen. Regenerating it is how a
  * client is set up again: the old key stops, and this card comes back with a
- * new one. A configured typed client gets an update command instead of the
- * install one: its files without the key, for a machine set up already. The
+ * new one. A configured typed client's update command — its files without
+ * the key, for a machine set up already — is on its Models page, beside the
+ * names it carries (UpdateConfigCard). The
  * page re-reads the client every few seconds while it is open, so a command
  * run on another machine turns this into the "configured" note without a
  * reload.
@@ -83,7 +85,12 @@ export function SetupCard({
             </Button>
           </div>
           <ErrorBanner error={error} />
-          {c.installs && <UpdateConfig client={c} gateway={gateway} onChanged={onChanged} />}
+          {c.installs && recipeFor(c.type.id) !== undefined && (
+            <Muted>
+              A change to its model names reaches that machine by the update command, on{' '}
+              <InlineLink href={pathOf('clients', c.id, 'models')}>Models</InlineLink>.
+            </Muted>
+          )}
         </Stack>
       </Card>
     )
@@ -191,21 +198,45 @@ function TypedSetup({
  * refuses a machine that has none, so it is safe to put on a screen: it is
  * the one way to catch a client up after a name is added or rebound without
  * regenerating its key.
+ *
+ * On the Models page, under the names, because a change to them is what it
+ * is for. `pending` are the names changed there since it last ran, which
+ * the machine does not list yet; nothing for a client not yet set up, whose
+ * install command carries every name.
  */
-function UpdateConfig({ client: c, gateway, onChanged }: { client: Client; gateway: string; onChanged: () => void }) {
+export function UpdateConfigCard({
+  client: c,
+  config,
+  pending,
+  onChanged,
+}: {
+  client: Client
+  config: GatewayConfig | null
+  pending: readonly string[]
+  onChanged: () => void
+}) {
   const recipe = recipeFor(c.type.id)
-  if (recipe === undefined) return null
+  if (!c.installs || !c.configured || recipe === undefined) return null
+  const address = relayAddress(config)
+  const gateway = address !== '' ? address : EXAMPLE_BASE
   const used = c.wire.update.used
   return (
-    <Section title="Update config">
+    <Card title="Update config">
       <Stack gap={3}>
-        <Muted>Updates the model names and what they serve on a machine already set up; the key stays as it is.</Muted>
+        {pending.length > 0 ? (
+          <Note tone="warn">
+            {pending.join(', ')} {pending.length === 1 ? 'is' : 'are'} not in {c.name}&rsquo;s model picker until
+            this runs on the machine it is set up on.
+          </Note>
+        ) : (
+          <Muted>Updates the model names and what they serve on a machine already set up; the key stays as it is.</Muted>
+        )}
         <InstallCommand client={c} gateway={gateway} state={c.wire.update} onChanged={onChanged} kind="update" />
         {used !== undefined && (
           <KeyValue items={[['Last update', `${dateTime(used.at)} from ${used.ip || 'an unknown address'} (${platformName(used.shell)})`]]} />
         )}
       </Stack>
-    </Section>
+    </Card>
   )
 }
 
