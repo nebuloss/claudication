@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api, type Quota, type UsageLimitRow } from '../../../api/client'
+import { api, type Quota } from '../../../api/client'
 import { FIVE_HOURS_S, QuotaWindow, SEVEN_DAYS_S, windowShort, windowTitle } from '../../domain/quota'
 import { Button, InlineMeter, MeterRow, Muted, Stack, UsageBar } from '../../primitives'
 import { relative } from '../../format'
@@ -18,21 +18,23 @@ import { providerOf } from '../../providers'
  * which is which is a matter of length, not of name.
  *
  * An account with neither window but rows of its own — Google's, an
- * allowance per line of models — shows its rows instead, the binding one
- * first, each labelled by its line: two empty windows would say nothing was
- * read when it was.
+ * allowance per line of models — shows the one that binds, or its first,
+ * labelled by its window's length as every gauge is ("7d"), and named in
+ * full on hover: two empty windows would say nothing was read when it was.
+ * One, because the label's slot holds a length and not a line's name; the
+ * account's page lists them all.
  */
 export function QuotaGauges({ quota }: { quota: Quota }) {
   const windowed = quota.five_hour_util >= 0 || quota.seven_day_util >= 0
   const rows = quota.limits ?? []
-  if (!windowed && rows.length > 0) {
-    const shown = [...rows].sort((a, b) => Number(b.is_active) - Number(a.is_active)).slice(0, 2)
+  const row = rows.find((l) => l.is_active) ?? rows[0]
+  if (!windowed && row !== undefined) {
     return (
-      <>
-        {shown.map((l) => (
-          <Gauge key={l.kind} label={rowShort(l)} name={l.title} window={new QuotaWindow(l.percent, l.severity)} />
-        ))}
-      </>
+      <Gauge
+        label={windowShort(row.window_seconds ?? 0)}
+        name={row.title}
+        window={new QuotaWindow(row.percent, row.severity)}
+      />
     )
   }
   return (
@@ -47,11 +49,6 @@ export function QuotaGauges({ quota }: { quota: Quota }) {
       />
     </>
   )
-}
-
-/** A row's line as a gauge says it: "Gemini — 15 models" is Gemini. */
-function rowShort(l: UsageLimitRow): string {
-  return l.title.split(/\s+/)[0] ?? l.title
 }
 
 function Gauge({ label, name = label, window: w }: { label: string; name?: string; window: QuotaWindow }) {
