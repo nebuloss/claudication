@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -21,9 +22,9 @@ import (
 // The suite needs no network; see testenv. Every call the package makes goes
 // to the fake below, through a client whose transport is the fake.
 //
-// The bodies here are written from gemini-cli's source (doc.go), not captured
-// from the backend: none has been measured yet. When they are, the captures
-// belong in testdata and these tests should read them.
+// What was measured is in testdata (scripts/probe-antigravity.py,
+// 2026-10-23), and the tests that can read it do; the rest of the bodies
+// here are shaped like it.
 func TestMain(m *testing.M) { testenv.Offline(m) }
 
 type roundTrip func(*http.Request) (*http.Response, error)
@@ -82,9 +83,9 @@ func (f *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(body, &in)
 		f.calls[key] = append(f.calls[key], in)
 		switch key {
-		case "cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":
+		case "daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":
 			io.WriteString(w, f.load)
-		case "cloudcode-pa.googleapis.com/v1internal:onboardUser":
+		case "daily-cloudcode-pa.googleapis.com/v1internal:onboardUser":
 			io.WriteString(w, f.onboard)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -92,8 +93,37 @@ func (f *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// fixture is one of scripts/probe-antigravity.py's records, scrubbed.
+type fixture struct {
+	Status int             `json:"status"`
+	Body   json.RawMessage `json:"body"`
+}
+
+func readFixture(t *testing.T, name string) fixture {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f fixture
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	return f
+}
+
+// streamBody is a recorded stream, kept as the string it was read as.
+func (f fixture) streamBody(t *testing.T) string {
+	t.Helper()
+	var s string
+	if err := json.Unmarshal(f.Body, &s); err != nil {
+		t.Fatalf("not a stream: %v", err)
+	}
+	return s
+}
+
 func TestAuthURLAsksForAnOfflineConsent(t *testing.T) {
-	raw := AuthURL("st", oauth.PKCE{Challenge: "ch"}, RedirectManual, "someone@example.com")
+	raw := AuthURL("st", oauth.PKCE{Challenge: "ch"}, Redirect, "someone@example.com")
 	u, err := url.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +131,7 @@ func TestAuthURLAsksForAnOfflineConsent(t *testing.T) {
 	q := u.Query()
 	for k, want := range map[string]string{
 		"client_id":             ClientID,
-		"redirect_uri":          RedirectManual,
+		"redirect_uri":          Redirect,
 		"access_type":           "offline",
 		"prompt":                "consent",
 		"code_challenge":        "ch",
@@ -113,7 +143,7 @@ func TestAuthURLAsksForAnOfflineConsent(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, got, want)
 		}
 	}
-	if !strings.Contains(q.Get("scope"), "cloud-platform") {
+	if !strings.Contains(q.Get("scope"), "cloud-platform") || !strings.Contains(q.Get("scope"), "experimentsandconfigs") {
 		t.Errorf("scope = %q", q.Get("scope"))
 	}
 }
@@ -123,7 +153,7 @@ func TestSignInOnboardsAFreeAccount(t *testing.T) {
 		load:    `{"allowedTiers":[{"id":"legacy-tier"},{"id":"free-tier","name":"Gemini Code Assist for individuals","isDefault":true}]}`,
 		onboard: `{"name":"operations/x","done":true,"response":{"cloudaicompanionProject":{"id":"managed-123"}}}`,
 	}
-	res, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "verifier", "", RedirectManual)
+	res, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "verifier", "", Redirect)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,10 +164,10 @@ func TestSignInOnboardsAFreeAccount(t *testing.T) {
 		t.Errorf("plan = %q", res.Plan)
 	}
 	form := f.forms[0]
-	if form.Get("code_verifier") != "verifier" || form.Get("client_secret") == "" || form.Get("redirect_uri") != RedirectManual {
+	if form.Get("code_verifier") != "verifier" || form.Get("client_secret") == "" || form.Get("redirect_uri") != Redirect {
 		t.Errorf("exchange form = %v", form)
 	}
-	onboard := f.calls["cloudcode-pa.googleapis.com/v1internal:onboardUser"][0]
+	onboard := f.calls["daily-cloudcode-pa.googleapis.com/v1internal:onboardUser"][0]
 	if onboard["tierId"] != "free-tier" {
 		t.Errorf("onboarded onto %v", onboard["tierId"])
 	}
@@ -151,14 +181,14 @@ func TestSignInKeepsAnOnboardedAccountsProject(t *testing.T) {
 	f := &fakeGoogle{
 		load: `{"currentTier":{"id":"standard-tier","name":"Standard"},"paidTier":{"id":"g1-pro-tier","name":"Google AI Pro"},"cloudaicompanionProject":"proj-9"}`,
 	}
-	res, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "v", "", RedirectManual)
+	res, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "v", "", Redirect)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.AccountUUID != "proj-9" || res.Plan != "Google AI Pro" {
 		t.Errorf("result = %+v", res)
 	}
-	if n := len(f.calls["cloudcode-pa.googleapis.com/v1internal:onboardUser"]); n != 0 {
+	if n := len(f.calls["daily-cloudcode-pa.googleapis.com/v1internal:onboardUser"]); n != 0 {
 		t.Errorf("onboarded an account already on a tier, %d times", n)
 	}
 }
@@ -167,7 +197,7 @@ func TestSignInRefusesATierThatNeedsItsOwnProject(t *testing.T) {
 	f := &fakeGoogle{
 		load: `{"currentTier":{"id":"standard-tier"},"ineligibleTiers":[{"reasonCode":"DASHER_USER","reasonMessage":"Workspace accounts need a project"}]}`,
 	}
-	_, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "v", "", RedirectManual)
+	_, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "v", "", Redirect)
 	if err == nil || !strings.Contains(err.Error(), "Workspace accounts need a project") {
 		t.Fatalf("err = %v", err)
 	}
@@ -177,7 +207,7 @@ func TestSignInPointsAtAVerification(t *testing.T) {
 	f := &fakeGoogle{
 		load: `{"ineligibleTiers":[{"reasonCode":"VALIDATION_REQUIRED","validationUrl":"https://accounts.google.com/verify"}]}`,
 	}
-	_, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "v", "", RedirectManual)
+	_, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "v", "", Redirect)
 	if err == nil || !strings.Contains(err.Error(), "https://accounts.google.com/verify") {
 		t.Fatalf("err = %v", err)
 	}
@@ -187,7 +217,7 @@ func TestSignInWithoutARefreshTokenFails(t *testing.T) {
 	f := &fakeGoogle{token: func(url.Values) (int, string) {
 		return http.StatusOK, `{"access_token":"ya29.access","expires_in":3599}`
 	}}
-	_, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "v", "", RedirectManual)
+	_, err := Accounts{}.Exchange(context.Background(), clientFor(f), "4/code", "v", "", Redirect)
 	if err == nil || !strings.Contains(err.Error(), "no refresh token") {
 		t.Fatalf("err = %v", err)
 	}
@@ -397,8 +427,12 @@ const quotaBody = `{"buckets":[
  {"modelId":"gemini-2.5-flash","tokenType":"TOKENS","remainingFraction":0.9}
 ]}`
 
-func TestModelListRanksTheQuotasModels(t *testing.T) {
-	out, err := Provider{}.ModelList([]byte(quotaBody))
+// The list the account measured was offered, as the gateway lists it:
+// Antigravity's autocomplete models, a disabled one and Anthropic's left out,
+// Pro before Flash before Flash-Lite, each newest first and the most
+// thinking first.
+func TestModelListReadsTheMeasuredList(t *testing.T) {
+	out, err := Provider{}.ModelList(readFixture(t, "antigravity-models.json").Body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,8 +441,9 @@ func TestModelListRanksTheQuotasModels(t *testing.T) {
 			ID          string `json:"id"`
 			DisplayName string `json:"display_name"`
 			Provider    string `json:"provider"`
+			MaxInput    int    `json:"max_input_tokens"`
+			MaxTokens   int    `json:"max_tokens"`
 		} `json:"data"`
-		FirstID string `json:"first_id"`
 	}
 	if err := json.Unmarshal(out, &l); err != nil {
 		t.Fatal(err)
@@ -416,17 +451,95 @@ func TestModelListRanksTheQuotasModels(t *testing.T) {
 	var ids []string
 	for _, m := range l.Data {
 		ids = append(ids, m.ID)
+		if strings.Contains(m.ID, "_") || strings.HasPrefix(m.ID, "claude-") || m.ID == "gemini-4-argon-disabled" {
+			t.Errorf("listed %s", m.ID)
+		}
 	}
-	want := "gemini-3-pro gemini-3-pro-preview gemini-2.5-pro gemini-3-flash gemini-2.5-flash gemini-3.1-flash-lite"
-	if got := strings.Join(ids, " "); got != want {
-		t.Errorf("order = %s\nwant    %s", got, want)
+	got := strings.Join(ids, " ")
+	for _, want := range []string{
+		"gemini-2.5-pro gemini-3.8-flash-high gemini-3.8-flash-medium gemini-3.8-flash-low",
+		"gemini-3.5-flash-lite gemini-3.1-flash-lite",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("order lacks %q:\n%s", want, got)
+		}
 	}
-	if l.Data[0].DisplayName != "Gemini 3 Pro" || l.Data[0].Provider != ID || l.FirstID != "gemini-3-pro" {
-		t.Errorf("entry = %+v, first %q", l.Data[0], l.FirstID)
+	if !strings.HasSuffix(got, "gpt-oss-120b-medium") {
+		t.Errorf("a non-Gemini model ranks last: %s", got)
+	}
+	first := l.Data[0]
+	if first.ID != "gemini-2.5-pro" || first.DisplayName != "Gemini 2.5 Pro" || first.Provider != ID ||
+		first.MaxInput != 1048576 || first.MaxTokens != 65535 {
+		t.Errorf("first = %+v", first)
 	}
 	method, path, body := Provider{}.ModelsRequest("limit=5", provider.Credential{AccountID: "proj-9"})
-	if method != http.MethodPost || path != "/v1internal:retrieveUserQuota" || string(body) != `{"project":"proj-9"}` {
+	if method != http.MethodPost || path != "/v1internal:fetchAvailableModels" || string(body) != `{"project":"proj-9"}` {
 		t.Errorf("ModelsRequest = %s %s %s", method, path, body)
+	}
+}
+
+func TestMeasuredQuotaIsPerModel(t *testing.T) {
+	var q quotaResponse
+	if err := json.Unmarshal(readFixture(t, "antigravity-quota.json").Body, &q); err != nil {
+		t.Fatal(err)
+	}
+	rows := Accounts{}.Limits(q.quota().Detail)
+	if len(rows) == 0 {
+		t.Fatal("no rows")
+	}
+	for _, r := range rows {
+		if strings.Contains(r.Kind, "_") {
+			t.Errorf("an internal model has a row: %s", r.Kind)
+		}
+		if r.ResetsAt == "" && strings.HasPrefix(r.Kind, "gemini-") {
+			t.Errorf("%s has no reset", r.Kind)
+		}
+	}
+}
+
+// The turn measured: usage normalised, the signature in its own empty part,
+// nothing taken for a failure.
+func TestMeasuredTurnIsMetered(t *testing.T) {
+	f := readFixture(t, "antigravity-turn.json")
+	var (
+		u    provider.Usage
+		serr string
+	)
+	m := Provider{}.Meter("text/event-stream", provider.Reading{Usage: &u, StreamError: &serr})
+	m.Feed([]byte(f.streamBody(t)))
+	m.Done()
+	if u != (provider.Usage{InputTokens: 8, OutputTokens: 83, ReasoningTokens: 82}) || serr != "" {
+		t.Errorf("usage = %+v, error %q", u, serr)
+	}
+}
+
+// Without Antigravity's User-Agent the backend refuses, and says why.
+func TestMeasuredRefusals(t *testing.T) {
+	f := readFixture(t, "antigravity-turn-refused.json")
+	if f.Status != 403 || ErrorCode(f.Status, string(f.Body)) != "subscription_required" {
+		t.Errorf("refusal %d classified %q", f.Status, ErrorCode(f.Status, string(f.Body)))
+	}
+	var load loadResponse
+	if err := json.Unmarshal(readFixture(t, "antigravity-load-refused.json").Body, &load); err != nil {
+		t.Fatal(err)
+	}
+	if load.CurrentTier != nil || len(load.IneligibleTiers) == 0 || load.IneligibleTiers[0].ReasonCode != "UNSUPPORTED_CLIENT" {
+		t.Errorf("refused load = %+v", load)
+	}
+	if err := json.Unmarshal(readFixture(t, "antigravity-load.json").Body, &load); err != nil {
+		t.Fatal(err)
+	}
+	if load.CurrentTier == nil || load.CloudAICompanionProject != "aicode-consumers" {
+		t.Errorf("served load = %+v", load)
+	}
+}
+
+func TestAuthorizeSaysAntigravity(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, BaseURL+StreamPath, strings.NewReader("{}"))
+	req.Header.Set("User-Agent", "claude-cli/2.1.274")
+	Provider{}.Authorize(req, provider.Credential{Token: "ya29.x"})
+	if req.Header.Get("User-Agent") != UserAgent || req.Header.Get("Authorization") != "Bearer ya29.x" {
+		t.Errorf("headers = %v", req.Header)
 	}
 }
 

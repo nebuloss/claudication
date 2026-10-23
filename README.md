@@ -16,7 +16,7 @@ translating only where a client's API is not its upstream's. One static
 binary, with the admin UI inside it.
 
 <p align="center">
-  <img src="res/images/architecture.svg" alt="Claude Code, opencode and crush speak Anthropic Messages, Codex speaks OpenAI Responses and gemini-cli the Gemini API; claudication routes each request by its model name to Claude, ChatGPT or Gemini, leasing an account from its pool">
+  <img src="res/images/architecture.svg" alt="Claude Code, opencode and crush speak Anthropic Messages, Codex speaks OpenAI Responses and gemini-cli the Gemini API; claudication routes each request by its model name to Claude, ChatGPT or Gemini (a Google account, through Antigravity), leasing an account from its pool">
 </p>
 
 - **Every client reaches every model.** Each tool is a *client* with its own
@@ -85,13 +85,13 @@ Pinning a version, the listen address, running more than one, and the rest:
 ## Before you use it
 
 None of the three backends is a public API: they are what Claude Code, Codex
-and gemini-cli use with a subscription. Pooling several people's
-subscriptions behind shared keys may breach Anthropic's, OpenAI's or Google's
-terms and get accounts flagged — that is the operator's decision to make
-knowingly. What was measured against each, and how, is in
-`go doc ./internal/provider/anthropic`, `./internal/provider/openai` and
-`./internal/provider/google`; the Gemini side is read from gemini-cli's source
-and not yet measured.
+and Antigravity use with a subscription, and for Google accounts the gateway
+presents itself as Antigravity, which is the only client Google still serves
+them to. Pooling several people's subscriptions behind shared keys may breach
+Anthropic's, OpenAI's or Google's terms and get accounts flagged — that is the
+operator's decision to make knowingly. What was measured against each, and
+how, is in `go doc ./internal/provider/anthropic`, `./internal/provider/openai`
+and `./internal/provider/google`.
 
 ## Prior art
 

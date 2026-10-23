@@ -1,0 +1,19 @@
+{
+ "status": 200,
+ "headers": {
+  "Content-Type": "application/json; charset=UTF-8",
+  "X-XSS-Protection": "0",
+  "X-Frame-Options": "SAMEORIGIN",
+  "X-Content-Type-Options": "nosniff"
+ },
+ "body": {
+  "id": "<id>",
+  "email": "someone@example.com",
+  "verified_email": true,
+  "name": "<name>",
+  "given_name": "<given>",
+  "family_name": "<family>",
+  "picture": "<picture>"
+ },
+ "measured": "2026-10-23, scripts/probe-antigravity.py, one free personal Google account"
+}

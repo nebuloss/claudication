@@ -26,14 +26,11 @@ import (
 // name its own project is refused at sign-in with the backend's reasons,
 // rather than signed in to fail on its first turn.
 
-// clientMetadata is what gemini-cli says about itself on setup calls. Not its
-// identity — no version, no IDE — just the plugin type, which selects the
-// Gemini product rather than Cloud Code's.
-var clientMetadata = map[string]string{
-	"ideType":    "IDE_UNSPECIFIED",
-	"platform":   "PLATFORM_UNSPECIFIED",
-	"pluginType": "GEMINI",
-}
+// clientMetadata is what Antigravity says about itself on setup calls, as
+// CLIProxyAPI sends it (internal/auth/antigravity/auth.go). With
+// Antigravity's User-Agent it put the account measured on the free tier,
+// "Antigravity", with a managed project (testdata/antigravity-load.json).
+var clientMetadata = map[string]string{"ideType": "ANTIGRAVITY"}
 
 // tier is GeminiUserTier, in the fields read (types.ts).
 type tier struct {
@@ -204,6 +201,7 @@ func call(ctx context.Context, client *http.Client, token, method, path string, 
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("User-Agent", UserAgent)
 	req.Header.Set("Accept", "application/json")
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")

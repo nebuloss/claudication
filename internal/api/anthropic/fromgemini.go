@@ -31,7 +31,9 @@ import (
 //	MALFORMED_FUNCTION_CALL            error: the turn produced nothing usable
 //	an error in place of an answer     error
 //
-// Not measured: every row is gemini-cli's reading of the same stream.
+// Measured 2026-10-23 (togemini.go): the text, tool_use and end_turn,
+// tool_use and max-token rows, on a streamed and a whole answer. The rest are
+// gemini-cli's reading of the same stream.
 
 // fromGemini reads Code Assist.
 var fromGemini = upstreamAnswer{

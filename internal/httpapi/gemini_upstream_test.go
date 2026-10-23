@@ -17,14 +17,16 @@ import (
 // The third upstream, end to end: a stub standing in for Code Assist, and
 // requests from Claude Code and from Codex routed to it by the model their
 // slot resolves to. Nothing leaves the process. The stub answers in the
-// shapes gemini-cli reads (internal/provider/google, doc.go), which have not
-// been measured yet.
+// shapes measured on the real backend through Antigravity
+// (internal/provider/google, testdata), and checks the User-Agent it was
+// measured to need.
 
-// geminiQuota is retrieveUserQuota's answer: the account's models.
-const geminiQuota = `{"buckets":[
- {"modelId":"gemini-2.5-pro","tokenType":"REQUESTS","remainingFraction":0.9},
- {"modelId":"gemini-3-pro-preview","tokenType":"REQUESTS","remainingFraction":1},
- {"modelId":"gemini-2.5-flash","tokenType":"REQUESTS","remainingFraction":1}]}`
+// geminiModels is fetchAvailableModels' answer: the account's models.
+const geminiModels = `{"models":{
+ "gemini-2.5-pro":{"displayName":"Gemini 2.5 Pro","maxTokens":1048576,"maxOutputTokens":65535,"quotaInfo":{"remainingFraction":0.9},"modelProvider":"MODEL_PROVIDER_GOOGLE"},
+ "gemini-3-pro-preview":{"displayName":"Gemini 3 Pro","maxTokens":1048576,"maxOutputTokens":65536,"quotaInfo":{"remainingFraction":1},"modelProvider":"MODEL_PROVIDER_GOOGLE"},
+ "gemini-2.5-flash":{"displayName":"Gemini 2.5 Flash","maxTokens":1048576,"maxOutputTokens":65535,"quotaInfo":{"remainingFraction":1},"modelProvider":"MODEL_PROVIDER_GOOGLE"},
+ "chat_20706":{"maxTokens":16384,"quotaInfo":{"remainingFraction":1},"modelProvider":"MODEL_PROVIDER_GOOGLE"}}}`
 
 // geminiAnswer is a streamed turn saying "hi".
 const geminiAnswer = "data: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hi\"}]}}]},\"traceId\":\"t1\"}\r\n\r\n" +
@@ -56,13 +58,19 @@ func geminiUpstream(t *testing.T) (*store.Store, string, *upstreamStub, *upstrea
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		// As measured: no Antigravity User-Agent, no service.
+		if !strings.HasPrefix(r.Header.Get("User-Agent"), "antigravity/") {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"error":{"code":403,"status":"PERMISSION_DENIED","message":"no license"}}`)
+			return
+		}
 		switch r.URL.Path {
-		case "/v1internal:retrieveUserQuota":
+		case "/v1internal:fetchAvailableModels":
 			if !strings.Contains(string(got.body), `"project":"proj-9"`) {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			_, _ = io.WriteString(w, geminiQuota)
+			_, _ = io.WriteString(w, geminiModels)
 		case "/v1internal:streamGenerateContent":
 			if r.URL.Query().Get("alt") != "sse" || !strings.HasPrefix(string(got.body), `{"project":"proj-9",`) {
 				w.WriteHeader(http.StatusBadRequest)

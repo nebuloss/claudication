@@ -13,8 +13,10 @@
 //	x-goog-api-key: <the key>
 //
 // with the model in the path and the body a GenerateContentRequest:
-// contents, systemInstruction, tools, toolConfig, generationConfig. None of
-// it has been measured through the gateway yet; it is read from the source.
+// contents, systemInstruction, tools, toolConfig, generationConfig. Read from
+// the source; measured 2026-10-23 through the live gateway to a Google
+// account — streamGenerateContent, generateContent and countTokens, each
+// answered, the chunks unwrapped and the signature kept.
 //
 // # Where a request goes
 //

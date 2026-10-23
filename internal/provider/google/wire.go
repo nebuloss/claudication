@@ -17,11 +17,27 @@ import (
 // same key.
 const ID = "google"
 
-// BaseURL is the Code Assist backend: where gemini-cli sends a turn signed in
-// with Google. Not generativelanguage.googleapis.com, which is the metered
-// Gemini API and takes an API key, not a subscription. server.ts
-// CODE_ASSIST_ENDPOINT.
-const BaseURL = "https://cloudcode-pa.googleapis.com"
+// BaseURL is the Code Assist backend as Antigravity reaches it: the daily
+// one, where CLIProxyAPI sends a consumer account
+// (antigravity_executor_request.go resolveAntigravityRequestBaseURL) and
+// where every call was measured to answer (2026-10-23). Not
+// generativelanguage.googleapis.com, which is the metered Gemini API and
+// takes an API key, not a subscription.
+const BaseURL = "https://daily-cloudcode-pa.googleapis.com"
+
+// UserAgent is Antigravity's, which Google serves the free tier to and
+// nothing else: measured 2026-10-23, the same token, client and metadata
+// with this gateway's own User-Agent were refused at loadCodeAssist as
+// UNSUPPORTED_CLIENT ("please migrate to the Antigravity suite of
+// products") and a turn as 403 SUBSCRIPTION_REQUIRED
+// (testdata/antigravity-*.json). The form is CLIProxyAPI's
+// (internal/misc/antigravity_version.go); 2.25.0 was measured served.
+//
+// It is the one place this gateway claims another client's identity, which
+// everywhere else it will not (internal/relay/passes; the ChatGPT
+// originator). The owner chose it (2026-10-23) as the only way a free Google
+// account serves at all, and it goes on Google's calls alone.
+const UserAgent = "antigravity/hub/2.25.0 (aidev_client; os_type=linux; arch=amd64)"
 
 // apiVersion prefixes every method: {BaseURL}/v1internal:{method}. server.ts
 // CODE_ASSIST_API_VERSION.
@@ -51,15 +67,13 @@ func (Provider) ID() string { return ID }
 // BaseURL implements provider.Wire.
 func (Provider) BaseURL() string { return BaseURL }
 
-// Authorize implements provider.Wire: the account's bearer token. The project
-// that bills the turn travels in the body (Stamp), not in a header.
-//
-// Nothing of gemini-cli's identity is added. Its User-Agent
-// ("GeminiCLI/<version>/<model> (<platform>; <arch>; <surface>)") is the
-// caller's when the caller is gemini-cli, and is relayed as it came; a
-// caller that is not gemini-cli is not made to look like it.
+// Authorize implements provider.Wire: the account's bearer token, and
+// Antigravity's User-Agent in place of the caller's, without which Google
+// refuses the turn (UserAgent). The project that bills the turn travels in
+// the body (Stamp), not in a header.
 func (Provider) Authorize(out *http.Request, c provider.Credential) {
 	out.Header.Set("Authorization", "Bearer "+c.Token)
+	out.Header.Set("User-Agent", UserAgent)
 	if out.Header.Get("Content-Type") == "" && out.Body != nil {
 		out.Header.Set("Content-Type", "application/json")
 	}
@@ -110,33 +124,70 @@ func (Provider) Inspect(status int, _ http.Header, body []byte) provider.Verdict
 	return verdict(status, body)
 }
 
-// ModelsRequest implements provider.Wire with retrieveUserQuota: the backend
-// has no model list, and its quota answer has one bucket per model the
-// account may call, which is the list as this account sees it. gemini-cli
-// reads the same answer for /stats (server.ts retrieveUserQuota).
+// ModelsRequest implements provider.Wire with fetchAvailableModels, the
+// list Antigravity's model picker reads (measured 2026-10-23,
+// testdata/antigravity-models.json).
 func (Provider) ModelsRequest(_ string, c provider.Credential) (string, string, []byte) {
 	body, _ := json.Marshal(map[string]string{"project": c.AccountID})
-	return http.MethodPost, "/" + apiVersion + ":retrieveUserQuota", body
+	return http.MethodPost, "/" + apiVersion + ":fetchAvailableModels", body
 }
 
-// ModelList implements provider.Wire: the quota buckets' models as the
-// gateway's list: Pro, then Flash, then Flash-Lite, each newest first, which
-// is the order the Gemini families are offered in (internal/service/models,
-// family.go).
+// available is fetchAvailableModels' answer, in the fields read (measured
+// 2026-10-23, testdata/antigravity-models.json): every model by id, with
+// what Antigravity's picker shows of it.
+type available struct {
+	Models map[string]struct {
+		DisplayName     string `json:"displayName"`
+		MaxTokens       int    `json:"maxTokens"`
+		MaxOutputTokens int    `json:"maxOutputTokens"`
+		ModelProvider   string `json:"modelProvider"`
+		QuotaInfo       *struct {
+			RemainingFraction *float64 `json:"remainingFraction"`
+		} `json:"quotaInfo"`
+	} `json:"models"`
+}
+
+// ModelList implements provider.Wire: the models an account may chat with,
+// as the gateway's list, ranked Pro, then Flash, then Flash-Lite, each
+// newest first, which is the order the Gemini families are offered in
+// (internal/service/models, family.go).
+//
+// Of the 23 the account measured was offered, kept are those Antigravity's
+// picker would show and could serve: with a display name (the rest —
+// chat_20706, tab_flash_lite_preview — are its autocomplete's) and a quota
+// (gemini-4-argon-disabled had none). Anthropic's models are left out —
+// claude-opus-4-6-thinking, claude-sonnet-4-6 — because a claude- id is
+// always routed to the Claude accounts (internal/service/models,
+// route.go), so offering them here would offer what no request reaches.
 func (Provider) ModelList(body []byte) ([]byte, error) {
-	var q quotaResponse
-	if err := json.Unmarshal(body, &q); err != nil {
-		return nil, fmt.Errorf("read the Code Assist quota: %w", err)
+	var in available
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("read the Antigravity model list: %w", err)
 	}
-	ids := q.models()
+	var ids []string
+	for id, m := range in.Models {
+		if m.DisplayName == "" || m.QuotaInfo == nil || m.ModelProvider == "MODEL_PROVIDER_ANTHROPIC" {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sortModels(ids)
 	data := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
-		data = append(data, map[string]any{
+		m := in.Models[id]
+		e := map[string]any{
 			"type":         "model",
 			"id":           id,
 			"provider":     ID,
-			"display_name": displayName(id),
-		})
+			"display_name": m.DisplayName,
+		}
+		if m.MaxTokens > 0 {
+			e["max_input_tokens"] = m.MaxTokens
+		}
+		if m.MaxOutputTokens > 0 {
+			e["max_tokens"] = m.MaxOutputTokens
+		}
+		data = append(data, e)
 	}
 	list := map[string]any{"data": data, "has_more": false}
 	if len(data) > 0 {
@@ -147,41 +198,66 @@ func (Provider) ModelList(body []byte) ([]byte, error) {
 }
 
 // modelRank orders Gemini model ids: by tier, largest first; then by version,
-// newest first; then generally available before preview. Tier first because
-// the order the list gives is the order the families are offered in, and an
-// operator looks for Pro before Flash-Lite whichever had the newer release.
+// newest first; then generally available before preview; then by thinking
+// level, most first. Tier first because the order the list gives is the
+// order the families are offered in, and an operator looks for Pro before
+// Flash-Lite whichever had the newer release; level last because
+// Antigravity offers each recent model at several (gemini-3.8-flash-high,
+// -medium, -low), and a family is served the first.
 type modelRank struct {
 	version []int
 	tier    int
 	preview bool
+	level   int
 	gemini  bool
 }
 
 // tiers rank the size words, largest first. Anything else ranks after them.
 var tiers = []string{"pro", "flash", "flash-lite"}
 
+// levels rank Antigravity's thinking levels, most first; an id naming none
+// sits between high and medium.
+var levels = map[string]int{"high": 0, "": 1, "medium": 2, "low": 3, "extra-low": 4}
+
 // flashTier is "flash"'s rank in tiers.
 const flashTier = 1
 
-// models are the buckets' model ids, each once, ranked.
+// models are the buckets' model ids, each once, ranked, less Antigravity's
+// internal ones (chat_20706, tab_jump_flash_lite_preview), which carry an
+// underscore no model a person picks does.
 func (q quotaResponse) models() []string {
 	seen := map[string]bool{}
 	var ids []string
 	for _, b := range q.Buckets {
-		if b.ModelID == "" || seen[b.ModelID] {
+		if b.ModelID == "" || seen[b.ModelID] || strings.Contains(b.ModelID, "_") {
 			continue
 		}
 		seen[b.ModelID] = true
 		ids = append(ids, b.ModelID)
 	}
-	sort.SliceStable(ids, func(i, j int) bool { return rank(ids[i]).before(rank(ids[j])) })
+	sortModels(ids)
 	return ids
 }
 
-// rank reads an id like gemini-3.1-pro-preview-customtools: "gemini", a
-// dotted version, a tier, and qualifiers.
+// sortModels ranks ids, the id itself breaking a tie so the order never
+// depends on a map's.
+func sortModels(ids []string) {
+	sort.Slice(ids, func(i, j int) bool {
+		a, b := rank(ids[i]), rank(ids[j])
+		if a.before(b) {
+			return true
+		}
+		if b.before(a) {
+			return false
+		}
+		return ids[i] < ids[j]
+	})
+}
+
+// rank reads an id like gemini-3.8-flash-high or gemini-3-pro-preview:
+// "gemini", a dotted version, a tier, and qualifiers.
 func rank(id string) modelRank {
-	r := modelRank{tier: len(tiers)}
+	r := modelRank{tier: len(tiers), level: levels[""]}
 	rest, ok := strings.CutPrefix(id, "gemini-")
 	if !ok {
 		return r
@@ -195,11 +271,16 @@ func rank(id string) modelRank {
 		}
 		r.version = append(r.version, n)
 	}
+	qualifier := ""
 	for i, t := range tiers {
 		if rest == t || strings.HasPrefix(rest, t+"-") {
 			// flash-lite also starts with flash-; the longer word wins.
 			r.tier = i
+			qualifier = strings.TrimPrefix(strings.TrimPrefix(rest, t), "-")
 		}
+	}
+	if l, ok := levels[qualifier]; ok {
+		r.level = l
 	}
 	r.preview = strings.Contains(rest, "preview") || strings.Contains(rest, "exp")
 	return r
@@ -224,7 +305,10 @@ func (a modelRank) before(b modelRank) bool {
 			return x > y
 		}
 	}
-	return !a.preview && b.preview
+	if a.preview != b.preview {
+		return !a.preview
+	}
+	return a.level < b.level
 }
 
 // displayName is an id as a person would write it: "gemini-2.5-pro" becomes

@@ -20,6 +20,8 @@ export type Provider = {
   vendor: string
   /** Where the browser is signed in, which decides the account that approves. */
   site: string
+  /** What consent ends on, for the paste flow's step: what to copy back. */
+  pasteHint?: string
   /** Whose figures the usage endpoint reports, and which client shows the same ones. */
   usage: { source: string; client: string }
 }
@@ -46,12 +48,13 @@ export const PROVIDERS: [Provider, ...Provider[]] = [
   {
     id: 'google',
     label: 'Gemini',
-    detail:
-      'A Google account — the free tier, Google AI Pro or Ultra — signed in the way gemini-cli signs in.',
+    detail: 'A Google account — the free tier, Google AI Pro or Ultra — signed in through Antigravity.',
     signIn: 'paste',
     vendor: 'Google',
     site: 'accounts.google.com',
-    usage: { source: 'Google', client: '/stats in gemini-cli' },
+    pasteHint:
+      'Your browser then fails to load a localhost:51121 page. That is expected: copy the whole address from its address bar.',
+    usage: { source: 'Google', client: 'the model picker in Antigravity' },
   },
 ]
 

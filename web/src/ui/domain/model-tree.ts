@@ -20,7 +20,8 @@
  *     the older families away is for, and it is what openai:light reads as
  *     "that one's generation".
  *   - Gemini by tier — Pro, Flash, Flash Lite — from the id
- *     (gemini-3-pro-preview is pro), the rule the gateway's own
+ *     (gemini-3-pro-preview and gemini-3.8-flash-high are pro and flash),
+ *     the rule the gateway's own
  *     gemini:<family> targets follow; a variant past the tier
  *     (…-preview-customtools) is Other, as the gateway offers it as itself.
  *
@@ -91,7 +92,7 @@ export function familyOf(m: TreeModel): { key: string; title: string } {
     return v !== undefined ? { key: `gpt-${v}`, title: `GPT-${v}` } : { key: OTHER, title: 'Other' }
   }
   if (provider === 'google') {
-    const tier = /^gemini-\d+(?:\.\d+)*-(pro|flash-lite|flash)(?:-preview)?$/.exec(id)?.[1]
+    const tier = /^gemini-\d+(?:\.\d+)*-(pro|flash-lite|flash)(?:-preview|-high|-medium|-low)?$/.exec(id)?.[1]
     if (tier === undefined) return { key: OTHER, title: 'Other' }
     const title = tier
       .split('-')

@@ -1,0 +1,54 @@
+{
+ "status": 403,
+ "headers": {
+  "x-cloudaicompanion-trace-id": "58c04413dd03f8a0",
+  "Content-Type": "text/event-stream",
+  "X-XSS-Protection": "0",
+  "X-Frame-Options": "SAMEORIGIN",
+  "X-Content-Type-Options": "nosniff"
+ },
+ "body": {
+  "error": {
+   "code": 403,
+   "message": "You do not have a valid license of this product. Please contact your administrator to request a license. If you are not an enterprise user and believe you are receiving this message as an error, please try using the latest version and logging in again. (#3501)",
+   "status": "PERMISSION_DENIED",
+   "details": [
+    {
+     "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+     "reason": "SUBSCRIPTION_REQUIRED",
+     "domain": "cloudaicompanion.googleapis.com",
+     "metadata": {
+      "error_number": "1001",
+      "uiMessage": "true"
+     }
+    },
+    {
+     "@type": "type.googleapis.com/google.rpc.Help",
+     "links": [
+      {
+       "description": "Learn more",
+       "url": "https://cloud.google.com/gemini/docs/codeassist/request-license"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "sent": {
+  "model": "gemini-3.8-flash-high",
+  "project": "<project>",
+  "request": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "Reply with the single word: pong"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "measured": "2026-10-23, scripts/probe-antigravity.py, one free personal Google account"
+}

@@ -1,8 +1,8 @@
-// Package google is Gemini as reached with a Google account: the Code Assist
-// backend that gemini-cli talks to after "Login with Google" — where requests
-// go and how they are authenticated, how usage, quota and errors are read back
-// out of answers, the sign-in that connects an account and sets it up, and the
-// account endpoints behind the admin screens.
+// Package google is Gemini as reached with a Google account, signed in
+// through Antigravity: the Code Assist backend Antigravity talks to — where
+// requests go and how they are authenticated, how usage, quota and errors are
+// read back out of answers, the sign-in that connects an account and sets it
+// up, and the account endpoints behind the admin screens.
 //
 // It is the only package that knows any of those details. The relay sees it
 // through provider.Wire and provider.Stamper, and everything else through
@@ -11,115 +11,108 @@
 // This is the subscription, not the Gemini API. The metered API at
 // generativelanguage.googleapis.com takes an AI Studio key and bills per
 // token; Code Assist takes the account's OAuth token and draws on the
-// account's own allowance — the free tier's, or Google AI Pro's and Ultra's —
-// exactly as gemini-cli does.
+// account's own allowance — a free account's starter quota, or Google AI Pro's
+// and Ultra's.
 //
 // No client speaks Code Assist as it is: it wraps a Gemini request in an
 // envelope naming the model and the account's project. So every request that
 // reaches it is the gateway's own — a Gemini API request from gemini-cli
 // rewrapped (internal/api/gemini), or a Messages or Responses one translated
-// (internal/api/anthropic, internal/api/openai) — and the project is stamped
-// in per attempt (Provider.Stamp), once the account is known.
+// (internal/api/anthropic, and through it internal/api/openai) — and the
+// project is stamped in per attempt (Provider.Stamp), once the account is
+// known.
+//
+// # Why Antigravity, and what it costs
+//
+// gemini-cli's sign-in reached this backend first, and on 2026-10-23 it no
+// longer did: loadCodeAssist lists the free tier as ineligible,
+// UNSUPPORTED_CLIENT, "This client is no longer supported for Gemini Code
+// Assist for individuals. To continue using Gemini, please migrate to the
+// Antigravity suite of products". Antigravity's OAuth client alone did not
+// change that: the same refusal came with it. What did is Antigravity's
+// User-Agent — with it, the same token was put on the free tier, "Antigravity",
+// and served; without it a turn is a 403 SUBSCRIPTION_REQUIRED
+// (testdata/antigravity-*.json, both sides).
+//
+// So every call this package makes says it is Antigravity (UserAgent). That
+// is the one place the gateway claims another client's identity, which
+// everywhere else it will not; the owner chose it (2026-10-23) as the only
+// way a free Google account serves at all, and dropped the gemini-cli
+// sign-in for it. It may breach Google's terms, as pooling subscriptions may
+// anyone's; the docs say so where accounts are described.
 //
 // # Where the facts come from
 //
-// One reading, and no measurement yet:
+//   - CLIProxyAPI (router-for-me/CLIProxyAPI, MIT), main read 2026-10-23:
+//     internal/auth/antigravity, internal/misc/antigravity_version.go,
+//     internal/runtime/executor/antigravity_*. Antigravity itself is not open
+//     source.
+//   - gemini-cli main at a713410 (Apache-2.0), for the envelope, the stream
+//     and the error vocabulary, which are the same backend's.
+//   - scripts/probe-antigravity.py, run 2026-10-23 against the real backend
+//     with one free personal account. Its records, scrubbed of tokens, the
+//     project and the person, are testdata/antigravity-*.json.
 //
-//   - gemini-cli main at a713410, read 2026-10-23, Apache-2.0:
-//     packages/core/src/code_assist/{oauth2,setup,server,converter,types}.ts
-//     and utils/googleQuotaErrors.ts. Citations name files and symbols.
-//
-// Every row below marked "source" is what gemini-cli does, not what the
-// backend was seen to do. They are to be measured against a live account, as
-// the other two providers were, and this table corrected where they differ.
-//
-// Measured once, 2026-10-23, one personal Google account: consent, the code
-// exchange and userinfo all worked, and loadCodeAssist answered; onboarding
-// onto the free tier ("Gemini Code Assist for individuals") was refused,
-// the backend's own reason being "This client is no longer supported for
-// Gemini Code Assist for individuals. To continue using Gemini, please
-// migrate to the Antigravity suite of products". So gemini-cli's OAuth
-// client no longer reaches the free tier, whatever gemini-cli's source
-// still does (it has no word of it at a713410). Whether a paid tier — Google
-// AI Pro, Ultra — or an account already onboarded is still served through it
-// is not measured.
-//
-// The constants are gemini-cli's own OAuth client and backend, which are not
-// a documented public API. Pooling several people's Google accounts behind
-// shared keys may breach Google's terms, as it may Anthropic's and OpenAI's;
-// the docs say so where accounts are described.
+// Rows marked "measured" were seen; "source" is what those clients do.
 //
 // # Sign-in
 //
 //	fact            value                                         source
-//	client          gemini-cli's installed-app id and secret      oauth2.ts OAUTH_CLIENT_{ID,SECRET}
-//	scopes          cloud-platform, userinfo.email, .profile      oauth2.ts OAUTH_SCOPE
-//	consent         accounts.google.com/o/oauth2/v2/auth,         oauth2.ts authWithUserCode
-//	                PKCE S256, access_type=offline
-//	redirect        https://codeassist.google.com/authcode,       oauth2.ts authWithUserCode
-//	                a page that shows the code to paste
-//	exchange        POST oauth2.googleapis.com/token, form,       google-auth-library getToken
+//	client          Antigravity's installed-app id and secret     CLIProxyAPI constants.go; measured
+//	scopes          cloud-platform, userinfo.email, .profile,     CLIProxyAPI; measured
+//	                cclog, experimentsandconfigs
+//	consent         accounts.google.com/o/oauth2/v2/auth,         measured
+//	                PKCE S256, access_type=offline, prompt=consent
+//	redirect        http://localhost:51121/oauth-callback, which  CLIProxyAPI; measured: the
+//	                nothing serves: its address is pasted back    address carries code and state
+//	exchange        POST oauth2.googleapis.com/token, form,       measured
 //	                with the secret and the verifier
-//	refresh         the same endpoint, grant refresh_token;       RFC 6749; not rotated
+//	refresh         the same endpoint, grant refresh_token;       measured; not rotated
 //	                invalid_grant is final
-//	identity        GET googleapis.com/oauth2/v2/userinfo         oauth2.ts fetchAndCacheUserInfo
+//	identity        GET googleapis.com/oauth2/v2/userinfo         measured
 //	revoke          POST oauth2.googleapis.com/revoke             Google's documented endpoint
-//
-// The paste flow rather than gemini-cli's default, which redirects to a
-// listener on 127.0.0.1 on the operator's own machine: nothing has to reach
-// the gateway from the browser. prompt=consent is added (see AuthURL): an
-// account that has used gemini-cli would otherwise get no refresh token.
 //
 // # Setting an account up
 //
-// Before its first turn gemini-cli asks loadCodeAssist which tier the account
-// is on and which project bills it, and onboards it onto its default tier
-// with onboardUser when it is on none (setup.ts setupUser). The sign-in does
-// the same, once, and stores the project as account_uuid and the tier's name
-// as the plan. The free tier's project is managed by Google and must not be
-// named when onboarding. An account whose tier wants a project of its own —
-// Workspace, Cloud — is refused at sign-in with the backend's reasons.
+// The sign-in asks loadCodeAssist, with Antigravity's metadata ({"ideType":
+// "ANTIGRAVITY"}) and User-Agent, which tier the account is on and which
+// project bills it, and onboards it onto its default tier when it is on
+// none. Measured: a free account came back on the free tier, "Antigravity",
+// its paid tier "Antigravity Starter Quota", with a managed project; the
+// project is stored as account_uuid and the tier's name as the plan.
 //
 // # Inference
 //
-//	POST https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse
-//	POST …/v1internal:generateContent
-//	POST …/v1internal:countTokens
+//	POST https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse
 //	Authorization: Bearer <access>
-//	{"model": "<id>", "project": "<project>", "user_prompt_id": "…",
-//	 "request": {"contents": […], "systemInstruction": …, "tools": […],
-//	             "generationConfig": {…}, "session_id": "…"}}
+//	User-Agent: antigravity/hub/2.25.0 (aidev_client; os_type=linux; arch=amd64)
+//	{"model": "<id>", "project": "<project>", "request": {"contents": […], …}}
 //
-// The stream is bare `data:` lines, each a whole envelope {"response": {…},
-// "traceId": "…"}, with no event names (server.ts requestStreamingPost). So
-// the relay's stall hold, which tells events apart by name, is off on this
-// wire. Usage rides on the events; the last one's is the turn's
-// (meter.go applyUsage for how it is normalised).
-//
-// gemini-cli sends its User-Agent, GeminiCLI/<version>/<model> (…); when the
-// caller is gemini-cli that header is the caller's and travels as it came,
-// and nothing of it is made up for a caller that is not.
+// Measured: that plain envelope is answered; CLIProxyAPI's extra fields
+// (userAgent, requestType, requestId) are not needed, and the answer is the
+// same with them (antigravity-turn-fields.json). The stream is bare `data:`
+// lines, each a whole envelope {"response": {…}, "traceId": "…",
+// "metadata": {}}, with no event names; the last carries the finish reason,
+// the usage and, for a thinking model, the thought signature in a part of
+// its own with empty text. So the relay's stall hold, which tells events
+// apart by name, is off on this wire.
 //
 // # Quota
 //
 // retrieveUserQuota, POST with the project, answers one bucket per model:
-// the fraction left and when it refills (usage.go). The limits are per model
-// — a spent Pro leaves Flash serving — and their window's length is not
-// said, so nothing maps onto the five-hour and weekly columns; the accounts
-// screen shows a row per model. A 429 says why in its google.rpc details
-// (errors.go): a short rate limit or a spent quota, each with a RetryInfo
-// delay the pool waits out; the model out of capacity at Google's end, which
-// is not the account's; or a quota of nothing, which is the plan lacking the
-// model.
+// the fraction left and when it refills — measured on a free account, token
+// type WTUS, every reset a week out. The limits are per model, so nothing
+// maps onto the five-hour and weekly columns; the accounts screen shows a
+// row per model, and a refusal that was one model's sits the account out
+// for that model alone (provider.Verdict Model).
 //
 // # Models
 //
-// There is no model list. The quota buckets name every model the account may
-// call, and are read as its list (Provider.ModelsRequest), ranked Pro, then
-// Flash, then Flash-Lite, each newest first. gemini-cli knows of
-// gemini-2.5-pro, gemini-3-pro-preview, gemini-3.1-pro-preview,
-// gemini-3-flash-preview, gemini-3.5-flash and gemini-3.1-flash-lite among
-// others (config/models.ts), and maps some of its names onto others on this
-// backend (getBackendModelMappings): which ones an account is offered is the
-// quota's to say.
+// fetchAvailableModels, POST with the project, is Antigravity's own model
+// list (testdata/antigravity-models.json): 23 models for the account
+// measured — Gemini 2.5 Pro, 3 Flash, 3.1 and 3.5 Flash Lite, 3.5 and 3.8
+// Flash at three thinking levels each, Claude Opus and Sonnet 4.6, GPT-OSS
+// 120B, and Antigravity's own autocomplete models — each with a display
+// name, a context window, an output cap and its quota. What the gateway
+// lists of them is Provider.ModelList's to say.
 package google

@@ -18,9 +18,12 @@ import (
 // Assist envelope a Google account's Gemini takes (internal/provider/google).
 // The envelope's project is left out; the provider stamps it per attempt.
 //
-// Nothing here is measured yet. The shapes are gemini-cli's — what it sends
-// is what the backend is known to take — and the choices are noted where
-// they are made, to be checked against a live account:
+// The shapes are gemini-cli's. Measured 2026-10-23 through the live gateway
+// on a free account (gemini-3.8-flash-high): a turn streamed and whole, a
+// forced tool call, its second turn with the signature the gateway kept,
+// and a second turn whose history held no Gemini signature — a Claude
+// thinking block and tool_use id — sent with the synthetic one; all
+// answered. The rows not named there are read, not measured:
 //
 //	Messages                         Gemini
 //	system (string or blocks)        systemInstruction, the texts joined

@@ -2,9 +2,9 @@
 
 The gateway has three upstreams: Claude subscription accounts, which answer
 Anthropic Messages; ChatGPT subscription accounts, which answer the Codex
-backend's OpenAI Responses API; and Google accounts, which answer Code
-Assist — the Gemini API's request inside an envelope naming the account's
-project. Everything a *client* may speak is an adapter onto them.
+backend's OpenAI Responses API; and Google accounts signed in through
+Antigravity, which answer Code Assist — the Gemini API's request inside an
+envelope naming the account's project. Everything a *client* may speak is an adapter onto them.
 
 Three surfaces exist today, and each client type speaks one of them, fixed by
 the type; a custom client's key works on all three.
@@ -74,7 +74,8 @@ surface reads and every upstream is reached from; what Messages cannot carry
 gateway instead.
 
 To Gemini, in short (`go doc ./internal/provider/google` and the files named
-above have the tables; none of it is measured yet):
+above have the tables; measured on a free account through the live gateway,
+each dialect, a tool loop included):
 
 - **Always streamed upstream**, `:streamGenerateContent?alt=sse`, and a
   caller that did not stream is answered whole from the stream.

@@ -221,7 +221,7 @@ function PasteFlow({
                   (reopen it)
                 </InlineLink>
               </li>
-              <li>{vendor} then shows you an authorization code.</li>
+              <li>{p?.pasteHint ?? `${vendor} then shows you an authorization code.`}</li>
               <li>Paste it below — the whole callback URL works too.</li>
             </ol>
 

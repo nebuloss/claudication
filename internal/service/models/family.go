@@ -61,9 +61,12 @@ import (
 var familyPattern = map[string]*regexp.Regexp{
 	"anthropic": regexp.MustCompile(`^claude-([a-z]+)-`),
 	"openai":    regexp.MustCompile(`^gpt-\d+(?:\.\d+)*-([a-z]+)$`),
-	// A tier, and a preview of it, are the family; a variant past the tier
-	// (gemini-3.1-pro-preview-customtools) is a model of its own.
-	"google": regexp.MustCompile(`^gemini-\d+(?:\.\d+)*-(pro|flash-lite|flash)(?:-preview)?$`),
+	// A tier, and a preview of it or a thinking level of it (Antigravity
+	// offers gemini-3.8-flash-high, -medium, -low), are the family; another
+	// variant past the tier (gemini-3-flash-agent, …-customtools) is a model
+	// of its own. Which level a family serves is the list's order: the most
+	// thinking first (internal/provider/google, modelRank).
+	"google": regexp.MustCompile(`^gemini-\d+(?:\.\d+)*-(pro|flash-lite|flash)(?:-preview|-high|-medium|-low)?$`),
 }
 
 // FamilyOf is the family a provider's model belongs to, or "".

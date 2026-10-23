@@ -1,0 +1,39 @@
+{
+ "status": 200,
+ "headers": {
+  "x-cloudaicompanion-trace-id": "fe1c7943e7f90e20",
+  "Content-Type": "application/json; charset=UTF-8",
+  "X-XSS-Protection": "0",
+  "X-Frame-Options": "SAMEORIGIN",
+  "X-Content-Type-Options": "nosniff"
+ },
+ "body": {
+  "allowedTiers": [
+   {
+    "id": "standard-tier",
+    "name": "Gemini Code Assist",
+    "description": "Unlimited coding assistant with the most powerful Gemini models",
+    "userDefinedCloudaicompanionProject": true,
+    "privacyNotice": {},
+    "isDefault": true,
+    "usesGcpTos": true
+   }
+  ],
+  "ineligibleTiers": [
+   {
+    "reasonCode": "UNSUPPORTED_CLIENT",
+    "reasonMessage": "This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google",
+    "tierId": "free-tier",
+    "tierName": "Gemini Code Assist for individuals"
+   }
+  ]
+ },
+ "sent": {
+  "metadata": {
+   "ideType": "IDE_UNSPECIFIED",
+   "platform": "PLATFORM_UNSPECIFIED",
+   "pluginType": "GEMINI"
+  }
+ },
+ "measured": "2026-10-23, scripts/probe-antigravity.py, one free personal Google account"
+}

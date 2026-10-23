@@ -10,7 +10,8 @@ import (
 )
 
 // Accounts is a Google account, as the pool, the usage poller and the admin
-// screens see it, signing in by pasting back the code Google shows.
+// screens see it, signing in through Antigravity by pasting back the address
+// consent ends on.
 type Accounts struct{}
 
 var (
@@ -24,9 +25,10 @@ func (Accounts) ID() string { return ID }
 // LoginURL implements provider.PasteLogin.
 func (Accounts) LoginURL(state string, pkce oauth.PKCE, loginHint string) provider.Login {
 	return provider.Login{
-		URL:          AuthURL(state, pkce, RedirectManual, loginHint),
-		Redirect:     RedirectManual,
-		Instructions: "Open the URL, choose the Google account and approve access, then paste the authorization code Google shows you back here.",
+		URL:      AuthURL(state, pkce, Redirect, loginHint),
+		Redirect: Redirect,
+		Instructions: "Open the URL and approve access. Your browser then fails to load a localhost:51121 page — " +
+			"copy that page's whole address from the address bar and paste it back here.",
 	}
 }
 
@@ -34,8 +36,8 @@ func (Accounts) LoginURL(state string, pkce oauth.PKCE, loginHint string) provid
 // named, and its Code Assist project found or made (onboard.go). The project
 // is the account's id, as account_uuid stores it; the tier is its plan.
 //
-// state is not checked here: Google's code page shows the code alone, and the
-// attempt the code belongs to was found by the state the gateway kept.
+// state is not checked here: the attempt the code belongs to was found by the
+// state the gateway kept.
 func (Accounts) Exchange(ctx context.Context, c *http.Client, code, verifier, _, redirect string) (oauth.Result, error) {
 	tr, err := exchangeCode(ctx, c, code, verifier, redirect)
 	if err != nil {

@@ -14,21 +14,23 @@ import (
 	"claudication/internal/oauth"
 )
 
-// "Login with Google", as gemini-cli does it without a browser on the same
-// machine (oauth2.ts authWithUserCode): consent in any browser, which lands
-// on a Google page showing a code, and the code pasted back.
+// "Sign in with Google", as Antigravity does it: consent in the operator's
+// browser, which Google then sends to Antigravity's loopback address on the
+// operator's own machine. Nothing listens there for a gateway, so the
+// browser shows an error page, and its address — the code is in it — is
+// what is pasted back (oauth.ParseCallback reads a whole URL).
 //
-// gemini-cli's own OAuth client. It is an installed application's, whose
-// secret Google documents as not secret ("embedded in the source code of
-// your application … obviously not treated as a secret"), and gemini-cli
-// commits it for that reason. This file is the only place it appears, and
-// both values are encoded so a secret scanner does not refuse the push over
-// them (see oauth.Reveal).
+// Antigravity's own OAuth client, as CLIProxyAPI signs in with it
+// (router-for-me/CLIProxyAPI, internal/auth/antigravity/constants.go, read
+// 2026-10-23), measured to sign in and redeem the same day. An installed
+// application's, whose secret Google documents as not secret. This file is
+// the only place it appears, and both values are encoded so a secret
+// scanner does not refuse the push over them (see oauth.Reveal).
 var (
-	// ClientID is gemini-cli's. oauth2.ts OAUTH_CLIENT_ID.
-	ClientID = oauth.Reveal("bW9jLnRuZXRub2NyZXN1ZWxnb29nLnNwcGEuajUzMWJpZG1oM3ZhNmZxYTNlOXBucmRycG8ydGY4b28tNTkzOTA4NTUyMTg2")
-	// clientSecret is gemini-cli's. oauth2.ts OAUTH_CLIENT_SECRET.
-	clientSecret = oauth.Reveal("bHhzRlhsYzV1QzZWZWcta1M3bzEtbVBNZ0h1NC1YUFNDT0c=")
+	// ClientID is Antigravity's.
+	ClientID = oauth.Reveal("bW9jLnRuZXRub2NyZXN1ZWxnb29nLnNwcGEucGUzMDRnNGhqb2xvdHY1MzJlcmNsMTJoMm5pc3NobXQtMTk1MDYwNjAwMTcwMQ==")
+	// clientSecret is Antigravity's.
+	clientSecret = oauth.Reveal("ZkFEcTZ6NENYczhCTG0xSkxkTDY4NFJXRjg1Sy1YUFNDT0c=")
 )
 
 const (
@@ -37,18 +39,20 @@ const (
 	revokeURL   = "https://oauth2.googleapis.com/revoke"
 	userinfoURL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
-	// RedirectManual is where consent lands when nothing listens locally: a
-	// Google page that shows the code to copy. oauth2.ts authWithUserCode.
-	RedirectManual = "https://codeassist.google.com/authcode"
+	// Redirect is Antigravity's loopback consent address
+	// (CLIProxyAPI CallbackPort, /oauth-callback).
+	Redirect = "http://localhost:51121/oauth-callback"
 )
 
-// scopes are gemini-cli's (oauth2.ts OAUTH_SCOPE). cloud-platform is what the
-// Code Assist backend is called with; the two userinfo scopes name the
-// account.
+// scopes are Antigravity's. cloud-platform is what Code Assist is called
+// with; the userinfo scopes name the account; cclog and
+// experimentsandconfigs are Antigravity's own, asked for as it asks.
 var scopes = []string{
 	"https://www.googleapis.com/auth/cloud-platform",
 	"https://www.googleapis.com/auth/userinfo.email",
 	"https://www.googleapis.com/auth/userinfo.profile",
+	"https://www.googleapis.com/auth/cclog",
+	"https://www.googleapis.com/auth/experimentsandconfigs",
 }
 
 // tokenTimeout bounds one call to the token endpoint.
@@ -56,10 +60,9 @@ const tokenTimeout = 30 * time.Second
 
 // AuthURL is the consent page for one attempt.
 //
-// prompt=consent is the one parameter gemini-cli does not send. Google hands
-// out a refresh token only when the consent screen is shown, and skips the
-// screen for an account that already consented to this client — which every
-// account that has used gemini-cli has. Without it, signing such an account
+// prompt=consent makes Google show the consent screen, and so hand out a
+// refresh token, to an account that already consented to this client — every
+// account that has used Antigravity has. Without it, signing such an account
 // in here would succeed with no refresh token, and lapse an hour later.
 func AuthURL(state string, pkce oauth.PKCE, redirect, loginHint string) string {
 	q := url.Values{
@@ -88,8 +91,7 @@ type tokenResponse struct {
 }
 
 // exchangeCode redeems a pasted code for tokens: form-encoded, with the
-// client's secret and the PKCE verifier, as google-auth-library's getToken
-// sends it.
+// client's secret and the PKCE verifier (measured 2026-10-23).
 func exchangeCode(ctx context.Context, client *http.Client, code, verifier, redirect string) (tokenResponse, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -190,8 +192,8 @@ func postToken(ctx context.Context, client *http.Client, form url.Values) (token
 	return tr, nil
 }
 
-// fetchEmail names the account signed in, as gemini-cli does after a sign-in
-// (oauth2.ts fetchAndCacheUserInfo).
+// fetchEmail names the account signed in (measured 2026-10-23,
+// testdata/antigravity-identity.json).
 func fetchEmail(ctx context.Context, client *http.Client, token string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, tokenTimeout)
 	defer cancel()

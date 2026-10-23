@@ -11,7 +11,9 @@ with `go:embed`.
 It serves three client-facing APIs — Anthropic Messages, OpenAI Responses,
 which is what Codex CLI speaks, and the Gemini API, which gemini-cli speaks —
 and has three upstreams: Anthropic, ChatGPT's Codex backend, and Google's
-Code Assist. One Gateway switch in Settings turns client traffic
+Code Assist, reached as Antigravity — the one place the gateway claims
+another client's identity, because Google serves personal accounts to
+nothing else (`go doc ./internal/provider/google`). One Gateway switch in Settings turns client traffic
 on and off at runtime; each client and each account has its own switch too.
 
 A client is a top-level thing — a type (Claude Code, Codex, opencode, crush,
@@ -65,9 +67,8 @@ update commands and the MCP server's `update_config` carry it.
    poller and the admin API — and `internal/provider/anthropic`,
    `internal/provider/openai` and `internal/provider/google` the only places
    each one's URLs, headers, event names and error shapes appear. `go doc
-   ./internal/provider/openai` is the measurement record for the ChatGPT
-   backend; `go doc ./internal/provider/google` says what of Code Assist is
-   read from gemini-cli and what is measured.
+   ./internal/provider/openai` and `./internal/provider/google` are the
+   measurement records for the ChatGPT backend and for Code Assist.
 2. [`docs/`](docs/) — `refused-requests.md` first: every refusal with the
    measurements behind it. Then `upstream-request-pipeline.md` for what the
    official client sends, and `reversing.md` for how to check any of it.

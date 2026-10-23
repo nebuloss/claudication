@@ -1,0 +1,30 @@
+{
+ "status": 200,
+ "headers": {
+  "Content-Type": "text/event-stream",
+  "X-XSS-Protection": "0",
+  "X-Frame-Options": "SAMEORIGIN",
+  "X-Content-Type-Options": "nosniff"
+ },
+ "body": "data: {\"response\": {\"candidates\": [{\"content\": {\"role\": \"model\",\"parts\": [{\"text\": \"pong\"}]}}],\"usageMetadata\": {\"promptTokenCount\": 8,\"candidatesTokenCount\": 1,\"totalTokenCount\": 70,\"thoughtsTokenCount\": 61},\"modelVersion\": \"gemini-3.8-flash-n\",\"responseId\": \"Ci3baviEBrqM7M8PrdnggQ8\"},\"traceId\": \"b262b1fe00ecdfef\",\"metadata\": {}}\r\n\r\ndata: {\"response\": {\"candidates\": [{\"content\": {\"role\": \"model\",\"parts\": [{\"thoughtSignature\": \"EoADCv0CAWkUfRN0yi7m6cyCniDmgSgTYy8JG16BoW/V8MKGiF8psbDQT/kN60OoLrCP5lvECKxPS/jYLB+K7VPJd3Lj3ffLTmXmFqC7LYomaCkBYLnDvdxw+V6UBH0Z4bWh8TqeDKBHhzIF7T852rr/V3TYCcZGvPY9g09NsD9LRPptyNXDKa1w3vIYvhOosoMknM4tNQw42vhw4mw5YcPNtoghQZlSdjCY9Bb5iL55PKBI9qgt9Mx7+AgGcVZHNeRnx7J0YJB8nslyPqxG2cAgcsG75yTD/+0V8EUg7wX1B0BZCom/WtDCAJr0f3AMrnZ8H9pNSWdmNPFGyYdc5ahOx+niIgAVJ6Yj4sDM9iQPd7hz1gEPXhaTf87lASNMYNOiQl5+5pPfEWz+vo5aU/pc7XJxlCBnKy6g+uVguUjKFpGXRcWRMotz1R0XlL6dqf88OnjXu2kbAP3YHxV9hSI8ZsX40y8AAGGONPrvnUQHcuDuyqvCVKlx0oWgnNhhQZIw\",\"text\": \"\"}]},\"finishReason\": \"STOP\"}],\"usageMetadata\": {\"promptTokenCount\": 8,\"candidatesTokenCount\": 1,\"totalTokenCount\": 70,\"thoughtsTokenCount\": 61},\"modelVersion\": \"gemini-3.8-flash-n\",\"responseId\": \"Ci3baviEBrqM7M8PrdnggQ8\"},\"traceId\": \"b262b1fe00ecdfef\",\"metadata\": {}}\r\n\r\n",
+ "sent": {
+  "model": "gemini-3.8-flash-high",
+  "project": "<project>",
+  "request": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "Reply with the single word: pong"
+      }
+     ]
+    }
+   ]
+  },
+  "userAgent": "antigravity",
+  "requestType": "agent",
+  "requestId": "agent-1abbb2f6-a2a1-42cb-8bcd-be88e52ee47a"
+ },
+ "measured": "2026-10-23, scripts/probe-antigravity.py, one free personal Google account"
+}

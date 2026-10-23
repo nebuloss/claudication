@@ -6,24 +6,25 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"claudication/internal/provider"
 )
 
-// The account's quota, as gemini-cli reads it for /stats (server.ts
-// retrieveUserQuota; types.ts RetrieveUserQuotaResponse):
+// The account's quota (measured 2026-10-23, testdata/antigravity-quota.json;
+// gemini-cli reads the same answer for /stats, server.ts retrieveUserQuota):
 //
 //	POST {base}/v1internal:retrieveUserQuota   {"project": <project>}
 //	{"buckets": [{"modelId", "tokenType", "remainingFraction",
 //	              "remainingAmount", "resetTime"}, …]}
 //
 // One bucket per model and kind of token, each with the fraction left and
-// when it refills. The windows are per model rather than per account — a
-// spent Pro quota leaves Flash serving — and their length is not said, only
-// their reset; so nothing maps onto the store's five-hour and weekly
-// columns, and the rows live in the detail, one per model, for the accounts
-// screen.
+// when it refills. Measured on a free account: token type WTUS, every reset
+// a week out. The windows are per model rather than per account — a spent
+// Pro quota leaves Flash serving — and their length is not said, only their
+// reset; so nothing maps onto the store's five-hour and weekly columns, and
+// the rows live in the detail, one per model, for the accounts screen.
 
 // bucket is BucketInfo (types.ts).
 type bucket struct {
@@ -56,7 +57,8 @@ func (q quotaResponse) quota() provider.Quota {
 	var rows []quotaRow
 	spent := 0
 	for _, b := range q.Buckets {
-		if b.ModelID == "" {
+		// Antigravity's internal models (chat_20706) are not a person's.
+		if b.ModelID == "" || strings.Contains(b.ModelID, "_") {
 			continue
 		}
 		row := quotaRow{Model: b.ModelID, TokenType: b.TokenType}

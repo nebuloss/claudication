@@ -68,20 +68,33 @@ What was measured against it, and how, is in
 
 ## Gemini accounts
 
-A Google account — the free tier, Google AI Pro or Ultra — can serve Gemini
-the way it serves gemini-cli after "Login with Google": through Code Assist,
-on the account's own allowance, not the metered Gemini API and its key. **Add
-account → Gemini** opens Google's consent screen; approve, and paste back the
-code Google shows. It is the flow gemini-cli uses without a local browser, so
-it works for a gateway on another machine. Signing in also sets the account up
-on its Code Assist tier, as gemini-cli does before its first turn; an account
-that would need a Google Cloud project of its own — Workspace, Cloud — is
-refused then, with Google's reasons.
+A Google account — the free tier, Google AI Pro or Ultra — serves Gemini the
+way it serves Antigravity, Google's agent IDE: through Code Assist, on the
+account's own allowance, not the metered Gemini API and its key. **Add account
+→ Gemini** opens Google's consent screen for Antigravity; approve, and your
+browser then fails to load a `localhost:51121` page — that is expected, and
+its whole address, copied from the address bar, is what you paste back. It
+needs nothing to reach the gateway from the browser, so it works for a
+gateway on another machine. Signing in also sets the account up on its tier;
+an account that would need a Google Cloud project of its own is refused then,
+with Google's reasons.
 
-Gemini's quota is per model — a spent Pro leaves Flash serving — so an account
-shows one row per model rather than the 5-hour and 7-day columns. Its models
-group as families by tier — Pro, Flash, Flash-Lite — and a name following one
-is served the newest the account has.
+Antigravity, not gemini-cli, because Google decided so: since October 2026 it
+refuses gemini-cli's sign-in for personal accounts and serves them only to
+Antigravity. It tells the two apart by the User-Agent, so the gateway sends
+Antigravity's on every call to Google — the one place it claims another
+client's identity, chosen for that reason alone.
+`go doc ./internal/provider/google` has the measurements.
+
+A free account was offered Gemini 2.5 Pro, 3 Flash, 3.1 and 3.5 Flash Lite,
+and 3.5 and 3.8 Flash at three thinking levels each, with GPT-OSS 120B.
+Antigravity also offers Claude Opus and Sonnet; the gateway leaves those out,
+because a `claude-` model always goes to the Claude accounts. The quota is
+per model and resets weekly — a spent Pro leaves Flash serving — so an
+account shows one row per model rather than the 5-hour and 7-day columns.
+Its models group as families by tier — Pro, Flash, Flash-Lite — and a name
+following one is served the newest the account has, at the highest thinking
+level offered.
 
 Every client reaches it: a Messages client translated, a Responses client
 through Messages, and gemini-cli with its own request rewrapped — point it at
@@ -91,9 +104,9 @@ the gateway with a custom client in direct mode:
     export GEMINI_API_KEY=clc_…
 
 Code Assist is not a public API, and pooling several people's Google accounts
-may breach Google's terms, as with the other two. Everything about it so far
-is read from gemini-cli's source and not yet measured;
-`go doc ./internal/provider/google` says which is which.
+— and presenting the gateway as Antigravity to do it — may breach Google's
+terms, as with the other two; that is the operator's decision to make
+knowingly.
 
 ### Subscription usage
 
