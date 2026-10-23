@@ -297,15 +297,19 @@ func TestRevokeGoesWhereTheClientSendsIt(t *testing.T) {
 // A working credential is reported with what the model said, and the request
 // carries the identity line and OAuth capability the subscription requires.
 func TestProbeReportsAWorkingCredential(t *testing.T) {
-	client, rt := upstream(t, func(w http.ResponseWriter, _ *http.Request) {
+	client, rt := upstream(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			_, _ = io.WriteString(w, `{"data":[{"id":"claude-opus-5-5"},{"id":"claude-haiku-5-5"},{"id":"claude-haiku-4-5"}]}`)
+			return
+		}
 		w.Header().Set("request-id", "req_ok")
-		_, _ = io.WriteString(w, `{"model":"claude-haiku-4-5","stop_reason":"end_turn",
+		_, _ = io.WriteString(w, `{"model":"claude-haiku-5-5","stop_reason":"end_turn",
 			"content":[{"type":"text","text":" pong "},{"type":"tool_use","text":"ignored"}],
 			"usage":{"input_tokens":12,"output_tokens":3}}`)
 	})
 
 	res := Probe(context.Background(), client, "tok", "")
-	if !res.OK || res.Status != 200 || res.Reply != "pong" || res.Model != "claude-haiku-4-5" ||
+	if !res.OK || res.Status != 200 || res.Reply != "pong" || res.Model != "claude-haiku-5-5" ||
 		res.StopReason != "end_turn" || res.InputTokens != 12 || res.OutputTokens != 3 ||
 		res.RequestID != "req_ok" || res.Error != "" {
 		t.Errorf("probe result: %+v", res)
@@ -328,9 +332,9 @@ func TestProbeReportsAWorkingCredential(t *testing.T) {
 	if err := json.Unmarshal(got.body, &body); err != nil {
 		t.Fatal(err)
 	}
-	// An empty model falls back to the cheapest one; a probe must not spend
-	// the operator's Opus allowance.
-	if body.Model != "claude-haiku-4-5" {
+	// An empty model is the account's newest Haiku, from its own list; a
+	// probe must not spend the operator's Opus allowance.
+	if body.Model != "claude-haiku-5-5" {
 		t.Errorf("default model = %q", body.Model)
 	}
 	// Inference on a subscription token is refused without the identity line.
@@ -378,6 +382,10 @@ func TestProbeFailures(t *testing.T) {
 		_, _ = io.WriteString(w, "not json")
 	})
 	res := Probe(context.Background(), client, "tok", "")
+	if res.OK || !strings.Contains(res.Error, "lists no models") {
+		t.Errorf("no model list: %+v", res)
+	}
+	res = Probe(context.Background(), client, "tok", "claude-opus-5")
 	if res.OK || !strings.Contains(res.Error, "decode response") || res.Status != 200 {
 		t.Errorf("undecodable: %+v", res)
 	}
@@ -385,7 +393,7 @@ func TestProbeFailures(t *testing.T) {
 	dead := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("no route")
 	})}
-	res = Probe(context.Background(), dead, "tok", "")
+	res = Probe(context.Background(), dead, "tok", "claude-opus-5")
 	if res.OK || !strings.Contains(res.Error, "request failed") || res.Status != 0 {
 		t.Errorf("unreachable: %+v", res)
 	}
@@ -393,7 +401,7 @@ func TestProbeFailures(t *testing.T) {
 	broken := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(failingReader{})}, nil
 	})}
-	res = Probe(context.Background(), broken, "tok", "")
+	res = Probe(context.Background(), broken, "tok", "claude-opus-5")
 	if res.OK || !strings.Contains(res.Error, "read response") || res.Status != 200 {
 		t.Errorf("truncated: %+v", res)
 	}

@@ -298,7 +298,10 @@ function InstallCommand({
  * per API naming its first name.
  */
 function CustomSetup({ client: c, types, gateway }: { client: Client; types: ClientTypes; gateway: string }) {
-  const model = c.namesSlots ? (c.slots[0]?.name ?? 'large') : (c.slots[0]?.serving || 'claude-opus-5-5')
+  // A direct-mode client names real ids: the one its first slot serves, or a
+  // placeholder until it serves one, rather than an id written here that a
+  // release would retire.
+  const model = c.namesSlots ? (c.slots[0]?.name ?? 'large') : (c.slots[0]?.serving || '<model-id>')
   const env = [
     `export ANTHROPIC_BASE_URL=${gateway}`,
     'export ANTHROPIC_API_KEY=clc_…',

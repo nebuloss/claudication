@@ -29,9 +29,17 @@ type ProbeResult = provider.ProbeResult
 // it. This is the gateway speaking as itself, not forging a client's
 // attribution: no billing header or conversation fingerprint is synthesised,
 // which is exactly the line the proxy paths must not cross either.
+//
+// model empty is the account's newest Haiku, read from its own model list,
+// so a test neither spends the operator's Opus allowance nor names a model
+// that has since been retired.
 func Probe(ctx context.Context, client *http.Client, accessToken, model string) ProbeResult {
 	if model == "" {
-		model = "claude-haiku-4-5"
+		m, err := smallestModel(ctx, client, accessToken)
+		if err != nil {
+			return ProbeResult{Error: err.Error()}
+		}
+		model = m
 	}
 
 	body, err := json.Marshal(map[string]any{
@@ -105,4 +113,41 @@ func Probe(ctx context.Context, client *http.Client, accessToken, model string) 
 	out.OutputTokens = msg.Usage.OutputTokens
 	out.Reply = strings.TrimSpace(reply.String())
 	return out
+}
+
+// smallestModel is the account's newest Haiku — the list is newest first —
+// or its first model when it lists no Haiku.
+func smallestModel(ctx context.Context, client *http.Client, accessToken string) (string, error) {
+	method, path, _ := Provider{}.ModelsRequest("", provider.Credential{})
+	req, err := newAccountRequest(ctx, method, path, nil, accessToken)
+	if err != nil {
+		return "", fmt.Errorf("build the model list request: %w", err)
+	}
+	req.Header.Set("anthropic-version", apiVersion)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("read the model list: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("read the model list: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("the model list returned %d: %s", resp.StatusCode, clip(strings.TrimSpace(string(raw)), 2000))
+	}
+	var l struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &l) != nil || len(l.Data) == 0 {
+		return "", fmt.Errorf("the account lists no models")
+	}
+	for _, m := range l.Data {
+		if strings.HasPrefix(m.ID, "claude-haiku-") {
+			return m.ID, nil
+		}
+	}
+	return l.Data[0].ID, nil
 }
