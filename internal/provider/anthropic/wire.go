@@ -106,13 +106,13 @@ func hasBeta(header, want string) bool {
 // carries no reset worth more than the pool's own backoff.
 func (Provider) Inspect(int, http.Header, []byte) provider.Verdict { return provider.Verdict{} }
 
-// ModelsPath implements provider.Wire: the Messages API's own model list,
+// ModelsRequest implements provider.Wire: the Messages API's own model list,
 // which takes the caller's paging as it is.
-func (Provider) ModelsPath(rawQuery string) string {
+func (Provider) ModelsRequest(rawQuery string, _ provider.Credential) (string, string, []byte) {
 	if rawQuery == "" {
-		return "/v1/models"
+		return http.MethodGet, "/v1/models", nil
 	}
-	return "/v1/models?" + rawQuery
+	return http.MethodGet, "/v1/models?" + rawQuery, nil
 }
 
 // ModelList implements provider.Wire. The gateway's list shape is this one's.

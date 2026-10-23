@@ -5,13 +5,14 @@
 // Lowest first:
 //
 //	0  leaves         version logging memlimit secret oauth request anthropicwire
-//	                  api mcp service/limits service/settings service/install
-//	                  service/clients configs
+//	                  geminiwire api mcp service/limits service/settings
+//	                  service/install service/clients configs
 //	                  testenv handover
 //	1  records        store config provider relay/passes api/anthropic
 //	                  api/openai
-//	2  accounts       pool provider/anthropic provider/openai service/accounts
-//	                  service/usage service/uptime service/clientconfig
+//	2  accounts       pool provider/anthropic provider/openai provider/google
+//	                  service/accounts service/usage service/uptime
+//	                  service/clientconfig
 //	3  relay          relay
 //	4  services       service/titles service/models
 //	5  HTTP plumbing  httpapi/httpx

@@ -264,7 +264,11 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		res.Model = lease.Model
 
 		cred := provider.Credential{Token: lease.AccessToken, AccountID: lease.Account.AccountUUID}
-		upstreamReq, err := r.build(req, base+upstreamPath, forAttempt(req.Context(), body, lease.Model), cred)
+		sent := forAttempt(req.Context(), body, lease.Model)
+		if st, ok := r.Wire.(provider.Stamper); ok {
+			sent = st.Stamp(sent, cred)
+		}
+		upstreamReq, err := r.build(req, base+upstreamPath, sent, cred)
 		if err != nil {
 			res.Err = err
 			return res

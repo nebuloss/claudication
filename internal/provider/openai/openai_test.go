@@ -333,8 +333,8 @@ func TestModelListKeepsTheListedOnesInRank(t *testing.T) {
 	if strings.Contains(string(out), "base_instructions") {
 		t.Error("the instructions came through")
 	}
-	if got := (Provider{}).ModelsPath("limit=1000"); got != "/models?client_version=999.0.0" {
-		t.Errorf("ModelsPath = %q", got)
+	if method, path, body := (Provider{}).ModelsRequest("limit=1000", provider.Credential{}); method != http.MethodGet || path != "/models?client_version=999.0.0" || body != nil {
+		t.Errorf("ModelsRequest = %s %q %q", method, path, body)
 	}
 }
 

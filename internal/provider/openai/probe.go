@@ -142,7 +142,8 @@ func explain(status int, raw []byte) string {
 
 // firstModel is the account's own first-ranked model.
 func firstModel(ctx context.Context, client *http.Client, cred provider.Credential) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, BaseURL+(Provider{}).ModelsPath(""), nil)
+	method, path, _ := Provider{}.ModelsRequest("", cred)
+	req, err := http.NewRequestWithContext(ctx, method, BaseURL+path, nil)
 	if err != nil {
 		return "", err
 	}

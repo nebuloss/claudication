@@ -28,6 +28,7 @@ var layers = map[string]int{
 	"internal/testenv":          0,
 	"internal/arch":             0,
 	"internal/anthropicwire":    0,
+	"internal/geminiwire":       0,
 	"internal/handover":         0,
 	"internal/mcp":              0,
 	"configs":                   0, // the committed client files, embedded
@@ -42,6 +43,7 @@ var layers = map[string]int{
 	"internal/pool":                 2,
 	"internal/provider/anthropic":   2,
 	"internal/provider/openai":      2,
+	"internal/provider/google":      2,
 	"internal/service/accounts":     2,
 	"internal/service/usage":        2,
 	"internal/service/uptime":       2,
@@ -71,6 +73,7 @@ var onlyImportedBy = map[string][]string{
 	// provider.Accounts, handed over by the composition root.
 	"internal/provider/anthropic": {"internal/httpapi"},
 	"internal/provider/openai":    {"internal/httpapi"},
+	"internal/provider/google":    {"internal/httpapi"},
 	// The client dialects: registered by the root, served by the gateway.
 	"internal/api/anthropic": {"internal/httpapi", "internal/httpapi/gateway"},
 	"internal/api/openai":    {"internal/httpapi", "internal/httpapi/gateway"},

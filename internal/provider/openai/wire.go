@@ -195,9 +195,11 @@ func (Provider) Inspect(status int, h http.Header, body []byte) provider.Verdict
 // 200, nine models, two of them hidden.
 const clientVersion = "999.0.0"
 
-// ModelsPath implements provider.Wire. The caller's paging is not passed on:
-// the backend answers the whole list and takes no limit.
-func (Provider) ModelsPath(string) string { return "/models?client_version=" + clientVersion }
+// ModelsRequest implements provider.Wire. The caller's paging is not passed
+// on: the backend answers the whole list and takes no limit.
+func (Provider) ModelsRequest(string, provider.Credential) (string, string, []byte) {
+	return http.MethodGet, "/models?client_version=" + clientVersion, nil
+}
 
 // backendModel is one entry of the backend's list, in the fields a model list
 // needs. Each also carries its whole base_instructions — tens of kilobytes —

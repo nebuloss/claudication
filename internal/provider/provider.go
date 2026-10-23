@@ -14,6 +14,8 @@
 //	internal/provider/anthropic  a Claude subscription, over Anthropic Messages
 //	internal/provider/openai     a ChatGPT subscription, over the Codex
 //	                             backend's Responses API
+//	internal/provider/google     a Google account's Gemini, over the Code
+//	                             Assist backend gemini-cli signs in to
 //
 // A new provider is a new package implementing both, wired in by the HTTP
 // layer. Nothing in the relay changes: the gateway runs one relay per
@@ -106,15 +108,31 @@ type Wire interface {
 	// provider that reports nothing there returns.
 	Inspect(status int, h http.Header, body []byte) Verdict
 
-	// ModelsPath is where one account's model list is read, on BaseURL, with
-	// the caller's query when the provider takes one.
-	ModelsPath(rawQuery string) string
+	// ModelsRequest is how one account's model list is asked for, on BaseURL:
+	// the method, the path — with the caller's query when the provider takes
+	// one — and the body, nil for none. A request rather than a path because
+	// not every upstream lists its models with a GET: Code Assist has no list
+	// and is asked its quota, a POST naming the account's project.
+	ModelsRequest(rawQuery string, c Credential) (method, path string, body []byte)
 
 	// ModelList turns that answer into the gateway's model list shape —
 	// {"data":[{"id","type":"model","display_name",...}]}, Anthropic's — so
 	// the catalogue reads every provider's list one way. A provider whose
 	// list already has that shape returns it as it came.
 	ModelList(body []byte) ([]byte, error)
+}
+
+// Stamper is a provider whose requests name the account in the body as well
+// as in the headers: Code Assist bills the Cloud project the body names, and
+// the project is per account. The relay stamps each attempt's body after it
+// has leased the account, from the same unstamped bytes every time, so a
+// retry on another account names that account.
+//
+// Only for a provider no client speaks as it is, whose every request body is
+// the gateway's own translation: stamping is a change to the bytes, and the
+// relay's rule is that a client's bytes go upstream unchanged.
+type Stamper interface {
+	Stamp(body []byte, c Credential) []byte
 }
 
 // Verdict is what one answer said about its account.

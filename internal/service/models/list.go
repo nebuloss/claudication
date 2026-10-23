@@ -17,6 +17,7 @@
 package models
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -841,11 +842,20 @@ func (s *Catalog) listModels(ctx context.Context, r *relay.Relay, a store.Accoun
 	if base == "" {
 		base = r.Wire.BaseURL()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+r.Wire.ModelsPath(rawQuery), nil)
+	cred := provider.Credential{Token: token, AccountID: a.AccountUUID}
+	method, path, reqBody := r.Wire.ModelsRequest(rawQuery, cred)
+	var in io.Reader
+	if reqBody != nil {
+		in = bytes.NewReader(reqBody)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, in)
 	if err != nil {
 		return nil, err
 	}
-	r.Wire.Authorize(req, provider.Credential{Token: token, AccountID: a.AccountUUID})
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	r.Wire.Authorize(req, cred)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
