@@ -89,6 +89,46 @@ export function InfoTip({ children, label = 'More about this' }: { children: Rea
   )
 }
 
+/**
+ * The same bubble as InfoTip's, held by something already on the page rather
+ * than by a mark: for a figure that stands for several, whose rest belong on
+ * hover rather than in the row — a Google account's gauge, the fullest of its
+ * allowances, with every allowance in the bubble. Each paragraph of `tip` is
+ * a bulleted point. Opened by hovering, by focus, or by a press, which is
+ * what a touch screen has; a press does not reach the row it sits in.
+ */
+export function HoverTip({ children, tip, label }: { children: ReactNode; tip: ReactNode; label: string }) {
+  const p = useAnchoredPanel<HTMLSpanElement>({ width: 320, maxHeight: 360 })
+  const id = useId()
+  return (
+    <>
+      <span
+        ref={p.anchor}
+        tabIndex={0}
+        aria-label={label}
+        aria-describedby={p.open ? id : undefined}
+        onClick={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          p.toggle()
+        }}
+        onMouseEnter={p.show}
+        onMouseLeave={p.close}
+        onFocus={p.show}
+        onBlur={p.close}
+        className="inline-flex cursor-default rounded-md3-s outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary"
+      >
+        {children}
+      </span>
+      {p.at !== null && (
+        <Popover panelRef={p.panel} at={p.at} role="tooltip" label={label} id={id} className={TIP}>
+          {tip}
+        </Popover>
+      )}
+    </>
+  )
+}
+
 const NOTE_TONES = {
   info: {
     box: 'bg-info-container text-on-info-container',

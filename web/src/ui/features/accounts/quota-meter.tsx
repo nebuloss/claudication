@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api, type Quota } from '../../../api/client'
 import { FIVE_HOURS_S, QuotaWindow, SEVEN_DAYS_S, windowShort, windowTitle } from '../../domain/quota'
-import { Button, InlineMeter, MeterRow, Muted, Stack, UsageBar } from '../../primitives'
+import { Button, HoverTip, InlineMeter, MeterRow, Muted, Stack, UsageBar } from '../../primitives'
 import { relative } from '../../format'
 import { providerOf } from '../../providers'
 
@@ -31,13 +31,25 @@ export function QuotaGauges({ quota }: { quota: Quota }) {
   const rows = quota.limits ?? []
   if (!windowed && rows.length > 0) {
     const fullest = rows.reduce((a, b) => (b.percent > a.percent ? b : a))
-    const all = rows.map((l) => `${l.title}: ${new QuotaWindow(l.percent, l.severity).label} used`)
     return (
-      <Gauge
-        label={windowShort(fullest.window_seconds ?? 0)}
-        window={new QuotaWindow(fullest.percent, fullest.severity)}
-        hover={`The fullest allowance, of ${String(rows.length)}:\n${all.join('\n')}`}
-      />
+      <HoverTip
+        label="This account's allowances"
+        tip={
+          <>
+            {rows.map((l) => (
+              <p key={l.kind}>
+                <span className="font-medium">{l.title}</span> · {new QuotaWindow(l.percent, l.severity).label} used
+              </p>
+            ))}
+          </>
+        }
+      >
+        <Gauge
+          label={windowShort(fullest.window_seconds ?? 0)}
+          tipped
+          window={new QuotaWindow(fullest.percent, fullest.severity)}
+        />
+      </HoverTip>
     )
   }
   return (
@@ -54,7 +66,8 @@ export function QuotaGauges({ quota }: { quota: Quota }) {
   )
 }
 
-function Gauge({ label, hover, window: w }: { label: string; hover?: string; window: QuotaWindow }) {
+/** One gauge. `tipped` is that a HoverTip says more around it, so it adds no browser tooltip of its own. */
+function Gauge({ label, tipped = false, window: w }: { label: string; tipped?: boolean; window: QuotaWindow }) {
   return (
     <InlineMeter
       label={label}
@@ -62,7 +75,7 @@ function Gauge({ label, hover, window: w }: { label: string; hover?: string; win
       tone={w.tone}
       figure={w.percent === null ? '–' : w.label}
       alert={w.level === 'critical'}
-      title={hover ?? (w.percent === null ? `${label}: not read yet` : `${label}: ${w.label} used`)}
+      title={tipped ? undefined : w.percent === null ? `${label}: not read yet` : `${label}: ${w.label} used`}
     />
   )
 }
