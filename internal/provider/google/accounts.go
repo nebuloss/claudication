@@ -15,8 +15,9 @@ import (
 type Accounts struct{}
 
 var (
-	_ provider.Accounts   = Accounts{}
-	_ provider.PasteLogin = Accounts{}
+	_ provider.Accounts        = Accounts{}
+	_ provider.PasteLogin      = Accounts{}
+	_ provider.AddressIdentity = Accounts{}
 )
 
 // ID implements provider.Accounts.
@@ -77,6 +78,10 @@ func (Accounts) Probe(ctx context.Context, c *http.Client, cred provider.Credent
 
 // ErrorCode implements provider.Accounts.
 func (Accounts) ErrorCode(status int, body string) string { return ErrorCode(status, body) }
+
+// IdentifiedByAddress implements provider.AddressIdentity: the project in
+// account_uuid is what a request bills, not who the account is.
+func (Accounts) IdentifiedByAddress() {}
 
 // Refusal implements provider.Accounts. No Google refusal is known to say
 // something it does not mean.

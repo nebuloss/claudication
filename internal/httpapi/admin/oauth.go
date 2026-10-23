@@ -202,6 +202,16 @@ func loginHint(a store.Account) string {
 	return a.Email
 }
 
+// identity is the provider's id for who signed in, or "" for a provider whose
+// stored id says no such thing (provider.AddressIdentity), which is then
+// known by address alone.
+func identity(prov provider.Accounts, res oauth.Result) string {
+	if _, byAddress := prov.(provider.AddressIdentity); byAddress {
+		return ""
+	}
+	return res.AccountUUID
+}
+
 // sameAccount reports whether a consent flow's tokens belong to a stored
 // account: by the provider's account id where both sides have one, which
 // survives a change of address, and by address otherwise.
@@ -319,7 +329,7 @@ func (s *Admin) storeConsent(w http.ResponseWriter, r *http.Request, prov provid
 			httpx.Internal(w, s.log, "read the account", err)
 			return
 		}
-		if !sameAccount(target, res.AccountUUID, res.Email) {
+		if !sameAccount(target, identity(prov, res), res.Email) {
 			s.handBack(prov, res.RefreshToken, "a reconnect came back as a different account")
 			s.log.Warn("reconnect approved as a different account; nothing stored",
 				"account", target.ID, "expected", target.Email, "approved_as", email)
@@ -330,7 +340,7 @@ func (s *Admin) storeConsent(w http.ResponseWriter, r *http.Request, prov provid
 					"private window, sign in as "+target.Email+", and start the reconnect again.")
 			return
 		}
-	} else if existing, err := s.store.AccountByIdentity(r.Context(), providerID, res.AccountUUID, email); err == nil {
+	} else if existing, err := s.store.AccountByIdentity(r.Context(), providerID, identity(prov, res), email); err == nil {
 		target = existing
 	}
 

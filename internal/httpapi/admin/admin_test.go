@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/oauth"
+	"claudication/internal/provider"
 	"claudication/internal/store"
 )
 
@@ -49,5 +51,29 @@ func TestFilterParsing(t *testing.T) {
 		if got := outcomeOf(in); got != want {
 			t.Errorf("outcomeOf(%q) = %q", in, got)
 		}
+	}
+}
+
+// byAddress is a provider whose account_uuid does not say who signed in.
+type byAddress struct{ provider.Accounts }
+
+func (byAddress) IdentifiedByAddress() {}
+
+// Google's account_uuid is the project it bills, shared by every free
+// account and changed by a plan change: two addresses on it are two
+// accounts, and a reconnect after an upgrade is still the same one.
+func TestAddressIdentityIgnoresTheProject(t *testing.T) {
+	stored := store.Account{Email: "a@example.com", AccountUUID: "aicode-consumers"}
+	google := byAddress{}
+	other := oauth.Result{Email: "b@example.com", AccountUUID: "aicode-consumers"}
+	if sameAccount(stored, identity(google, other), other.Email) {
+		t.Error("a second address on the shared project was taken for the first account")
+	}
+	upgraded := oauth.Result{Email: "A@example.com", AccountUUID: "paid-project-1"}
+	if !sameAccount(stored, identity(google, upgraded), upgraded.Email) {
+		t.Error("a reconnect on a new project was refused as another account")
+	}
+	if got := identity(nil, upgraded); got != "paid-project-1" {
+		t.Errorf("identity without AddressIdentity = %q, want the provider's id", got)
 	}
 }

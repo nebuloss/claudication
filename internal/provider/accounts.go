@@ -61,6 +61,16 @@ type Limit struct {
 	WindowSeconds int64 `json:"window_seconds,omitempty"`
 }
 
+// AddressIdentity is a provider whose account_uuid is not who an account
+// is, so its accounts are known by their address: Google's is the Cloud
+// project a request bills, which every free account shares
+// ("aicode-consumers", measured 2026-10-23) and a change of plan may change.
+// Known by it, a second free account would renew the first, and a reconnect
+// after an upgrade would be refused as someone else.
+type AddressIdentity interface {
+	IdentifiedByAddress()
+}
+
 // ProbeResult is what a credential test learned.
 type ProbeResult struct {
 	OK           bool   `json:"ok"`
