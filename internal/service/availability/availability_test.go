@@ -15,6 +15,35 @@ type fakeStore struct {
 	accounts map[string]store.Account
 	saved    []store.ModelTest
 	failing  map[string][]store.ModelTest
+	// off is what the gateway switched off, by model.
+	off map[string]bool
+}
+
+func (f *fakeStore) SwitchModelOffAuto(_ context.Context, _ string, model string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.off == nil {
+		f.off = map[string]bool{}
+	}
+	if f.off[model] {
+		return false, nil
+	}
+	f.off[model] = true
+	return true, nil
+}
+
+func (f *fakeStore) SwitchModelOnAuto(_ context.Context, _ string, model string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	was := f.off[model]
+	delete(f.off, model)
+	return was, nil
+}
+
+func (f *fakeStore) isOff(model string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.off[model]
 }
 
 func (f *fakeStore) Account(_ context.Context, id string) (store.Account, error) {
@@ -198,3 +227,49 @@ func TestRecheckWaitsForItsTurn(t *testing.T) {
 		t.Error("a model that works again was checked again")
 	}
 }
+
+// A model failing for a reason that lasts is switched off once it has for
+// AutoOffAfter, and back on the first time it works; a rate limit or a spent
+// quota, which reset on their own, never switches one off; nor does anything
+// while checking is switched off.
+func TestAModelThatKeepsFailingIsSwitchedOff(t *testing.T) {
+	c, st, _ := newChecker(nil)
+	ctx := context.Background()
+	base := time.Date(2026, 10, 26, 10, 0, 0, 0, time.UTC)
+	fail := func(model string, status int, after time.Duration) {
+		c.Record(ctx, "a", store.ModelTest{Model: model, At: base.Add(after), Status: status, Error: "x"})
+	}
+
+	fail("gemini-2.5-pro", 503, 0)
+	fail("gemini-2.5-pro", 503, Recheck)
+	if st.isOff("gemini-2.5-pro") {
+		t.Fatal("switched off after 15 minutes")
+	}
+	fail("gemini-2.5-pro", 503, AutoOffAfter)
+	if !st.isOff("gemini-2.5-pro") {
+		t.Fatal("not switched off after failing for AutoOffAfter")
+	}
+	c.Record(ctx, "a", store.ModelTest{Model: "gemini-2.5-pro", At: base.Add(time.Hour), OK: true, Status: 200})
+	if st.isOff("gemini-2.5-pro") {
+		t.Error("not switched back on once it worked")
+	}
+
+	for _, after := range []time.Duration{0, Recheck, AutoOffAfter, time.Hour} {
+		fail("gemini-4-argon-high", 429, after)
+	}
+	if st.isOff("gemini-4-argon-high") {
+		t.Error("a rate-limited model was switched off")
+	}
+
+	c.Checks = off{}
+	for _, after := range []time.Duration{0, Recheck, AutoOffAfter} {
+		fail("gemini-3.8-flash-high", 404, after)
+	}
+	if st.isOff("gemini-3.8-flash-high") {
+		t.Error("switched a model off while checking is switched off")
+	}
+}
+
+type off struct{}
+
+func (off) On() bool { return false }

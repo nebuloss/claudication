@@ -185,6 +185,14 @@ function ModelChecklist({
         <>
           {name}
           {!m.listed && <span className="ml-2 text-xs text-warning">no longer listed upstream</span>}
+          {m.auto_off === true && !on(m) && (
+            <span
+              className="ml-2 text-xs text-warning"
+              title="It kept failing on this account, so the gateway switched it off. It is still checked every 15 minutes and switched back on the first time it works. Switching it on yourself makes it yours again."
+            >
+              switched off automatically
+            </span>
+          )}
         </>
       ),
       checked: on(m),

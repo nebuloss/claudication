@@ -54,6 +54,19 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Warn("could not read the account's model tests", "account", id, "err", err)
 	}
+	// Which of the offs are the gateway's own, for its row to say so.
+	auto, err := s.store.AutoOffModels(ctx, id)
+	if err != nil {
+		s.log.Warn("could not read the account's switched-off models", "account", id, "err", err)
+	}
+	autoOff := func(model string) bool {
+		for m := range auto {
+			if store.ModelKey(m) == store.ModelKey(model) {
+				return true
+			}
+		}
+		return false
+	}
 	listed := map[string]bool{}
 	models := make([]map[string]any, 0, len(list.Data)+len(acct.ModelsOff))
 	for _, m := range list.Data {
@@ -63,6 +76,9 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 		}
 		listed[store.ModelKey(mid)] = true
 		m["enabled"] = acct.Serves(mid)
+		if !acct.Serves(mid) && autoOff(mid) {
+			m["auto_off"] = true
+		}
 		m["listed"] = true
 		if t, ok := tests[mid]; ok {
 			m["test"] = t
@@ -71,7 +87,7 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, off := range acct.ModelsOff {
 		if !listed[store.ModelKey(off)] {
-			models = append(models, map[string]any{"id": off, "enabled": false, "listed": false})
+			models = append(models, map[string]any{"id": off, "enabled": false, "listed": false, "auto_off": autoOff(off)})
 		}
 	}
 	// scanning says the models are being checked now, for the page to read

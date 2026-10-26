@@ -88,3 +88,51 @@ func TestAccountModelSwitches(t *testing.T) {
 		t.Errorf("%d switches outlived their account (%v)", n, err)
 	}
 }
+
+// The gateway turns back on only what it turned off: a model the operator
+// switched off — before, or after the gateway did — stays off.
+func TestAutoOffNeverTouchesTheOperators(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	a, err := st.UpsertAccount(ctx, Account{Provider: "google", Email: "a@example.com", ExpiresAt: time.Now().Add(time.Hour)},
+		Tokens{AccessToken: "x", RefreshToken: "y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := func(model string) bool {
+		t.Helper()
+		acct, err := st.Account(ctx, a.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return acct.Serves(model)
+	}
+
+	if off, err := st.SwitchModelOffAuto(ctx, a.ID, "gemini-2.5-pro"); err != nil || !off || served("gemini-2.5-pro") {
+		t.Fatalf("auto off: %v %v", off, err)
+	}
+	if auto, _ := st.AutoOffModels(ctx, a.ID); !auto["gemini-2.5-pro"] {
+		t.Errorf("auto-off models = %v", auto)
+	}
+	if on, err := st.SwitchModelOnAuto(ctx, a.ID, "gemini-2.5-pro"); err != nil || !on || !served("gemini-2.5-pro") {
+		t.Fatalf("auto on: %v %v", on, err)
+	}
+
+	// The operator's own off is never the gateway's to undo.
+	if err := st.SetAccountModel(ctx, a.ID, "gemini-3-flash", false); err != nil {
+		t.Fatal(err)
+	}
+	if on, _ := st.SwitchModelOnAuto(ctx, a.ID, "gemini-3-flash"); on || served("gemini-3-flash") {
+		t.Error("the gateway turned on a model the operator switched off")
+	}
+	// Nor is one the gateway switched off and the operator then chose to keep off.
+	if _, err := st.SwitchModelOffAuto(ctx, a.ID, "gemini-4-argon-low"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccountModel(ctx, a.ID, "gemini-4-argon-low", false); err != nil {
+		t.Fatal(err)
+	}
+	if on, _ := st.SwitchModelOnAuto(ctx, a.ID, "gemini-4-argon-low"); on || served("gemini-4-argon-low") {
+		t.Error("the gateway turned on a model the operator had made theirs")
+	}
+}

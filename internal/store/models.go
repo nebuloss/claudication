@@ -116,13 +116,86 @@ func (s *Store) SetAccountModel(ctx context.Context, id, model string, on bool) 
 		return nil
 	}
 	if !acct.Serves(model) {
-		return nil // already off, under this spelling or the other
+		// Already off. Off by the gateway, it is the operator's now: they
+		// chose it, and the gateway must not turn it back on.
+		for _, off := range acct.ModelsOff {
+			if ModelKey(off) == ModelKey(model) {
+				if _, err := s.db.ExecContext(ctx,
+					`UPDATE account_models_off SET by = 'operator' WHERE account_id = ? AND model = ?`, id, off); err != nil {
+					return fmt.Errorf("set account model: %w", err)
+				}
+			}
+		}
+		return nil
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO account_models_off (account_id, model, off_at) VALUES (?, ?, ?)`,
+		`INSERT INTO account_models_off (account_id, model, off_at, by) VALUES (?, ?, ?, 'operator')`,
 		id, model, ms(time.Now()))
 	if err != nil {
 		return fmt.Errorf("set account model: %w", err)
 	}
 	return nil
+}
+
+// SwitchModelOffAuto turns a model off for an account on the gateway's own
+// account, as the operator's switch does, marked as the gateway's: what
+// SwitchModelOnAuto may turn back on. False when it was off already.
+func (s *Store) SwitchModelOffAuto(ctx context.Context, id, model string) (bool, error) {
+	acct, err := s.Account(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if !acct.Serves(model) {
+		return false, nil
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO account_models_off (account_id, model, off_at, by) VALUES (?, ?, ?, 'auto')`,
+		id, model, ms(time.Now())); err != nil {
+		return false, fmt.Errorf("switch model off: %w", err)
+	}
+	return true, nil
+}
+
+// SwitchModelOnAuto turns back on a model the gateway turned off for an
+// account, under either spelling, and never one the operator did. False when
+// there was none to turn on.
+func (s *Store) SwitchModelOnAuto(ctx context.Context, id, model string) (bool, error) {
+	acct, err := s.Account(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	on := false
+	for _, off := range acct.ModelsOff {
+		if ModelKey(off) != ModelKey(model) {
+			continue
+		}
+		res, err := s.db.ExecContext(ctx,
+			`DELETE FROM account_models_off WHERE account_id = ? AND model = ? AND by = 'auto'`, id, off)
+		if err != nil {
+			return false, fmt.Errorf("switch model on: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			on = true
+		}
+	}
+	return on, nil
+}
+
+// AutoOffModels are the models the gateway itself turned off for an account.
+func (s *Store) AutoOffModels(ctx context.Context, id string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT model FROM account_models_off WHERE account_id = ? AND by = 'auto'`, id)
+	if err != nil {
+		return nil, fmt.Errorf("auto-off models: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, fmt.Errorf("auto-off model: %w", err)
+		}
+		out[m] = true
+	}
+	return out, rows.Err()
 }

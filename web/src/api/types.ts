@@ -130,6 +130,11 @@ export interface AccountModel extends Model {
   enabled: boolean
   /** False for a model switched off that the upstream no longer lists. */
   listed: boolean
+  /**
+   * Switched off by the gateway, for failing on this account: it switches it
+   * back on the first time a check finds it served.
+   */
+  auto_off?: boolean
   /** The last test of this model on this account, when there was one. */
   test?: ModelTest
 }

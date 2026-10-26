@@ -24,13 +24,14 @@ export default function ModelChecks({ enabled, onChanged }: { enabled: boolean; 
         disabled={busy !== ''}
         onChange={(v) => void set(v)}
         label="Check models automatically"
-        info="Each account's models are tried when it is added, and a failing one again every 15 minutes, with one short request each. A model failing on an account is routed to another account that has it working."
+        info="Each account's models are tried when it is added, and a failing one again every 15 minutes, with one short request each. A model failing on an account is routed to another account that has it working; one that keeps failing for 30 minutes, for a reason that lasts, is switched off there, and back on the first time it works."
       >
         {!enabled && (
           <Note>
-            Switched off: nothing is checked. Client requests still mark a model failing or working on an account,
-            and the Test button on an account&rsquo;s Models page still does, and a failing model is still routed
-            around.
+            Switched off: nothing is checked, and no model is switched off for failing. Client requests still mark
+            a model failing or working on an account, and the Test button on an account&rsquo;s Models page still
+            does, and a failing model is still routed around. A model the gateway already switched off stays off
+            until you switch it on, or turn checking back on.
           </Note>
         )}
       </SettingSwitch>

@@ -22,6 +22,14 @@
 // while what costs nothing goes on: client traffic, and the Test button,
 // still mark a model failing or working, and are still routed by.
 //
+// A model that keeps failing on an account for a reason that lasts — every
+// check for AutoOffAfter, and not a rate limit or a spent quota, which come
+// back on their own — is switched off there, as the operator's switch would
+// (store.SwitchModelOffAuto): the owner's, 2026-10-26, for gemini-2.5-pro.
+// It is checked on, and switched back on the first time it works; one the
+// operator switched off is never touched. Only while checking is on: off,
+// nothing would ever bring it back.
+//
 // A failing model is routed around: the pool holds that account off it
 // (pool.HoldModel) until the next check, so a request for it goes to another
 // account that has it working. Held is not refused — with no other account,
@@ -52,6 +60,9 @@ const (
 	SeenEvery = time.Minute
 	// Tick is how often the failing models are looked over.
 	Tick = time.Minute
+	// AutoOffAfter is how long a model fails on an account, for a reason
+	// that lasts, before it is switched off there: three checks.
+	AutoOffAfter = 30 * time.Minute
 	// scanAtOnce is how many of an account's models are tried at the same
 	// time: the account page's Test all does as many.
 	scanAtOnce = 4
@@ -59,11 +70,13 @@ const (
 	scanWait = 10 * time.Minute
 )
 
-// Store is where each model's last result is kept.
+// Store is where each model's last result is kept, and its switch.
 type Store interface {
 	Account(ctx context.Context, id string) (store.Account, error)
 	SaveModelTest(ctx context.Context, accountID string, t store.ModelTest) error
 	FailingModelTests(ctx context.Context) (map[string][]store.ModelTest, error)
+	SwitchModelOffAuto(ctx context.Context, id, model string) (bool, error)
+	SwitchModelOnAuto(ctx context.Context, id, model string) (bool, error)
 }
 
 // Holds is the pool's per-model hold on an account.
@@ -110,11 +123,21 @@ type Checker struct {
 // and its alias are one.
 type pair struct{ account, model string }
 
-// failed is a failing pair: when it last failed, and the model's id as it
-// was asked for, which a check asks again.
+// failed is a failing pair: when it last failed, the model's id as it was
+// asked for, which a check asks again, and when it began failing for a
+// reason that lasts (zero while it has not), which AutoOffAfter counts from.
 type failed struct {
 	at    time.Time
 	model string
+	since time.Time
+}
+
+// lasting reports whether a failure is one that waiting does not cure: not a
+// rate limit or a spent quota (429), which reset, and not one where the
+// upstream was never reached (no status), which is the account's or the
+// network's, not the model's.
+func lasting(t store.ModelTest) bool {
+	return t.Status != 0 && t.Status != 429
 }
 
 func (c *Checker) clock() time.Time {
@@ -155,7 +178,11 @@ func (c *Checker) Load(ctx context.Context) error {
 	c.init()
 	for account, tests := range failing {
 		for _, t := range tests {
-			c.failing[pair{account, store.ModelKey(t.Model)}] = failed{t.At, t.Model}
+			f := failed{at: t.At, model: t.Model}
+			if lasting(t) {
+				f.since = t.At
+			}
+			c.failing[pair{account, store.ModelKey(t.Model)}] = f
 			c.Holds.HoldModel(account, t.Model, t.At.Add(Recheck))
 		}
 	}
@@ -170,16 +197,56 @@ func (c *Checker) Record(ctx context.Context, accountID string, t store.ModelTes
 	}
 	p := pair{accountID, store.ModelKey(t.Model)}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.init()
+	prev, wasFailing := c.failing[p]
 	if t.OK {
 		delete(c.failing, p)
 		c.seen[p] = t.At
 		c.Holds.ReleaseModel(accountID, t.Model)
+		c.mu.Unlock()
+		if wasFailing {
+			c.switchOn(ctx, accountID, t.Model)
+		}
 		return
 	}
-	c.failing[p] = failed{t.At, t.Model}
+	f := failed{at: t.At, model: t.Model}
+	if lasting(t) {
+		f.since = t.At
+		if wasFailing && !prev.since.IsZero() {
+			f.since = prev.since
+		}
+	}
+	c.failing[p] = f
 	c.Holds.HoldModel(accountID, t.Model, t.At.Add(Recheck))
+	c.mu.Unlock()
+	if !f.since.IsZero() && t.At.Sub(f.since) >= AutoOffAfter && c.checking() {
+		c.switchOff(ctx, accountID, t.Model, t.Error)
+	}
+}
+
+// switchOff switches a model that keeps failing off on an account.
+func (c *Checker) switchOff(ctx context.Context, accountID, model, why string) {
+	off, err := c.Store.SwitchModelOffAuto(ctx, accountID, model)
+	if err != nil {
+		c.log().Warn("could not switch a failing model off", "account", accountID, "model", model, "err", err)
+		return
+	}
+	if off {
+		c.log().Warn("switched a model off on an account: it kept failing",
+			"account", accountID, "model", model, "for", AutoOffAfter.String(), "error", why)
+	}
+}
+
+// switchOn switches back on a model the gateway switched off, now it works.
+func (c *Checker) switchOn(ctx context.Context, accountID, model string) {
+	on, err := c.Store.SwitchModelOnAuto(ctx, accountID, model)
+	if err != nil {
+		c.log().Warn("could not switch a model back on", "account", accountID, "model", model, "err", err)
+		return
+	}
+	if on {
+		c.log().Info("switched a model back on: it works again", "account", accountID, "model", model)
+	}
 }
 
 // Served notes a client request a model served on an account. Free when the
@@ -220,7 +287,11 @@ func (c *Checker) Refused(accountID, model string, status int, detail string) {
 		c.mu.Unlock()
 		return
 	}
-	c.failing[p] = failed{now, model}
+	f := failed{at: now, model: model}
+	if prev, ok := c.failing[p]; ok {
+		f.since = prev.since
+	}
+	c.failing[p] = f
 	c.mu.Unlock()
 	go c.Record(context.Background(), accountID, store.ModelTest{
 		Model: model, At: now, Status: status, Error: detail, Source: store.TestByTraffic,

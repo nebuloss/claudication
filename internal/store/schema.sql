@@ -233,12 +233,16 @@ CREATE TABLE account_quota (
     detail           TEXT    NOT NULL DEFAULT ''
 );
 
--- The models an operator turned off for an account, by the rule
--- api_key_models_off follows: a row is an off, no row is on.
+-- The models turned off for an account, by the rule api_key_models_off
+-- follows: a row is an off, no row is on. by is who turned it off: the
+-- 'operator', or the gateway itself ('auto') for a model that kept failing
+-- there, which it turns back on when a check finds it served again
+-- (internal/service/availability) and never touches an operator's.
 CREATE TABLE account_models_off (
     account_id TEXT    NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
     model      TEXT    NOT NULL,
     off_at     INTEGER NOT NULL,
+    by         TEXT    NOT NULL DEFAULT 'operator',
     PRIMARY KEY (account_id, model)
 ) WITHOUT ROWID;
 
