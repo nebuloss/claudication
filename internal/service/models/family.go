@@ -259,7 +259,12 @@ func (s *Catalog) Lists(accountID, model string) bool {
 // its versions the client is allowed, newest first, and this catalogue's
 // reading of who lists what.
 func (s *Catalog) versionsFor(allowed []string) pool.Versions {
-	return pool.Versions{Models: allowed, Lists: s.Lists}
+	return pool.Versions{Models: allowed, Lists: s.Lists, Failing: s.failing}
+}
+
+// isFailing reports whether a model is failing on an account now.
+func (s *Catalog) isFailing(accountID, model string) bool {
+	return s.failing != nil && s.failing(accountID, model)
 }
 
 // resolvedFamily is a family as one client may be served it now.
@@ -271,6 +276,10 @@ type resolvedFamily struct {
 	// first: the first is what a request gets where an account has it, and
 	// all of them are what its facts are the smallest of.
 	serving []string
+	// failing is that every account would serve it a version failing there:
+	// it is still routed — tried, and the upstream says — but not offered
+	// (Resolve).
+	failing bool
 }
 
 // resolveFamily is how a family serves a client now, and why it cannot when
@@ -311,11 +320,14 @@ func (s *Catalog) resolveFamily(ctx context.Context, off Off, f clients.Follow) 
 	}
 	v := s.versionsFor(r.allowed)
 	seen := map[string]bool{}
+	working := false
 	for _, a := range candidates {
 		if b := pool.Best(a, v); b != "" {
 			seen[b] = true
+			working = working || !s.isFailing(a.ID, b)
 		}
 	}
+	r.failing = len(seen) > 0 && !working
 	for _, m := range r.allowed {
 		if seen[m] {
 			r.serving = append(r.serving, m)

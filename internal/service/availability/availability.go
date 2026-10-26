@@ -273,6 +273,15 @@ func (c *Checker) Scan(accountID string) {
 	}()
 }
 
+// Failing reports whether a model is failing on an account now: its last
+// result, kept until a check or a client's request says otherwise.
+func (c *Checker) Failing(accountID, model string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.failing[pair{accountID, store.ModelKey(model)}]
+	return ok
+}
+
 // Scanning reports whether an account's models are being checked now.
 func (c *Checker) Scanning(accountID string) bool {
 	c.mu.Lock()

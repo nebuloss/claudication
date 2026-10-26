@@ -98,4 +98,17 @@ func TestBest(t *testing.T) {
 	if got := Best(a, v); got != "" {
 		t.Errorf("Best listing none = %q", got)
 	}
+
+	// A version failing on the account is passed over for the next, and is
+	// served only when every version it has is failing: a family is tried,
+	// never refused, for its versions failing.
+	v.Lists = nil
+	v.Failing = func(_, m string) bool { return m == "gpt-6-sol" }
+	if got := Best(a, v); got != "gpt-5.6-sol" {
+		t.Errorf("Best with its newest failing = %q, want gpt-5.6-sol", got)
+	}
+	v.Failing = func(string, string) bool { return true }
+	if got := Best(a, v); got != "gpt-6-sol" {
+		t.Errorf("Best with every version failing = %q, want the newest, gpt-6-sol", got)
+	}
 }

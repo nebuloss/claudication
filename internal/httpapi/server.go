@@ -412,7 +412,9 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	installs := install.New(15 * time.Minute)
 	defer s.buildAvailability()
 	s.models = modelsvc.New(modelsvc.Deps{
-		Config: cfg, Log: log, Store: st, Settings: st, Pool: s.pool,
+		// Read at call time: the checker is made below, before anything asks.
+		Failing: func(accountID, model string) bool { return s.availability.Failing(accountID, model) },
+		Config:  cfg, Log: log, Store: st, Settings: st, Pool: s.pool,
 		Relays:     []*relay.Relay{s.relays[anthropic.ID], s.relays[chatgpt.ID], s.relays[google.ID]},
 		HTTPClient: s.httpClient,
 	})

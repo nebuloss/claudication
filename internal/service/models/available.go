@@ -39,7 +39,16 @@ import (
 // A family is available when some account would serve it a version the
 // client is allowed (family.go) — the family itself allowed too, its switch
 // being its id's (claude-opus) — so it is offered while any account can
-// serve it, whichever version that is, and refused only when none can. A
+// serve it, whichever version that is, and refused only when none can.
+//
+// And a model is offered only while it works somewhere (the owner's,
+// 2026-10-26): one failing on every account that has it
+// (internal/service/availability) — gemini-2.5-pro, listed with quota and
+// refused by Google for every request — is left out of every menu and list
+// until a check or a client's request finds it served again. A family is,
+// when every account would serve it a failing version; one that skips a
+// failing version for a working one is not (pool.Best). Routing is not
+// this rule: a request for it is still sent, and the upstream says. A
 // binding made before something became unavailable is kept, and said: the
 // operator sees what it was and why, and replaces it with something
 // available; the gateway's own refusal of such a request is unchanged.
@@ -50,6 +59,11 @@ const (
 	whyNotListed  = "no connected account lists it"
 	whyOff        = "it is switched off on every account that lists it"
 	whyNoAccount  = "no account that has it on can serve now"
+	// whyFailing is a model that every account having it fails to serve
+	// (internal/service/availability): left out of what clients are offered
+	// until one serves it, which the next check or client request says.
+	whyFailing = "it is failing on every account that has it; checked again every 15 minutes, " +
+		"and offered again once one serves it"
 )
 
 // Off is what one client may not be served: the models switched off on its
@@ -182,6 +196,9 @@ func (s *Catalog) Resolve(ctx context.Context, off Off, b store.Binding) (Choice
 		} else if len(r.allowed) > 0 {
 			c.Serving = r.allowed[0]
 		}
+		if why == "" && r.failing {
+			why = whyFailing
+		}
 		if why == "" {
 			c.Limited, c.Back = s.pool.Limited(pool.WithVersions(ctx, s.versionsFor(r.allowed)), c.Provider, "")
 		}
@@ -256,6 +273,30 @@ func Normal(b store.Binding) store.Binding {
 	return b
 }
 
+// failingEverywhere reports whether every account that would serve model —
+// switched on, listing it and having it on — is failing it now. False when
+// none would: that is unavailable's other answers.
+func (s *Catalog) failingEverywhere(ctx context.Context, provider, model string) bool {
+	if s.failing == nil {
+		return false
+	}
+	candidates, err := s.pool.Candidates(ctx, provider)
+	if err != nil {
+		return false
+	}
+	some := false
+	for _, a := range candidates {
+		if !a.Serves(model) || !s.Lists(a.ID, model) {
+			continue
+		}
+		if !s.failing(a.ID, model) {
+			return false
+		}
+		some = true
+	}
+	return some
+}
+
 // unavailable is why a real model cannot serve a client now, or "".
 func (s *Catalog) unavailable(ctx context.Context, provider, model string) string {
 	k := store.ModelKey(model)
@@ -272,6 +313,9 @@ func (s *Catalog) unavailable(ctx context.Context, provider, model string) strin
 		return whyNotListed
 	}
 	if s.pool.Offers(ctx, provider, model) {
+		if s.failingEverywhere(ctx, provider, model) {
+			return whyFailing
+		}
 		return ""
 	}
 	// Listed, and no account can take it now: say which of the operator's

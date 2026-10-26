@@ -114,6 +114,9 @@ type Catalog struct {
 
 	// The public model catalogue; see catalog.go.
 	catalog catalogCache
+
+	// failing is Deps.Failing.
+	failing func(accountID, model string) bool
 }
 
 // Deps is what a Catalog is built from. Every field is required.
@@ -132,6 +135,9 @@ type Deps struct {
 	Relays []*relay.Relay
 	// HTTPClient makes the small upstream calls: the lists and the catalogue.
 	HTTPClient *http.Client
+	// Failing reports whether a model is failing on an account now
+	// (internal/service/availability); nil takes none to be.
+	Failing func(accountID, model string) bool
 }
 
 // New builds a Catalog. Nothing is read until it is asked; the modes hold
@@ -144,6 +150,7 @@ func New(d Deps) *Catalog {
 	return &Catalog{
 		cfg: d.Config, log: d.Log, store: d.Store, pool: d.Pool,
 		relays: d.Relays, httpClient: d.HTTPClient, modes: modes, settings: d.Settings,
+		failing: d.Failing,
 	}
 }
 

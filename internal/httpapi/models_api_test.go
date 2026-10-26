@@ -301,3 +301,50 @@ func TestAnUnreadAccountKeepsItsLastList(t *testing.T) {
 		t.Error("with no account answering, the last lists were shown as current")
 	}
 }
+
+// A model failing on every account that has it is left out of what clients
+// are offered, and still routed: the request is sent, and the upstream says.
+// Working again on one account, it is offered again at once.
+func TestAModelFailingEverywhereIsNotOffered(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	srv.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		rec := httptest.NewRecorder()
+		_, _ = io.WriteString(rec, `{"data":[{"id":"claude-opus-5-5"},{"id":"claude-sonnet-5"}],"has_more":false}`)
+		return rec.Result(), nil
+	})
+	one := addAccount(t, srv, st, "one@example.com", "one-access", "r1", time.Now().Add(time.Hour))
+	two := addAccount(t, srv, st, "two@example.com", "two-access", "r2", time.Now().Add(time.Hour))
+	ctx := context.Background()
+	if _, err := srv.models.List(ctx); err != nil {
+		t.Fatal(err)
+	}
+	offered := func() []string {
+		var out []string
+		for _, c := range srv.models.Available(ctx, nil) {
+			out = append(out, c.Serving)
+		}
+		return out
+	}
+	fail := func(id string) {
+		srv.availability.Record(ctx, id, store.ModelTest{Model: "claude-sonnet-5", At: time.Now(), Status: 503,
+			Error: "No capacity", Source: store.TestByScan})
+	}
+
+	fail(one.ID)
+	if !slices.Contains(offered(), "claude-sonnet-5") {
+		t.Errorf("offered %v: sonnet-5 fails on one account of two, and works on the other", offered())
+	}
+	fail(two.ID)
+	if slices.Contains(offered(), "claude-sonnet-5") {
+		t.Errorf("offered %v: sonnet-5 fails on every account", offered())
+	}
+	key := store.APIKey{ID: "k"}
+	if rt := srv.models.Route(ctx, key, "claude-sonnet-5"); rt.Why != "" || rt.Provider != "anthropic" {
+		t.Errorf("a model failing everywhere was refused, not routed: %+v", rt)
+	}
+	srv.availability.Record(ctx, two.ID, store.ModelTest{Model: "claude-sonnet-5", At: time.Now(), OK: true,
+		Status: 200, Source: store.TestByTraffic})
+	if !slices.Contains(offered(), "claude-sonnet-5") {
+		t.Errorf("offered %v: sonnet-5 served a request, and is still hidden", offered())
+	}
+}

@@ -25,17 +25,31 @@ type Versions struct {
 	// takes every account to list everything, which leaves the switches alone
 	// to decide.
 	Lists func(accountID, model string) bool
+	// Failing reports whether a model is failing on an account now
+	// (internal/service/availability). Nil takes none to be.
+	Failing func(accountID, model string) bool
 }
 
 // Best is the version an account would serve: the newest of v's models it
-// lists and has on, or "" when it has none of them.
+// lists and has on and that is not failing there — so a family whose newest
+// version stopped answering on an account is served the one before it —
+// else the newest it lists and has on, failing or not, so a family is never
+// refused for its versions failing: it is tried, and the upstream says.
+// "" when it has none of them.
 func Best(a store.Account, v Versions) string {
+	fallback := ""
 	for _, m := range v.Models {
-		if a.Serves(m) && (v.Lists == nil || v.Lists(a.ID, m)) {
+		if !a.Serves(m) || (v.Lists != nil && !v.Lists(a.ID, m)) {
+			continue
+		}
+		if v.Failing == nil || !v.Failing(a.ID, m) {
 			return m
 		}
+		if fallback == "" {
+			fallback = m
+		}
 	}
-	return ""
+	return fallback
 }
 
 type versionsKey struct{}
