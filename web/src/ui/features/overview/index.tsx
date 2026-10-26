@@ -133,14 +133,16 @@ export default function Overview({
       )}
       {!data.ready && (
         <Banner tone="warn">
-          No usable Claude account, so the proxy cannot serve a request yet.{' '}
+          No usable account, so the gateway cannot serve a request yet.{' '}
           <InlineLink href="/accounts">Connect one</InlineLink>.
         </Banner>
       )}
-      {data.ready && (day?.requests ?? 0) === 0 && (
+      {/* Only for a gateway nothing has ever called: a quiet day says so in
+          the figures below, and is nothing to act on. */}
+      {data.ready && data.served === false && (
         <Banner>
           Ready, and nothing has called it yet.{' '}
-          <InlineLink href="/keys">Point a client at it</InlineLink>.
+          <InlineLink href="/clients">Point a client at it</InlineLink>.
         </Banner>
       )}
       {(data.accounts.needs_reauth ?? 0) > 0 && (

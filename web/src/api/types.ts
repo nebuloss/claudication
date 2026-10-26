@@ -564,6 +564,8 @@ export interface Overview {
   }
   keys: { total: number }
   last_24h?: UsageTotals
+  /** Whether it has served any request, as far as the request log goes back. */
+  served?: boolean
   /** The gateway process's own memory, read when the overview was asked for. */
   memory?: MemorySnapshot
 }

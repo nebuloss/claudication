@@ -111,3 +111,18 @@ func TestUsageCrossTabs(t *testing.T) {
 		previous = c
 	}
 }
+
+// The overview tells a gateway nothing has called from one that had a quiet
+// day: a request long out of the 24-hour window still counts.
+func TestServedLooksPastTheDay(t *testing.T) {
+	st := usageStore(t)
+	ctx := context.Background()
+	if served, err := st.Served(ctx); err != nil || served {
+		t.Fatalf("empty log: served=%v err=%v", served, err)
+	}
+	record(t, st, UsageEvent{At: time.Now().Add(-72 * time.Hour), Model: "claude-opus-5", KeyID: "k1",
+		KeyName: "laptop", Status: 200})
+	if served, err := st.Served(ctx); err != nil || !served {
+		t.Fatalf("a request three days ago: served=%v err=%v", served, err)
+	}
+}

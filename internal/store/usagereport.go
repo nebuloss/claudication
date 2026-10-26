@@ -101,6 +101,19 @@ func (s *Store) Totals(ctx context.Context, since time.Time) (UsageTotals, error
 	return t, nil
 }
 
+// Served reports whether the gateway has served any request it counts, ever
+// — as far as the request log still goes back. One indexed probe, not a
+// count: the overview asks it on every refresh.
+func (s *Store) Served(ctx context.Context) (bool, error) {
+	var served bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM usage_events WHERE `+sqlCounted+`)`).Scan(&served)
+	if err != nil {
+		return false, fmt.Errorf("usage served: %w", err)
+	}
+	return served, nil
+}
+
 // Usage aggregates everything since a point in time.
 //
 // One grouped pass over the window, folded in Go, rather than a query per

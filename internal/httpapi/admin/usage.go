@@ -418,6 +418,11 @@ func (s *Admin) handleOverview(w http.ResponseWriter, r *http.Request) {
 		if totals, err := s.store.Totals(r.Context(), time.Now().Add(-24*time.Hour)); err == nil {
 			out["last_24h"] = totals
 		}
+		// Whether anything has called it at all: a quiet day is not a
+		// gateway nothing points at, and the overview said so the same way.
+		if served, err := s.store.Served(r.Context()); err == nil {
+			out["served"] = served
+		}
 	}
 
 	// Whether the gateway can serve a request right now is not the same
