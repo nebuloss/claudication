@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -249,5 +250,54 @@ func TestModelListIsTheUnionOfAccounts(t *testing.T) {
 	}
 	if got := ids(); slices.Contains(got, "claude-opus-5-5") {
 		t.Errorf("models = %v: opus-5-5 is off on the only account that has it", got)
+	}
+}
+
+// An account whose list cannot be read this time stands in with the last
+// one it gave: a model only its plan has stays listed, and routed, rather
+// than dropped for one bad read. When no account answers at all it is an
+// error, whatever stood in.
+func TestAnUnreadAccountKeepsItsLastList(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	var maxDown, proDown atomic.Bool
+	srv.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		rec := httptest.NewRecorder()
+		switch strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		case "pro-access":
+			if proDown.Load() {
+				rec.WriteHeader(http.StatusServiceUnavailable)
+				break
+			}
+			_, _ = io.WriteString(rec, `{"data":[{"id":"claude-sonnet-5"}],"has_more":false}`)
+		case "max-access":
+			if maxDown.Load() {
+				rec.WriteHeader(http.StatusServiceUnavailable)
+				break
+			}
+			_, _ = io.WriteString(rec, `{"data":[{"id":"claude-opus-5-5"},{"id":"claude-sonnet-5"}],"has_more":false}`)
+		}
+		return rec.Result(), nil
+	})
+	addAccount(t, srv, st, "pro@example.com", "pro-access", "r1", time.Now().Add(time.Hour))
+	addAccount(t, srv, st, "max@example.com", "max-access", "r2", time.Now().Add(time.Hour))
+	ctx := context.Background()
+
+	if _, err := srv.models.List(ctx); err != nil {
+		t.Fatal(err)
+	}
+	maxDown.Store(true)
+	body, err := srv.models.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"claude-opus-5-5"`) {
+		t.Errorf("opus-5-5, which only the unread account lists, was dropped: %s", body)
+	}
+	if p := srv.models.ProviderOf(ctx, "claude-opus-5-5"); p != "anthropic" {
+		t.Errorf("opus-5-5 routes to %q, want anthropic", p)
+	}
+	proDown.Store(true)
+	if _, err := srv.models.List(ctx); err == nil {
+		t.Error("with no account answering, the last lists were shown as current")
 	}
 }

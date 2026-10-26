@@ -102,6 +102,15 @@ type Catalog struct {
 	// these lists are kept for newestTTL.
 	listed   map[string][]listedModel
 	newestAt time.Time
+	// nextRead is when the lists are read again: newestTTL after a whole
+	// read, listRetry after one that missed an account (remember).
+	nextRead time.Time
+	// lastLists are each account's last list that could be read, standing
+	// in for one that cannot be this time (List).
+	lastLists map[string][]byte
+	// refreshing is closed when the refresh in flight ends; nil when none
+	// is (refreshFamilies).
+	refreshing chan struct{}
 
 	// The public model catalogue; see catalog.go.
 	catalog catalogCache
@@ -274,6 +283,17 @@ type virtualEntry struct {
 // released every few months; a request should not wait on them.
 const newestTTL = 10 * time.Minute
 
+// listRetry is how soon a read that missed an account is tried again: the
+// account's last list stood in for it, which may say a model it has since
+// gained or lost.
+const listRetry = time.Minute
+
+// refreshWait bounds a refresh run in the background, on its own clock: the
+// request that found the lists stale does not wait on it, and its deadline
+// — /v1/models answers inside the client's 3-second budget — would cut the
+// read short and leave the later accounts unread.
+const refreshWait = 30 * time.Second
+
 // remembered is what one read of every provider's list found, for remember
 // to keep.
 type remembered struct {
@@ -416,12 +436,19 @@ func (m *remembered) rememberProvider(providerID string, list []byte) {
 
 // remember keeps what a read of the lists found. A read that found no list at
 // all keeps what the last one did, and only says which providers could not be
-// read — what ProviderOf guesses for — and is not counted as fresh, so the
-// next caller tries again, as one always has.
-func (s *Catalog) remember(m remembered, read bool) {
+// read — what ProviderOf guesses for — and is not counted as fresh. Neither
+// is one that missed an account (partial), whose last list stood in for it:
+// both are tried again after listRetry, not newestTTL.
+func (s *Catalog) remember(m remembered, read, partial bool) {
 	s.rolesMu.Lock()
 	defer s.rolesMu.Unlock()
 	s.unread, s.connected = m.unread, m.connected
+	now := time.Now()
+	if !read || partial {
+		s.nextRead = now.Add(listRetry)
+	} else {
+		s.nextRead = now.Add(newestTTL)
+	}
 	if !read {
 		return
 	}
@@ -473,18 +500,51 @@ func (s *Catalog) remember(m remembered, read bool) {
 	s.fams, s.served, s.accountLists = m.fams, m.served, m.accountLists
 	s.caps, s.windows = m.caps, m.windows
 	s.listed = m.listed
-	s.newestAt = time.Now()
+	s.newestAt = now
 }
 
 // refreshFamilies re-reads the model lists when what was remembered is stale.
+//
+// One read at a time, in the background, on its own clock (refreshWait):
+// every request that found the lists stale used to read them all itself,
+// each with its own request's deadline, and waited for them before it was
+// sent. Now a caller goes on with what was last read while the one refresh
+// runs. Only a gateway that has read nothing yet waits for it, as long as
+// its own context allows, since it has nothing else to go on.
 func (s *Catalog) refreshFamilies(ctx context.Context) {
 	s.rolesMu.Lock()
-	stale := time.Since(s.newestAt) >= newestTTL
-	s.rolesMu.Unlock()
-	if !stale {
+	if time.Now().Before(s.nextRead) {
+		s.rolesMu.Unlock()
 		return
 	}
-	_, _ = s.List(ctx)
+	never := s.newestAt.IsZero()
+	done := s.refreshing
+	if done == nil {
+		done = make(chan struct{})
+		s.refreshing = done
+		go s.refresh(done)
+	}
+	s.rolesMu.Unlock()
+	if !never {
+		return
+	}
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+// refresh is the background read refreshFamilies starts.
+func (s *Catalog) refresh(done chan struct{}) {
+	ctx, cancel := context.WithTimeout(context.Background(), refreshWait)
+	defer cancel()
+	if _, err := s.List(ctx); err != nil {
+		s.log.Debug("model lists unreadable", "err", err)
+	}
+	s.rolesMu.Lock()
+	s.refreshing = nil
+	s.rolesMu.Unlock()
+	close(done)
 }
 
 // OutputCap is the most a model of a provider can write in one answer, as
@@ -691,18 +751,25 @@ func modelsAllowedFor(body []byte, key store.APIKey) []byte {
 // Claude Code, and the configs the admin UI writes from it — leave it out
 // instead.
 //
-// One upstream call per account, in priority order, each for its whole list:
-// a client's paging asked of every account separately would page nothing it
-// could follow, so the answer is always all of it. An account whose list cannot
-// be read is skipped; only when none can is it an error.
+// One upstream call per account, all at once, each for its whole list: a
+// client's paging asked of every account separately would page nothing it
+// could follow, so the answer is always all of it. An account whose list
+// cannot be read stands in with the last one it gave, so a model only its
+// plan has is not dropped for one bad read — it was, for newestTTL, and
+// routed to no one; with none, it is skipped. When no account could be read
+// at all it is an error, as before, whatever stood in: an upstream that
+// answers nobody is not a list to show as current.
 func (s *Catalog) List(ctx context.Context) ([]byte, error) {
 	accounts, err := s.store.ListAccounts(ctx)
 	if err != nil {
 		return nil, err
 	}
+	bodies, errs := s.readLists(ctx, accounts)
 	var (
 		parts   [][]byte
 		lastErr error
+		partial bool
+		fresh   bool
 		seen    remembered
 	)
 	for _, r := range s.relays {
@@ -711,14 +778,18 @@ func (s *Catalog) List(ctx context.Context) ([]byte, error) {
 			lists   [][]byte
 			serving []store.Account
 		)
-		for _, a := range accounts {
+		for i, a := range accounts {
 			if a.Provider != providerID || a.Disabled() {
 				continue
 			}
-			body, err := s.ListFor(ctx, a.ID, "limit=1000")
-			if err != nil {
-				lastErr = err
-				continue
+			body := bodies[i]
+			if errs[i] == nil {
+				fresh = true
+			} else {
+				lastErr, partial = errs[i], true
+				if body = s.lastList(a.ID); body == nil {
+					continue
+				}
 			}
 			lists = append(lists, body)
 			serving = append(serving, a)
@@ -755,14 +826,57 @@ func (s *Catalog) List(ctx context.Context) ([]byte, error) {
 		seen.rememberProvider(providerID, part)
 		parts = append(parts, part)
 	}
-	s.remember(seen, len(parts) > 0)
-	if len(parts) == 0 {
+	s.remember(seen, len(parts) > 0, partial)
+	if len(parts) == 0 || (!fresh && lastErr != nil) {
 		if lastErr == nil {
 			lastErr = pool.ErrNoAccounts
 		}
 		return nil, lastErr
 	}
 	return joinLists(parts), nil
+}
+
+// readLists asks every switched-on account for its list at once — one slow
+// upstream used to hold up every account after it, and a request's deadline
+// ran out on the later ones — in the order of accounts, an error where one
+// could not be read. Each list read is kept, to stand in for that account
+// when a later read of it fails (lastList).
+func (s *Catalog) readLists(ctx context.Context, accounts []store.Account) ([][]byte, []error) {
+	bodies := make([][]byte, len(accounts))
+	errs := make([]error, len(accounts))
+	var wg sync.WaitGroup
+	for i, a := range accounts {
+		if a.Disabled() || s.relayFor(a.Provider) == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			bodies[i], errs[i] = s.ListFor(ctx, a.ID, "limit=1000")
+		}()
+	}
+	wg.Wait()
+	s.rolesMu.Lock()
+	defer s.rolesMu.Unlock()
+	kept := make(map[string][]byte, len(accounts))
+	for i, a := range accounts {
+		switch {
+		case errs[i] == nil && bodies[i] != nil:
+			kept[a.ID] = bodies[i]
+		case s.lastLists[a.ID] != nil:
+			kept[a.ID] = s.lastLists[a.ID]
+		}
+	}
+	// Only the accounts there are now: a removed one's list goes with it.
+	s.lastLists = kept
+	return bodies, errs
+}
+
+// lastList is the last list an account gave, or nil.
+func (s *Catalog) lastList(accountID string) []byte {
+	s.rolesMu.Lock()
+	defer s.rolesMu.Unlock()
+	return s.lastLists[accountID]
 }
 
 // hasAccounts reports whether any account of a provider is switched on.
