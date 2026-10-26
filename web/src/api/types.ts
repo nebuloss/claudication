@@ -134,7 +134,10 @@ export interface AccountModel extends Model {
   test?: ModelTest
 }
 
-/** One model's last test on one account: a tiny turn on its own credential. */
+/**
+ * One model's last known state on one account: a tiny turn on its own
+ * credential, or a client's request it served or was refused for.
+ */
 export interface ModelTest {
   model: string
   at: string
@@ -142,6 +145,10 @@ export interface ModelTest {
   status: number
   latency_ms: number
   error?: string
+  /** Where it came from: the Test button, the gateway's own check, or a client's request. */
+  source?: 'test' | 'scan' | 'traffic'
+  /** When the model last worked on the account, which a later failure keeps. */
+  ok_at?: string
 }
 
 /** What a finished consent flow stored. */
@@ -530,6 +537,8 @@ export interface GatewayConfig {
   gateway_enabled: boolean
   /** The MCP server's switch: off, /mcp answers 404 to every client. */
   mcp_enabled: boolean
+  /** Whether the gateway checks each account's models itself. */
+  model_checks_enabled: boolean
 }
 
 /** What /health answers on every listener, unauthenticated. */

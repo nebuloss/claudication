@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api, type Account, type AccountModel, type ApiKey, type ModelTest, type ProbeResult } from '../../../api/client'
 import { useAction, useLoader } from '../../hooks'
 import {
@@ -8,6 +8,7 @@ import {
   ErrorBanner,
   ErrorState,
   Loading,
+  Note,
   SearchField,
   CheckTree,
   Stack,
@@ -15,12 +16,15 @@ import {
   useConfirm,
   type CheckNode,
 } from '../../primitives'
-import { compact, monthYear, timeOfDay } from '../../format'
-import { brief, eachBounded, explain, failing, testOf } from '../../domain/model-tests'
+import { compact, monthYear, relative, timeOfDay } from '../../format'
+import { brief, eachBounded, explain, failing, sourceOf, testOf } from '../../domain/model-tests'
 import { changes, modelNodes, modelTree, newestOnly } from '../../domain/model-tree'
 
 /** How many model tests run at once: quick for a dozen models, and no burst. */
 const TESTS_AT_ONCE = 2
+
+/** How often an account's models are read again while the gateway checks them. */
+const SCAN_POLL_MS = 3_000
 
 /**
  * The facts' columns on a wide list — id, size, release. Fixed, because each
@@ -42,10 +46,13 @@ type Change = { model: AccountModel; enabled: boolean }
  *
  * With `test`, each model can be tried on the spot — one tiny turn on the
  * account's own credential, no client's key, nothing in the request log — and
- * its last result, kept by the gateway, stays at the end of its row. A model
- * that failed for a reason that lasts can be switched off from here in one
- * go; never automatically, because a test is one answer and an operator
- * decides.
+ * its last known state stays at the end of its row: the last Test, the
+ * gateway's own check (every model when the account is added, a failing one
+ * again every quarter of an hour), or the last client request it served or
+ * was refused for (internal/service/availability). A failing model is routed
+ * around by the gateway already; switching it off — never automatic, since
+ * the gateway goes on checking it and an operator decides — takes it out for
+ * good, from here in one go.
  *
  * Folded into provider › family › model (domain/model-tree builds the
  * nodes, primitives/check-tree draws them), so a list that gains a model per
@@ -69,7 +76,7 @@ function ModelChecklist({
   deps,
   folds,
 }: {
-  load: (signal: AbortSignal) => Promise<{ models: AccountModel[] }>
+  load: (signal: AbortSignal) => Promise<{ models: AccountModel[]; scanning?: boolean }>
   set: (model: string, enabled: boolean) => Promise<unknown>
   test?: (model: string) => Promise<ProbeResult>
   loadingText: string
@@ -79,7 +86,11 @@ function ModelChecklist({
   /** Which list this is, for remembering its folds. */
   folds: string
 }) {
-  const { data, error, loading, reload } = useLoader(load, { deps })
+  // Read again every few seconds while the gateway is checking the models,
+  // so each result shows as it lands.
+  const [scanning, setScanning] = useState(false)
+  const { data, error, loading, reload } = useLoader(load, { deps, refreshMs: scanning ? SCAN_POLL_MS : 0 })
+  useEffect(() => setScanning(data?.scanning === true), [data])
   const tree = useMemo(() => modelTree(data?.models ?? []), [data])
   const [query, setQuery] = useState('')
   // What was switched or tested here since the list was read, so the row
@@ -192,7 +203,11 @@ function ModelChecklist({
             {t !== undefined && (
               <span
                 className="min-w-0 truncate"
-                title={`${explain(t)}${t.error !== undefined && t.error !== explain(t) ? `\n${t.error}` : ''}\nTested at ${timeOfDay(t.at)}`}
+                title={
+                  `${explain(t)}${t.error !== undefined && t.error !== explain(t) ? `\n${t.error}` : ''}` +
+                  `\n${sourceOf(t)}, ${timeOfDay(t.at)}` +
+                  (!t.ok && t.ok_at !== undefined ? `\nLast worked ${relative(t.ok_at)}` : '')
+                }
               >
                 <Chip tone={t.ok ? 'ok' : 'error'}>{brief(t)}</Chip>
               </span>
@@ -215,6 +230,9 @@ function ModelChecklist({
   return (
     <Stack gap={3}>
       <p className="max-w-[80ch] text-sm text-on-surface">{say(count, data.models.length)}</p>
+      {data.scanning === true && (
+        <Note>Checking each model on this account — one short request each. Results appear as they come in.</Note>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <SearchField value={query} onChange={setQuery} label="Find a model" />
         <Actions>

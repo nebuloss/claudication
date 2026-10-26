@@ -40,6 +40,12 @@ func newTestServer(t *testing.T) (*Server, *store.Store, config.Config) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	// The gateway's own model checks send requests of their own, which no
+	// test's fake upstream answers as the test expects; the test that wants
+	// them turns them on.
+	if err := srv.modelChecks.Set(context.Background(), false); err != nil {
+		t.Fatalf("model checks: %v", err)
+	}
 	return srv, st, cfg
 }
 

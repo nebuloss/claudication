@@ -242,11 +242,14 @@ CREATE TABLE account_models_off (
     PRIMARY KEY (account_id, model)
 ) WITHOUT ROWID;
 
--- The last test of each model on each account: the account page's Models
--- section runs one tiny turn per model on that account's own credential (no
--- client's key, and no row in the request log: it is no client's traffic),
--- and shows the answer after a reload. One row per pair, replaced each time.
--- error is the upstream's own, empty when the turn was answered.
+-- Each model's last known state on each account: one tiny turn on that
+-- account's own credential (no client's key, and no row in the request log:
+-- it is no client's traffic), or a client request it served or was refused
+-- for. One row per pair, replaced each time. error is the upstream's own,
+-- empty when the turn was answered. source is where the row came from:
+-- 'test', the operator's Test; 'scan', the gateway's own check
+-- (internal/service/availability); 'traffic', a client's request. ok_at is
+-- when the model last worked there, which a later failure keeps.
 CREATE TABLE account_model_tests (
     account_id TEXT    NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
     model      TEXT    NOT NULL,
@@ -255,6 +258,8 @@ CREATE TABLE account_model_tests (
     status     INTEGER NOT NULL DEFAULT 0,
     latency_ms INTEGER NOT NULL DEFAULT 0,
     error      TEXT    NOT NULL DEFAULT '',
+    source     TEXT    NOT NULL DEFAULT 'test',
+    ok_at      INTEGER,
     PRIMARY KEY (account_id, model)
 ) WITHOUT ROWID;
 

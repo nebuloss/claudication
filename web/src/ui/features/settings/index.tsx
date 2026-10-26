@@ -1,6 +1,7 @@
 import ConfigTable from './config-table'
 import GatewaySwitch from './gateway-switch'
 import McpSettings from './mcp'
+import ModelChecks from './model-checks'
 import ModelSettings from './models'
 import Security from './security'
 import { type GatewayConfig, type Session } from '../../../api/client'
@@ -12,7 +13,8 @@ import { Card, Empty, Loading, Page } from '../../primitives'
  *
  *   /settings      whether the gateway serves, the MCP server's switch and
  *                  address, and the admin account
- *   Models         each provider's mode, its families and who serves which
+ *   Models         whether the gateway checks models itself; each
+ *                  provider's mode, its families and who serves which
  *   Configuration  the configuration as loaded, read-only
  *
  * The configuration is loaded by the shell, because the same request carries
@@ -69,7 +71,14 @@ export default function Settings({
           <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
         </>
       )}
-      {page === 'models' && <ModelSettings />}
+      {page === 'models' && (
+        <>
+          {configured('Model checks', (d) => (
+            <ModelChecks enabled={d.model_checks_enabled} onChanged={() => void onConfigChanged()} />
+          ))}
+          <ModelSettings />
+        </>
+      )}
       {page === 'configuration' && configured('Configuration', (d) => <ConfigTable config={d} />)}
     </Page>
   )

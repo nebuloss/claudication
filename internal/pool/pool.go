@@ -888,6 +888,49 @@ func (p *Pool) ReportModelFailureUntil(id, model string, kind FailureKind, detai
 		"account", id, "model", model, "kind", kind, "for", wait.String())
 }
 
+// HoldModel keeps an account off one model until a time, as a model's
+// refusal does, but quietly: no log line and nothing written to the account,
+// because it is the gateway's own record of the model failing there
+// (internal/service/availability), not a fresh refusal. A hold already
+// longer stands.
+func (p *Pool) HoldModel(id, model string, until time.Time) {
+	if model == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	h := p.stateOf(id)
+	k := store.ModelKey(model)
+	if until.After(h.models[k]) {
+		if h.models == nil {
+			h.models = map[string]time.Time{}
+		}
+		h.models[k] = until
+	}
+}
+
+// ReleaseModel ends an account's hold on one model: it was just seen to work.
+func (p *Pool) ReleaseModel(id, model string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if h, ok := p.states[id]; ok {
+		delete(h.models, store.ModelKey(model))
+	}
+}
+
+// ModelHeldUntil is when an account's hold on one model ends, by whatever set
+// it — a refusal's reset, or HoldModel — or zero when there is none.
+func (p *Pool) ModelHeldUntil(id, model string) time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if h, ok := p.states[id]; ok {
+		if t := h.models[store.ModelKey(model)]; t.After(p.now()) {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
 // RetryAfter reports how long until some account frees up, for a Retry-After
 // header when everything is cooling down.
 //

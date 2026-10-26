@@ -39,8 +39,10 @@ export function testOf(model: string, p: ProbeResult, at = new Date()): ModelTes
  * all, or the upstream's own text.
  */
 export function explain(t: ModelTest): string {
-  if (t.ok) return `ok · ${t.latency_ms} ms`
+  if (t.ok) return t.source === 'traffic' ? 'ok · in use' : `ok · ${t.latency_ms} ms`
   const text = (t.error ?? '').toLowerCase()
+  if (text.includes('no capacity') || text.includes('capacity_exhausted')) return 'no capacity upstream'
+
   if (text.includes('usage_not_included') || text.includes('not included')) return 'not in this plan'
   if (t.status === 404 || text.includes('not_found') || text.includes('does not exist')) return 'not served to this account'
   if (t.status === 401 || t.status === 403) return 'refused: the account may not use it'
@@ -58,6 +60,17 @@ export function brief(t: ModelTest): string {
   const said = explain(t)
   if (said.length <= 32) return said
   return t.status > 0 ? `failed (HTTP ${t.status})` : 'could not reach it'
+}
+
+/** Where a row's state came from, for its tooltip. */
+export function sourceOf(t: ModelTest): string {
+  switch (t.source) {
+    case 'traffic':
+      return 'from a client’s request'
+    case 'scan':
+      return 'checked by the gateway'
+  }
+  return 'tested'
 }
 
 /** The models to suggest switching off: on, tested, and failed for a reason that lasts. */

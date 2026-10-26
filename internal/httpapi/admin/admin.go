@@ -16,6 +16,7 @@ import (
 	"claudication/internal/pool"
 	"claudication/internal/provider"
 	accountsvc "claudication/internal/service/accounts"
+	"claudication/internal/service/availability"
 	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
@@ -46,6 +47,8 @@ type Admin struct {
 	sessions       *sessions
 	models         Models
 	install        *install.Links
+	availability   *availability.Checker
+	modelChecks    *settings.Switch
 	facets         facetCache
 }
 
@@ -77,6 +80,11 @@ type Deps struct {
 	Models Models
 	// Install keeps the one-time install bundles the relay serves.
 	Install *install.Links
+	// Availability keeps which models work on which account: an account
+	// added is scanned, and a Test is recorded through it.
+	Availability *availability.Checker
+	// ModelChecks is whether the gateway checks models itself.
+	ModelChecks *settings.Switch
 }
 
 // Models is what the admin screens read of the gateway's model list: the same
@@ -122,6 +130,7 @@ func New(d Deps) *Admin {
 		httpClient: d.HTTPClient, providers: d.Providers, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
+		availability: d.Availability, modelChecks: d.ModelChecks,
 	}
 }
 
@@ -192,6 +201,7 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/config", admin(s.handleConfig))
 	mux.Handle("GET /admin/models", admin(s.handleAdminModels))
 	mux.Handle("POST /admin/gateway", admin(s.switchHandler(s.serving, "gateway", "gateway_enabled")))
+	mux.Handle("POST /admin/model-checks", admin(s.switchHandler(s.modelChecks, "model checks", "model_checks_enabled")))
 	mux.Handle("POST /admin/mcp", admin(s.switchHandler(s.mcp, "mcp server", "mcp_enabled")))
 	mux.Handle("GET /admin/model-families", admin(s.handleModelFamilies))
 	mux.Handle("POST /admin/model-families/version", admin(s.handleFamilyVersion))

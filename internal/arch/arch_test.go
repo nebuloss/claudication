@@ -46,6 +46,7 @@ var layers = map[string]int{
 	"internal/provider/openai":      2,
 	"internal/provider/google":      2,
 	"internal/service/accounts":     2,
+	"internal/service/availability": 2,
 	"internal/service/usage":        2,
 	"internal/service/uptime":       2,
 	"internal/service/clientconfig": 2,

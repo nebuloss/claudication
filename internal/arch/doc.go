@@ -11,7 +11,8 @@
 //	1  records        store config provider relay/passes api/anthropic
 //	                  api/openai api/gemini
 //	2  accounts       pool provider/anthropic provider/openai provider/google
-//	                  service/accounts service/usage service/uptime
+//	                  service/accounts service/availability service/usage
+//	                  service/uptime
 //	                  service/clientconfig
 //	3  relay          relay
 //	4  services       service/titles service/models

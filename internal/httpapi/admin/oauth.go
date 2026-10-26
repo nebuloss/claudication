@@ -366,6 +366,10 @@ func (s *Admin) storeConsent(w http.ResponseWriter, r *http.Request, prov provid
 		s.log.Info("account authorised", "provider", acct.Provider, "email", acct.Email)
 	}
 
+	// Try every model it lists, in the background: which work there is what
+	// its Models page shows, and what requests are routed by.
+	s.availability.Scan(acct.ID)
+
 	// Read the subscription usage before answering. The poller would get to it
 	// within five minutes, but the operator is looking at the screen now, and a
 	// brand-new account showing nothing is exactly the gap worth closing.

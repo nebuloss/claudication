@@ -52,6 +52,7 @@ import (
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	accountsvc "claudication/internal/service/accounts"
+	"claudication/internal/service/availability"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
@@ -96,6 +97,12 @@ type Server struct {
 	// poller keeps each account's subscription usage current, faster while
 	// the admin UI is open. See internal/service/accounts.
 	poller *accountsvc.Poller
+	// availability keeps which models work on which account, and routes
+	// around the ones that do not.
+	availability *availability.Checker
+	// modelChecks is availability's switch: whether the gateway checks
+	// models itself.
+	modelChecks *settings.Switch
 	// trimmer counts relayed requests in flight and hands idle heap back to
 	// the system once a burst is over. See internal/memlimit.
 	trimmer *memlimit.Trimmer
@@ -229,7 +236,10 @@ func (s *Server) loadSwitches(ctx context.Context) {
 	// On unless switched off, as it was before there was a switch; each
 	// client's "Agent may manage" still decides what its agent may change.
 	s.mcp = settings.NewSwitch(s.store, agent.Setting, true)
-	if err := settings.Load(ctx, s.store, s.serving, s.mcp); err != nil {
+	// On unless switched off: checking an account's models costs a few
+	// tokens a model, which the operator may not want spent.
+	s.modelChecks = settings.NewSwitch(s.store, availability.Setting, true)
+	if err := settings.Load(ctx, s.store, s.serving, s.mcp, s.modelChecks); err != nil {
 		s.log.Warn("could not read the gateway and MCP switches; serving both", "err", err)
 	}
 }
@@ -400,6 +410,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	// Install links live a quarter of an hour: long enough to copy a command
 	// to another machine, short enough that one never run is soon gone.
 	installs := install.New(15 * time.Minute)
+	defer s.buildAvailability()
 	s.models = modelsvc.New(modelsvc.Deps{
 		Config: cfg, Log: log, Store: st, Settings: st, Pool: s.pool,
 		Relays:     []*relay.Relay{s.relays[anthropic.ID], s.relays[chatgpt.ID], s.relays[google.ID]},
@@ -412,6 +423,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Trimmer: s.trimmer, Enabled: s.serving, Protocols: s.protocols, InFlight: s.inflight,
 		Install: installs, Models: s.models,
 	})
+	s.availability = &availability.Checker{}
 	s.admin = admin.New(admin.Deps{
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
@@ -419,7 +431,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Protocols: s.protocols, HTTPClient: s.httpClient, Providers: s.providers,
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
-		Models: s.models, Install: installs,
+		Models: s.models, Install: installs, Availability: s.availability, ModelChecks: s.modelChecks,
 	})
 	s.web = web.New(web.Deps{Log: log, Files: webdist})
 	// The MCP server, behind the gateway's own key check and answering with
@@ -853,6 +865,14 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 	pollCtx, stopPolling := context.WithCancel(ctx)
 	defer stopPolling()
 	go s.poller.Run(pollCtx, s.stopSweeper, accountsvc.Tick)
+	// Which models failed when the gateway last ran are held off until
+	// checked again, and checked again as each comes due; stopped with the
+	// poller, for the same reason.
+	if err := s.availability.Load(ctx); err != nil {
+		s.log.Warn("could not read which models were failing", "err", err)
+	}
+	go s.availability.Run(pollCtx, s.stopSweeper)
+	s.scanUnchecked(ctx)
 	go s.trimmer.Run(s.stopSweeper, 5*time.Second)
 	// Every listener is bound by now: the stop the last run recorded, if it
 	// recorded one, ends here. After a handover there is none to end.
@@ -998,4 +1018,70 @@ func modeSwitches(m *modelsvc.Catalog) []*settings.Switch {
 		}
 	}
 	return out
+}
+
+// buildAvailability makes the checker of which models work on which account
+// (internal/service/availability), once the model service it lists an
+// account's models through exists, and hands it to the relays, whose client
+// traffic it reads, and the admin API, which scans an account it adds.
+func (s *Server) buildAvailability() {
+	s.availability.Store, s.availability.Holds, s.availability.Log = s.store, s.pool, s.log
+	s.availability.Checks = s.modelChecks
+	s.availability.Probe = func(ctx context.Context, a store.Account, model string) store.ModelTest {
+		started := time.Now()
+		fail := func(err error) store.ModelTest {
+			return store.ModelTest{At: started, Error: err.Error()}
+		}
+		p, ok := s.providers.Find(a.Provider)
+		if !ok {
+			return fail(fmt.Errorf("no provider %q", a.Provider))
+		}
+		token, err := s.pool.AccessToken(ctx, a.ID)
+		if err != nil {
+			return fail(err)
+		}
+		r := p.Probe(ctx, s.httpClient, provider.Credential{Token: token, AccountID: a.AccountUUID}, model)
+		return store.ModelTest{At: started, OK: r.OK, Status: r.Status, LatencyMS: r.LatencyMS, Error: r.Error}
+	}
+	s.availability.Models = func(ctx context.Context, accountID string) ([]string, error) {
+		body, err := s.models.ListFor(ctx, accountID, "limit=1000")
+		if err != nil {
+			return nil, err
+		}
+		var l struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &l); err != nil {
+			return nil, err
+		}
+		ids := make([]string, 0, len(l.Data))
+		for _, m := range l.Data {
+			ids = append(ids, m.ID)
+		}
+		return ids, nil
+	}
+	for _, r := range s.relays {
+		r.Models = s.availability
+	}
+}
+
+// scanUnchecked checks the models of every account that has no result for
+// any of them: one connected before the gateway checked an account's models
+// when it was added. Once — an account with results is left to its rechecks
+// and its traffic.
+func (s *Server) scanUnchecked(ctx context.Context) {
+	accounts, err := s.store.ListAccounts(ctx)
+	if err != nil {
+		return
+	}
+	for _, a := range accounts {
+		if a.Disabled() {
+			continue
+		}
+		if tests, err := s.store.ModelTests(ctx, a.ID); err == nil && len(tests) == 0 {
+			s.availability.Scan(a.ID)
+		}
+	}
 }

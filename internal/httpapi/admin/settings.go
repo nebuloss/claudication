@@ -30,6 +30,8 @@ func (s *Admin) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		// gets flipped and then lost.
 		"gateway_enabled": s.serving.On(),
 		"mcp_enabled":     s.mcp.On(),
+		// Whether the gateway checks models itself (internal/service/availability).
+		"model_checks_enabled": s.modelChecks.On(),
 	})
 }
 

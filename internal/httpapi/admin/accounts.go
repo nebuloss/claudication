@@ -297,10 +297,11 @@ func (s *Admin) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	// after a reload. It is the account's own credential and no client's
 	// traffic, so it is not in the request log, and counts against nobody.
 	if body.Model != "" {
-		if err := s.store.SaveModelTest(r.Context(), id, store.ModelTest{Model: body.Model, At: time.Now(),
-			OK: result.OK, Status: result.Status, LatencyMS: result.LatencyMS, Error: result.Error}); err != nil {
-			s.log.Warn("could not keep a model test", "account", id, "model", body.Model, "err", err)
-		}
+		// Through the checker, so a model that failed is routed around, and
+		// one that works again is not.
+		s.availability.Record(r.Context(), id, store.ModelTest{Model: body.Model, At: time.Now(),
+			OK: result.OK, Status: result.Status, LatencyMS: result.LatencyMS, Error: result.Error,
+			Source: store.TestByOperator})
 	}
 	httpx.WriteJSON(w, http.StatusOK, result)
 }

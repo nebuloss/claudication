@@ -74,7 +74,10 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 			models = append(models, map[string]any{"id": off, "enabled": false, "listed": false})
 		}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account_id": id, "models": models})
+	// scanning says the models are being checked now, for the page to read
+	// again until they are.
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account_id": id, "models": models,
+		"scanning": s.availability.Scanning(id)})
 }
 
 // handleKeyModels lists the models a key could ask for — every model this

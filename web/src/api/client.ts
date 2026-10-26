@@ -101,7 +101,11 @@ function toKeyBody(name: string, limits: KeyLimits) {
 }
 
 /** The models one account serves or one key may ask for, each with its switch. */
-type ModelSwitches = { models: AccountModel[] }
+type ModelSwitches = {
+  models: AccountModel[]
+  /** The account's models are being checked now (an account just added). */
+  scanning?: boolean
+}
 
 /** For the calls whose 401 is their answer; see CallOptions.answersAuth. */
 const AUTH = { answersAuth: true }
@@ -170,8 +174,11 @@ const accounts = {
 
   /** The models one account serves, each with whether it may serve it. */
   models: async (id: string, signal?: AbortSignal): Promise<ModelSwitches> => {
-    const res = await http.get<{ models: AccountModel[] | null }>(path`/admin/accounts/${id}/models`, signal)
-    return { models: res.models ?? [] }
+    const res = await http.get<{ models: AccountModel[] | null; scanning?: boolean }>(
+      path`/admin/accounts/${id}/models`,
+      signal,
+    )
+    return { models: res.models ?? [], scanning: res.scanning === true }
   },
 
   setModel: (id: string, model: string, enabled: boolean) =>
@@ -347,6 +354,7 @@ const gateway = {
 
   /** The MCP server's switch. */
   setMCP: (enabled: boolean) => http.send('POST', '/admin/mcp', { body: { enabled } }),
+  setModelChecks: (enabled: boolean) => http.send('POST', '/admin/model-checks', { body: { enabled } }),
 
   /**
    * Liveness and the build, as every listener answers them to anyone: all the

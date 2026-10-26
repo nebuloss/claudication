@@ -56,6 +56,8 @@ type Relay struct {
 	Client       *http.Client
 	Log          *slog.Logger
 	BaseURL      string
+	// Models hears what client traffic says about a model on an account.
+	Models ModelOutcomes
 }
 
 // logger is the relay's log, or one that discards. Log is optional — the
@@ -93,6 +95,14 @@ type AccountPool interface {
 	Refresh(ctx context.Context, id string) error
 	// NoteQuota records the quota an answer reported for its account.
 	NoteQuota(id string, q provider.Quota)
+}
+
+// ModelOutcomes is told what client traffic says about a model on an
+// account: served, or refused for the model (internal/service/availability).
+// Optional; nil says nothing.
+type ModelOutcomes interface {
+	Served(accountID, model string)
+	Refused(accountID, model string, status int, detail string)
 }
 
 // Result describes what happened, for logging and stats.
@@ -335,6 +345,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 				}
 			}
 			r.report(lease, p, kind, detail, verdict)
+			r.noteModel(lease, p, resp.StatusCode, detail, verdict)
 			tried[lease.Account.ID] = true
 			continue
 		}
@@ -358,6 +369,9 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		}
 		if kind != "" {
 			r.report(lease, p, kind, res.UpstreamError, verdict)
+		}
+		if resp.StatusCode >= 400 {
+			r.noteModel(lease, p, resp.StatusCode, res.UpstreamError, verdict)
 		}
 
 		// Hold the opening of a stream until it carries content, and send the
@@ -386,6 +400,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		}
 		if res.Status == http.StatusOK && res.StreamError == "" && !res.Opaque && kind == "" {
 			r.Pool.ReportSuccess(lease.Account.ID)
+			r.noteModel(lease, p, http.StatusOK, "", provider.Verdict{})
 		}
 		return res
 	}
@@ -414,6 +429,26 @@ func failureKind(status pool.FailureKind, v provider.Verdict) pool.FailureKind {
 // report cools down what a failure was about: the model on the account, when
 // the provider said the refusal was the model's (provider.Verdict Model),
 // else the account.
+// noteModel tells r.Models what an answer said about the model on the
+// account: a success that it works there; a refusal that was the model's
+// (provider.Verdict Model), or a 404 — what an upstream answers for a model
+// the account does not have — that it does not.
+func (r *Relay) noteModel(lease pool.Lease, p request.Prologue, status int, detail string, v provider.Verdict) {
+	if r.Models == nil {
+		return
+	}
+	model := lease.Model
+	if model == "" {
+		model = p.Model
+	}
+	switch {
+	case status == http.StatusOK:
+		r.Models.Served(lease.Account.ID, model)
+	case v.Model || status == http.StatusNotFound:
+		r.Models.Refused(lease.Account.ID, model, status, detail)
+	}
+}
+
 func (r *Relay) report(lease pool.Lease, p request.Prologue, kind pool.FailureKind, detail string, v provider.Verdict) {
 	if v.Model {
 		model := lease.Model
