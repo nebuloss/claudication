@@ -195,23 +195,23 @@ func TestLimitedOnlyWhenEveryAccountIsSidelined(t *testing.T) {
 	out.Quota.FiveHourReset = reset
 	free := account("free", 20, "allowed")
 
-	if limited, _ := p.limited([]store.Account{out, free}); limited {
+	if limited, _ := p.limited([]store.Account{out, free}, nil); limited {
 		t.Fatal("one account with room is not limited")
 	}
-	limited, back := p.limited([]store.Account{out})
+	limited, back := p.limited([]store.Account{out}, nil)
 	if !limited || !back.Equal(reset) {
 		t.Fatalf("got %v, back %v; want limited, back at the window's reset %v", limited, back, reset)
 	}
 
 	p.coolDown("free", time.Hour)
-	limited, back = p.limited([]store.Account{out, free})
+	limited, back = p.limited([]store.Account{out, free}, nil)
 	if !limited {
 		t.Fatal("a cooling account and a full one: limited")
 	}
 	if d := time.Until(back); d < 55*time.Minute || d > time.Hour {
 		t.Fatalf("back in %v, want the cooldown's hour, the sooner of the two", d)
 	}
-	if limited, _ := p.limited(nil); limited {
+	if limited, _ := p.limited(nil, nil); limited {
 		t.Fatal("no account at all is unavailable, not limited")
 	}
 }

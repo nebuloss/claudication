@@ -18,7 +18,9 @@ import (
 // Claude Code sends the credential "in one or both headers depending on
 // which credential variable they set", OpenAI clients use Authorization, and
 // @google/genai — gemini-cli pointed at a gateway — sends x-goog-api-key, or
-// the key query parameter the Gemini API also takes.
+// the key query parameter the Gemini API also takes. The query parameter is
+// read on the Gemini API's routes alone: a key in a URL ends up in every
+// proxy's access log, and no other client puts it there.
 func extractCredential(r *http.Request) string {
 	if v := r.Header.Get("Authorization"); v != "" {
 		if len(v) > 7 && strings.EqualFold(v[:7], "bearer ") {
@@ -31,7 +33,10 @@ func extractCredential(r *http.Request) string {
 	if v := strings.TrimSpace(r.Header.Get("X-Goog-Api-Key")); v != "" {
 		return v
 	}
-	return strings.TrimSpace(r.URL.Query().Get("key"))
+	if strings.HasPrefix(r.URL.Path, "/v1beta/") {
+		return strings.TrimSpace(r.URL.Query().Get("key"))
+	}
+	return ""
 }
 
 // rejection is the row for a request refused before it reached the upstream.

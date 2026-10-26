@@ -244,6 +244,18 @@ func toMessages(e envelope) (translation, error) {
 			out.MaxTokens = g.MaxOutputTokens
 		}
 		out.Temperature, out.TopP, out.TopK, out.StopSequences = g.Temperature, g.TopP, g.TopK, g.StopSequences
+		// Claude refuses temperature and top_p together on its current
+		// models, and a temperature past 1, both of which Gemini takes
+		// (gemini-cli sends temperature 0 and top_p 1 on every call): the
+		// temperature is kept, as Anthropic advises, and held to Claude's
+		// range.
+		if out.Temperature != nil {
+			out.TopP = nil
+			if *out.Temperature > 1 {
+				one := 1.0
+				out.Temperature = &one
+			}
+		}
 		if tc := g.ThinkingConfig; tc != nil {
 			tr.thoughts = tc.IncludeThoughts
 			budget := 0
@@ -382,7 +394,11 @@ func convertContents(contents []geminiwire.Content) ([]message, bool, error) {
 		switch c.Role {
 		case "model":
 			var blocks []map[string]any
-			pending = pending[:0]
+			// Two model contents in a row are one turn (add merges them):
+			// the calls of the first are still waiting on their answers.
+			if i == 0 || contents[i-1].Role != "model" {
+				pending = pending[:0]
+			}
 			hasCall, hasThinking := false, false
 			n := 0
 			for _, p := range c.Parts {

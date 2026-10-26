@@ -86,14 +86,15 @@ func TestBuildSwapsTheCredential(t *testing.T) {
 	in := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
 	in.Header.Set("Authorization", "Bearer clc_client_key")
 	in.Header.Set("x-api-key", "clc_client_key")
+	in.Header.Set("x-goog-api-key", "clc_client_key")
 
 	out := buildFor(t, in)
 
 	if got := out.Header.Get("Authorization"); got != "Bearer tok123" {
 		t.Errorf("Authorization = %q, want the account token", got)
 	}
-	if out.Header.Get("x-api-key") != "" {
-		t.Error("the client's x-api-key must not be forwarded")
+	if out.Header.Get("x-api-key") != "" || out.Header.Get("x-goog-api-key") != "" {
+		t.Error("the client's key must not be forwarded, in any header")
 	}
 	if strings.Contains(out.Header.Get("Authorization"), "clc_") {
 		t.Error("the client's own key leaked upstream")

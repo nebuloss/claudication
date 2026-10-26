@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"claudication/internal/geminiwire"
 	"claudication/internal/oauth"
 	"claudication/internal/provider"
 	"claudication/internal/testenv"
@@ -714,5 +715,53 @@ func TestModelListReadsFamilyAndLevelOffTheName(t *testing.T) {
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("listed\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// An account whose every Gemini and GPT-OSS allowance is spent is limited,
+// though its Claude buckets — which the gateway never spends — are full.
+func TestClaudeBucketsDoNotKeepASpentAccountOpen(t *testing.T) {
+	spent, full := 0.0, 1.0
+	q := quotaResponse{Buckets: []bucket{
+		{ModelID: "gemini-3.8-flash-high", RemainingFraction: &spent},
+		{ModelID: "gpt-oss-120b-medium", RemainingFraction: &spent},
+		{ModelID: "claude-opus-5-5-high", RemainingFraction: &full},
+	}}
+	if !q.quota(quotaRead).Limited {
+		t.Error("a spent account was left open by its Claude buckets")
+	}
+}
+
+// A reset already past says nothing of an allowance's length.
+func TestAPastResetSaysNoLength(t *testing.T) {
+	used := 0.5
+	q := quotaResponse{Buckets: []bucket{
+		{ModelID: "gemini-3.8-flash-high", RemainingFraction: &used, ResetTime: "2026-10-23T09:00:00Z"},
+	}}
+	var rows []quotaRow
+	if err := json.Unmarshal([]byte(q.quota(quotaRead).Detail), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Window != 0 {
+		t.Errorf("rows = %+v", rows)
+	}
+}
+
+// A retry delay is read in seconds or milliseconds; one that is no delay —
+// negative, unreadable, past a month — is none.
+func TestRetryDelayBounds(t *testing.T) {
+	for in, want := range map[string]time.Duration{
+		"3.5s":     3500 * time.Millisecond,
+		"120ms":    120 * time.Millisecond,
+		"1e12s":    0,
+		"-5s":      0,
+		"soon":     0,
+		"NaNs":     0,
+		"2592000s": 30 * 24 * time.Hour,
+	} {
+		got := retryDelay([]geminiwire.Detail{{Type: geminiwire.TypeRetryInfo, RetryDelay: in}})
+		if got != want {
+			t.Errorf("retryDelay(%q) = %v, want %v", in, got, want)
+		}
 	}
 }

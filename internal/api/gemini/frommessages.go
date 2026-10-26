@@ -107,7 +107,7 @@ func (e *messagesExchange) Failure(kind, message string) []byte {
 // finishReason is a Messages stop reason as Gemini's.
 func finishReason(stop string) string {
 	switch stop {
-	case "max_tokens":
+	case "max_tokens", "model_context_window_exceeded":
 		return geminiwire.FinishMaxTokens
 	case "refusal":
 		return "SAFETY"

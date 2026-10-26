@@ -343,3 +343,36 @@ func TestEveryErrorKindHasAStatus(t *testing.T) {
 		}
 	}
 }
+
+// Claude takes temperature or top_p, not both, and a temperature to 1;
+// gemini-cli sends temperature 0 and top_p 1 on every call.
+func TestSamplingFitsClaude(t *testing.T) {
+	for _, tc := range []struct {
+		config   string
+		temp     *float64
+		withTopP bool
+	}{
+		{`{"temperature":0,"topP":1}`, sample(0), false},
+		{`{"temperature":1.5}`, sample(1), false},
+		{`{"topP":0.9}`, nil, true},
+	} {
+		body := `{"generationConfig":` + tc.config + `,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`
+		ex, err := New().Decode(Envelope("large", "generateContent", []byte(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m struct {
+			Temperature *float64 `json:"temperature"`
+			TopP        *float64 `json:"top_p"`
+		}
+		if err := json.Unmarshal(ex.Request(), &m); err != nil {
+			t.Fatal(err)
+		}
+		if (m.Temperature == nil) != (tc.temp == nil) || (m.Temperature != nil && *m.Temperature != *tc.temp) ||
+			(m.TopP != nil) != tc.withTopP {
+			t.Errorf("%s: temperature %v, top_p %v", tc.config, m.Temperature, m.TopP)
+		}
+	}
+}
+
+func sample(f float64) *float64 { return &f }

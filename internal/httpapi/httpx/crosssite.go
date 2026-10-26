@@ -33,6 +33,11 @@ func SameSiteOnly(next http.Handler) http.Handler {
 	})
 }
 
+// CrossSite names why a request looks like it came from another site, or ""
+// when it does not: SameSiteOnly's test, for a handler that applies it to
+// some requests only.
+func CrossSite(r *http.Request) string { return offSite(r) }
+
 // IsNavigation reports whether this looks like the browser loading a page
 // rather than fetching a subresource of one.
 //

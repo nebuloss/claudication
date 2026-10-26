@@ -282,7 +282,18 @@ func (s *nativeSink) Close(cause error) {
 		return
 	}
 	if s.gather.err != nil {
-		s.writeJSON(http.StatusBadGateway, s.gather.err)
+		// The error's own code where it says one — a 429 is what tells the
+		// SDK to back off — else a bad gateway.
+		status := http.StatusBadGateway
+		var e struct {
+			Error struct {
+				Code int `json:"code"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(s.gather.err, &e) == nil && e.Error.Code >= 400 && e.Error.Code < 600 {
+			status = e.Error.Code
+		}
+		s.writeJSON(status, s.gather.err)
 		return
 	}
 	body, err := s.gather.response()

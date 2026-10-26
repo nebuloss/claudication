@@ -119,6 +119,10 @@ func (c *geminiConverter) handle(data []byte) {
 		c.finish("max_tokens")
 	case geminiwire.FinishMalformedFunctionCall:
 		c.fail("api_error", "Gemini produced a malformed tool call")
+	// Gemini stopped over the tools it was given, not over what was asked:
+	// a refusal would say the wrong thing.
+	case "UNEXPECTED_TOOL_CALL", "TOO_MANY_TOOL_CALLS":
+		c.fail("api_error", "Gemini stopped: "+cand.FinishReason)
 	default:
 		c.finish("refusal")
 	}

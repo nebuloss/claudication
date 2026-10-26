@@ -96,14 +96,16 @@ type quotaRow struct {
 
 // quota is the answer, read at now, as the provider-neutral quota: no windows, the rows as
 // its detail, and limited only when every model is spent — while one model
-// serves, the account does.
+// serves, the account does. Claude's buckets are left out: the gateway
+// never sends Claude here (ModelList), so an untouched Claude allowance
+// would keep a spent account looking open.
 func (q quotaResponse) quota(now time.Time) provider.Quota {
 	out := provider.Quota{At: now}
 	var rows []quotaRow
 	spent := 0
 	for _, b := range q.Buckets {
 		// Antigravity's internal models (chat_20706) are not a person's.
-		if b.ModelID == "" || strings.Contains(b.ModelID, "_") {
+		if b.ModelID == "" || strings.Contains(b.ModelID, "_") || strings.HasPrefix(b.ModelID, "claude-") {
 			continue
 		}
 		row := quotaRow{Model: b.ModelID, TokenType: b.TokenType}
@@ -113,7 +115,11 @@ func (q quotaResponse) quota(now time.Time) provider.Quota {
 		// An allowance not yet used has no window running: its reset is a
 		// window from the moment it was asked, and moves with every read.
 		if t, err := time.Parse(time.RFC3339, b.ResetTime); err == nil {
-			row.Window = windowOf(t.Sub(now))
+			// A reset already past — a stale answer, a skewed clock — says
+			// nothing of the length.
+			if left := t.Sub(now); left > 0 {
+				row.Window = windowOf(left)
+			}
 			if row.UsedPercent > 0 {
 				row.ResetAt = t.Unix()
 			}
@@ -153,7 +159,9 @@ func FetchUsage(ctx context.Context, client *http.Client, cred provider.Credenti
 	return out, nil
 }
 
-// limitRows reads the detail back as the accounts screen's rows.
+// limitRows reads the detail back as the accounts screen's rows. Claude's
+// rows, which details stored before quota() left them out still carry, are
+// skipped below.
 //
 // Models that draw on one allowance are one row. Measured 2026-10-23 on a
 // free account: every Gemini model reported the same fraction and the same

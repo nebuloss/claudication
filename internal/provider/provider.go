@@ -111,8 +111,8 @@ type Wire interface {
 	// ModelsRequest is how one account's model list is asked for, on BaseURL:
 	// the method, the path — with the caller's query when the provider takes
 	// one — and the body, nil for none. A request rather than a path because
-	// not every upstream lists its models with a GET: Code Assist has no list
-	// and is asked its quota, a POST naming the account's project.
+	// not every upstream lists its models with a GET: Code Assist's
+	// fetchAvailableModels is a POST naming the account's project.
 	ModelsRequest(rawQuery string, c Credential) (method, path string, body []byte)
 
 	// ModelList turns that answer into the gateway's model list shape —

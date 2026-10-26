@@ -203,17 +203,17 @@ func TestRetryAfter(t *testing.T) {
 	p.now = func() time.Time { return base }
 	all := []store.Account{account("a", 0, ""), account("b", 0, ""), account("c", 0, "")}
 
-	if got := p.soonest(nil); got != 0 {
+	if got := p.soonest(nil, nil); got != 0 {
 		t.Errorf("with no accounts, RetryAfter = %v, want 0", got)
 	}
 	p.coolDown("a", 3*time.Minute)
 	p.coolDown("b", 40*time.Second)
 	p.coolDown("c", time.Minute)
-	if got := p.soonest(all); got != 40*time.Second {
+	if got := p.soonest(all, nil); got != 40*time.Second {
 		t.Errorf("RetryAfter = %v, want the soonest, 40s", got)
 	}
 	p.coolDown("c", 0)
-	if got := p.soonest(all); got != 0 {
+	if got := p.soonest(all, nil); got != 0 {
 		t.Errorf("with one account free, RetryAfter = %v, want 0", got)
 	}
 }
@@ -234,7 +234,7 @@ func TestRetryAfterIgnoresAccountsThatCannotServe(t *testing.T) {
 	p.coolDown("live", 40*time.Second)
 
 	candidates := candidatesFor([]store.Account{paused, live}, "anthropic", "", nil, base)
-	if got := p.soonest(candidates); got != 40*time.Second {
+	if got := p.soonest(candidates, nil); got != 40*time.Second {
 		t.Errorf("RetryAfter = %v, want 40s from the one account that can serve", got)
 	}
 }
@@ -678,5 +678,34 @@ func TestRefreshWaiterHonoursItsOwnContext(t *testing.T) {
 	wg.Wait()
 	if err := <-first; err != nil {
 		t.Errorf("the refresh itself failed: %v", err)
+	}
+}
+
+// An account sitting one model out is not free for that model: Retry-After
+// names when that model is back, under any spelling of it, and says nothing
+// for another model the account serves now.
+func TestRetryAfterCountsAModelsCooldown(t *testing.T) {
+	p := newTestPool()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	p.now = func() time.Time { return base }
+	a := []store.Account{account("a", 0, "")}
+	p.mu.Lock()
+	p.stateOf("a").models = map[string]time.Time{store.ModelKey("gemini-2.5-pro"): base.Add(40 * time.Second)}
+	p.mu.Unlock()
+
+	same := func(string) string { return "Gemini-2.5-Pro" }
+	if got := p.soonest(a, same); got != 40*time.Second {
+		t.Errorf("for the model sitting out, RetryAfter = %v, want 40s", got)
+	}
+	other := func(string) string { return "gemini-4-argon-high" }
+	if got := p.soonest(a, other); got != 0 {
+		t.Errorf("for another model, RetryAfter = %v, want 0", got)
+	}
+	if limited, _ := p.limited(a, same); !limited {
+		t.Error("the model sitting out on its only account was not limited")
+	}
+	p.now = func() time.Time { return base.Add(time.Minute) }
+	if got := p.soonest(a, same); got != 0 {
+		t.Errorf("after the cooldown, RetryAfter = %v, want 0", got)
 	}
 }

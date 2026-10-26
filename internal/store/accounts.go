@@ -420,7 +420,7 @@ func (s *Store) AccountByIdentity(ctx context.Context, provider, uuid, email str
 		// at the same address, is the same one.
 		row = s.db.QueryRowContext(ctx,
 			`SELECT `+accountColumns+` FROM `+accountsWithQuota+`
-			  WHERE provider = ? AND email = ? AND account_uuid = ''`, provider, email)
+			  WHERE provider = ? AND email = ? COLLATE NOCASE AND account_uuid = ''`, provider, email)
 		a, err = scanAccount(row)
 		if errors.Is(err, sql.ErrNoRows) {
 			return Account{}, ErrAccountNotFound
@@ -434,10 +434,12 @@ func (s *Store) AccountByIdentity(ctx context.Context, provider, uuid, email str
 }
 
 // AccountByEmail is the account a provider knows by this address, the first
-// in the priority list when several workspaces share it.
+// in the priority list when several workspaces share it. An address is
+// matched whatever its case, as sign-in compares them (sameAccount): one
+// that came back capitalised otherwise was a second account.
 func (s *Store) AccountByEmail(ctx context.Context, provider, email string) (Account, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT `+accountColumns+` FROM `+accountsWithQuota+` WHERE provider = ? AND email = ?
+		`SELECT `+accountColumns+` FROM `+accountsWithQuota+` WHERE provider = ? AND email = ? COLLATE NOCASE
 		  ORDER BY position LIMIT 1`, provider, email)
 	a, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {

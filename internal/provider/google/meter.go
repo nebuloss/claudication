@@ -257,6 +257,12 @@ func (j *jsonMeter) Done() {
 		events = []event{ev}
 	}
 	for _, ev := range events {
+		if ev.Error != nil {
+			if j.into.StreamError != nil {
+				*j.into.StreamError = errorCode(*ev.Error) + ": " + firstOf(ev.Error.Message, "the answer reported an error")
+			}
+			continue
+		}
 		if ev.Response == nil {
 			continue
 		}

@@ -447,8 +447,10 @@ func (r *Relay) build(req *http.Request, url string, body []byte, cred provider.
 		}
 		switch lower {
 		// The client's credential authenticates it to us, not us to the
-		// upstream; and an account id it sent names no account of ours.
-		case "authorization", "x-api-key", "chatgpt-account-id",
+		// upstream — in whichever header it came (x-goog-api-key is the
+		// Gemini SDK's, and any route takes it); and an account id it sent
+		// names no account of ours.
+		case "authorization", "x-api-key", "x-goog-api-key", "chatgpt-account-id",
 			// Set by the transport from the body we are sending.
 			"content-length", "host",
 			// Content coding is negotiated per hop, and this hop must see

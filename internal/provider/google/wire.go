@@ -106,7 +106,7 @@ func (Provider) Stamp(body []byte, c provider.Credential) []byte {
 }
 
 // Event implements provider.Wire. The backend's stream names no events — each
-// is a bare `data:` line holding a whole answer so far — so there is nothing
+// is a bare `data:` line holding the answer's next piece — so there is nothing
 // to tell apart by name, and every event is content. The stall hold, which is
 // what reads this, is off on this wire (see the composition root).
 func (Provider) Event([]byte) provider.EventKind { return provider.EventContent }

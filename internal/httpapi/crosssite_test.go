@@ -46,3 +46,50 @@ func TestSetupRefusesACrossSitePost(t *testing.T) {
 		})
 	}
 }
+
+// A signed-in operator's cookie goes with a request from any page of the
+// same site — another port of this host, a sibling subdomain — so a change
+// must come from this origin too; reading is left alone.
+func TestAdminRefusesASameSiteChange(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	base, cancel, done := startServer(t, srv)
+	defer func() { cancel(); <-done }()
+	setupAdmin(t, st)
+	login := postJSON(t, base, http.MethodPost, "/admin/session", map[string]string{"password": testPassword})
+	cookie := sessionCookieOf(t, login)
+	login.Body.Close()
+
+	for _, tc := range []struct {
+		name, method, site string
+		want               int
+	}{
+		{"same-site change", http.MethodPost, "same-site", http.StatusForbidden},
+		{"same-origin change", http.MethodPost, "same-origin", http.StatusOK},
+		{"same-site read", http.MethodGet, "same-site", http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body *strings.Reader
+			if tc.method == http.MethodPost {
+				body = strings.NewReader(`{"enabled":true}`)
+			} else {
+				body = strings.NewReader("")
+			}
+			path := "/admin/gateway"
+			if tc.method == http.MethodGet {
+				path = "/admin/accounts"
+			}
+			req, _ := http.NewRequest(tc.method, base+path, body)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Sec-Fetch-Site", tc.site)
+			req.AddCookie(cookie)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Errorf("status = %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
+	}
+}

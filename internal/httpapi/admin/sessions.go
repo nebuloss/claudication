@@ -95,6 +95,17 @@ func (s *Admin) RequireAdmin(next http.Handler) http.Handler {
 			httpx.WriteError(w, http.StatusUnauthorized, "authentication_error", "session has expired")
 			return
 		}
+		// The session cookie is SameSite=Strict, but "site" is the
+		// registrable domain: a page on another port of this host, or a
+		// sibling subdomain, still sends it. So a change must also come from
+		// this origin — what the browser says in Sec-Fetch-Site or Origin.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if reason := httpx.CrossSite(r); reason != "" {
+				httpx.WriteError(w, http.StatusForbidden, "permission_error",
+					"this request came from another site ("+reason+")")
+				return
+			}
+		}
 		// Someone is looking, so the usage poller should work at its fast
 		// rate. Recorded here rather than in each handler so every panel
 		// counts, including ones that do not exist yet.

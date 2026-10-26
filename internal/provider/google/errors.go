@@ -19,8 +19,6 @@ import (
 //
 //	429 RATE_LIMIT_EXCEEDED          a short limit, with a RetryInfo delay
 //	429 QUOTA_EXHAUSTED              the model's quota for the period is spent
-//	429 with a QuotaFailure quotaId
-//	    naming PerDay or Daily       the same, said another way
 //	429 "limit: 0" in the message    the plan does not include the model
 //	429/503 MODEL_CAPACITY_EXHAUSTED Google is out of capacity for the model:
 //	                                 nobody's account would do better
@@ -70,6 +68,11 @@ func reason(ds []geminiwire.Detail) string {
 	return ""
 }
 
+// maxRetryDelay bounds a delay read off an answer: past it, the figure is
+// not one to sit an account out on, and a float that large would not
+// convert to a Duration sensibly.
+const maxRetryDelay = 30 * 24 * time.Hour
+
 // retryDelay is the RetryInfo's delay, or zero. Google writes it as a
 // protobuf Duration: "3.5s", and gemini-cli also reads "120ms".
 func retryDelay(ds []geminiwire.Detail) time.Duration {
@@ -77,15 +80,20 @@ func retryDelay(ds []geminiwire.Detail) time.Duration {
 		if d.Type != geminiwire.TypeRetryInfo || d.RetryDelay == "" {
 			continue
 		}
-		if v, ok := strings.CutSuffix(d.RetryDelay, "ms"); ok {
-			if ms, err := strconv.ParseFloat(v, 64); err == nil {
-				return time.Duration(ms * float64(time.Millisecond))
-			}
-		} else if v, ok := strings.CutSuffix(d.RetryDelay, "s"); ok {
-			if s, err := strconv.ParseFloat(v, 64); err == nil {
-				return time.Duration(s * float64(time.Second))
-			}
+		unit, v := time.Second, d.RetryDelay
+		if ms, ok := strings.CutSuffix(v, "ms"); ok {
+			unit, v = time.Millisecond, ms
+		} else if s, ok := strings.CutSuffix(v, "s"); ok {
+			v = s
+		} else {
+			continue
 		}
+		n, err := strconv.ParseFloat(v, 64)
+		// Written so NaN, for which every comparison is false, fails too.
+		if err != nil || !(n > 0 && n*float64(unit) <= float64(maxRetryDelay)) {
+			continue
+		}
+		return time.Duration(n * float64(unit))
 	}
 	return 0
 }

@@ -202,10 +202,26 @@ func New(st *store.Store, client *http.Client, log *slog.Logger, refresh map[str
 func (p *Pool) until(id, model string) time.Time {
 	h := p.stateOf(id)
 	t := h.cooldownUntil
-	if m := h.models[model]; model != "" && m.After(t) {
+	if model == "" {
+		return t
+	}
+	k := store.ModelKey(model)
+	m, ok := h.models[k]
+	if ok && !m.After(p.now()) {
+		// Over: forgotten, so the map holds only what still cools.
+		delete(h.models, k)
+	} else if m.After(t) {
 		t = m
 	}
 	return t
+}
+
+// modelFor is the model served says an account would serve, or none.
+func modelFor(served func(id string) string, id string) string {
+	if served == nil {
+		return ""
+	}
+	return served(id)
 }
 
 func (p *Pool) stateOf(id string) *health {
@@ -338,14 +354,20 @@ func (p *Pool) Limited(ctx context.Context, provider, model string) (bool, time.
 	}
 	now := p.now()
 	candidates := candidatesFor(accounts, provider, model, nil, now)
+	served := func(string) string { return model }
 	if v, ok := versionsOf(ctx); ok {
-		candidates, _ = byVersion(candidatesFor(accounts, provider, "", nil, now), v)
+		var best map[string]string
+		candidates, best = byVersion(candidatesFor(accounts, provider, "", nil, now), v)
+		served = func(id string) string { return best[id] }
 	}
-	return p.limited(candidates)
+	return p.limited(candidates, served)
 }
 
-// limited is Limited over candidates already chosen.
-func (p *Pool) limited(candidates []store.Account) (bool, time.Time) {
+// limited is Limited over candidates already chosen, each sitting out the
+// model served says it would serve as well as cooling as a whole — Google's
+// limits are a model's (ReportModelFailureUntil). nil serves no model in
+// particular.
+func (p *Pool) limited(candidates []store.Account, served func(id string) string) (bool, time.Time) {
 	if len(candidates) == 0 {
 		return false, time.Time{}
 	}
@@ -354,7 +376,7 @@ func (p *Pool) limited(candidates []store.Account) (bool, time.Time) {
 	now := p.now()
 	var back time.Time
 	for _, a := range candidates {
-		cool := p.stateOf(a.ID).cooldownUntil
+		cool := p.until(a.ID, modelFor(served, a.ID))
 		if !cool.After(now) && !outOfRoom(a) {
 			return false, time.Time{}
 		}
@@ -856,7 +878,7 @@ func (p *Pool) ReportModelFailureUntil(id, model string, kind FailureKind, detai
 	if h.models == nil {
 		h.models = map[string]time.Time{}
 	}
-	h.models[model] = now.Add(wait)
+	h.models[store.ModelKey(model)] = now.Add(wait)
 	p.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), bookkeepingTimeout)
@@ -879,26 +901,34 @@ func (p *Pool) RetryAfter(ctx context.Context, provider, model string) time.Dura
 		return 0
 	}
 	candidates := candidatesFor(accounts, provider, model, nil, p.now())
+	served := func(string) string { return model }
 	if v, ok := versionsOf(ctx); ok {
-		candidates, _ = byVersion(candidatesFor(accounts, provider, "", nil, p.now()), v)
+		var best map[string]string
+		candidates, best = byVersion(candidatesFor(accounts, provider, "", nil, p.now()), v)
+		served = func(id string) string { return best[id] }
 	}
-	return p.soonest(candidates)
+	return p.soonest(candidates, served)
 }
 
 // soonest is how long until the first of candidates is out of its cooldown,
-// or 0 when one already is.
-func (p *Pool) soonest(candidates []store.Account) time.Duration {
+// its own or the one on the model served says it would serve, or 0 when one
+// already is. A model's cooldown counted for nothing here, and a client of a
+// Google account sitting a model out was told to retry at once.
+func (p *Pool) soonest(candidates []store.Account, served func(id string) string) time.Duration {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	now := p.now()
 	var soonest time.Duration
 	for _, a := range candidates {
-		h, ok := p.states[a.ID]
-		if !ok || !h.cooldownUntil.After(now) {
+		if _, ok := p.states[a.ID]; !ok {
 			return 0
 		}
-		d := h.cooldownUntil.Sub(now)
+		until := p.until(a.ID, modelFor(served, a.ID))
+		if !until.After(now) {
+			return 0
+		}
+		d := until.Sub(now)
 		if soonest == 0 || d < soonest {
 			soonest = d
 		}

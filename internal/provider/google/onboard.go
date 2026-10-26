@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"claudication/internal/geminiwire"
 )
 
 // Setting an account up, as gemini-cli's setupUser does (setup.ts) before its
@@ -57,18 +59,16 @@ type loadResponse struct {
 
 // operation is the long-running operation onboardUser answers (types.ts).
 type operation struct {
-	Name     string `json:"name"`
-	Done     bool   `json:"done"`
+	Name string `json:"name"`
+	Done bool   `json:"done"`
+	// Error is a finished operation's failure, in Google's words.
+	Error    *geminiwire.Status `json:"error"`
 	Response struct {
 		CloudAICompanionProject struct {
 			ID string `json:"id"`
 		} `json:"cloudaicompanionProject"`
 	} `json:"response"`
 }
-
-// The free tier's id: onboarded with no project, because the backend manages
-// one, and refused with Precondition Failed if one is named (setup.ts).
-const freeTier = "free-tier"
 
 // onboardPoll and onboardWait pace waiting on the onboarding operation.
 // gemini-cli polls every five seconds with no limit; a sign-in is a request
@@ -125,6 +125,9 @@ func setup(ctx context.Context, client *http.Client, token string) (identity, er
 		if err := call(ctx, client, token, http.MethodGet, "/"+op.Name, nil, &op); err != nil {
 			return identity{}, fmt.Errorf("wait for onboarding: %w", err)
 		}
+	}
+	if op.Error != nil && op.Error.Message != "" {
+		return identity{}, fmt.Errorf("Code Assist refused to onboard the account: %s", op.Error.Message)
 	}
 	if op.Response.CloudAICompanionProject.ID == "" {
 		return identity{}, ineligible(load, "onboarding named no project for the account")

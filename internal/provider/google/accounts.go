@@ -45,15 +45,30 @@ func (Accounts) Exchange(ctx context.Context, c *http.Client, code, verifier, _,
 		return oauth.Result{}, err
 	}
 	res := tr.result()
+	// The code is spent: a failure past here leaves a live grant nothing
+	// holds, so it is revoked, and signing in again makes a new one.
 	if res.Email, err = fetchEmail(ctx, c, res.AccessToken); err != nil {
+		abandon(c, res.RefreshToken)
 		return oauth.Result{}, err
 	}
 	id, err := setup(ctx, c, res.AccessToken)
 	if err != nil {
+		abandon(c, res.RefreshToken)
 		return oauth.Result{}, fmt.Errorf("%s signed in, but %w", res.Email, err)
 	}
 	res.AccountUUID, res.Plan = id.Project, id.Tier
 	return res, nil
+}
+
+// abandon revokes a refresh token a failed sign-in will not keep. Best
+// effort, on its own clock: the sign-in's may be what ran out.
+func abandon(c *http.Client, refreshToken string) {
+	if refreshToken == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), revokeTimeout)
+	defer cancel()
+	_ = Revoke(ctx, c, refreshToken)
 }
 
 // Refresh implements provider.Accounts.

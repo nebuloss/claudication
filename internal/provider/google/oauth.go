@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"claudication/internal/oauth"
 )
@@ -217,6 +218,11 @@ func fetchEmail(ctx context.Context, client *http.Client, token string) (string,
 	if err := json.Unmarshal(raw, &u); err != nil {
 		return "", fmt.Errorf("decode userinfo: %w", err)
 	}
+	// A Google account is known by its address (provider.AddressIdentity):
+	// without one every reconnect would be refused and every add a new row.
+	if u.Email == "" {
+		return "", errors.New("Google did not say the account's address; sign in again and allow access to it")
+	}
 	return u.Email, nil
 }
 
@@ -252,8 +258,11 @@ func Revoke(ctx context.Context, client *http.Client, refreshToken string) error
 
 // clip shortens an upstream's text for an error message, marking the cut.
 func clip(s string, max int) string {
-	if len(s) > max {
-		return s[:max] + "…"
+	if len(s) <= max {
+		return s
 	}
-	return s
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max] + "…"
 }

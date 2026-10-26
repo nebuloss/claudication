@@ -24,6 +24,9 @@ const probeTimeout = 60 * time.Second
 // model empty is the account's newest Flash model, from its own quota, so a
 // test neither names a model the plan lacks nor spends a Pro request.
 func Probe(ctx context.Context, client *http.Client, cred provider.Credential, model string) provider.ProbeResult {
+	if cred.AccountID == "" {
+		return provider.ProbeResult{Error: "the account has no Code Assist project; sign it in again"}
+	}
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	started := time.Now()
