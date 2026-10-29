@@ -20,7 +20,7 @@ import { RequestFilter, type RequestScope, type SetField } from './filter'
 import { RequestRecord, type Sort, type SortKey } from './record'
 import { RequestDetail } from './detail'
 import { RequestRowView } from './row'
-import { RunningRequests } from './running'
+import { RunningRowView, useRunning } from './running'
 import { useRequestLog } from './use-request-log'
 
 export { RequestFilter, requestsHref, type FilterFields, type RequestScope } from './filter'
@@ -87,9 +87,10 @@ export default function RequestsPanel({ scope = {}, title }: { scope?: RequestSc
     window.history.pushState(null, '', rest.pathIn(scope))
   }
 
-  // What is running now, above what was recorded: a client's own, or all —
-  // not under an account, which a request is only leased once it is sent.
-  const running = scope.account === undefined ? <RunningRequests keyId={scope.key ?? ''} /> : null
+  // What is running now, at the top of what was recorded: a client's own, or
+  // all — and none under an account, which a request is only leased to once
+  // it is sent.
+  const running = scope.account === undefined ? (scope.key ?? '') : null
   return <RecentRequests filter={filter.scopedTo(scope)} onNarrow={narrow} title={title} running={running} />
 }
 
@@ -102,8 +103,8 @@ function RecentRequests({
   filter: RequestFilter
   onNarrow: (f: RequestFilter) => void
   title?: string
-  /** The requests running now, drawn above the recorded ones. */
-  running?: ReactNode
+  /** Whose running requests head the table: a client's id, '' for all, null for none. */
+  running: string | null
 }) {
   const [shown, setShown] = useState<RequestRecord | null>(null)
   const [sort, setSort] = useState<Sort>({ key: 'at', dir: 'desc' })
@@ -125,6 +126,9 @@ function RecentRequests({
   useEffect(loadFacets, [loadFacets])
 
   const log = useRequestLog(filter, loadFacets)
+  // Only while nothing narrows the log: a running request has no status,
+  // tokens or message yet to match a filter by.
+  const live = useRunning(filter.pinned().length === 0 && filter.status === '' ? running : null)
 
   // Clicking the column already in effect turns it around; clicking a new one
   // starts at the end people mean first — newest, biggest, longest.
@@ -257,11 +261,9 @@ function RecentRequests({
 
       <ErrorBanner error={log.error} className="mb-4" />
 
-      {running}
-
       {log.loading ? (
         <Loading />
-      ) : data.length === 0 ? (
+      ) : data.length === 0 && live.rows.length === 0 ? (
         <Empty>{chips.length > 0 ? 'No requests match this filter.' : 'No requests recorded yet.'}</Empty>
       ) : (
         <Table
@@ -286,6 +288,12 @@ function RecentRequests({
             faceted('Message', 'message'),
           ]}
         >
+          {/* Being served now, on top whatever the sort: they are the newest,
+              and the ones an operator is watching. Each becomes a row below
+              when it ends. */}
+          {live.rows.map((q, i) => (
+            <RunningRowView key={`running-${q.started_at}-${i}`} q={q} now={live.now} />
+          ))}
           {data.map((r, i) => (
             <RequestRowView
               key={`${r.row.at}-${i}`}
