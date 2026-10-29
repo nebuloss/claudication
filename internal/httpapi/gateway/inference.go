@@ -407,6 +407,9 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		if res.FirstContent > 0 {
 			attrs = append(attrs, "first_token_ms", res.FirstContent.Milliseconds())
 		}
+		if res.HeadersAfter > 0 {
+			attrs = append(attrs, "headers_ms", res.HeadersAfter.Milliseconds())
+		}
 		if res.Stalls > 0 {
 			attrs = append(attrs, "stalls", res.Stalls)
 		}

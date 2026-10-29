@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"claudication/internal/pool"
@@ -143,6 +144,10 @@ type Result struct {
 	// attempts included. Zero when no content arrived or the response was not
 	// a stream.
 	FirstContent time.Duration
+	// HeadersAfter is how long the first attempt's upstream took to answer
+	// with its status and headers: a model that sits on them while it thinks
+	// is what a proxy in front times out (keepalive).
+	HeadersAfter time.Duration
 	Err          error
 
 	// firstContentAt is when the scanner saw that event.
@@ -235,10 +240,10 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 	// The last refusal we retried past, held so that running out of accounts
 	// answers with the upstream's own words rather than ours.
 	var last *refusal
-	// committed is that a held stream's keepalive sent the response's status
-	// and headers (stall.go): from then on what an attempt answers goes out
-	// in the stream.
-	committed := false
+	// What keeps a streaming request's connection from going silent while
+	// the upstream has not answered or is held (stall.go). Once it has sent
+	// the status and headers, what an attempt answers goes out in the stream.
+	ka := &keepalive{w: w, on: r.StallTimeout > 0 && p.Stream}
 
 	// The lease the current attempt holds, released when the attempt gives
 	// way to the next one and when the answer is done — after a stream has
@@ -296,7 +301,17 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		attemptCtx, cancelAttempt := context.WithCancel(req.Context())
 		upstreamReq = upstreamReq.WithContext(attemptCtx)
 
+		// The upstream may sit on its headers as long as a model thinks:
+		// measured 2026-10-29, a request through the operator's proxy got a
+		// 504 at exactly 90 s with not one byte from the gateway, because the
+		// hold's keepalive only starts once the upstream has answered.
+		stopWaiting := ka.whileWaiting()
+		asked := time.Now()
 		resp, err := r.Client.Do(upstreamReq)
+		stopWaiting()
+		if err == nil && res.HeadersAfter == 0 {
+			res.HeadersAfter = time.Since(asked)
+		}
 		// Answered, or failed for good: nothing will resend this body now, and
 		// the request outlives the call through resp.Request.
 		upstreamReq.GetBody = nil
@@ -385,15 +400,8 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		if r.StallTimeout > 0 && res.Stalls == 0 && attempt < maxAttempts && holdable(resp) {
 			// Bytes while it holds, so a proxy in front does not time the
 			// connection out (stall.go): the headers once, then comments.
-			alive := func() {
-				if !committed {
-					copyHeaders(w.Header(), resp.Header)
-					w.WriteHeader(resp.StatusCode)
-					committed = true
-				}
-				_, _ = io.WriteString(w, ": keepalive\n\n")
-				_ = http.NewResponseController(w).Flush()
-			}
+			header := resp.Header
+			alive := func() { ka.ping(header) }
 			held, outcome := holdUntilContent(resp.Body, r.StallTimeout, r.Wire.Event, alive)
 			if outcome != holdProgressed {
 				cancelAttempt()
@@ -409,7 +417,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		}
 
 		res.Status = resp.StatusCode
-		if committed && resp.StatusCode != http.StatusOK {
+		if ka.sent() && resp.StatusCode != http.StatusOK {
 			// The status went out with a held stream's keepalive; what the
 			// retry got instead is said in the stream.
 			raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxRefusalBytes))
@@ -418,7 +426,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 			streamError(w, raw, &res)
 			return res
 		}
-		r.relay(w, resp, &res, names, committed)
+		r.relay(w, resp, &res, names, ka.sent())
 		cancelAttempt()
 		if !res.firstContentAt.IsZero() {
 			res.FirstContent = res.firstContentAt.Sub(started)
@@ -434,14 +442,84 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 	// with the last thing the upstream actually said — in the stream, when a
 	// held stream's keepalive has already sent a status.
 	if last != nil {
-		if committed {
+		if ka.sent() {
 			res.Status = last.status
 			streamError(w, last.body, &res)
 		} else {
 			replay(w, last, &res)
 		}
+	} else if ka.sent() && res.Err != nil {
+		// No upstream answered at all, after the keepalive had sent a 200:
+		// said in the stream, and recorded as the gateway's own failure
+		// rather than answered again in a body the client is past reading.
+		res.Status = http.StatusBadGateway
+		streamError(w, []byte(res.Err.Error()), &res)
 	}
 	return res
+}
+
+// keepalive keeps a streaming request's connection from going silent while
+// the gateway waits — for the upstream's headers, or through a hold
+// (stall.go): the status and headers once, then an SSE comment every
+// keepaliveEvery. Every SSE reader skips comments, and no event has gone
+// out, so the request can still be sent again unseen. Safe from the waiting
+// goroutine and the hold at once.
+type keepalive struct {
+	w  http.ResponseWriter
+	on bool
+
+	mu        sync.Mutex
+	committed bool
+}
+
+// ping writes one keepalive, the headers first if none have gone out: the
+// upstream's when it has answered, else a stream's own.
+func (k *keepalive) ping(upstream http.Header) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if !k.committed {
+		if upstream != nil {
+			copyHeaders(k.w.Header(), upstream)
+		} else {
+			k.w.Header().Set("Content-Type", "text/event-stream")
+			k.w.Header().Set("Cache-Control", "no-cache")
+		}
+		k.w.WriteHeader(http.StatusOK)
+		k.committed = true
+	}
+	_, _ = io.WriteString(k.w, ": keepalive\n\n")
+	_ = http.NewResponseController(k.w).Flush()
+}
+
+// sent reports whether the keepalive has sent the status and headers.
+func (k *keepalive) sent() bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.committed
+}
+
+// whileWaiting pings every keepaliveEvery until the returned func is called,
+// which waits for the last ping to finish. Nothing for a request that does
+// not stream, or on a relay that holds nothing.
+func (k *keepalive) whileWaiting() (stop func()) {
+	if !k.on {
+		return func() {}
+	}
+	quit, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(keepaliveEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-quit:
+				return
+			case <-t.C:
+				k.ping(nil)
+			}
+		}
+	}()
+	return func() { close(quit); <-done }
 }
 
 // ErrClientGone is a client that closed the connection before the answer

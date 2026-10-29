@@ -393,3 +393,43 @@ func TestAKeepaliveGoesOutWhileTheUpstreamPings(t *testing.T) {
 		t.Errorf("first bytes %q after %s: want a keepalive well before the first token", first, got)
 	}
 }
+
+// An upstream that sits on its headers while the model thinks — measured
+// 2026-10-29, a 504 from the operator's proxy at 90 s with not one byte
+// from the gateway — gets the client a keepalive anyway, headers first, and
+// then its answer as the only events in the stream.
+func TestAKeepaliveGoesOutBeforeTheUpstreamAnswers(t *testing.T) {
+	was := keepaliveEvery
+	t.Cleanup(func() { keepaliveEvery = was })
+	keepaliveEvery = 60 * time.Millisecond
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		for _, chunk := range []string{sseStart, sseBlock, sseDelta, sseDelta, sseDelta, sseEnd} {
+			_, _ = w.Write([]byte(chunk))
+		}
+	}))
+	t.Cleanup(upstream.Close)
+	relay := stallRelay(upstream, &recordingPool{}, 5*time.Second)
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		relay.Do(w, r, "/v1/messages", []byte(`{"stream":true}`), request.Prologue{Stream: true})
+	}))
+	t.Cleanup(front.Close)
+
+	started := time.Now()
+	resp, err := http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if got := time.Since(started); got > 250*time.Millisecond {
+		t.Errorf("headers after %s: the upstream took 300 ms, and the keepalive is due at 60", got)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	answer := strings.ReplaceAll(string(body), ": keepalive\n\n", "")
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(string(body), ": keepalive") ||
+		answer != sseStart+sseBlock+sseDelta+sseDelta+sseDelta+sseEnd {
+		t.Errorf("status %d, body %q", resp.StatusCode, body)
+	}
+}
