@@ -2,6 +2,7 @@ package relay
 
 import (
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -341,5 +342,54 @@ func TestAClientThatHangsUpIsTheResultsError(t *testing.T) {
 	res := stallRelay(srv, &recordingPool{}, 0).Do(w, req, "/v1/messages", []byte(`{"stream":true}`), request.Prologue{})
 	if !errors.Is(res.Err, ErrClientGone) {
 		t.Errorf("res.Err = %v, want ErrClientGone", res.Err)
+	}
+}
+
+// The keepalive is due on its own clock, not after a quiet spell: a thinking
+// model pings every few seconds while it holds, and a client on a real
+// connection gets the headers and a comment long before the first token.
+func TestAKeepaliveGoesOutWhileTheUpstreamPings(t *testing.T) {
+	// Restored after the servers below close (cleanups run last first), not
+	// while the relay inside them still reads it.
+	was := keepaliveEvery
+	t.Cleanup(func() { keepaliveEvery = was })
+	keepaliveEvery = 60 * time.Millisecond
+	pings := []string{sseStart}
+	for i := 0; i < 12; i++ {
+		pings = append(pings, ssePing, "\x00short")
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		rc := http.NewResponseController(w)
+		for _, chunk := range append(pings, sseBlock, sseDelta, sseDelta, sseDelta, sseEnd) {
+			if chunk == "\x00short" {
+				time.Sleep(25 * time.Millisecond)
+				continue
+			}
+			_, _ = w.Write([]byte(chunk))
+			_ = rc.Flush()
+		}
+	}))
+	t.Cleanup(upstream.Close)
+	relay := stallRelay(upstream, &recordingPool{}, 5*time.Second)
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		relay.Do(w, r, "/v1/messages", []byte(`{"stream":true}`), request.Prologue{})
+	}))
+	t.Cleanup(front.Close)
+
+	started := time.Now()
+	resp, err := http.Post(front.URL+"/v1/messages", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	first := make([]byte, len(": keepalive"))
+	if _, err := io.ReadFull(resp.Body, first); err != nil {
+		t.Fatal(err)
+	}
+	// The upstream pings for about 300 ms before its first token.
+	if got := time.Since(started); string(first) != ": keepalive" || got > 250*time.Millisecond {
+		t.Errorf("first bytes %q after %s: want a keepalive well before the first token", first, got)
 	}
 }

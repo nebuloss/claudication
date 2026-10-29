@@ -283,12 +283,17 @@ func holdUntilContent(body io.ReadCloser, timeout time.Duration, kind func([]byt
 		timer := time.NewTimer(time.Until(wake))
 		c, ok := p.next(timer.C)
 		timer.Stop()
+		// Due whatever woke the loop: the upstream pings a thinking model
+		// every few seconds, and a keepalive sent only after a quiet spell
+		// was never sent at all — measured 2026-10-29, a request's first byte
+		// at 75 s through a hold that should have sent one at 15.
+		if now := time.Now(); alive != nil && !now.Before(nextAlive) {
+			alive()
+			nextAlive = now.Add(keepaliveEvery)
+		}
 		if !ok {
-			if now := time.Now(); now.Before(until) {
-				// Only the keepalive was due.
-				alive()
-				nextAlive = now.Add(keepaliveEvery)
-				continue
+			if time.Now().Before(until) {
+				continue // only the keepalive was due
 			}
 			return finish(holdStalled)
 		}
