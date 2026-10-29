@@ -248,3 +248,69 @@ func TestAShortCompleteAnswerIsNotHeld(t *testing.T) {
 		t.Errorf("a short answer was held for %s", took)
 	}
 }
+
+// A held stream is never silent: its headers go out with the first
+// keepalive, comments follow while it holds, and the retry after a stall
+// still reaches the client as the only answer — the comments are no events.
+// Measured 2026-10-29: a proxy's 90 s read timeout cut crush's requests
+// while the hold sent nothing at all.
+func TestAHeldStreamKeepsTheConnectionAlive(t *testing.T) {
+	defer func(d time.Duration) { keepaliveEvery = d }(keepaliveEvery)
+	keepaliveEvery = 40 * time.Millisecond
+	srv, attempts := stallServer(t, func(n int) []string {
+		if n == 1 {
+			return []string{sseStart, ssePing, ""}
+		}
+		return []string{sseStart, sseBlock, sseDelta, sseEnd}
+	})
+	res, body := doStream(stallRelay(srv, &recordingPool{}, 200*time.Millisecond))
+
+	if attempts() != 2 || res.Stalls != 1 {
+		t.Fatalf("attempts=%d stalls=%d, want 2/1", attempts(), res.Stalls)
+	}
+	if n := strings.Count(body, ": keepalive\n\n"); n < 2 {
+		t.Errorf("%d keepalives while holding for 200 ms at 40 ms: %q", n, body)
+	}
+	answer := strings.ReplaceAll(body, ": keepalive\n\n", "")
+	if want := sseStart + sseBlock + sseDelta + sseEnd; answer != want {
+		t.Errorf("client received, comments aside,\n%q\nwant only the second answer\n%q", answer, want)
+	}
+}
+
+// A retry that is refused once the status has gone out with a keepalive is
+// said in the stream, as a Messages client hears an error mid-stream.
+func TestARefusedRetryAfterAKeepaliveIsAnErrorEvent(t *testing.T) {
+	defer func(d time.Duration) { keepaliveEvery = d }(keepaliveEvery)
+	keepaliveEvery = 40 * time.Millisecond
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		n++
+		attempt := n
+		mu.Unlock()
+		if attempt > 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sseStart))
+		http.NewResponseController(w).Flush()
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	res := stallRelay(srv, &recordingPool{}, 150*time.Millisecond).Do(rec, req, "/v1/messages", []byte(`{"stream":true}`), request.Prologue{})
+
+	if rec.Code != http.StatusOK || res.Status != http.StatusBadRequest {
+		t.Fatalf("client status %d, result status %d: want the keepalive's 200 and the refusal recorded", rec.Code, res.Status)
+	}
+	want := "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long\"}}\n\n"
+	if !strings.HasSuffix(rec.Body.String(), want) {
+		t.Errorf("stream ends\n%q\nwant the refusal as an error event", rec.Body.String())
+	}
+}

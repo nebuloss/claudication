@@ -78,9 +78,33 @@ import (
 // Not a watchdog after release. Once the client has bytes a retry is no
 // longer invisible, and a silent pause mid-answer is legitimate — long
 // thinking sends nothing but pings.
+//
+// # Silent is not the same as held
+//
+// The hold held everything, the response's status line included, so for as
+// long as it lasted the connection carried no byte at all — and a proxy in
+// front waits only so long for one. Measured 2026-10-29: 25 requests from a
+// crush client behind the operator's reverse proxy ended at 89,997 to
+// 90,005 ms, each with the opening events read and no first token, and
+// crush reported a gateway timeout: the proxy's 90-second read timeout,
+// answering 504 while Claude Opus 5.5 was still thinking (its first token
+// came as late as 87 s on requests that were served). So while it holds,
+// the relay sends the response's headers and then an SSE comment every
+// keepaliveEvery: bytes on the wire, which every SSE reader skips (comments
+// are not events; internal/api's reader skips them too), and which promise
+// nothing the retry cannot keep — no event has been sent. The one thing a
+// retry can no longer change is the status, which was the upstream's 200: a
+// retry that fails is said as an `event: error` in the stream, which is how
+// a Messages client hears an error once a stream has begun.
 
 // holdContentEvents is how many content events show a stream is flowing.
 const holdContentEvents = 3
+
+// keepaliveEvery is how often a held stream sends a comment, so a proxy's
+// read timeout never sees the connection silent: well inside the 60 s that
+// nginx defaults to, and the 90 s measured on the operator's proxy.
+// A variable so the tests need not wait it out.
+var keepaliveEvery = 15 * time.Second
 
 // progressGap is how long content may stop while the opening is still held.
 // A variable so the tests need not wait it out.
@@ -224,10 +248,13 @@ func (h *heldBody) Close() error {
 // holdUntilContent reads the start of a stream until it carries content, ends,
 // errors, or the timeout passes. On holdProgressed the returned body replays
 // everything read so far and then the rest; on the other outcomes the body has
-// been closed and the caller should abandon the attempt.
-func holdUntilContent(body io.ReadCloser, timeout time.Duration, kind func([]byte) provider.EventKind) (io.ReadCloser, holdOutcome) {
+// been closed and the caller should abandon the attempt. alive, when not nil,
+// is called every keepaliveEvery while it holds, to keep the connection from
+// going silent.
+func holdUntilContent(body io.ReadCloser, timeout time.Duration, kind func([]byte) provider.EventKind, alive func()) (io.ReadCloser, holdOutcome) {
 	p := startPump(body)
 	deadline := time.Now().Add(timeout)
+	nextAlive := time.Now().Add(keepaliveEvery)
 
 	var held []byte
 	var sc heldScan
@@ -249,10 +276,20 @@ func holdUntilContent(body io.ReadCloser, timeout time.Duration, kind func([]byt
 				until = gap
 			}
 		}
-		timer := time.NewTimer(time.Until(until))
+		wake := until
+		if alive != nil && nextAlive.Before(wake) {
+			wake = nextAlive
+		}
+		timer := time.NewTimer(time.Until(wake))
 		c, ok := p.next(timer.C)
 		timer.Stop()
 		if !ok {
+			if now := time.Now(); now.Before(until) {
+				// Only the keepalive was due.
+				alive()
+				nextAlive = now.Add(keepaliveEvery)
+				continue
+			}
 			return finish(holdStalled)
 		}
 		if len(c.b) > 0 {

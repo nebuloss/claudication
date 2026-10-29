@@ -3,6 +3,7 @@ package relay
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -234,6 +235,10 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 	// The last refusal we retried past, held so that running out of accounts
 	// answers with the upstream's own words rather than ours.
 	var last *refusal
+	// committed is that a held stream's keepalive sent the response's status
+	// and headers (stall.go): from then on what an attempt answers goes out
+	// in the stream.
+	committed := false
 
 	// The lease the current attempt holds, released when the attempt gives
 	// way to the next one and when the answer is done — after a stream has
@@ -378,7 +383,18 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		// request again if it never does. Only while another attempt is
 		// possible, once per request, and never on the retry itself.
 		if r.StallTimeout > 0 && res.Stalls == 0 && attempt < maxAttempts && holdable(resp) {
-			held, outcome := holdUntilContent(resp.Body, r.StallTimeout, r.Wire.Event)
+			// Bytes while it holds, so a proxy in front does not time the
+			// connection out (stall.go): the headers once, then comments.
+			alive := func() {
+				if !committed {
+					copyHeaders(w.Header(), resp.Header)
+					w.WriteHeader(resp.StatusCode)
+					committed = true
+				}
+				_, _ = io.WriteString(w, ": keepalive\n\n")
+				_ = http.NewResponseController(w).Flush()
+			}
+			held, outcome := holdUntilContent(resp.Body, r.StallTimeout, r.Wire.Event, alive)
 			if outcome != holdProgressed {
 				cancelAttempt()
 				res.Stalls++
@@ -393,7 +409,16 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		}
 
 		res.Status = resp.StatusCode
-		r.relay(w, resp, &res, names)
+		if committed && resp.StatusCode != http.StatusOK {
+			// The status went out with a held stream's keepalive; what the
+			// retry got instead is said in the stream.
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxRefusalBytes))
+			resp.Body.Close()
+			cancelAttempt()
+			streamError(w, raw, &res)
+			return res
+		}
+		r.relay(w, resp, &res, names, committed)
 		cancelAttempt()
 		if !res.firstContentAt.IsZero() {
 			res.FirstContent = res.firstContentAt.Sub(started)
@@ -406,11 +431,39 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 	}
 
 	// Every attempt was refused and retryable. Same argument as above: answer
-	// with the last thing the upstream actually said.
+	// with the last thing the upstream actually said — in the stream, when a
+	// held stream's keepalive has already sent a status.
 	if last != nil {
-		replay(w, last, &res)
+		if committed {
+			res.Status = last.status
+			streamError(w, last.body, &res)
+		} else {
+			replay(w, last, &res)
+		}
 	}
 	return res
+}
+
+// streamError says an upstream's refusal inside a stream whose status has
+// already gone out (a held stream's keepalive, stall.go): as an SSE error
+// event, which is how a Messages client hears an error mid-stream, its data
+// the upstream's own error body.
+func streamError(w http.ResponseWriter, body []byte, res *Result) {
+	data := bytes.TrimSpace(body)
+	if !json.Valid(data) {
+		data, _ = json.Marshal(map[string]any{"type": "error", "error": map[string]string{
+			"type": "api_error", "message": errorText(body),
+		}})
+	} else {
+		var compact bytes.Buffer
+		if json.Compact(&compact, data) == nil {
+			data = compact.Bytes()
+		}
+	}
+	n, _ := io.WriteString(w, "event: error\ndata: "+string(data)+"\n\n")
+	_ = http.NewResponseController(w).Flush()
+	res.BytesOut += int64(n)
+	res.UpstreamError = errorText(body)
 }
 
 // failureKind is how long an account sits out for an answer: the kind its
@@ -551,7 +604,8 @@ func (s *sentBody) Close() error {
 // names is the only thing that can make it not verbatim: when the request had
 // tool names rewritten, the ones coming back are turned into the client's own
 // again. It is nil for every other request, and then this is a byte copy.
-func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, names map[string]string) {
+// sent is that a held stream's keepalive already wrote the headers and status.
+func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, names map[string]string, sent bool) {
 	defer resp.Body.Close()
 	// From the pump's pool, as a held stream's reads are: a fresh 32 KB per
 	// response was garbage the moment the response ended. Returned after the
@@ -559,8 +613,10 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 	bufp := pumpBuffers.Get().(*[]byte)
 	defer pumpBuffers.Put(bufp)
 
-	copyHeaders(w.Header(), resp.Header)
-	w.WriteHeader(resp.StatusCode)
+	if !sent {
+		copyHeaders(w.Header(), resp.Header)
+		w.WriteHeader(resp.StatusCode)
+	}
 
 	// Flush after every chunk.
 	//
