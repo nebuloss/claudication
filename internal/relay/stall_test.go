@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -312,5 +313,33 @@ func TestARefusedRetryAfterAKeepaliveIsAnErrorEvent(t *testing.T) {
 	want := "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long\"}}\n\n"
 	if !strings.HasSuffix(rec.Body.String(), want) {
 		t.Errorf("stream ends\n%q\nwant the refusal as an error event", rec.Body.String())
+	}
+}
+
+// goneWriter is a client that hangs up after its first write.
+type goneWriter struct {
+	*httptest.ResponseRecorder
+	writes int
+}
+
+func (g *goneWriter) Write(b []byte) (int, error) {
+	g.writes++
+	if g.writes > 1 {
+		return 0, errors.New("broken pipe")
+	}
+	return g.ResponseRecorder.Write(b)
+}
+
+// A client that hangs up mid-stream is the result's error, so the request is
+// recorded as the client's failure and not as a success with no output.
+func TestAClientThatHangsUpIsTheResultsError(t *testing.T) {
+	srv, _ := stallServer(t, func(int) []string {
+		return []string{sseStart, sseBlock, sseDelta, pause, sseDelta, sseEnd}
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
+	w := &goneWriter{ResponseRecorder: httptest.NewRecorder()}
+	res := stallRelay(srv, &recordingPool{}, 0).Do(w, req, "/v1/messages", []byte(`{"stream":true}`), request.Prologue{})
+	if !errors.Is(res.Err, ErrClientGone) {
+		t.Errorf("res.Err = %v, want ErrClientGone", res.Err)
 	}
 }

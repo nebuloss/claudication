@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -358,8 +359,9 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			FirstToken:       res.FirstContent,
 			// A stream that died after its 200 is the more specific fact, so
 			// it wins; otherwise record whatever the upstream said when it
-			// refused.
-			Error: firstNonEmpty(res.StreamError, res.UpstreamError),
+			// refused; otherwise that the client hung up before the end.
+			Error:     firstNonEmpty(res.StreamError, res.UpstreamError, clientGone(res, elapsed)),
+			ErrorCode: clientGoneCode(res),
 		}, key.TokenBudget)
 
 		// Both after the answer, never before it: naming a chat is a
@@ -424,6 +426,29 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 
 // closingCause is what to tell the protocol ended the exchange: the gateway's
 // own failure to get an answer, or the upstream's failure part-way through one.
+// clientGone is what a request the client closed before its answer ended
+// says, or "" for one it did not.
+func clientGone(res relay.Result, elapsed time.Duration) string {
+	if !gone(res) {
+		return ""
+	}
+	return fmt.Sprintf("the client closed the connection after %s, before the answer ended",
+		elapsed.Round(100*time.Millisecond))
+}
+
+// clientGoneCode is its one-word code, "" otherwise: the recorder classifies
+// an upstream's own error, and this is none.
+func clientGoneCode(res relay.Result) string {
+	if gone(res) && res.StreamError == "" && res.UpstreamError == "" {
+		return "client_closed"
+	}
+	return ""
+}
+
+func gone(res relay.Result) bool {
+	return errors.Is(res.Err, relay.ErrClientGone) || errors.Is(res.Err, context.Canceled)
+}
+
 func closingCause(res relay.Result) error {
 	if res.Err != nil {
 		return res.Err

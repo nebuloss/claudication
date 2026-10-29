@@ -66,7 +66,9 @@ func (r *Recorder) Record(e store.UsageEvent, budget int64) {
 	if !r.Enabled() {
 		return
 	}
-	if r.Classify != nil {
+	// A code the caller set is the gateway's own (a client that hung up);
+	// any other error is an upstream's, for its provider to classify.
+	if r.Classify != nil && e.ErrorCode == "" {
 		e.ErrorCode = r.Classify(e.Provider, e.Status, e.Error)
 	}
 

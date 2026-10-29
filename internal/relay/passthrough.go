@@ -444,6 +444,13 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 	return res
 }
 
+// ErrClientGone is a client that closed the connection before the answer
+// ended. Kept on the result, so the request is recorded as the client's
+// failure rather than as a success with no output: a client behind a proxy
+// that timed out (stall.go) left exactly such rows, a 200 that took 90 s and
+// said nothing, while the client had been told 504.
+var ErrClientGone = errors.New("the client closed the connection before the answer ended")
+
 // streamError says an upstream's refusal inside a stream whose status has
 // already gone out (a held stream's keepalive, stall.go): as an SSE error
 // event, which is how a Messages client hears an error mid-stream, its data
@@ -671,7 +678,8 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 			return true
 		}
 		if _, err := w.Write(b); err != nil {
-			return false // client went away
+			res.Err = ErrClientGone
+			return false
 		}
 		_ = rc.Flush()
 		res.BytesOut += int64(len(b))
@@ -698,7 +706,12 @@ func (r *Relay) relay(w http.ResponseWriter, resp *http.Response, res *Result, n
 			if restorer != nil {
 				write(restorer.Tail())
 			}
-			if !errors.Is(readErr, io.EOF) {
+			switch {
+			case errors.Is(readErr, io.EOF):
+			case errors.Is(readErr, context.Canceled):
+				// The upstream request is the client's, cancelled with it.
+				res.Err = ErrClientGone
+			default:
 				res.Err = readErr
 			}
 			return
