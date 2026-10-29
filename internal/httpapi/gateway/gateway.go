@@ -39,6 +39,7 @@ type Gateway struct {
 	budgets     *limits.Budgets
 	inflight    *limits.InFlight
 	recorder    *usagesvc.Recorder
+	running     *usagesvc.Running
 	pool        *pool.Pool
 	upstreams   map[string]Upstream
 	titles      *titles.Titler
@@ -72,7 +73,9 @@ type Deps struct {
 	// InFlight counts each key's open requests, for the client's Limits page.
 	InFlight *limits.InFlight
 	Recorder *usagesvc.Recorder
-	Pool     *pool.Pool
+	// Running is the requests being served now, for the request log.
+	Running *usagesvc.Running
+	Pool    *pool.Pool
 	// Upstreams are the providers, by id, each with the relay that reaches
 	// it and the client routes that may.
 	Upstreams map[string]Upstream
@@ -112,7 +115,7 @@ func New(d Deps) *Gateway {
 	return &Gateway{
 		cfg: d.Config, log: d.Log, store: d.Store,
 		keyLimiter: d.KeyLimiter, anonLimiter: d.AnonLimiter, budgets: d.Budgets, inflight: d.InFlight,
-		recorder: d.Recorder, pool: d.Pool, upstreams: d.Upstreams, titles: d.Titles,
+		recorder: d.Recorder, running: d.Running, pool: d.Pool, upstreams: d.Upstreams, titles: d.Titles,
 		trimmer: d.Trimmer, enabled: d.Enabled, protocols: d.Protocols,
 		install: d.Install, models: d.Models,
 	}

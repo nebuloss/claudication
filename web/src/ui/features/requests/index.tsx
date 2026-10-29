@@ -20,6 +20,7 @@ import { RequestFilter, type RequestScope, type SetField } from './filter'
 import { RequestRecord, type Sort, type SortKey } from './record'
 import { RequestDetail } from './detail'
 import { RequestRowView } from './row'
+import { RunningRequests } from './running'
 import { useRequestLog } from './use-request-log'
 
 export { RequestFilter, requestsHref, type FilterFields, type RequestScope } from './filter'
@@ -86,17 +87,23 @@ export default function RequestsPanel({ scope = {}, title }: { scope?: RequestSc
     window.history.pushState(null, '', rest.pathIn(scope))
   }
 
-  return <RecentRequests filter={filter.scopedTo(scope)} onNarrow={narrow} title={title} />
+  // What is running now, above what was recorded: a client's own, or all —
+  // not under an account, which a request is only leased once it is sent.
+  const running = scope.account === undefined ? <RunningRequests keyId={scope.key ?? ''} /> : null
+  return <RecentRequests filter={filter.scopedTo(scope)} onNarrow={narrow} title={title} running={running} />
 }
 
 function RecentRequests({
   filter,
   onNarrow,
   title,
+  running,
 }: {
   filter: RequestFilter
   onNarrow: (f: RequestFilter) => void
   title?: string
+  /** The requests running now, drawn above the recorded ones. */
+  running?: ReactNode
 }) {
   const [shown, setShown] = useState<RequestRecord | null>(null)
   const [sort, setSort] = useState<Sort>({ key: 'at', dir: 'desc' })
@@ -249,6 +256,8 @@ function RecentRequests({
       )}
 
       <ErrorBanner error={log.error} className="mb-4" />
+
+      {running}
 
       {log.loading ? (
         <Loading />

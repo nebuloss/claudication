@@ -19,6 +19,7 @@ import (
 	"claudication/internal/service/clients"
 	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/titles"
+	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
 )
 
@@ -314,7 +315,15 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		}
 
 		started := time.Now()
+		// In the request log's Running now until the answer is done: a
+		// request is only recorded when it ends.
+		done := s.running.Start(usagesvc.RunningRequest{
+			StartedAt: started, KeyID: key.ID, KeyName: key.Name,
+			Model: model, Slot: slot, Provider: dest.Provider, Path: route, Streaming: streaming,
+			Conversation: conversation, Client: client, Surface: surface, IP: ip,
+		})
 		res := up.Relay.Do(sink, r, upstreamPath, outbound, prologue)
+		done()
 		elapsed := time.Since(started)
 		// The version that served a family, as the account leased had it:
 		// what was spent, so what the log, the usage and the title record.

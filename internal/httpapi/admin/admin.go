@@ -22,6 +22,7 @@ import (
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/settings"
+	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
 )
 
@@ -49,6 +50,7 @@ type Admin struct {
 	install        *install.Links
 	availability   *availability.Checker
 	modelChecks    *settings.Switch
+	running        *usagesvc.Running
 	facets         facetCache
 }
 
@@ -85,6 +87,8 @@ type Deps struct {
 	Availability *availability.Checker
 	// ModelChecks is whether the gateway checks models itself.
 	ModelChecks *settings.Switch
+	// Running is the requests the gateway is serving now.
+	Running *usagesvc.Running
 }
 
 // Models is what the admin screens read of the gateway's model list: the same
@@ -130,7 +134,7 @@ func New(d Deps) *Admin {
 		httpClient: d.HTTPClient, providers: d.Providers, anonLimiter: d.AnonLimiter, budgets: d.Budgets,
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
-		availability: d.Availability, modelChecks: d.ModelChecks,
+		availability: d.Availability, modelChecks: d.ModelChecks, running: d.Running,
 	}
 }
 
@@ -211,6 +215,7 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 
 	mux.Handle("GET /admin/overview", admin(s.handleOverview))
 	mux.Handle("GET /admin/usage", admin(s.handleUsage))
+	mux.Handle("GET /admin/requests/running", admin(s.handleRunning))
 	mux.Handle("GET /admin/usage/slots", admin(s.handleGatewaySlots))
 	mux.Handle("GET /admin/usage/live", admin(s.handleGatewayLive))
 	mux.Handle("GET /admin/chats", admin(s.handleChats))

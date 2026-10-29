@@ -103,6 +103,9 @@ type Server struct {
 	// modelChecks is availability's switch: whether the gateway checks
 	// models itself.
 	modelChecks *settings.Switch
+	// running is the requests being served now, which the gateway notes and
+	// the request log shows.
+	running *usagesvc.Running
 	// trimmer counts relayed requests in flight and hands idle heap back to
 	// the system once a burst is over. See internal/memlimit.
 	trimmer *memlimit.Trimmer
@@ -410,6 +413,9 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	// Install links live a quarter of an hour: long enough to copy a command
 	// to another machine, short enough that one never run is soon gone.
 	installs := install.New(15 * time.Minute)
+	// Before the gateway, which notes what it serves in it, and the admin
+	// API, which reads it.
+	s.running = &usagesvc.Running{}
 	defer s.buildAvailability()
 	s.models = modelsvc.New(modelsvc.Deps{
 		// Read at call time: the checker is made below, before anything asks.
@@ -421,7 +427,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	s.gateway = gateway.New(gateway.Deps{
 		Config: cfg, Log: log, Store: st,
 		KeyLimiter: s.keyLimiter, AnonLimiter: s.anonLimiter, Budgets: s.budgets,
-		Recorder: s.recorder, Pool: s.pool, Upstreams: s.upstreams(), Titles: titler,
+		Recorder: s.recorder, Running: s.running, Pool: s.pool, Upstreams: s.upstreams(), Titles: titler,
 		Trimmer: s.trimmer, Enabled: s.serving, Protocols: s.protocols, InFlight: s.inflight,
 		Install: installs, Models: s.models,
 	})
@@ -434,6 +440,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
 		Models: s.models, Install: installs, Availability: s.availability, ModelChecks: s.modelChecks,
+		Running: s.running,
 	})
 	s.web = web.New(web.Deps{Log: log, Files: webdist})
 	// The MCP server, behind the gateway's own key check and answering with

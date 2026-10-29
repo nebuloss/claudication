@@ -47,6 +47,7 @@ import type {
   SetupStatus,
   Usage,
   UsageScope,
+  RunningRequests,
 } from './types'
 
 export * from './types'
@@ -394,6 +395,10 @@ const traffic = {
   /** A title typed by hand, held against automatic renames. */
   setChatTitle: (id: string, title: string) =>
     http.send('PUT', path`/admin/chats/${id}/title`, { body: { title } }),
+
+  /** The requests being served now, the longest-running first; key keeps one client's. */
+  running: (key: string, signal?: AbortSignal) =>
+    http.get<RunningRequests>(key === '' ? '/admin/requests/running' : `/admin/requests/running?key=${encodeURIComponent(key)}`, signal),
 
   /** The column menus' values, or null while usage history is off. */
   requestFacets: async (): Promise<RequestFacets | null> =>

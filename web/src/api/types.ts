@@ -858,3 +858,26 @@ export interface AccountShare {
   five_hour_share: number
   seven_day_share: number
 }
+
+/** A request the gateway is serving now: what is known of it before it ends. */
+export interface RunningRequest {
+  started_at: string
+  key_id?: string
+  key_name?: string
+  model: string
+  /** The client's name for the model, when it named one of its own. */
+  virtual_model?: string
+  provider?: string
+  path: string
+  streaming: boolean
+  conversation_id?: string
+  client?: string
+  surface?: string
+  ip?: string
+}
+
+/** The requests running now, and the gateway's clock when it said so. */
+export interface RunningRequests {
+  running: RunningRequest[] | null
+  now: string
+}
