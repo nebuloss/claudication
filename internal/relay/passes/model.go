@@ -146,11 +146,17 @@ func (m *ModelRenamer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Flush sends what can be sent and flushes the writer beneath.
+// Flush sends what can be sent and flushes the writer beneath — through
+// http.ResponseController, which follows Unwrap. The writer beneath is a
+// dialect's sink, which flushes only through Unwrap and is no http.Flusher,
+// so asking it for one flushed nothing: every stream renamed for a client's
+// own model name went out as the server's buffer filled, and a held
+// stream's keepalives, a few bytes each, not at all — measured 2026-10-29,
+// three keepalives sent at 15, 30 and 45 s reaching the client together at
+// 60 s, with the first token, and crush's requests ending at the proxy's
+// 90 s read timeout.
 func (m *ModelRenamer) Flush() {
-	if f, ok := m.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
+	_ = http.NewResponseController(m.ResponseWriter).Flush()
 }
 
 // Unwrap lets http.ResponseController reach the writer beneath.

@@ -1,6 +1,7 @@
 package passes
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -116,5 +117,29 @@ func TestModelRenamerHoldsNothingBack(t *testing.T) {
 		if got := rec.Body.String()[before:]; got != want {
 			t.Errorf("held back: %q, want %q", got, want)
 		}
+	}
+}
+
+// unwrapOnly flushes only through Unwrap, as a dialect's sink does.
+type unwrapOnly struct{ w http.ResponseWriter }
+
+func (u unwrapOnly) Header() http.Header         { return u.w.Header() }
+func (u unwrapOnly) Write(b []byte) (int, error) { return u.w.Write(b) }
+func (u unwrapOnly) WriteHeader(code int)        { u.w.WriteHeader(code) }
+func (u unwrapOnly) Unwrap() http.ResponseWriter { return u.w }
+
+// A renamed stream is flushed through a writer that flushes only by
+// Unwrap: a sink is no http.Flusher, and asking it for one flushed nothing.
+func TestModelRenamerFlushesThroughUnwrap(t *testing.T) {
+	rec := httptest.NewRecorder()
+	m := NewModelRenamer(unwrapOnly{rec}, "large", []string{"message_start"})
+	m.Header().Set("Content-Type", "text/event-stream")
+	m.WriteHeader(http.StatusOK)
+	_, _ = m.Write([]byte(": keepalive\n\n"))
+	if err := http.NewResponseController(m).Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if !rec.Flushed {
+		t.Error("the flush did not reach the writer beneath")
 	}
 }
