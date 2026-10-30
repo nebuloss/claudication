@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { NavLevel, NavLink } from '../route'
+import { ICON } from './icons'
 import { Tip } from './info'
 import { follow } from './link'
 
@@ -130,8 +131,13 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
                 href={l.href}
                 onClick={follow(l.href)}
                 aria-current={on ? 'page' : undefined}
-                className={railItem(on)}
+                className={`${railItem(on)} ${l.icon !== undefined ? 'gap-3 pl-3' : ''}`}
               >
+                {l.icon !== undefined && (
+                  <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
+                    <path d={ICON[l.icon]} />
+                  </svg>
+                )}
                 {l.label}
               </a>
             </li>

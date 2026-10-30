@@ -17,11 +17,11 @@ subscription usage, which clients drew on it, and a switch to pause it.
 model names, its usage with its limits beside it, its chats and its requests,
 a switch to turn it off, and one to shrink images Claude would refuse.
 
-**Gateway** — the last hour live, the outcomes over days and the
-availability history, its 90 days and incidents behind History; where the
-traffic went, by model, by client and by account, each with its traffic over
-days above its table; and the request log, every client's, with the
-upstream's own error text, paged back as far as retention keeps it.
+**Gateway** — the availability history, its 90 days and incidents behind
+History, and the last hour live; where the traffic went, by model, by client
+and by account, each with its traffic over days above its table; and the
+requests: their outcomes over days above the request log, every client's,
+with the upstream's own error text, paged back as far as retention keeps it.
 
 **Settings** — a page each: **General**, the Gateway switch and the admin
 password and sessions; **Models**, how each provider's models are offered (by

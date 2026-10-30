@@ -27,6 +27,8 @@
  */
 
 /** A page in a list of them: its path segment and how the nav names it. */
+import type { IconName } from './primitives/icons'
+
 export type Section = { id: string; label: string }
 
 /**
@@ -36,14 +38,18 @@ export type Section = { id: string; label: string }
  */
 export type ItemPage = Section & { kind: 'traffic' | 'settings' }
 
-/** The top-level screens, in the order the app bar lists them. */
+/**
+ * The top-level screens, in the order the app bar lists them, each with the
+ * glyph the rail leads it with (primitives/icons.ts). The Overview's is the
+ * home mark the trail starts with.
+ */
 export const TABS = [
   { id: 'overview', label: 'Overview' },
-  { id: 'accounts', label: 'Accounts' },
-  { id: 'clients', label: 'Clients' },
-  { id: 'gateway', label: 'Gateway' },
-  { id: 'settings', label: 'Settings' },
-] as const satisfies readonly Section[]
+  { id: 'accounts', label: 'Accounts', icon: 'accounts' },
+  { id: 'clients', label: 'Clients', icon: 'clients' },
+  { id: 'gateway', label: 'Gateway', icon: 'gateway' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
+] as const satisfies readonly (Section & { icon?: IconName })[]
 export type Tab = (typeof TABS)[number]['id']
 
 /**
@@ -206,7 +212,7 @@ export function tabOf(pathname: string): Tab {
 }
 
 /** A place to go: where, and what the navigation calls it. */
-export type NavLink = { href: string; label: string }
+export type NavLink = { href: string; label: string; icon?: IconName }
 
 /**
  * The navigation for one page: the choices on its own level, which one is
@@ -227,10 +233,9 @@ const links = (base: string, list: readonly Section[]): NavLink[] =>
 
 // The overview is the root itself, reached by the trail's home step, so it
 // is not one of the root's entries.
-const ROOT: NavLink[] = TABS.filter((t) => t.id !== 'overview').map((t) => ({
-  href: `/${t.id}`,
-  label: t.label,
-}))
+const ROOT: NavLink[] = TABS.flatMap((t) =>
+  t.id === 'overview' ? [] : [{ href: `/${t.id}`, label: t.label, icon: t.icon }],
+)
 const HOME: NavLink = { href: '/', label: 'Main menu' }
 
 /** The first step of every trail: the gateway's overview, at the root. */

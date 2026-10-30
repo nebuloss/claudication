@@ -1,15 +1,19 @@
-import { Card } from '../../primitives'
+import { Card, Stack } from '../../primitives'
 import RequestsPanel from '../requests'
+import { Outcomes } from './outcomes'
 
 /**
- * Every request in the log. The load it adds up to is Gateway's own page;
- * the log keeps its filters in the query string, so a link to a filtered log
+ * Every request: how they turned out over days, then the log of each. The
+ * log keeps its filters in the query string, so a link to a filtered log
  * lands here.
  */
 export default function GatewayRequests() {
   return (
-    <Card>
-      <RequestsPanel title="Log" />
-    </Card>
+    <Stack>
+      <Outcomes />
+      <Card>
+        <RequestsPanel title="Log" />
+      </Card>
+    </Stack>
   )
 }

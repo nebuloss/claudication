@@ -1,26 +1,23 @@
-import { useState } from 'react'
 import { api } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { Card, Loading, Muted, Stack, Stat, StatGrid } from '../../primitives'
 import { compact } from '../../format'
 import { AvailabilityCard } from '../status'
 import { PerMinute } from '../usage/live'
-import { DEFAULT_DAYS, TrafficOf, WINDOWS } from './slots'
 import { READS } from '../../../api/live'
 
 /**
- * Gateway's own page: the gateway's load. The last hour live, then the
- * requests by outcome over days — is it failing now, has it been failing —
- * and whether it was up, before the pages under it break the traffic down.
- * Availability lives here rather than on the Overview, which says only what
- * needs the operator: an incident of the last day is one of its notices.
+ * Gateway's own page: whether it has been up, then its load this last hour,
+ * before the pages under it break the traffic down; the requests by outcome
+ * are on Requests, above the log they lead into. Availability lives here
+ * rather than on the Overview, which says only what needs the operator: an
+ * incident of the last day is one of its notices.
  */
 export default function GatewayOverview() {
   return (
     <Stack>
-      <LastHour />
-      <Outcomes />
       <AvailabilityCard />
+      <LastHour />
     </Stack>
   )
 }
@@ -50,24 +47,6 @@ function LastHour() {
             <Muted size="xs">Per-request history is off, so only what is open now is known.</Muted>
           )}
         </Stack>
-      )}
-    </Card>
-  )
-}
-
-/** The requests by outcome, a line per status, over days. */
-function Outcomes() {
-  const [days, setDays] = useState<number>(DEFAULT_DAYS)
-  const { data: usage } = useLoader((signal) => api.traffic.usage(days, {}, signal), {
-    deps: [days],
-    on: READS.usage,
-  })
-  return (
-    <Card title="Outcomes">
-      {usage === null ? (
-        <Loading />
-      ) : (
-        <TrafficOf usage={usage} by="status" days={days} onDays={setDays} windows={WINDOWS} />
       )}
     </Card>
   )
