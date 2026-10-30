@@ -165,18 +165,38 @@ function IncidentRow({ incident, now, cut = false }: { incident: Incident; now: 
  * window's to say. The rows past the last that fits stay laid out and are
  * made invisible, so each resize measures every row again rather than only
  * the ones still shown.
+ *
+ * `scroll` lists every one in a box a few rows tall that scrolls: the
+ * operator's Overview, where the ninth incident is as much the operator's
+ * business as the first and a card that grew with each would push the rest
+ * of the page down.
  */
-export function IncidentList({ report, limit = 8, fit = false }: { report: StatusReport; limit?: number; fit?: boolean }) {
+export function IncidentList({
+  report,
+  limit = 8,
+  fit = false,
+  scroll = false,
+}: {
+  report: StatusReport
+  limit?: number
+  fit?: boolean
+  scroll?: boolean
+}) {
   if (report.incidents.length === 0) {
     return <Muted>No incidents in the last 90 days.</Muted>
   }
   if (fit) return <FittedIncidents report={report} limit={limit} />
-  return (
+  const list = (
     <ul className="divide-y divide-outline-variant/40">
-      {report.incidents.slice(0, limit).map((i) => (
+      {(scroll ? report.incidents : report.incidents.slice(0, limit)).map((i) => (
         <IncidentRow key={i.start} incident={i} now={report.generated} />
       ))}
     </ul>
+  )
+  if (!scroll) return list
+  return (
+    // The right padding keeps a row's text clear of the scrollbar.
+    <div className="max-h-72 overflow-y-auto overscroll-contain pr-2">{list}</div>
   )
 }
 
@@ -230,8 +250,13 @@ export function AvailabilityCard() {
           <UptimeFigures report={last} />
           <UptimeStrips report={last} />
           <div>
-            <h3 className="mb-2 text-sm font-medium text-on-surface">Recent incidents</h3>
-            <IncidentList report={last} />
+            <h3 className="mb-2 text-sm font-medium text-on-surface">
+              Recent incidents
+              {last.incidents.length > 0 && (
+                <span className="ml-2 font-normal text-on-surface-variant">{last.incidents.length} in 90 days</span>
+              )}
+            </h3>
+            <IncidentList report={last} scroll />
           </div>
         </div>
       )}
