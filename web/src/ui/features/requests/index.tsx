@@ -20,7 +20,7 @@ import { RequestFilter, type RequestScope, type SetField } from './filter'
 import { RequestRecord, type Sort, type SortKey } from './record'
 import { RequestDetail } from './detail'
 import { RequestRowView } from './row'
-import { RunningRowView, useRunning } from './running'
+import { RunningRowView, runningMatches, useRunning } from './running'
 import { useRequestLog } from './use-request-log'
 
 export { RequestFilter, requestsHref, type FilterFields, type RequestScope } from './filter'
@@ -89,12 +89,8 @@ export default function RequestsPanel({ scope = {}, title }: { scope?: RequestSc
 
   // What is running now, at the top of what was recorded: a client's own, or
   // all — and none under an account, which a request is only leased to once
-  // it is sent, nor while the operator has narrowed the log, since a running
-  // request has no status, tokens or message yet to match a filter by. The
-  // page's own scope is no narrowing: it was, and a client's Requests tab
-  // never showed its running requests at all.
-  const narrowed = filter.pinned().length > 0 || filter.status !== ''
-  const running = scope.account === undefined && !narrowed ? (scope.key ?? '') : null
+  // it is sent. The filter is applied to them as they are (runningMatches).
+  const running = scope.account === undefined ? (scope.key ?? '') : null
   return <RecentRequests filter={filter.scopedTo(scope)} onNarrow={narrow} title={title} running={running} />
 }
 
@@ -131,6 +127,7 @@ function RecentRequests({
 
   const log = useRequestLog(filter, loadFacets)
   const live = useRunning(running)
+  const runningRows = live.rows.filter((q) => runningMatches(q, filter))
 
   // Clicking the column already in effect turns it around; clicking a new one
   // starts at the end people mean first — newest, biggest, longest.
@@ -265,7 +262,7 @@ function RecentRequests({
 
       {log.loading ? (
         <Loading />
-      ) : data.length === 0 && live.rows.length === 0 ? (
+      ) : data.length === 0 && runningRows.length === 0 ? (
         <Empty>{chips.length > 0 ? 'No requests match this filter.' : 'No requests recorded yet.'}</Empty>
       ) : (
         <Table
@@ -293,8 +290,13 @@ function RecentRequests({
           {/* Being served now, on top whatever the sort: they are the newest,
               and the ones an operator is watching. Each becomes a row below
               when it ends. */}
-          {live.rows.map((q, i) => (
-            <RunningRowView key={`running-${q.started_at}-${i}`} q={q} now={live.now} />
+          {runningRows.map((q, i) => (
+            <RunningRowView
+              key={`running-${q.started_at}-${i}`}
+              q={q}
+              now={live.now}
+              onNarrow={(field, value) => onNarrow(filter.only(field, value))}
+            />
           ))}
           {data.map((r, i) => (
             <RequestRowView

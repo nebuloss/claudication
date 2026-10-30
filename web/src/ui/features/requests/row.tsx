@@ -53,7 +53,7 @@ function Filterable({
  * none. Four columns were this, each written out with its own copy of the
  * empty case; what differs between them is the cell's look and its words.
  */
-function FilterableCell({
+export function FilterableCell({
   value,
   shown = value,
   tip,
@@ -133,11 +133,8 @@ export function RequestRowView({
         muted
         value={r.conversation_id}
         shown={r.conversation_id?.slice(0, 12)}
-        tip={
-          r.chat_title
-            ? `${r.chat_title}\nClick to show only this chat's requests`
-            : `Only requests in ${r.conversation_id}`
-        }
+        // The chat's name, which the id is not; the full id where it has none.
+        tip={r.chat_title || r.conversation_id || ''}
         onNarrow={(v) => onNarrow('chat', v)}
       />
       {/* Which client sent it, by the name it has now; narrows on its id so

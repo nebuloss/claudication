@@ -3,6 +3,8 @@ import { api, type RunningRequest } from '../../../api/client'
 import { sameDayStamp } from '../../format'
 import { useLoader, useNow } from '../../hooks'
 import { Chip, Muted, Td, Tip, Tr } from '../../primitives'
+import type { RequestFilter, SetField } from './filter'
+import { FilterableCell } from './row'
 
 /** How often the running requests are read again: a row comes and goes in seconds. */
 const RUNNING_MS = 2_000
@@ -37,11 +39,39 @@ export function useRunning(keyId: string | null): { rows: RunningRequest[]; now:
 }
 
 /**
- * A running request as a row of the log, in the log's own columns: what it
- * is known to be, a running chip where its status will be, and its duration
- * counting up. Its tokens and message are its end's, so a dash until then.
+ * Whether a running request belongs in the log as it is narrowed: by the
+ * columns it already has — model, chat, client, agent, address — matched as
+ * a recorded row's are, and never under a narrowing it cannot answer yet
+ * (its status, message, account, or whether it was forwarded), which only
+ * its end says.
  */
-export function RunningRowView({ q, now }: { q: RunningRequest; now: number }) {
+export function runningMatches(q: RunningRequest, filter: RequestFilter): boolean {
+  if (filter.status !== '') return false
+  const has: Partial<Record<SetField, string>> = {
+    model: q.model,
+    chat: q.conversation_id ?? '',
+    key: q.key_id ?? '',
+    client: q.client ?? '',
+    ip: q.ip ?? '',
+  }
+  return filter.pinned().every(({ field, value }) => has[field] === value)
+}
+
+/**
+ * A running request as a row of the log, in the log's own columns: what it
+ * is known to be — each narrowing the log on a click, as a recorded row's
+ * does — a running chip where its status will be, and its duration counting
+ * up. Its tokens and message are its end's, so a dash until then.
+ */
+export function RunningRowView({
+  q,
+  now,
+  onNarrow,
+}: {
+  q: RunningRequest
+  now: number
+  onNarrow: (field: SetField, value: string) => void
+}) {
   const ms = Math.max(0, now - Date.parse(q.started_at))
   const slot = q.virtual_model !== undefined && q.virtual_model !== '' && q.virtual_model !== q.model
   return (
@@ -49,19 +79,44 @@ export function RunningRowView({ q, now }: { q: RunningRequest; now: number }) {
       <Td title={q.started_at} nums nowrap muted>
         {sameDayStamp(q.started_at, 'second')}
       </Td>
-      <Td max={11} title={slot ? `${q.virtual_model}, sent as ${q.model}` : q.model}>
-        {slot ? `${q.virtual_model} → ${q.model}` : q.model}
-      </Td>
-      <Td max={9} mono muted>
-        {q.conversation_id?.slice(0, 12) || '—'}
-      </Td>
-      <Td nowrap>{q.key_name || '—'}</Td>
-      <Td nowrap muted>
-        {q.client || '—'}
-      </Td>
-      <Td nowrap mono muted>
-        {q.ip || '—'}
-      </Td>
+      <FilterableCell
+        max={11}
+        value={q.model}
+        shown={slot ? `${q.virtual_model} → ${q.model}` : q.model}
+        tip={`Only requests for ${q.model}${slot ? `, asked for as ${q.virtual_model}` : ''}`}
+        onNarrow={(v) => onNarrow('model', v)}
+      />
+      <FilterableCell
+        max={9}
+        mono
+        muted
+        value={q.conversation_id}
+        shown={q.conversation_id?.slice(0, 12)}
+        tip={q.conversation_id ?? ''}
+        onNarrow={(v) => onNarrow('chat', v)}
+      />
+      <FilterableCell
+        nowrap
+        value={q.key_id}
+        shown={q.key_name || q.key_id}
+        tip={`Only requests from ${q.key_name ?? 'this client'}`}
+        onNarrow={(v) => onNarrow('key', v)}
+      />
+      <FilterableCell
+        nowrap
+        muted
+        value={q.client}
+        tip={`Only requests from ${q.client}`}
+        onNarrow={(v) => onNarrow('client', v)}
+      />
+      <FilterableCell
+        nowrap
+        mono
+        muted
+        value={q.ip}
+        tip={`Only requests from ${q.ip}`}
+        onNarrow={(v) => onNarrow('ip', v)}
+      />
       <Td>
         <Tip tip="Being served now: recorded here once it ends">
           <Chip tone={ms >= 60_000 ? 'warn' : 'neutral'}>{q.streaming ? 'streaming' : 'running'}</Chip>
