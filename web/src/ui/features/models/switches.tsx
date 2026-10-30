@@ -220,7 +220,7 @@ function ModelChecklist({
               </Tip>
             )}
             {m.listed && (
-              <Button variant="text" size="sm" busy={testing[m.id] === true} onClick={() => void testOne(m.id)}>
+              <Button variant="text" size="sm" icon="play" busy={testing[m.id] === true} onClick={() => void testOne(m.id)}>
                 Test
               </Button>
             )}

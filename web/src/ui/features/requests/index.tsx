@@ -307,7 +307,7 @@ function RecentRequests({
       {data.length > 0 && (
         <div className="mt-4 flex items-center gap-3 border-t border-outline-variant pt-4">
           {log.cursor !== '' ? (
-            <Button variant="tonal" onClick={log.more} busy={log.loadingMore}>
+            <Button variant="tonal" icon="more" onClick={log.more} busy={log.loadingMore}>
               {log.loadingMore ? 'Loading…' : 'Load more'}
             </Button>
           ) : (
@@ -331,7 +331,11 @@ function RecentRequests({
               The same filter as the table, so what lands in the file is what
               was on the screen — including the rows below the ones loaded,
               which is the reason to download rather than select and copy. */}
-          <ButtonLink href={`/admin/requests/export${query === '' ? '' : `?${query}`}`} variant="text">
+          <ButtonLink
+            href={`/admin/requests/export${query === '' ? '' : `?${query}`}`}
+            variant="text"
+            icon="download"
+          >
             Download CSV
           </ButtonLink>
         </div>

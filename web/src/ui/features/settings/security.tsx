@@ -42,7 +42,7 @@ export default function Security({
           <Button variant="outlined" onClick={() => setOpen('password')}>
             Change password
           </Button>
-          <Button variant="text" tone="error" onClick={() => setOpen('delete')}>
+          <Button variant="text" tone="error" icon="delete" onClick={() => setOpen('delete')}>
             Delete account
           </Button>
         </Actions>

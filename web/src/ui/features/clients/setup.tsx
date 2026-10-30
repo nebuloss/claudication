@@ -80,7 +80,7 @@ export function SetupCard({
             once.
           </Note>
           <div>
-            <Button variant="outlined" tone="error" busy={busy === 'rotate'} onClick={() => void regenerate()}>
+            <Button variant="outlined" tone="error" icon="renew" busy={busy === 'rotate'} onClick={() => void regenerate()}>
               Regenerate key
             </Button>
           </div>
@@ -112,7 +112,7 @@ export function SetupCard({
           <CustomSetup client={c} types={types} gateway={gateway} />
         )}
         <div className="flex flex-wrap items-center gap-3">
-          <Button variant="text" tone="error" busy={busy === 'rotate'} onClick={() => void regenerate()}>
+          <Button variant="text" tone="error" icon="renew" busy={busy === 'rotate'} onClick={() => void regenerate()}>
             Regenerate key
           </Button>
           <Muted as="span">For a key that has leaked: the current one stops working at once.</Muted>

@@ -74,7 +74,7 @@ export function ErrorState({
   return (
     <div className="flex flex-col items-start gap-4">
       <Banner tone="error">{message}</Banner>
-      <Button variant="tonal" onClick={onRetry} busy={busy === true}>
+      <Button variant="tonal" icon="refresh" onClick={onRetry} busy={busy === true}>
         {busy === true ? 'Retrying…' : 'Try again'}
       </Button>
     </div>

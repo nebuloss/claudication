@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { ICON, type IconName } from './icons'
 import { Tip } from './info'
 import { Spinner } from './spinner'
 
@@ -81,6 +82,27 @@ export function buttonClass({ variant = 'filled', size = 'md', tone }: ButtonLoo
   return `state-layer inline-flex items-center justify-center rounded-md3-full font-medium disabled:pointer-events-none disabled:opacity-40 ${SHAPE[variant][size]} ${ink(variant, size, tone)}`
 }
 
+/**
+ * The left padding of a button that leads with an icon: MD3 takes it in by a
+ * quarter so the glyph and its label sit centred together, not the label
+ * alone. A text button's is already as narrow as it goes.
+ */
+const ICON_PAD: Record<ButtonVariant, Record<ButtonSize, string>> = {
+  filled: { md: 'pl-4', sm: 'pl-2' },
+  tonal: { md: 'pl-4', sm: 'pl-2' },
+  outlined: { md: 'pl-4', sm: 'pl-2' },
+  text: { md: 'pl-2.5', sm: 'pl-2' },
+}
+
+/** A button's leading glyph, at the size of its label. */
+function Glyph({ icon, size }: { icon: IconName; size: ButtonSize }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className={`${size === 'sm' ? 'size-4' : 'size-5'} shrink-0 fill-current`}>
+      <path d={ICON[icon]} />
+    </svg>
+  )
+}
+
 export function Button({
   children,
   onClick,
@@ -101,8 +123,8 @@ export function Button({
   /** In flight: a spinner before the label, and not pressable again. */
   busy?: boolean
   type?: 'button' | 'submit'
-  /** SVG path data for a leading icon, which takes the label's left padding. */
-  icon?: string
+  /** A leading glyph (icons.ts), hidden while busy, when the spinner stands in for it. */
+  icon?: IconName
   title?: string
   /** A toggle button's state, for assistive technology. */
   pressed?: boolean
@@ -117,14 +139,10 @@ export function Button({
         disabled={disabled || busy}
         aria-pressed={pressed}
         data-autofocus={autoFocus ? '' : undefined}
-        className={`${buttonClass({ variant, size, tone })} ${icon !== undefined ? 'pl-4' : ''}`}
+        className={`${buttonClass({ variant, size, tone })} ${icon !== undefined ? ICON_PAD[variant][size] : ''}`}
       >
         {busy && <Spinner className={size === 'sm' ? 'size-3' : ''} />}
-        {icon !== undefined && !busy && (
-          <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
-            <path d={icon} />
-          </svg>
-        )}
+        {icon !== undefined && !busy && <Glyph icon={icon} size={size} />}
         {children}
       </button>
     </Tip>
@@ -145,17 +163,19 @@ export function ButtonLink({
   children,
   external = false,
   variant = 'outlined',
-  size,
+  size = 'md',
   tone,
-}: ButtonLook & { href: string; children: ReactNode; external?: boolean }) {
+  icon,
+}: ButtonLook & { href: string; children: ReactNode; external?: boolean; icon?: IconName }) {
   return (
     <a
       href={href}
       // noreferrer as well as noopener: the opened page has no business
       // knowing which gateway sent it.
       {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      className={buttonClass({ variant, size, tone })}
+      className={`${buttonClass({ variant, size, tone })} ${icon !== undefined ? ICON_PAD[variant][size] : ''}`}
     >
+      {icon !== undefined && <Glyph icon={icon} size={size} />}
       {children}
       {external && (
         <svg viewBox="0 0 24 24" aria-hidden className="-ml-0.5 size-3.5 shrink-0 fill-current">

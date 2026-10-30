@@ -108,7 +108,7 @@ export function AddButton({
   children: ReactNode
 }) {
   return (
-    <Button onClick={onClick} disabled={disabled} icon="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z">
+    <Button onClick={onClick} disabled={disabled} icon="add">
       {children}
     </Button>
   )

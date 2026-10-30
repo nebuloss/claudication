@@ -205,7 +205,7 @@ export function CodeViewer({
         <span className="ml-auto flex items-center gap-2">
           {conceal !== '' && <RevealButton shown={shown} onToggle={() => setShown(!shown)} />}
           <CopyButton value={value} failure={NO_CLIPBOARD} />
-          <Button variant="tonal" onClick={() => saveAs(filename, value)}>
+          <Button variant="tonal" icon="download" onClick={() => saveAs(filename, value)}>
             Download
           </Button>
         </span>

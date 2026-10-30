@@ -173,7 +173,7 @@ export function useQuotaRead(accountId: string, onDone: () => void) {
 
 export function ReadAgain({ reading, onRead }: { reading: boolean; onRead: () => void }) {
   return (
-    <Button variant="outlined" size="sm" busy={reading} onClick={onRead}>
+    <Button variant="outlined" size="sm" icon="refresh" busy={reading} onClick={onRead}>
       {reading ? 'Reading…' : 'Read again'}
     </Button>
   )

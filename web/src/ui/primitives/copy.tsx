@@ -95,7 +95,7 @@ export function CopyButton({
   const c = useCopy(value)
   return (
     <>
-      <Button variant="tonal" onClick={() => void c.copy()}>
+      <Button variant="tonal" icon={c.copied ? 'done' : 'copy'} onClick={() => void c.copy()}>
         {c.copied ? 'Copied' : label}
       </Button>
       {c.failed && (
