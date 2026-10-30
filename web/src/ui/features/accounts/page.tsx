@@ -26,6 +26,7 @@ import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact, dateTime, relative } from '../../format'
 import { windowTitle } from '../../domain/quota'
 import { READS } from '../../../api/live'
+import { ProviderMark } from '../../brands'
 
 /**
  * One account, Claude or ChatGPT, on its pages:
@@ -108,6 +109,7 @@ export default function AccountPage({
         kind="accounts"
         id={account.id}
         title={accountName(account)}
+        mark={<ProviderMark provider={account.provider} />}
         rename={{
           value: account.name ?? '',
           // An unnamed account's field is empty with its address in grey:

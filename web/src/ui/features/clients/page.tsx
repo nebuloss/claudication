@@ -16,6 +16,7 @@ import { KeyFigures } from './parts'
 import { useClientTypes } from './types'
 import { ClientUsage } from './usage'
 import { READS } from '../../../api/live'
+import { ClientMark } from '../../brands'
 
 /**
  * One client, on its overview and the pages beside it: its usage and limits,
@@ -66,6 +67,7 @@ export function ClientPage({
         kind="clients"
         id={client.id}
         title={client.name}
+        mark={<ClientMark type={data.type} />}
         rename={{
           value: client.name,
           label: 'Client name',

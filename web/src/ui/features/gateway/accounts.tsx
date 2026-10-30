@@ -9,6 +9,7 @@ import { ClientTable, ShareNote, TokenSplit, UsageTable, accountShareColumns } f
 import { QuotaGauges } from '../accounts/quota-meter'
 import { GatewayUsage } from './slots'
 import { READS } from '../../../api/live'
+import { ProviderMark } from '../../brands'
 
 /** An account's rollup, with the account where it still exists, or the name its history kept. */
 type AccountUse = Rollup & { account?: Account; name: string }
@@ -114,11 +115,14 @@ function AccountName({ use: u }: { use: AccountUse }) {
   if (a === undefined) return <span className="font-medium">{u.name}</span>
   const detail = [isNamed(a) ? a.email : '', providerLabel(a.provider), planLabel(a.plan)].filter((s) => s !== '')
   return (
-    <>
-      <AppLink href={accountHref(a.id)} strong>
-        {u.name}
-      </AppLink>
-      <div className="truncate text-xs text-on-surface-variant">{detail.join(' · ')}</div>
-    </>
+    <span className="flex min-w-0 items-center gap-2.5">
+      <ProviderMark provider={a.provider} />
+      <span className="min-w-0">
+        <AppLink href={accountHref(a.id)} strong>
+          {u.name}
+        </AppLink>
+        <div className="truncate text-xs text-on-surface-variant">{detail.join(' · ')}</div>
+      </span>
+    </span>
   )
 }

@@ -296,10 +296,15 @@ async function siblingsOf(s: Siblings): Promise<NavLink[]> {
   const at = (id: string) => (s.page !== undefined ? pathOf(s.kind, id, s.page) : pathOf(s.kind, id))
   if (s.kind === 'accounts') {
     const { accounts } = await api.accounts.list()
-    return accounts.map((a) => ({ href: at(a.id), label: accountName(a), detail: providerLabel(a.provider) }))
+    return accounts.map((a) => ({
+      href: at(a.id),
+      label: accountName(a),
+      detail: providerLabel(a.provider),
+      brand: { provider: a.provider },
+    }))
   }
   const { clients } = await api.clients.list()
-  return clients.map((c) => ({ href: at(c.id), label: c.name }))
+  return clients.map((c) => ({ href: at(c.id), label: c.name, brand: { client: c.type } }))
 }
 
 const REPO = 'https://github.com/nebuloss/claudication'

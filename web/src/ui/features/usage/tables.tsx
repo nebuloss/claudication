@@ -6,6 +6,7 @@ import { ago, compact, smallPercent } from '../../format'
 import { providerTitle } from '../../clients/specs'
 import { useClientTypes } from '../clients/types'
 import { byTokens, rollup, tokensOf, withoutAccount, type Rollup } from './rollup'
+import { ClientMark } from '../../brands'
 
 /**
  * The usage tables: one implementation of a table of rollups, and the tables
@@ -237,14 +238,17 @@ export function ClientTable({
         head: 'Client',
         label: (c) => `${c.name}'s models`,
         cell: (c) => (
-          <>
-            <AppLink href={clientHref(c.id)} strong>
-              {c.name}
-            </AppLink>
-            <div className="truncate text-xs text-on-surface-variant">
-              {typeLabel(c.type)} · {slotsOf(c.rows)}
-            </div>
-          </>
+          <span className="flex min-w-0 items-center gap-2.5">
+            <ClientMark type={c.type} />
+            <span className="min-w-0">
+              <AppLink href={clientHref(c.id)} strong>
+                {c.name}
+              </AppLink>
+              <div className="truncate text-xs text-on-surface-variant">
+                {typeLabel(c.type)} · {slotsOf(c.rows)}
+              </div>
+            </span>
+          </span>
         ),
       }}
       columns={shares.map((s) => ({

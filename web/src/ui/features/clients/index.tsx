@@ -18,7 +18,6 @@ import {
   Loading,
   Modal,
   Page,
-  RowBadge,
   Select,
   Stack,
   Switch,
@@ -29,6 +28,7 @@ import { Client, type ClientTypes } from '../../clients/specs'
 import { KeyFigures, SUBSCRIPTION_NOTE } from './parts'
 import { useClientTypes } from './types'
 import { READS } from '../../../api/live'
+import { ClientMark, MarkTile } from '../../brands'
 
 export { ClientPage } from './page'
 
@@ -108,7 +108,11 @@ function ClientRow({
   return (
     <ListRow
       href={clientHref(c.id)}
-      leading={<RowBadge>{c.type.label.slice(0, 2)}</RowBadge>}
+      leading={
+        <MarkTile>
+          <ClientMark type={c.type.id} />
+        </MarkTile>
+      }
       title={c.name}
       subtitle={
         <>

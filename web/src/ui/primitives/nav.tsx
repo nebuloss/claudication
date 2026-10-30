@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { NavLevel, NavLink, Siblings } from '../route'
+import { ClientMark, ProviderMark } from '../brands'
 import { ICON } from './icons'
 import { Popover, menuItem, useAnchoredPanel } from './popover'
 import { Tip } from './info'
@@ -102,6 +103,9 @@ function Crumb({
   const what = c.siblings === undefined ? '' : c.siblings.kind === 'sections' ? 'sections' : c.siblings.kind
   const key = c.siblings === undefined ? '' : JSON.stringify(c.siblings)
   const [list, setList] = useState<NavLink[] | null>(null)
+  // The crumb's own entry in its list: its mark, drawn in the crumb as in the
+  // list, so the crumb is as wide as an entry with a mark needs.
+  const self = list?.find((l) => l.href === c.href || l.href.startsWith(`${c.href}/`))
   const [failed, setFailed] = useState(false)
   useEffect(() => {
     if (!menu || c.siblings === undefined || load === undefined) return
@@ -146,6 +150,7 @@ function Crumb({
                   <path d={ICON[c.icon]} />
                 </svg>
               )}
+              {self?.brand !== undefined && <BrandOf brand={self.brand} />}
               {menu ? (
                 // Every sibling's name in one cell: the cell is as wide as the
                 // widest, and only the crumb's own is seen.
@@ -242,6 +247,7 @@ function SiblingList({
                 <path d={ICON[l.icon]} />
               </svg>
             )}
+            {l.brand !== undefined && <BrandOf brand={l.brand} />}
             <span className="flex min-w-0 flex-1 flex-col whitespace-nowrap">
               <span>{l.label}</span>
               {l.detail !== undefined && <span className="text-xs text-on-surface-variant">{l.detail}</span>}
@@ -250,6 +256,15 @@ function SiblingList({
         )
       })}
     </>
+  )
+}
+
+/** An account's provider's or a client's type's mark, at a crumb's size. */
+function BrandOf({ brand }: { brand: NonNullable<NavLink['brand']> }) {
+  return 'provider' in brand ? (
+    <ProviderMark provider={brand.provider} size="sm" />
+  ) : (
+    <ClientMark type={brand.client} size="sm" />
   )
 }
 
