@@ -3,11 +3,16 @@
 Five screens, at the gateway's own address. Each page has a path of its own, so
 a link to one opens on it.
 
-**Overview** — what needs the operator now, and whether the gateway can serve
-a request: its notices (an account to sign in again, a model failing
-everywhere, a client whose requests keep failing, an incident of the last
-day, each a link to where it is dealt with), today's traffic and its memory.
-The bell in the header carries the same notices on every page.
+**Overview** — whether the gateway can serve a request: its status and
+today's traffic, its availability (the 90 days, and every incident behind
+History), and its process's memory.
+
+**Notifications** — the bell in the header, on every page, counts what needs
+the operator now in the colour of the worst, and opens the notification
+centre: an account to sign in again, a model failing everywhere, a client
+whose requests keep failing, an incident of the last day — filtered by how
+bad, grouped by what about, each a link to where it is dealt with. Nothing to
+dismiss: a notification goes once its problem does.
 
 **Accounts** — the Claude, ChatGPT and Google accounts the pool draws on, each
 provider's in its own priority order, each showing its 5-hour and 7-day
@@ -17,8 +22,7 @@ subscription usage, which clients drew on it, and a switch to pause it.
 model names, its usage with its limits beside it, its chats and its requests,
 a switch to turn it off, and one to shrink images Claude would refuse.
 
-**Gateway** — the availability history, its 90 days and incidents behind
-History, and the last hour live; where the traffic went, by model, by client
+**Gateway** — the last hour live; where the traffic went, by model, by client
 and by account, each with its traffic over days above its table; and the
 requests: their outcomes over days above the request log, every client's,
 with the upstream's own error text, paged back as far as retention keeps it.

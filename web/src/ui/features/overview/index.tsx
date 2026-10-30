@@ -3,7 +3,7 @@ import {
   type MemorySnapshot,
   type Overview as OverviewData,
 } from '../../../api/client'
-import { NoticesCard } from '../notices'
+import { AvailabilityCard } from '../status'
 import { useLoader } from '../../hooks'
 import type { ReactNode } from 'react'
 import {
@@ -187,10 +187,6 @@ export default function Overview() {
           <InlineLink href="/clients">Point a client at it</InlineLink>.
         </Banner>
       )}
-      {/* What needs the operator, each a link to where it is dealt with:
-          the gateway switched off, an account to sign in again, a model
-          failing everywhere, a client whose requests keep failing. */}
-      <NoticesCard />
 
       <Card
         title="Status"
@@ -233,6 +229,10 @@ export default function Overview() {
           </div>
         )}
       </Card>
+
+      {/* Whether it has been up: the figures and the 90 days here, the rest
+          behind History. An incident of the last day is a notification too. */}
+      <AvailabilityCard />
 
       {data.memory !== undefined && <ProcessCard memory={data.memory} />}
 

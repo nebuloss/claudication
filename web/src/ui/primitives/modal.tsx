@@ -16,7 +16,9 @@ const FOCUSABLE =
  *
  * `size` widens the panel for content that is genuinely wider than a
  * confirmation — an API key is 40-odd monospace characters and wrapping it
- * makes it harder to check what was copied.
+ * makes it harder to check what was copied. `sheet` is a panel along the
+ * right edge, the window's height, for a list read beside the page it
+ * leads to: the notification centre.
  */
 export function Modal({
   title,
@@ -27,9 +29,10 @@ export function Modal({
   title: string
   children: ReactNode
   onClose: () => void
-  size?: 'md' | 'lg'
+  size?: 'md' | 'lg' | 'sheet'
 }) {
   useEscapeKey(onClose)
+  const sheet = size === 'sheet'
   const panel = useRef<HTMLDivElement>(null)
   const titleId = useId()
 
@@ -70,7 +73,11 @@ export function Modal({
   // the page. A portal makes that impossible to get wrong by accident: this is
   // on top of the UI because it is not inside it.
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4">
+    <div
+      className={`fixed inset-0 z-50 flex ${
+        sheet ? 'justify-end' : 'items-center justify-center overflow-y-auto p-4'
+      }`}
+    >
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div
         ref={panel}
@@ -79,9 +86,13 @@ export function Modal({
         aria-labelledby={titleId}
         tabIndex={-1}
         onKeyDown={trap}
-        className={`relative my-auto w-full ${
-          size === 'lg' ? 'max-w-xl' : 'max-w-md'
-        } rounded-md3-xl bg-surface-high p-6 shadow-xl outline-none`}
+        className={
+          sheet
+            ? 'animate-sheet-in relative flex h-full w-full max-w-md flex-col overflow-y-auto overscroll-contain rounded-l-md3-xl bg-surface-high p-6 shadow-xl outline-none'
+            : `relative my-auto w-full ${
+                size === 'lg' ? 'max-w-xl' : 'max-w-md'
+              } rounded-md3-xl bg-surface-high p-6 shadow-xl outline-none`
+        }
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 id={titleId} className="text-xl leading-7 font-normal text-on-surface">

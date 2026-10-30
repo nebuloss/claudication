@@ -2,21 +2,17 @@ import { api } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { Card, Loading, Muted, Stack, Stat, StatGrid } from '../../primitives'
 import { compact } from '../../format'
-import { AvailabilityCard } from '../status'
 import { PerMinute } from '../usage/live'
 import { READS } from '../../../api/live'
 
 /**
- * Gateway's own page: whether it has been up, then its load this last hour,
- * before the pages under it break the traffic down; the requests by outcome
- * are on Requests, above the log they lead into. Availability lives here
- * rather than on the Overview, which says only what needs the operator: an
- * incident of the last day is one of its notices.
+ * Gateway's own page: its load this last hour, before the pages under it
+ * break the traffic down; the requests by outcome are on Requests, above the
+ * log they lead into, and whether it has been up is on the Overview.
  */
 export default function GatewayOverview() {
   return (
     <Stack>
-      <AvailabilityCard />
       <LastHour />
     </Stack>
   )
