@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { ICON } from './icons'
 import { Help, Tip } from './info'
 import { Overline } from './data'
 import { Popover, menuItem, useAnchoredPanel } from './popover'
@@ -27,7 +28,13 @@ export function outlinedField(focused = false, top: 'label' | 'dots' | 'none' = 
   return `${height} w-full rounded-md3-m bg-transparent ${pad} text-on-surface outline-none transition-colors ${edge}`
 }
 
-/** MD3 outlined text field, with the label riding up out of the way. */
+/**
+ * MD3 outlined text field, with the label riding up out of the way.
+ *
+ * A password field carries an eye at its end that shows what was typed and
+ * hides it again: a long password typed blind and refused is otherwise typed
+ * again blind. Hidden until asked for.
+ */
 export function Field({
   label,
   value,
@@ -56,11 +63,13 @@ export function Field({
    */
   readOnly?: boolean
 }) {
+  const secret = type === 'password'
+  const [shown, setShown] = useState(false)
   return (
     <label className={`block ${grow ? 'min-w-0 flex-1 basis-64' : ''}`}>
       <span className="relative block">
         <input
-          type={type}
+          type={secret && shown ? 'text' : type}
           value={value}
           autoFocus={autoFocus}
           placeholder=" "
@@ -68,10 +77,34 @@ export function Field({
           autoComplete={autoComplete}
           readOnly={readOnly}
           onChange={(e) => onChange?.(e.target.value)}
-          className={`peer ${outlinedField(false, type === 'password' ? 'dots' : 'label')} text-base ${
+          className={`peer ${outlinedField(false, secret && !shown ? 'dots' : 'label')} text-base ${
             mono ? 'font-mono text-sm' : ''
-          } ${type === 'password' ? 'tracking-[0.15em]' : ''}`}
+          } ${secret && !shown ? 'tracking-[0.15em]' : ''} ${secret ? 'pr-12 focus:pr-[47px]' : ''}`}
         />
+        {secret && (
+          <button
+            type="button"
+            aria-label={shown ? 'Hide the password' : 'Show the password'}
+            aria-pressed={shown}
+            // Not a tab stop of the form: Tab goes from the password to the
+            // button that submits it, as it always has.
+            tabIndex={-1}
+            // Keeps the cursor in the field: showing the password is to read
+            // it while still typing it.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              // Inside the label: a click would otherwise also focus the input
+              // and, on some browsers, toggle twice.
+              e.preventDefault()
+              setShown((v) => !v)
+            }}
+            className="state-layer absolute top-1/2 right-2 grid size-9 -translate-y-1/2 place-items-center rounded-full text-on-surface-variant"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
+              <path d={shown ? ICON.eyeOff : ICON.eye} />
+            </svg>
+          </button>
+        )}
         <span className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-base text-on-surface-variant transition-all peer-focus:top-2.5 peer-focus:text-xs peer-focus:text-primary peer-[:not(:placeholder-shown)]:top-2.5 peer-[:not(:placeholder-shown)]:text-xs">
           {label}
         </span>
