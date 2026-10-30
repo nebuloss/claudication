@@ -156,9 +156,9 @@ export function Tip({
   block?: boolean
 }) {
   const text = typeof tip === 'string' ? tip : null
-  // A short tip in a bubble its own size; a long one wraps at HoverTip's.
-  const width = text === null ? 320 : Math.min(320, Math.max(96, longestLine(text) * 7.2 + 34))
-  const p = useAnchoredPanel<HTMLSpanElement>({ width, maxHeight: 360 })
+  // Placed for the widest bubble, so a long tip is never pushed off the
+  // window's edge; drawn as wide as its text (TIP_FIT), up to that.
+  const p = useAnchoredPanel<HTMLSpanElement>({ width: TIP_MAX, maxHeight: 360 })
   const id = useId()
   const timer = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearTimeout(timer.current), [])
@@ -185,7 +185,7 @@ export function Tip({
         {children}
       </span>
       {p.at !== null && (
-        <Popover panelRef={p.panel} at={p.at} role="tooltip" label="" id={id} className={TIP}>
+        <Popover panelRef={p.panel} at={p.at} role="tooltip" label="" id={id} className={`${TIP} ${TIP_FIT}`}>
           {text === null ? tip : tipLines(text)}
         </Popover>
       )}
@@ -193,13 +193,22 @@ export function Tip({
   )
 }
 
-function longestLine(text: string): number {
-  return Math.max(...text.split('\n').map((l) => l.length))
-}
+/** The widest a Tip's bubble is, which a longer tip wraps at: room for a sentence or an id on one line. */
+const TIP_MAX = 480
+
+/**
+ * A bubble the width of its text, up to TIP_MAX. Its width used to be
+ * guessed from the number of characters, and the guess fell short of the
+ * text it measured, so a chat id broke in its middle and a one-line tip
+ * wrapped its last word; the browser measures it now.
+ */
+const TIP_FIT = 'w-max! max-w-[30rem]'
 
 /** A text tip as Tip draws it: one line plain, several as bulleted points. */
 function tipLines(text: string): ReactNode {
   const lines = text.split('\n').filter((l) => l.trim() !== '')
+  // Broken inside a word only when one alone is wider than the bubble — an
+  // id, a path — never to make room for its neighbour.
   if (lines.length <= 1) return <span className="block break-words">{text}</span>
   return lines.map((l, i) => <p key={i}>{l}</p>)
 }
