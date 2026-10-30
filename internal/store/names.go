@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"claudication/internal/live"
 )
 
 // What keys and accounts are called, kept apart from both so history can be
@@ -62,6 +64,7 @@ func CleanName(name string) (string, error) {
 // rememberAccountName records what an account is called now, read off its
 // row so that every writer — sign-in, reconnect, naming — agrees on the rule.
 func rememberAccountName(ctx context.Context, tx *sql.Tx, id string) error {
+	//live:none part of its caller's write, which marks the topic
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO names (kind, id, name)
 		 SELECT 'account', id, COALESCE(NULLIF(name, ''), email) FROM accounts WHERE id = ?
@@ -78,6 +81,7 @@ type execer interface {
 
 // rememberName records what an id is called now.
 func rememberName(ctx context.Context, db execer, kind, id, name string) error {
+	//live:none part of its caller's write, which marks the topic
 	if id == "" || name == "" {
 		return nil
 	}
@@ -103,6 +107,7 @@ func nameOf(kind, idExpr string) string {
 // NOT IN rather than NOT EXISTS: usage_events has no index on either id, and
 // the uncorrelated form reads the table once rather than once per name.
 func (s *Store) PruneNames(ctx context.Context) (int64, error) {
+	defer s.changed(live.Requests)
 	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM names
 		 WHERE (kind = 'key'

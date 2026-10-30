@@ -69,6 +69,9 @@ type Poller struct {
 	Idle    time.Duration
 	Watched time.Duration
 	Log     *slog.Logger
+	// Viewed reports whether a tab showing usage is open now, asking or
+	// not; nil is none.
+	Viewed func() bool
 
 	seen atomic.Int64 // unix nanos of the last admin request
 	now  func() time.Time
@@ -95,8 +98,12 @@ func (p *Poller) NoteActivity() { p.seen.Store(p.clock().UnixNano()) }
 // WatchWindow is how long after the last admin request the UI counts as open.
 func (p *Poller) WatchWindow() time.Duration { return max(minWatchWindow, 3*p.Watched) }
 
-// Watching reports whether the admin UI has been heard from recently.
+// Watching reports whether the admin UI is open on usage now, or has been
+// heard from recently.
 func (p *Poller) Watching() bool {
+	if p.Viewed != nil && p.Viewed() {
+		return true
+	}
 	last := p.seen.Load()
 	return last != 0 && p.clock().Sub(time.Unix(0, last)) < p.WatchWindow()
 }

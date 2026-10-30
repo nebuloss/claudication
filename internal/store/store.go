@@ -18,6 +18,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"claudication/internal/live"
 	"claudication/internal/secret"
 )
 
@@ -36,6 +37,11 @@ type Store struct {
 	// keysUsed and accountsUsed hold TouchKey and MarkAccountUsed to one
 	// write a minute per id; see lastUse.
 	keysUsed, accountsUsed lastUse
+	// hub is told what each write changed (docs/data-architecture.md): every
+	// function that writes marks its topic, and TestEveryWriteMarksATopic
+	// holds it to that. Nil until Announce, which a command run beside the
+	// gateway never calls.
+	hub *live.Hub
 	// compactErr is what reclaim returned when the store was opened.
 	compactErr error
 }
@@ -269,6 +275,7 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 }
 
 func recordVersion(ctx context.Context, tx *sql.Tx, version int) error {
+	//live:none the schema's own record, which no screen shows
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
 		version, time.Now().UnixMilli()); err != nil {
@@ -423,3 +430,11 @@ func (s *Store) inTx(ctx context.Context, what string, fn func(tx *sql.Tx) error
 
 // DB exposes the handle for packages that need direct access.
 func (s *Store) DB() *sql.DB { return s.db }
+
+// Announce tells h what every write changes from now on.
+func (s *Store) Announce(h *live.Hub) { s.hub = h }
+
+// changed marks topics changed. Deferred at the top of every function that
+// writes, so a write cannot leave a screen stale; marking one that failed
+// costs a tab one read for nothing.
+func (s *Store) changed(topics ...live.Topic) { s.hub.Changed(topics...) }

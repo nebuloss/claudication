@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"claudication/internal/live"
 	"claudication/internal/service/clients"
 )
 
@@ -105,6 +106,7 @@ type NewSlot struct {
 // returns the key's plaintext once, as CreateKey does.
 func (s *Store) CreateClient(ctx context.Context, name, typ string,
 	limits KeyLimits, slots []NewSlot) (Client, string, error) {
+	defer s.changed(live.Clients)
 	t, ok := clients.Find(typ)
 	if !ok {
 		return Client{}, "", invalidClient("no such client type: " + typ)
@@ -143,6 +145,7 @@ func (s *Store) CreateClient(ctx context.Context, name, typ string,
 
 // insertSlot writes one slot, its name and binding checked.
 func insertSlot(ctx context.Context, tx *sql.Tx, keyID string, sl NewSlot, at time.Time) error {
+	//live:none part of its caller's write, which marks the topic
 	name, err := checkSlotName(sl.Name)
 	if err != nil {
 		return err
@@ -311,6 +314,7 @@ func ordered(t clients.Type, slots []ClientSlot) []ClientSlot {
 // SetSlot renames a client's slot and binds it. An empty name keeps the one
 // it has.
 func (s *Store) SetSlot(ctx context.Context, keyID, slot, name string, b Binding) error {
+	defer s.changed(live.Clients)
 	b, err := b.check()
 	if err != nil {
 		return err
@@ -348,6 +352,7 @@ func (s *Store) SetSlot(ctx context.Context, keyID, slot, name string, b Binding
 // changed and the id cannot, so an id that was a name would keep that name
 // from ever being given to another slot of the client once renamed.
 func (s *Store) AddSlot(ctx context.Context, keyID, name string, b Binding) error {
+	defer s.changed(live.Clients)
 	name, err := checkSlotName(name)
 	if err != nil {
 		return err
@@ -385,6 +390,7 @@ func newSlotID() (string, error) {
 // RemoveSlot takes an operator's own slot away, freeing its name. A type's
 // own slots stay (clients.Type, Removable).
 func (s *Store) RemoveSlot(ctx context.Context, keyID, slot string) error {
+	defer s.changed(live.Clients)
 	c, err := s.Client(ctx, keyID)
 	if err != nil {
 		return err
@@ -409,6 +415,7 @@ func (s *Store) RemoveSlot(ctx context.Context, keyID, slot string) error {
 // stored: its slots and its switched-off models wait for the mode they
 // belong to.
 func (s *Store) SetClientMode(ctx context.Context, keyID string, mode clients.Mode) error {
+	defer s.changed(live.Clients)
 	if !mode.Valid() {
 		return invalidClient("no such mode: " + string(mode))
 	}
@@ -430,6 +437,7 @@ func (s *Store) SetClientMode(ctx context.Context, keyID string, mode clients.Mo
 // (internal/relay/passes, ShrinkImages). Any type may have it, since any can
 // send images; it acts only on a request Claude serves.
 func (s *Store) SetClientFitImages(ctx context.Context, keyID string, on bool) error {
+	defer s.changed(live.Clients)
 	res, err := s.db.ExecContext(ctx, `UPDATE clients SET fit_images = ? WHERE key_id = ?`, on, keyID)
 	if err != nil {
 		return fmt.Errorf("switch image fitting: %w", err)
@@ -444,6 +452,7 @@ func (s *Store) SetClientFitImages(ctx context.Context, keyID string, on bool) e
 // through the gateway's MCP server (internal/httpapi/agent). Any type may
 // have it: every one can reach the server with its key.
 func (s *Store) SetClientAgentManage(ctx context.Context, keyID string, on bool) error {
+	defer s.changed(live.Clients)
 	res, err := s.db.ExecContext(ctx, `UPDATE clients SET agent_manage = ? WHERE key_id = ?`, on, keyID)
 	if err != nil {
 		return fmt.Errorf("switch agent management: %w", err)
@@ -459,6 +468,7 @@ func (s *Store) SetClientAgentManage(ctx context.Context, keyID string, on bool)
 // reading that name spends nothing, so it has no switch, and a stored flag
 // would be one the gateway never reads (internal/httpapi/gateway).
 func (s *Store) SetClientNameChats(ctx context.Context, keyID string, on bool) error {
+	defer s.changed(live.Clients)
 	c, err := s.Client(ctx, keyID)
 	if err != nil {
 		return err
@@ -479,6 +489,7 @@ func (s *Store) SetClientNameChats(ctx context.Context, keyID string, on bool) e
 // SetClientBase records the address a client's machine was set up with: the
 // base of the install or update command it just fetched.
 func (s *Store) SetClientBase(ctx context.Context, keyID, base string) error {
+	defer s.changed(live.Clients)
 	if _, err := s.db.ExecContext(ctx, `UPDATE clients SET base = ? WHERE key_id = ?`, base, keyID); err != nil {
 		return fmt.Errorf("record client base: %w", err)
 	}
@@ -488,6 +499,7 @@ func (s *Store) SetClientBase(ctx context.Context, keyID, base string) error {
 // MarkConfigured records that a client has been set up with its key, the
 // first time only: its install command was fetched, or it made a request.
 func (s *Store) MarkConfigured(ctx context.Context, keyID string) error {
+	defer s.changed(live.Clients)
 	if _, err := s.db.ExecContext(ctx,
 		`UPDATE clients SET configured_at = ? WHERE key_id = ? AND configured_at IS NULL`,
 		ms(time.Now()), keyID); err != nil {
@@ -499,6 +511,7 @@ func (s *Store) MarkConfigured(ctx context.Context, keyID string) error {
 // SetClientDisabled switches a client off, or back on. Off, its key is
 // refused before anything is routed; its type, slots and history stay.
 func (s *Store) SetClientDisabled(ctx context.Context, keyID string, disabled bool) error {
+	defer s.changed(live.Clients)
 	q := `UPDATE clients SET disabled_at = NULL WHERE key_id = ?`
 	args := []any{keyID}
 	if disabled {

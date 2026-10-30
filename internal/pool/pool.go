@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"claudication/internal/live"
 	"claudication/internal/oauth"
 	"claudication/internal/store"
 )
@@ -150,7 +151,14 @@ type Pool struct {
 	// lockRefresh, when set, is held around each token exchange across
 	// processes; see LockRefreshes.
 	lockRefresh func(ctx context.Context, id string) (unlock func(), err error)
+
+	// hub is told each change to the pool's state: a cooldown, a hold, a
+	// lease taken or given back (docs/data-architecture.md).
+	hub *live.Hub
 }
+
+// Announce tells h each change to the pool's state from now on.
+func (p *Pool) Announce(h *live.Hub) { p.hub = h }
 
 // LockRefreshes has every token exchange hold lock, keyed by account id, from
 // reading the refresh token to storing its replacement.
@@ -482,6 +490,7 @@ func (p *Pool) hold(id string) func() {
 	}
 	p.open[id]++
 	p.mu.Unlock()
+	p.hub.Changed(live.Pool)
 	var once sync.Once
 	return func() {
 		once.Do(func() {
@@ -490,6 +499,7 @@ func (p *Pool) hold(id string) func() {
 				delete(p.open, id)
 			}
 			p.mu.Unlock()
+			p.hub.Changed(live.Pool)
 		})
 	}
 }
@@ -778,6 +788,10 @@ const bookkeepingTimeout = 5 * time.Second
 func (p *Pool) ReportSuccess(id string) {
 	p.mu.Lock()
 	h := p.stateOf(id)
+	// Every request served ends here: a change only when it ends a cooldown.
+	if !h.cooldownUntil.IsZero() || h.failures > 0 {
+		p.hub.Changed(live.Pool)
+	}
 	h.cooldownUntil = time.Time{}
 	h.failures = 0
 	p.mu.Unlock()
@@ -803,6 +817,7 @@ func (p *Pool) Reset(id string) {
 	if h, ok := p.states[id]; ok {
 		h.cooldownUntil = time.Time{}
 		h.failures = 0
+		p.hub.Changed(live.Pool)
 	}
 }
 
@@ -846,6 +861,7 @@ func (p *Pool) ReportFailureUntil(id string, kind FailureKind, detail string, un
 	h.cooldownUntil = now.Add(wait)
 	failures := h.failures
 	p.mu.Unlock()
+	p.hub.Changed(live.Pool)
 
 	ctx, cancel := context.WithTimeout(context.Background(), bookkeepingTimeout)
 	defer cancel()
@@ -880,6 +896,7 @@ func (p *Pool) ReportModelFailureUntil(id, model string, kind FailureKind, detai
 	}
 	h.models[store.ModelKey(model)] = now.Add(wait)
 	p.mu.Unlock()
+	p.hub.Changed(live.Pool)
 
 	ctx, cancel := context.WithTimeout(context.Background(), bookkeepingTimeout)
 	defer cancel()
@@ -906,6 +923,7 @@ func (p *Pool) HoldModel(id, model string, until time.Time) {
 			h.models = map[string]time.Time{}
 		}
 		h.models[k] = until
+		p.hub.Changed(live.Pool)
 	}
 }
 
@@ -915,6 +933,7 @@ func (p *Pool) ReleaseModel(id, model string) {
 	defer p.mu.Unlock()
 	if h, ok := p.states[id]; ok {
 		delete(h.models, store.ModelKey(model))
+		p.hub.Changed(live.Pool)
 	}
 }
 

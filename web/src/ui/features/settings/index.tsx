@@ -1,4 +1,5 @@
 import ConfigTable from './config-table'
+import Diagnostics from './diagnostics'
 import GatewaySwitch from './gateway-switch'
 import McpSettings from './mcp'
 import ModelChecks from './model-checks'
@@ -16,6 +17,7 @@ import { Card, Empty, Loading, Page } from '../../primitives'
  *   Models         whether the gateway checks models itself; each
  *                  provider's mode, its families and who serves which
  *   Configuration  the configuration as loaded, read-only
+ *   Diagnostics    how changes reach the screens: topics, tabs, cached reads
  *
  * The configuration is loaded by the shell, because the same request carries
  * the switches and the settings rows, and the header reads it too.
@@ -80,6 +82,7 @@ export default function Settings({
         </>
       )}
       {page === 'configuration' && configured('Configuration', (d) => <ConfigTable config={d} />)}
+      {page === 'diagnostics' && <Diagnostics />}
     </Page>
   )
 }

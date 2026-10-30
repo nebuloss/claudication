@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"claudication/internal/live"
 )
 
 // Setting reads one runtime setting. The second result is false when nothing
@@ -46,6 +48,7 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 
 // SetSetting writes one runtime setting.
 func (s *Store) SetSetting(ctx context.Context, key, value string) error {
+	defer s.changed(live.Settings, live.Models)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,

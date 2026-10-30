@@ -26,8 +26,9 @@ import {
 } from '../../primitives'
 import { ago, compact } from '../../format'
 import { Client, type ClientTypes } from '../../clients/specs'
-import { KeyFigures, REFRESH_MS, SUBSCRIPTION_NOTE } from './parts'
+import { KeyFigures, SUBSCRIPTION_NOTE } from './parts'
 import { useClientTypes } from './types'
+import { READS } from '../../../api/live'
 
 export { ClientPage } from './page'
 
@@ -40,9 +41,9 @@ export { ClientPage } from './page'
 export default function Clients() {
   const [adding, setAdding] = useState(false)
   const { types } = useClientTypes()
-  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
+  const { data, error, loading, reload, refreshing, updatedAt } = useLoader(
     (signal) => api.clients.list(signal),
-    { refreshMs: REFRESH_MS },
+    { on: READS.clients },
   )
 
   return (
@@ -55,7 +56,7 @@ export default function Clients() {
         }
       >
         {data !== null && data.clients.length > 0 && <ListSummary>traffic over {data.windowDays}d</ListSummary>}
-        <Freshness updatedAt={updatedAt} refreshing={refreshing} live={live} onRefresh={() => void reload()} />
+        <Freshness updatedAt={updatedAt} refreshing={refreshing} />
       </ListToolbar>
 
       {adding && types !== null && <NewClient types={types} onClose={() => setAdding(false)} />}

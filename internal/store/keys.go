@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"claudication/internal/live"
 	"claudication/internal/service/clients"
 )
 
@@ -233,6 +234,7 @@ func newSecret() (body, plaintext string, err error) {
 // to withdraw it without deleting the key and losing its settings and history
 // with it.
 func (s *Store) RotateKey(ctx context.Context, id string) (APIKey, string, error) {
+	defer s.changed(live.Clients)
 	body, plaintext, err := newSecret()
 	if err != nil {
 		return APIKey{}, "", err
@@ -269,6 +271,7 @@ func (s *Store) RotateKey(ctx context.Context, id string) (APIKey, string, error
 // schema.sql for why that is safe to keep). A key with no client is made only
 // by tests; every key the gateway issues is a client's (CreateClient).
 func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (APIKey, string, error) {
+	defer s.changed(live.Clients)
 	var (
 		key       APIKey
 		plaintext string
@@ -286,6 +289,7 @@ func (s *Store) CreateKey(ctx context.Context, name string, limits KeyLimits) (A
 // insertKey writes a new key inside tx, with its name, so history never holds
 // an id with no name: the half of CreateKey that creating a client shares.
 func (s *Store) insertKey(ctx context.Context, tx *sql.Tx, name string, limits KeyLimits) (APIKey, string, error) {
+	defer s.changed(live.Clients)
 	name, err := CleanName(name)
 	if err != nil {
 		return APIKey{}, "", err
@@ -385,6 +389,7 @@ func (s *Store) Key(ctx context.Context, id string) (APIKey, error) {
 // TouchKey records last use, at most once a minute per key (see lastUse).
 // Best-effort: a failure here must never fail the request it belongs to.
 func (s *Store) TouchKey(ctx context.Context, id string) {
+	defer s.changed(live.Clients)
 	now := time.Now()
 	if !s.keysUsed.due(id, now) {
 		return
@@ -426,6 +431,7 @@ func (s *Store) ListKeys(ctx context.Context) ([]APIKey, error) {
 // round every client that holds it. The credential is what is expensive to
 // change; its label is not.
 func (s *Store) UpdateKey(ctx context.Context, id, name string, limits KeyLimits) error {
+	defer s.changed(live.Clients)
 	name, err := CleanName(name)
 	if err != nil {
 		return err
@@ -461,6 +467,7 @@ func (s *Store) UpdateKey(ctx context.Context, id, name string, limits KeyLimits
 // Its model switches and model-role bindings go with it by foreign key, in
 // the same statement.
 func (s *Store) DeleteKey(ctx context.Context, id string) error {
+	defer s.changed(live.Clients)
 	res, err := s.db.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete api key: %w", err)

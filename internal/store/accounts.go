@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"claudication/internal/live"
 )
 
 var ErrAccountNotFound = errors.New("account not found")
@@ -243,6 +245,7 @@ func (s *Store) sealTokens(tok Tokens) (access, refresh []byte, err error) {
 // Identity (email, uuid) is set at login and never changed afterwards by a
 // refresh; see the note on accounts in schema.sql.
 func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Account, error) {
+	defer s.changed(live.Accounts)
 	sealedAccess, sealedRefresh, err := s.sealTokens(tok)
 	if err != nil {
 		return Account{}, err
@@ -459,6 +462,7 @@ func (s *Store) AccountByEmail(ctx context.Context, provider, email string) (Acc
 // ignored, and any account the caller did not mention keeps its place after
 // the ones that were listed.
 func (s *Store) SetAccountOrder(ctx context.Context, ids []string) error {
+	defer s.changed(live.Accounts)
 	return s.inTx(ctx, "reorder accounts", func(tx *sql.Tx) error {
 		// Push everything out of the way first: position has no unique
 		// constraint, but leaving stale values would put unlisted accounts among
@@ -485,6 +489,7 @@ func (s *Store) SetAccountOrder(ctx context.Context, ids []string) error {
 // A poll that lands as the account is deleted writes nothing: the SELECT finds
 // no account, where an INSERT would fail the foreign key.
 func (s *Store) SetAccountQuota(ctx context.Context, id string, q AccountQuota) error {
+	defer s.changed(live.Quota)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO account_quota (account_id, updated_at,
 		                            five_hour_util, five_hour_reset, five_hour_status,
@@ -509,6 +514,7 @@ func (s *Store) SetAccountQuota(ctx context.Context, id string, q AccountQuota) 
 // SetAccountPlan records an account's plan as its provider names it now,
 // for a plan that changed after sign-in.
 func (s *Store) SetAccountPlan(ctx context.Context, id, plan string) error {
+	defer s.changed(live.Accounts)
 	if _, err := s.db.ExecContext(ctx, `UPDATE accounts SET plan = ? WHERE id = ?`, plan, id); err != nil {
 		return fmt.Errorf("record account plan: %w", err)
 	}
@@ -542,6 +548,7 @@ func (s *Store) AccountTokens(ctx context.Context, id string) (Tokens, error) {
 // UpdateAccountTokens replaces the credentials after a refresh. It deliberately
 // takes no identity fields.
 func (s *Store) UpdateAccountTokens(ctx context.Context, id string, tok Tokens, expiresAt, refreshExpiresAt time.Time) error {
+	defer s.changed(live.Accounts)
 	sealedAccess, sealedRefresh, err := s.sealTokens(tok)
 	if err != nil {
 		return err
@@ -576,6 +583,7 @@ func (s *Store) UpdateAccountTokens(ctx context.Context, id string, tok Tokens, 
 // outright rather than kept when absent, because the old one described the old
 // grant.
 func (s *Store) RenewAccount(ctx context.Context, id string, acct Account, tok Tokens) (Account, error) {
+	defer s.changed(live.Accounts)
 	sealedAccess, sealedRefresh, err := s.sealTokens(tok)
 	if err != nil {
 		return Account{}, err
@@ -613,6 +621,7 @@ func (s *Store) RenewAccount(ctx context.Context, id string, acct Account, tok T
 // limit says: that write is what clears the error, and an account that has
 // recovered must not show a failure for up to a minute more.
 func (s *Store) MarkAccountError(ctx context.Context, id, msg string) {
+	defer s.changed(live.Accounts)
 	_, _ = s.db.ExecContext(ctx, `UPDATE accounts SET last_error = ? WHERE id = ?`,
 		strings.TrimSpace(msg), id)
 	s.accountsUsed.forget(id)
@@ -622,6 +631,7 @@ func (s *Store) MarkAccountError(ctx context.Context, id, msg string) {
 // more. At most once a minute per account (see lastUse), unless an error was
 // marked since.
 func (s *Store) MarkAccountUsed(ctx context.Context, id string) {
+	defer s.changed(live.Accounts)
 	now := time.Now()
 	if !s.accountsUsed.due(id, now) {
 		return
@@ -639,6 +649,7 @@ func (s *Store) MarkAccountUsed(ctx context.Context, id string) {
 // Idempotent, and it keeps the first time rather than the most recent, because
 // "since when" is the useful figure when an operator finally looks.
 func (s *Store) MarkRefreshDead(ctx context.Context, id, detail string) error {
+	defer s.changed(live.Accounts)
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE accounts SET refresh_dead_at = COALESCE(refresh_dead_at, ?), last_error = ?
 		  WHERE id = ?`,
@@ -661,6 +672,7 @@ func (s *Store) MarkRefreshDead(ctx context.Context, id, detail string) error {
 // Reconnecting an account clears this, which is the right behaviour: an
 // operator who goes through the consent flow again means to use it.
 func (s *Store) SetAccountDisabled(ctx context.Context, id string, disabled bool) error {
+	defer s.changed(live.Accounts)
 	var res sql.Result
 	var err error
 	if disabled {
@@ -685,6 +697,7 @@ func (s *Store) SetAccountDisabled(ctx context.Context, id string, disabled bool
 // The ledger is written in the same transaction, so its history is relabelled
 // at once.
 func (s *Store) SetAccountName(ctx context.Context, id, name string) error {
+	defer s.changed(live.Accounts)
 	name, err := CleanName(name)
 	if err != nil {
 		return err
@@ -702,6 +715,7 @@ func (s *Store) SetAccountName(ctx context.Context, id, name string) error {
 }
 
 func (s *Store) DeleteAccount(ctx context.Context, id string) error {
+	defer s.changed(live.Accounts)
 	res, err := s.db.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete account: %w", err)

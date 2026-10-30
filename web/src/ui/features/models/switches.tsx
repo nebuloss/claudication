@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { api, type Account, type AccountModel, type ApiKey, type ModelTest, type ProbeResult } from '../../../api/client'
 import { useAction, useLoader } from '../../hooks'
 import {
@@ -20,12 +20,10 @@ import {
 import { compact, monthYear, relative, timeOfDay } from '../../format'
 import { brief, eachBounded, explain, failing, sourceOf, testOf } from '../../domain/model-tests'
 import { changes, modelNodes, modelTree, newestOnly } from '../../domain/model-tree'
+import { READS, type Topic } from '../../../api/live'
 
 /** How many model tests run at once: quick for a dozen models, and no burst. */
 const TESTS_AT_ONCE = 2
-
-/** How often an account's models are read again while the gateway checks them. */
-const SCAN_POLL_MS = 3_000
 
 /**
  * The facts' columns on a wide list — id, size, release. Fixed, because each
@@ -75,6 +73,7 @@ function ModelChecklist({
   explain: say,
   onChanged,
   deps,
+  topics,
   folds,
 }: {
   load: (signal: AbortSignal) => Promise<{ models: AccountModel[]; scanning?: boolean }>
@@ -84,14 +83,13 @@ function ModelChecklist({
   explain: (on: number, total: number) => ReactNode
   onChanged: () => void
   deps: unknown[]
+  /** What the list is read from, to read it again when it changes. */
+  topics: readonly Topic[]
   /** Which list this is, for remembering its folds. */
   folds: string
 }) {
-  // Read again every few seconds while the gateway is checking the models,
-  // so each result shows as it lands.
-  const [scanning, setScanning] = useState(false)
-  const { data, error, loading, reload } = useLoader(load, { deps, refreshMs: scanning ? SCAN_POLL_MS : 0 })
-  useEffect(() => setScanning(data?.scanning === true), [data])
+  // Read again as each check lands, and as a model is switched anywhere.
+  const { data, error, loading, reload } = useLoader(load, { deps, on: topics })
   const tree = useMemo(() => modelTree(data?.models ?? []), [data])
   const [query, setQuery] = useState('')
   // What was switched or tested here since the list was read, so the row
@@ -314,6 +312,7 @@ export default function AccountModels({
       }
       onChanged={onChanged}
       deps={[account.id]}
+      topics={READS.accountModels}
       folds="accounts/models"
     />
   )
@@ -335,6 +334,7 @@ export function KeyModels({ apiKey, onChanged }: { apiKey: ApiKey; onChanged: ()
       explain={(on, total) => `${on} of ${total} allowed. New models arrive allowed.`}
       onChanged={onChanged}
       deps={[apiKey.id]}
+      topics={READS.keyModels}
       folds="clients/models"
     />
   )

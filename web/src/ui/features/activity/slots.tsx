@@ -4,6 +4,7 @@ import { useLoader } from '../../hooks'
 import { Card, Empty, ErrorState, Freshness, Loading, Muted, Stack, WindowPicker } from '../../primitives'
 import { lastDays } from '../../format'
 import { Traffic, type Dimension } from '../usage/traffic'
+import { READS } from '../../../api/live'
 
 /**
  * The windows Activity is read over: a week, a fortnight, a month — one
@@ -19,9 +20,6 @@ export const WINDOWS = [7, 14, 30] as const
 
 /** Open on a week: what a table of where the traffic went is usually asked over. */
 export const DEFAULT_DAYS = 7
-
-/** Days of traffic barely move second to second; the request log is the live view. */
-const REFRESH_MS = 30_000
 
 export type GatewaySlots = { rows: SlotUse[]; shares: Record<string, SubscriptionShare> }
 
@@ -52,7 +50,7 @@ export function GatewayUsage({
   children: (data: GatewaySlots, days: number) => ReactNode
 }) {
   const [days, setDays] = useState<number>(DEFAULT_DAYS)
-  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
+  const { data, error, loading, reload, refreshing, updatedAt } = useLoader(
     async (signal) => {
       const [slots, usage] = await Promise.all([
         api.traffic.slots(days, signal),
@@ -60,7 +58,7 @@ export function GatewayUsage({
       ])
       return { slots, usage }
     },
-    { deps: [days], refreshMs: REFRESH_MS },
+    { deps: [days], on: READS.slots },
   )
   if (error !== '' && data === null) {
     return <ErrorState message={error} onRetry={() => void reload()} busy={loading} />
@@ -72,7 +70,7 @@ export function GatewayUsage({
         aside={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <WindowPicker value={days} windows={WINDOWS} onChange={setDays} />
-            <Freshness updatedAt={updatedAt} refreshing={refreshing} live={live} onRefresh={() => void reload()} />
+            <Freshness updatedAt={updatedAt} refreshing={refreshing} />
           </div>
         }
       >

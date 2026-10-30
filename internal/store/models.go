@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"claudication/internal/live"
 )
 
 // Which models an account may serve.
@@ -59,6 +61,7 @@ func modelOn(off []string, model string) bool {
 // SetKeyModel turns a model on or off for an API key, by the rule
 // SetAccountModel follows: turning a model on clears it under either spelling.
 func (s *Store) SetKeyModel(ctx context.Context, id, model string, on bool) error {
+	defer s.changed(live.Clients)
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return fmt.Errorf("set key model: no model")
@@ -95,6 +98,7 @@ func (s *Store) SetKeyModel(ctx context.Context, id, model string, on bool) erro
 // that was turned off under its other spelling turns that row off too, so
 // the switch the operator sees and the one that routes cannot disagree.
 func (s *Store) SetAccountModel(ctx context.Context, id, model string, on bool) error {
+	defer s.changed(live.Models)
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return fmt.Errorf("set account model: no model")
@@ -141,6 +145,7 @@ func (s *Store) SetAccountModel(ctx context.Context, id, model string, on bool) 
 // account, as the operator's switch does, marked as the gateway's: what
 // SwitchModelOnAuto may turn back on. False when it was off already.
 func (s *Store) SwitchModelOffAuto(ctx context.Context, id, model string) (bool, error) {
+	defer s.changed(live.Models)
 	acct, err := s.Account(ctx, id)
 	if err != nil {
 		return false, err
@@ -160,6 +165,7 @@ func (s *Store) SwitchModelOffAuto(ctx context.Context, id, model string) (bool,
 // account, under either spelling, and never one the operator did. False when
 // there was none to turn on.
 func (s *Store) SwitchModelOnAuto(ctx context.Context, id, model string) (bool, error) {
+	defer s.changed(live.Models)
 	acct, err := s.Account(ctx, id)
 	if err != nil {
 		return false, err

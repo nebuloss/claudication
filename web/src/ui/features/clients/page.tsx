@@ -15,16 +15,7 @@ import { ClientOverview } from './overview'
 import { KeyFigures } from './parts'
 import { useClientTypes } from './types'
 import { ClientUsage } from './usage'
-
-/**
- * How often the overview re-reads its client: its install link's state and
- * whether it has been set up are what change while it is open — a command
- * run on another machine — and the page has to say so without a reload.
- */
-const LIVE_MS = 4_000
-
-/** The other pages read it less often: their own data polls on its own. */
-const QUIET_MS = 20_000
+import { READS } from '../../../api/live'
 
 /**
  * One client, on its overview and the pages beside it: its usage and limits,
@@ -42,9 +33,9 @@ export function ClientPage({
   config: GatewayConfig | null
 }) {
   const { types } = useClientTypes()
-  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
+  const { data, error, loading, reload, refreshing, updatedAt } = useLoader(
     (signal) => api.clients.get(id, signal),
-    { refreshMs: page === '' ? LIVE_MS : QUIET_MS, deps: [id] },
+    { on: READS.clients, deps: [id] },
   )
   if ((loading && data === null) || types === null) return <Loading />
   if (data === null) {
@@ -98,7 +89,7 @@ export function ClientPage({
             <EnableSwitch key={String(client.wire.disabled)} client={client.wire} onChanged={changed} />
           </Figures>
         }
-        freshness={{ updatedAt, refreshing, live, onRefresh: changed }}
+        freshness={{ updatedAt, refreshing }}
       />
       <ErrorBanner error={error} />
       {pages[page]()}

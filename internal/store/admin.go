@@ -128,6 +128,7 @@ func (s *Store) AdminExists(ctx context.Context) (bool, error) {
 // CreateAdmin sets the first password. It refuses to overwrite an existing
 // account, so an exposed setup endpoint cannot be used to take one over.
 func (s *Store) CreateAdmin(ctx context.Context, password string) error {
+	//live:none the admin account, which no screen lists
 	if len([]rune(password)) < MinPasswordLength {
 		return ErrPasswordTooShort
 	}
@@ -177,6 +178,7 @@ func (s *Store) VerifyAdmin(ctx context.Context, password string) (bool, error) 
 // ChangeAdminPassword requires the current one. Knowing a live session is not
 // enough: a borrowed browser should not be able to lock the owner out.
 func (s *Store) ChangeAdminPassword(ctx context.Context, current, next string) error {
+	//live:none the admin account, which no screen lists
 	ok, err := s.VerifyAdmin(ctx, current)
 	if err != nil {
 		return err
@@ -191,6 +193,7 @@ func (s *Store) ChangeAdminPassword(ctx context.Context, current, next string) e
 // uses it for recovery, where the operator has proved themselves by having
 // shell access to the state directory.
 func (s *Store) SetAdminPassword(ctx context.Context, password string) error {
+	//live:none the admin account, which no screen lists
 	if len([]rune(password)) < MinPasswordLength {
 		return ErrPasswordTooShort
 	}
@@ -218,6 +221,7 @@ func (s *Store) SetAdminPassword(ctx context.Context, password string) error {
 // administer the gateway, not what it is connected to. Whoever sets the next
 // password inherits both, which is the same position the first operator was in.
 func (s *Store) DeleteAdmin(ctx context.Context) error {
+	//live:none the admin account, which no screen lists
 	return s.inTx(ctx, "delete admin account", func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM admin`); err != nil {
 			return fmt.Errorf("delete admin account: %w", err)

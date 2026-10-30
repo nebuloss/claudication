@@ -8,9 +8,7 @@ import { byTokens, emptyRollup, rollup, type Rollup } from '../usage/rollup'
 import { ClientTable, ShareNote, TokenSplit, UsageTable, accountShareColumns } from '../usage/tables'
 import { QuotaGauges } from '../accounts/quota-meter'
 import { GatewayUsage } from './slots'
-
-/** The account list is polled at the pace the accounts page polls it, for the status and the windows. */
-const ACCOUNTS_REFRESH_MS = 20_000
+import { READS } from '../../../api/live'
 
 /** An account's rollup, with the account where it still exists, or the name its history kept. */
 type AccountUse = Rollup & { account?: Account; name: string }
@@ -27,7 +25,7 @@ type AccountUse = Rollup & { account?: Account; name: string }
  * as it has traffic in the window.
  */
 export default function ActivityAccounts() {
-  const list = useLoader((signal) => api.accounts.list(signal), { refreshMs: ACCOUNTS_REFRESH_MS })
+  const list = useLoader((signal) => api.accounts.list(signal), { on: READS.accounts })
   const accounts = list.data?.accounts ?? null
   if (accounts === null) {
     return list.error !== '' ? (

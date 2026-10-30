@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"claudication/internal/live"
 	"claudication/internal/service/clients"
 )
 
@@ -447,6 +448,7 @@ func clipTitle(title string) string {
 // and records what it was written from so the next decision to replace it has
 // something to compare against.
 func (s *Store) RetitleChat(ctx context.Context, id, title, model string, basis TitleRecord) error {
+	defer s.changed(live.Chats)
 	title = clipTitle(title)
 	if id == "" || title == "" {
 		return nil
@@ -494,6 +496,7 @@ func (s *Store) ChatOfKey(ctx context.Context, id, keyID string) (bool, error) {
 // The titler never renames a manual title, so it stays until the operator
 // types another. No model wrote it, so none is recorded.
 func (s *Store) SetManualTitle(ctx context.Context, id, title string) (string, error) {
+	defer s.changed(live.Chats)
 	title = clipTitle(title)
 	if id == "" || title == "" {
 		return "", errors.New("a title cannot be empty")
@@ -518,6 +521,7 @@ func (s *Store) SetManualTitle(ctx context.Context, id, title string) (string, e
 // loser simply does nothing. Replacing a title on purpose, once a chat has
 // outgrown it, is RetitleChat.
 func (s *Store) SetChatTitle(ctx context.Context, id, title, model string) error {
+	defer s.changed(live.Chats)
 	title = clipTitle(title)
 	if id == "" || title == "" {
 		return nil
@@ -539,6 +543,7 @@ func (s *Store) SetChatTitle(ctx context.Context, id, title, model string) error
 // turn, and the gateway's titler may answer sooner. An operator's title, and
 // a client title already read, stay.
 func (s *Store) SetClientTitle(ctx context.Context, id, title, model string) error {
+	defer s.changed(live.Chats)
 	title = clipTitle(title)
 	if id == "" || title == "" {
 		return nil
@@ -563,6 +568,7 @@ func (s *Store) SetClientTitle(ctx context.Context, id, title, model string) err
 // with it would grow without bound while keeping names for conversations
 // nobody can look at any more.
 func (s *Store) PruneChatTitles(ctx context.Context) (int64, error) {
+	defer s.changed(live.Chats)
 	res, err := s.db.ExecContext(ctx,
 		`DELETE FROM chat_titles WHERE conversation_id NOT IN
 		   (SELECT DISTINCT conversation_id FROM usage_events WHERE conversation_id <> '')`)

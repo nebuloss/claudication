@@ -883,3 +883,25 @@ export interface RunningRequests {
   running: RunningRequest[] | null
   now: string
 }
+
+/** GET /admin/live: how changes reach the screens (docs/data-architecture.md). */
+export interface LiveStats {
+  topics: {
+    topic: string
+    interval_ms: number
+    /** Changes since the gateway started. */
+    version: number
+    notices: number
+    /** Open tabs listening to it. */
+    watchers: number
+  }[]
+  /** Open tabs. */
+  streams: number
+  reads: {
+    route: string
+    topics: string
+    hits: number
+    misses: number
+    last_ms: number
+  }[]
+}

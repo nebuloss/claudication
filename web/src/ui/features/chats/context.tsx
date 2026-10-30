@@ -4,12 +4,10 @@ import { HoverValues, LineChart, tipPosition, type LineSeries, Line } from '../.
 import { useLoader } from '../../hooks'
 import { Chip, ErrorState, Loading, Muted, Stack } from '../../primitives'
 import { compact, timeOfDay } from '../../format'
+import { READS } from '../../../api/live'
 
 /** The request the gateway makes on its own behalf; see store.InternalPath. */
 const INTERNAL_PATH = '/internal/title'
-
-/** Follows the chat while it is open, at the rate the list beside it does. */
-const DETAIL_REFRESH_MS = 20_000
 
 type Point = { at: string; prompt: number }
 
@@ -39,10 +37,7 @@ export default function ChatContextDetail({
 }) {
   const { data, error, loading, reload } = useLoader<ChatDetail>(
     (signal) => api.traffic.chat(id, signal),
-    {
-      deps: [id],
-      refreshMs: DETAIL_REFRESH_MS,
-    },
+    { deps: [id], on: READS.chats },
   )
   const [hovered, setHovered] = useState<number | null>(null)
 

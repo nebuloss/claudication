@@ -5,6 +5,10 @@ data changes on the server, and what the gateway does on its own schedule —
 written to redesign refreshing around one event channel. Audited 2026-10-30
 at `79d7d21` from the source; paths are from the repository root.
 
+The polling it describes is gone: [data-architecture.md](data-architecture.md)
+is how the UI stays current now. This stays as the record of what that
+replaced, and why.
+
 ## In short
 
 - The UI keeps itself fresh by **polling**: 18 timers, from 2 s to 60 s, each

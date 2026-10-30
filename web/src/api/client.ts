@@ -48,6 +48,7 @@ import type {
   Usage,
   UsageScope,
   RunningRequests,
+  LiveStats,
 } from './types'
 
 export * from './types'
@@ -350,6 +351,7 @@ const models = {
 const gateway = {
   overview: (signal?: AbortSignal) => http.get<Overview>('/admin/overview', signal),
   config: (signal?: AbortSignal) => http.get<GatewayConfig>('/admin/config', signal),
+  live: (signal?: AbortSignal) => http.get<LiveStats>('/admin/live', signal),
 
   setServing: (enabled: boolean) => http.send('POST', '/admin/gateway', { body: { enabled } }),
 

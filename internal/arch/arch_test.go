@@ -31,6 +31,7 @@ var layers = map[string]int{
 	"internal/geminiwire":       0,
 	"internal/handover":         0,
 	"internal/mcp":              0,
+	"internal/live":             0,
 	"configs":                   0, // the committed client files, embedded
 
 	"internal/store":         1,

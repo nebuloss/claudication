@@ -225,7 +225,7 @@ function RecentRequests({
       <ButtonLink href={`/admin/requests/export${query === '' ? '' : `?${query}`}`} variant="text">
         Download CSV
       </ButtonLink>
-      <Freshness updatedAt={log.updatedAt} refreshing={log.refreshing} live={log.live} onRefresh={log.refresh} />
+      <Freshness updatedAt={log.updatedAt} refreshing={log.refreshing} />
     </div>
   )
 

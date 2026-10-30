@@ -19,16 +19,7 @@ import {
   UsageBar,
 } from '../../primitives'
 import { compact, duration, mib } from '../../format'
-
-/**
- * How often the status figures re-read themselves.
- *
- * This is the screen left open on a second monitor, so it is the one that has
- * to be current: "is the proxy ready" is worth nothing if the answer on screen
- * is from whenever the tab was opened. Ten seconds is under the interval at
- * which the request counters visibly move on a working gateway.
- */
-const REFRESH_MS = 10_000
+import { READS } from '../../../api/live'
 
 /**
  * The gateway's own memory, against its ceiling.
@@ -96,9 +87,9 @@ export default function Overview({
   /** The gateway switch: off, no client is served, and the overview says so first. */
   serving?: boolean
 }) {
-  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader<OverviewData>(
+  const { data, error, loading, reload, refreshing, updatedAt } = useLoader<OverviewData>(
     (signal) => api.gateway.overview(signal),
-    { refreshMs: REFRESH_MS },
+    { on: READS.overview },
   )
 
   if (loading) return <Loading />
@@ -167,12 +158,7 @@ export default function Overview({
       <Card
         title="Status"
         aside={
-          <Freshness
-            updatedAt={updatedAt}
-            refreshing={refreshing}
-            live={live}
-            onRefresh={() => void reload()}
-          />
+          <Freshness updatedAt={updatedAt} refreshing={refreshing} />
         }
       >
         <StatGrid>

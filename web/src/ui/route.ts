@@ -137,6 +137,7 @@ export type ActivityPageId = (typeof ACTIVITY_PAGES)[number]['id']
 export const SETTINGS_PAGES = [
   { id: 'models', label: 'Models' },
   { id: 'configuration', label: 'Configuration' },
+  { id: 'diagnostics', label: 'Diagnostics' },
 ] as const satisfies readonly Section[]
 export type SettingsPageId = (typeof SETTINGS_PAGES)[number]['id']
 

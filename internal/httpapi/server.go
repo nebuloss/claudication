@@ -42,6 +42,7 @@ import (
 	"claudication/internal/httpapi/gateway"
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/httpapi/web"
+	"claudication/internal/live"
 	"claudication/internal/memlimit"
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
@@ -128,6 +129,11 @@ type Server struct {
 	// models is the model list, which all three surfaces read.
 	models *modelsvc.Catalog
 
+	// hub is told what each change changed, and tells the admin UI's open
+	// tabs (docs/data-architecture.md). Every source of what a screen shows
+	// is handed it here.
+	hub *live.Hub
+
 	// The handler sets, one per surface. See the package comment.
 	gateway *gateway.Gateway
 	admin   *admin.Admin
@@ -194,12 +200,14 @@ func New(cfg config.Config, log *slog.Logger, st *store.Store) (*Server, error) 
 		budgets:        limits.NewBudgets(st),
 		trustedProxies: trusted,
 		stopSweeper:    make(chan struct{}),
+		hub:            live.New(),
 		trimmer:        memlimit.NewTrimmer(log),
 		instance:       newInstanceID(),
 		// Upstream calls made by the gateway itself: token exchange, refresh,
 		// credential probes. Short timeout, because these are all small.
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 	}
+	st.Announce(s.hub)
 
 	// Every stored switch is read once here rather than per request, with a
 	// bound on how long startup may wait for the database to answer.
@@ -281,6 +289,7 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 		refresh[p.ID()] = p.Refresh
 	}
 	s.pool = pool.New(st, s.httpClient, log, refresh)
+	s.pool.Announce(s.hub)
 	// Across processes as well as within this one: see LockRefreshes.
 	s.pool.LockRefreshes(handover.FileLock(filepath.Join(cfg.StateDir, "locks"), log))
 	// A ChatGPT conversation stays on the account that served it last: its
@@ -294,6 +303,9 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 	s.poller = &accountsvc.Poller{
 		Store:  st,
 		Tokens: s.pool,
+		// A tab showing usage keeps its stream open and asks nothing while
+		// nothing changes: open, it counts as looking.
+		Viewed: func() bool { return s.hub.Watched(live.Quota) },
 		Fetch: func(ctx context.Context, a store.Account, token string) (store.AccountQuota, error) {
 			p, ok := s.providers.Find(a.Provider)
 			if !ok {
@@ -413,9 +425,12 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	// Install links live a quarter of an hour: long enough to copy a command
 	// to another machine, short enough that one never run is soon gone.
 	installs := install.New(15 * time.Minute)
+	installs.OnChange(func() { s.hub.Changed(live.Clients) })
 	// Before the gateway, which notes what it serves in it, and the admin
 	// API, which reads it.
 	s.running = &usagesvc.Running{}
+	s.running.Announce(s.hub)
+	s.inflight.OnChange(func() { s.hub.Changed(live.Running) })
 	defer s.buildAvailability()
 	s.models = modelsvc.New(modelsvc.Deps{
 		// Read at call time: the checker is made below, before anything asks.
@@ -424,6 +439,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Relays:     []*relay.Relay{s.relays[anthropic.ID], s.relays[chatgpt.ID], s.relays[google.ID]},
 		HTTPClient: s.httpClient,
 	})
+	s.models.Announce(s.hub)
 	s.gateway = gateway.New(gateway.Deps{
 		Config: cfg, Log: log, Store: st,
 		KeyLimiter: s.keyLimiter, AnonLimiter: s.anonLimiter, Budgets: s.budgets,
@@ -431,7 +447,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		Trimmer: s.trimmer, Enabled: s.serving, Protocols: s.protocols, InFlight: s.inflight,
 		Install: installs, Models: s.models,
 	})
-	s.availability = &availability.Checker{}
+	s.availability = &availability.Checker{Hub: s.hub}
 	s.admin = admin.New(admin.Deps{
 		Config: cfg, Log: log, Store: st, Pool: s.pool,
 		Pending: oauth.NewPending(15 * time.Minute), Poller: s.poller,
@@ -440,7 +456,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
 		Models: s.models, Install: installs, Availability: s.availability, ModelChecks: s.modelChecks,
-		Running: s.running,
+		Running: s.running, Hub: s.hub,
 	})
 	s.web = web.New(web.Deps{Log: log, Files: webdist})
 	// The MCP server, behind the gateway's own key check and answering with
@@ -868,6 +884,7 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 	go s.anonLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
 	go s.budgets.RunSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
 	go s.recorder.RunPruner(s.stopSweeper, 24*time.Hour)
+	go s.hub.Run(s.stopSweeper)
 	// The poller stops as soon as this process stops taking requests, on a
 	// handover as on a stop: two processes polling the same accounts would
 	// be twice the calls for nothing.

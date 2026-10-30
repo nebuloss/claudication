@@ -17,10 +17,11 @@ import {
 } from '../../primitives'
 import { ago, compact, lastDays } from '../../format'
 import { type Client } from '../../clients/specs'
-import { LIVE_MS, PerMinute } from '../usage/live'
+import { PerMinute } from '../usage/live'
 import { SlotTable } from '../usage/tables'
 import { BudgetLimit, DEFAULT_PERIOD_S, RateLimit, periodName } from './limits'
 import { Budget, SubscriptionCard } from './parts'
+import { READS } from '../../../api/live'
 
 /** The windows the breakdown can be read over, in days. */
 const WINDOWS = [1, 7, 30] as const
@@ -37,7 +38,7 @@ const WINDOWS = [1, 7, 30] as const
  */
 export function ClientUsage({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
   const k = c.wire
-  const live = useLoader((signal) => api.clients.live(c.id, signal), { refreshMs: LIVE_MS, deps: [c.id] })
+  const live = useLoader((signal) => api.clients.live(c.id, signal), { on: READS.clientLimits, deps: [c.id] })
   const suggest = useLoader((signal) => api.clients.suggest(c.id, signal), { deps: [c.id] })
   const [rpm, setRpm] = useState(k.rpm_limit)
   const [periodS, setPeriodS] = useState(k.rate_period_s || DEFAULT_PERIOD_S)
@@ -187,6 +188,7 @@ function SlotBreakdown({ clientId }: { clientId: string }) {
   const [days, setDays] = useState<number>(7)
   const { data, error, loading } = useLoader((signal) => api.clients.usage(clientId, days, signal), {
     deps: [clientId, days],
+    on: READS.slots,
   })
   const rows: SlotUse[] = data?.rows ?? []
   return (

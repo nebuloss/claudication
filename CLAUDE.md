@@ -51,6 +51,11 @@ client" switch is on; `go doc ./internal/httpapi/agent`, the wire in
 `internal/mcp`). They do not import one another; the root hands across what
 one needs from another — the gateway's key check in front of `/mcp`, for one.
 
+What a screen shows reaches it through `internal/live`: every write and every
+change to state a screen shows marks a topic, and a tab's one event stream
+tells its panels to read again ([`docs/data-architecture.md`](docs/data-architecture.md)).
+A new write marks its topic, or `TestEveryWriteMarksATopic` fails.
+
 A typed client's files are written by the gateway alone
 (`internal/service/clientconfig`, from `configs/clients/*`, embedded by the
 `configs` package): the admin page shows what it returns, and the install and

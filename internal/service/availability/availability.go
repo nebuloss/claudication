@@ -45,6 +45,7 @@ import (
 	"sync"
 	"time"
 
+	"claudication/internal/live"
 	"claudication/internal/store"
 )
 
@@ -105,6 +106,8 @@ type Checker struct {
 	Models ModelsFunc
 	Checks Switch
 	Log    *slog.Logger
+	// Hub is told when a scan starts and ends: an account's page shows it.
+	Hub *live.Hub
 
 	mu sync.Mutex
 	// failing is each failing pair, with when it last failed.
@@ -313,11 +316,13 @@ func (c *Checker) Scan(accountID string) {
 	}
 	c.scanning[accountID] = true
 	c.mu.Unlock()
+	c.Hub.Changed(live.Models)
 	go func() {
 		defer func() {
 			c.mu.Lock()
 			delete(c.scanning, accountID)
 			c.mu.Unlock()
+			c.Hub.Changed(live.Models)
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), scanWait)
 		defer cancel()

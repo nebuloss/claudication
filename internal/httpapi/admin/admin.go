@@ -12,6 +12,7 @@ import (
 	"claudication/internal/api"
 	"claudication/internal/config"
 	"claudication/internal/httpapi/httpx"
+	"claudication/internal/live"
 	"claudication/internal/oauth"
 	"claudication/internal/pool"
 	"claudication/internal/provider"
@@ -52,6 +53,8 @@ type Admin struct {
 	modelChecks    *settings.Switch
 	running        *usagesvc.Running
 	facets         facetCache
+	hub            *live.Hub
+	reads          readCache
 }
 
 // Deps is what an Admin is built from. Every field is required.
@@ -89,6 +92,9 @@ type Deps struct {
 	ModelChecks *settings.Switch
 	// Running is the requests the gateway is serving now.
 	Running *usagesvc.Running
+	// Hub is told every change, and tells the tabs that show it
+	// (docs/data-architecture.md).
+	Hub *live.Hub
 }
 
 // Models is what the admin screens read of the gateway's model list: the same
@@ -140,6 +146,7 @@ func New(d Deps) *Admin {
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
 		availability: d.Availability, modelChecks: d.ModelChecks, running: d.Running,
+		hub: d.Hub,
 	}
 }
 
@@ -162,7 +169,16 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/me", admin(s.handleAdminMe))
 	mux.Handle("POST /admin/password", admin(s.handleChangePassword))
 	mux.Handle("POST /admin/account/delete", admin(s.handleDeleteAdminAccount))
-	mux.Handle("GET /admin/accounts", admin(s.handleListAccounts))
+	// What each tab shows changes, and which reads are kept until it does:
+	// docs/data-architecture.md. A cached read names every topic it reads;
+	// its maxAge bounds what time alone changes.
+	mux.Handle("GET /admin/events", admin(s.handleEvents))
+	mux.Handle("GET /admin/live", admin(s.handleLive))
+	cached := func(route string, maxAge time.Duration, h http.HandlerFunc, topics ...live.Topic) http.Handler {
+		return admin(s.cached(route, topics, maxAge, h))
+	}
+	mux.Handle("GET /admin/accounts", cached("accounts", 10*time.Second, s.handleListAccounts,
+		live.Accounts, live.Quota, live.Pool, live.Requests))
 	mux.Handle("POST /admin/accounts/order", admin(s.handleReorderAccounts))
 	mux.Handle("POST /admin/accounts/oauth/start", admin(s.handleOAuthStart))
 	mux.Handle("POST /admin/accounts/oauth/complete", admin(s.handleOAuthComplete))
@@ -181,9 +197,11 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	// client's id, are the credential's: its secret, its limits, its models,
 	// its install bundle, deleting it.
 	mux.Handle("GET /admin/client-types", admin(s.handleClientTypes))
-	mux.Handle("GET /admin/clients", admin(s.handleListClients))
+	mux.Handle("GET /admin/clients", cached("clients", 30*time.Second, s.handleListClients,
+		live.Clients, live.Accounts, live.Models, live.Requests))
 	mux.Handle("POST /admin/clients", admin(s.handleCreateClient))
-	mux.Handle("GET /admin/clients/{id}", admin(s.handleGetClient))
+	mux.Handle("GET /admin/clients/{id}", cached("client", 30*time.Second, s.handleGetClient,
+		live.Clients, live.Accounts, live.Models, live.Requests))
 	mux.Handle("POST /admin/clients/{id}/mode", admin(s.handleSetClientMode))
 	mux.Handle("POST /admin/clients/{id}/disabled", admin(s.handleSetClientDisabled))
 	mux.Handle("POST /admin/clients/{id}/name-chats", admin(s.handleSetClientNameChats))
@@ -193,7 +211,8 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/clients/{id}/slots", admin(s.handleAddSlot))
 	mux.Handle("PUT /admin/clients/{id}/slots/{slot}", admin(s.handleSetSlot))
 	mux.Handle("DELETE /admin/clients/{id}/slots/{slot}", admin(s.handleRemoveSlot))
-	mux.Handle("GET /admin/clients/{id}/usage", admin(s.handleClientUsage))
+	mux.Handle("GET /admin/clients/{id}/usage", cached("client usage", 30*time.Second, s.handleClientUsage,
+		live.Clients, live.Accounts, live.Requests))
 	mux.Handle("GET /admin/clients/{id}/limits", admin(s.handleClientLimits))
 	mux.Handle("GET /admin/clients/{id}/limits/suggest", admin(s.handleClientSuggest))
 	mux.Handle("POST /admin/clients/{id}/limits/preview", admin(s.handleClientPreview))
@@ -218,13 +237,15 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 		mux.Handle("POST /admin/model-families/"+p+"/mode", admin(s.switchHandler(sw, p+" models by family", "by_family")))
 	}
 
-	mux.Handle("GET /admin/overview", admin(s.handleOverview))
-	mux.Handle("GET /admin/usage", admin(s.handleUsage))
+	mux.Handle("GET /admin/overview", cached("overview", 10*time.Second, s.handleOverview,
+		live.Accounts, live.Quota, live.Pool, live.Clients, live.Requests))
+	mux.Handle("GET /admin/usage", cached("usage", 30*time.Second, s.handleUsage, live.Requests))
 	mux.Handle("GET /admin/requests/running", admin(s.handleRunning))
-	mux.Handle("GET /admin/usage/slots", admin(s.handleGatewaySlots))
+	mux.Handle("GET /admin/usage/slots", cached("slots", 30*time.Second, s.handleGatewaySlots,
+		live.Clients, live.Accounts, live.Requests))
 	mux.Handle("GET /admin/usage/live", admin(s.handleGatewayLive))
-	mux.Handle("GET /admin/chats", admin(s.handleChats))
-	mux.Handle("GET /admin/chats/{id}", admin(s.handleChat))
+	mux.Handle("GET /admin/chats", cached("chats", 30*time.Second, s.handleChats, live.Chats, live.Requests))
+	mux.Handle("GET /admin/chats/{id}", cached("chat", 30*time.Second, s.handleChat, live.Chats, live.Requests))
 	mux.Handle("PUT /admin/chats/{id}/title", admin(s.handleSetChatTitle))
 	mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 	mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))

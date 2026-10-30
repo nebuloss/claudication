@@ -264,7 +264,7 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('and goes back to the list', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients' })
   // Settings lists its pages, as Activity does, with the way back.
   check('settings opens on its general view from the top level', hrefs(lvl('/'))[3], '/settings')
-  check('settings lists its pages', hrefs(lvl('/settings/models')), ['/settings/models', '/settings/configuration'])
+  check('settings lists its pages', hrefs(lvl('/settings/models')), ['/settings/models', '/settings/configuration', '/settings/diagnostics'])
   check('the page open is current', lvl('/settings/models').current, '/settings/models')
   check('nothing is current on its general view', lvl('/settings').current, '/settings')
   check('and goes back to the main menu', lvl('/settings/models').back?.href, '/')

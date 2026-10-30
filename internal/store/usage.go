@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"claudication/internal/live"
 )
 
 // UsageEvent is one proxied request, as it happened.
@@ -166,6 +168,7 @@ func (e UsageEvent) failed() bool {
 // with no body has none — is filed as no_answer or other, so error_code is
 // set exactly when the request failed and sqlIsError can be that one column.
 func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
+	defer s.changed(live.Requests)
 	if e.ErrorCode == "" && e.failed() {
 		e.ErrorCode = "other"
 		if e.Status == 0 {

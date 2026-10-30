@@ -1,9 +1,6 @@
 import { ColumnChart, MAGNITUDE, Stack as ChartStack } from '../../charts'
 import { compact } from '../../format'
 
-/** How often a live strip is re-read: the request log's own pace. */
-export const LIVE_MS = 5_000
-
 /**
  * Requests per minute over the last hour, a column a minute, the newest on
  * the right: a client's live view on its Usage page and the gateway's on

@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"claudication/internal/live"
 )
 
 // PruneUsage drops events older than the retention window and reports how many
 // went. Retention is the only thing keeping this table bounded.
 func (s *Store) PruneUsage(ctx context.Context, keep time.Duration) (int64, error) {
+	defer s.changed(live.Requests)
 	if keep <= 0 {
 		return 0, nil
 	}

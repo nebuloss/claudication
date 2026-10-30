@@ -29,6 +29,7 @@ import {
   type Column,
 } from '../../primitives'
 import { between, compact, sameDayStamp } from '../../format'
+import { READS } from '../../../api/live'
 
 /**
  * Usage, per conversation.
@@ -145,9 +146,6 @@ function RequestLink({
   )
 }
 
-/** Slow enough not to repaint a table of bars constantly, fast enough to follow along. */
-const CHATS_REFRESH_MS = 20_000
-
 function tokens(c: Chat): number {
   return c.input_tokens + c.output_tokens + c.cache_tokens
 }
@@ -194,7 +192,7 @@ export default function ChatsPanel({
       deps: [days, scope.account, scope.key],
       // A chat gains requests as it is being held, and this panel is the one an
       // operator watches while using the gateway from another window.
-      refreshMs: CHATS_REFRESH_MS,
+      on: READS.chats,
     },
   )
 

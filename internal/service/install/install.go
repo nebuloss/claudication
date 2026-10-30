@@ -295,6 +295,18 @@ type Links struct {
 	// never replaces the one the operator has on screen, and two agents'
 	// never replace each other's.
 	byAgent map[string]*link
+	// changed is called on each link made, used or dropped: a client's page
+	// shows its link's state.
+	changed func()
+}
+
+// OnChange has f called on each link made, used or dropped from now on.
+func (l *Links) OnChange(f func()) { l.changed = f }
+
+func (l *Links) note() {
+	if l.changed != nil {
+		l.changed()
+	}
 }
 
 type linkKey struct {
@@ -370,6 +382,7 @@ func (l *Links) Create(b Bundle) (string, time.Time, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweep()
+	defer l.note()
 	k := &link{token: token, bundle: b, expires: expires}
 	if b.ByAgent {
 		if l.agentLinks(b.ClientID) >= maxAgentLinks {
@@ -451,6 +464,7 @@ func (l *Links) Take(token, ip, shell string) (Bundle, error) {
 		return Bundle{}, ErrUsed
 	}
 	found.used = &Use{At: l.now(), IP: ip, Shell: shell}
+	l.note()
 	b := found.bundle
 	// The files carry the key; once served there is no reason to hold them.
 	found.bundle = Bundle{ClientID: b.ClientID, Key: b.Key, Update: b.Update, ByAgent: b.ByAgent}
@@ -485,6 +499,7 @@ func (l *Links) stateOf(key linkKey) State {
 func (l *Links) Forget(clientID string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	defer l.note()
 	delete(l.byClient, linkKey{clientID, false})
 	delete(l.byClient, linkKey{clientID, true})
 	for t, k := range l.byAgent {

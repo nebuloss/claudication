@@ -3,11 +3,9 @@ import { api } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { Card, Loading, Muted, Stack, Stat, StatGrid } from '../../primitives'
 import { compact } from '../../format'
-import { LIVE_MS, PerMinute } from '../usage/live'
+import { PerMinute } from '../usage/live'
 import { DEFAULT_DAYS, TrafficOf, WINDOWS } from './slots'
-
-/** The outcomes are whole days, so they barely move minute to minute. */
-const OUTCOMES_REFRESH_MS = 60_000
+import { READS } from '../../../api/live'
 
 /**
  * Activity's own page: the gateway's load. The last hour live, then the
@@ -28,7 +26,7 @@ export default function ActivityOverview() {
  * strip a client's Usage page draws for that client, for the whole gateway.
  */
 function LastHour() {
-  const { data: l } = useLoader((signal) => api.traffic.live(signal), { refreshMs: LIVE_MS })
+  const { data: l } = useLoader((signal) => api.traffic.live(signal), { on: READS.gatewayLive })
   const minutes = l?.per_minute ?? []
   const hour = minutes.reduce((n, m) => n + m, 0)
   const busiest = minutes.reduce((n, m) => Math.max(n, m), 0)
@@ -58,7 +56,7 @@ function Outcomes() {
   const [days, setDays] = useState<number>(DEFAULT_DAYS)
   const { data: usage } = useLoader((signal) => api.traffic.usage(days, {}, signal), {
     deps: [days],
-    refreshMs: OUTCOMES_REFRESH_MS,
+    on: READS.usage,
   })
   return (
     <Card title="Outcomes">

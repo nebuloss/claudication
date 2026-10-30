@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import AddAccount from './add'
 import { QuotaGauges } from './quota-meter'
 import { byProvider, planLabel, providerLabel, providerOf } from '../../providers'
@@ -27,13 +27,7 @@ import {
 } from '../../primitives'
 import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact } from '../../format'
-
-/**
- * Until the server has said how often it re-reads the subscription figures,
- * ask at the rate it used before it started saying. Polling faster than the
- * server polls upstream only re-renders the same numbers.
- */
-const FALLBACK_REFRESH_MS = 20_000
+import { READS } from '../../../api/live'
 
 /**
  * The accounts the pool draws on, grouped by provider, each group in its own
@@ -58,24 +52,14 @@ export default function Accounts() {
 
   // Nothing may reload under a hand mid-gesture: a list that reorders itself
   // while it is being dragged drops the card somewhere nobody chose. Adding an
-  // account is a form, and a poll that re-rendered around it would be just as
-  // unwelcome.
+  // account is a form, and a read that re-rendered around it would be just as
+  // unwelcome. What changed meanwhile is read once it is settled again.
   const settled = !adding && !ordering && dragging === null
 
-  // The server tells us how often it re-reads the subscription usage. Held
-  // separately from `data` because it is an input to the loader that produces
-  // `data`, and it changes far less often than the figures do.
-  const [pollMs, setPollMs] = useState(FALLBACK_REFRESH_MS)
-
-  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
+  const { data, error, loading, reload, refreshing, updatedAt } = useLoader(
     (signal) => api.accounts.list(signal),
-    { refreshMs: settled ? pollMs : 0 },
+    { on: settled ? READS.accounts : [] },
   )
-
-  useEffect(() => {
-    const advertised = data?.usagePollS ?? 0
-    if (advertised > 0) setPollMs(advertised * 1000)
-  }, [data?.usagePollS])
 
   const accounts = data?.accounts ?? []
   const windowDays = data?.windowDays ?? 7
@@ -123,12 +107,7 @@ export default function Accounts() {
             {compact(accounts.reduce((n, a) => n + a.requests, 0))} requests over {windowDays}d
           </ListSummary>
         )}
-        <Freshness
-          updatedAt={updatedAt}
-          refreshing={refreshing}
-          live={live}
-          onRefresh={() => void reload()}
-        />
+        <Freshness updatedAt={updatedAt} refreshing={refreshing} />
       </ListToolbar>
 
       {adding && (

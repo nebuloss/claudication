@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"claudication/internal/live"
 )
 
 // Where a model's last result came from: see account_model_tests in
@@ -37,6 +39,7 @@ type ModelTest struct {
 // SaveModelTest keeps a model's latest result on an account, replacing the
 // last one but not when the model last worked: a failure keeps that.
 func (s *Store) SaveModelTest(ctx context.Context, accountID string, t ModelTest) error {
+	defer s.changed(live.Models)
 	if t.Source == "" {
 		t.Source = TestByOperator
 	}

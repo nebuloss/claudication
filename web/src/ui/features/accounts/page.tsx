@@ -25,9 +25,7 @@ import {
 import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact, dateTime, relative } from '../../format'
 import { windowTitle } from '../../domain/quota'
-
-/** As on the list: the server says how often it re-reads the quota. */
-const REFRESH_MS = 20_000
+import { READS } from '../../../api/live'
 
 /**
  * One account, Claude or ChatGPT, on its pages:
@@ -49,9 +47,9 @@ export default function AccountPage({
   id: string
   page: AccountPageId
 }) {
-  const { data, error, loading, reload, refreshing, updatedAt, live } = useLoader(
+  const { data, error, loading, reload, refreshing, updatedAt } = useLoader(
     (signal) => api.accounts.list(signal),
-    { refreshMs: REFRESH_MS },
+    { on: READS.accounts },
   )
 
   const all = data?.accounts ?? []
@@ -145,7 +143,7 @@ export default function AccountPage({
             <AccountSwitch key={String(account.disabled)} account={account} onChanged={() => void reload()} />
           </>
         }
-        freshness={{ updatedAt, refreshing, live, onRefresh: () => void reload() }}
+        freshness={{ updatedAt, refreshing }}
       />
 
       <ErrorBanner error={error} />

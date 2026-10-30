@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"claudication/internal/live"
 )
 
 // UptimeSample is one minute the gateway was running, and how it was: see
@@ -18,6 +20,7 @@ type UptimeSample struct {
 // contains it. A second sample in the same minute keeps the worse of the two,
 // so a blip between two ticks is not overwritten by the recovery after it.
 func (s *Store) RecordUptime(ctx context.Context, at time.Time, state int) error {
+	defer s.changed(live.Uptime)
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO uptime_samples (minute, state) VALUES (?, ?)
 		 ON CONFLICT (minute) DO UPDATE SET state = MAX(state, excluded.state)`,
@@ -51,6 +54,7 @@ func (s *Store) UptimeSince(ctx context.Context, from time.Time) ([]UptimeSample
 
 // PruneUptime drops the samples from before before, and reports how many went.
 func (s *Store) PruneUptime(ctx context.Context, before time.Time) (int64, error) {
+	defer s.changed(live.Uptime)
 	res, err := s.db.ExecContext(ctx, `DELETE FROM uptime_samples WHERE minute < ?`, ms(before))
 	if err != nil {
 		return 0, fmt.Errorf("prune uptime: %w", err)
@@ -67,6 +71,7 @@ type UptimeOutage struct {
 
 // BeginOutage notes that the gateway stopped taking requests at at.
 func (s *Store) BeginOutage(ctx context.Context, at time.Time) error {
+	defer s.changed(live.Uptime)
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO uptime_outages (started, ended) VALUES (?, NULL) ON CONFLICT (started) DO NOTHING`,
 		ms(at)); err != nil {
@@ -78,6 +83,7 @@ func (s *Store) BeginOutage(ctx context.Context, at time.Time) error {
 // EndOutages closes every outage still open at at: the gateway takes requests
 // again.
 func (s *Store) EndOutages(ctx context.Context, at time.Time) error {
+	defer s.changed(live.Uptime)
 	if _, err := s.db.ExecContext(ctx,
 		`UPDATE uptime_outages SET ended = ? WHERE ended IS NULL AND started <= ?`, ms(at), ms(at)); err != nil {
 		return fmt.Errorf("end outage: %w", err)
@@ -112,6 +118,7 @@ func (s *Store) OutagesSince(ctx context.Context, from time.Time) ([]UptimeOutag
 
 // PruneOutages drops the outages that ended before before.
 func (s *Store) PruneOutages(ctx context.Context, before time.Time) error {
+	defer s.changed(live.Uptime)
 	if _, err := s.db.ExecContext(ctx,
 		`DELETE FROM uptime_outages WHERE ended IS NOT NULL AND ended < ?`, ms(before)); err != nil {
 		return fmt.Errorf("prune outages: %w", err)

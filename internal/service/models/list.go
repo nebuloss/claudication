@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"claudication/internal/config"
+	"claudication/internal/live"
 	"claudication/internal/pool"
 	"claudication/internal/provider"
 	"claudication/internal/relay"
@@ -105,6 +106,8 @@ type Catalog struct {
 	// nextRead is when the lists are read again: newestTTL after a whole
 	// read, listRetry after one that missed an account (remember).
 	nextRead time.Time
+	// hub is told when a list is read from an upstream.
+	hub *live.Hub
 	// lastLists are each account's last list that could be read: what a
 	// read of the model list is answered from (List), and what stands in
 	// for an account that cannot be read this time (readLists).
@@ -876,6 +879,8 @@ func (s *Catalog) list(ctx context.Context, upstream bool) ([]byte, error) {
 func (s *Catalog) readLists(ctx context.Context, accounts []store.Account, fresh bool) ([][]byte, []error) {
 	bodies := make([][]byte, len(accounts))
 	errs := make([]error, len(accounts))
+	// read is that an upstream was asked: only then can a list have changed.
+	var read bool
 	var wg sync.WaitGroup
 	for i, a := range accounts {
 		if a.Disabled() || s.relayFor(a.Provider) == nil {
@@ -887,6 +892,7 @@ func (s *Catalog) readLists(ctx context.Context, accounts []store.Account, fresh
 				continue
 			}
 		}
+		read = true
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -907,8 +913,14 @@ func (s *Catalog) readLists(ctx context.Context, accounts []store.Account, fresh
 	}
 	// Only the accounts there are now: a removed one's list goes with it.
 	s.lastLists = kept
+	if read {
+		s.hub.Changed(live.Models)
+	}
 	return bodies, errs
 }
+
+// Announce tells h each list read from an upstream from now on.
+func (s *Catalog) Announce(h *live.Hub) { s.hub = h }
 
 // AccountList is one account's model list as List answers it: its last
 // list, read from its upstream only when it has none or fresh asks.
@@ -928,6 +940,7 @@ func (s *Catalog) AccountList(ctx context.Context, accountID string, fresh bool)
 	}
 	s.lastLists[accountID] = body
 	s.rolesMu.Unlock()
+	s.hub.Changed(live.Models)
 	return body, nil
 }
 

@@ -5,9 +5,7 @@ import { useLoader, useNow } from '../../hooks'
 import { Chip, Muted, Td, Tip, Tr } from '../../primitives'
 import type { RequestFilter, SetField } from './filter'
 import { FilterableCell } from './row'
-
-/** How often the running requests are read again: a row comes and goes in seconds. */
-const RUNNING_MS = 2_000
+import { READS } from '../../../api/live'
 
 /**
  * The requests the gateway is serving now, for the top of the request log:
@@ -29,7 +27,7 @@ export function useRunning(keyId: string | null): { rows: RunningRequest[]; now:
       read.current = Date.now()
       return r
     },
-    { deps: [keyId], refreshMs: keyId === null ? 0 : RUNNING_MS },
+    { deps: [keyId], on: keyId === null ? [] : READS.running },
   )
   const clock = useNow(1000)
   return {

@@ -32,6 +32,7 @@ func newLinkToken() (string, error) {
 // claimed by setting a password, not by minting a way past one that is not
 // there.
 func (s *Store) MintLoginLink(ctx context.Context, ttl time.Duration) (string, time.Time, error) {
+	//live:none a sign-in link, which no screen lists
 	exists, err := s.AdminExists(ctx)
 	if err != nil {
 		return "", time.Time{}, err
@@ -71,6 +72,7 @@ func (s *Store) MintLoginLink(ctx context.Context, ttl time.Duration) (string, t
 // redemption that deletes the row is the one that learns its expiry, and a
 // second racing it finds nothing, with no transaction to hold or retry.
 func (s *Store) SpendLoginLink(ctx context.Context, token string) error {
+	//live:none a sign-in link, which no screen lists
 	var expiresAt int64
 	err := s.db.QueryRowContext(ctx,
 		`DELETE FROM login_links WHERE token = ? RETURNING expires_at`, token).Scan(&expiresAt)

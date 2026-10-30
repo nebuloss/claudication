@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { messageOf } from '../api/client'
+import { liveStream, type Topic } from '../api/live'
 import { canonical, segments } from './route'
 import { Runs } from './runs'
 import { useSession } from './session'
@@ -41,85 +42,77 @@ export function useEscapeKey(handler: () => void, enabled = true) {
   }, [handler, enabled])
 }
 
-const LIVE_KEY = 'claudication.live'
-const LIVE_EVENT = 'claudication:live'
-
-function readLive(): boolean {
-  try {
-    // On by default: a dashboard that silently shows an hour-old number is
-    // worse than one that costs a request every few seconds.
-    return window.localStorage.getItem(LIVE_KEY) !== 'off'
-  } catch {
-    return true
-  }
-}
-
 /**
- * Whether panels keep themselves up to date, as one setting shared by all of
- * them and remembered across reloads.
- *
- * The custom event is what makes it one setting rather than several: `storage`
- * only fires in *other* tabs, so without it the header toggle would update its
- * own label and leave every panel in this tab polling regardless.
+ * Whether this tab is being told what changes: its stream is open
+ * (api/live.ts). False while it is down — the gateway restarting, the network
+ * gone — when panels fall back to reading again every FLOOR_MS.
  */
-export function useLive(): [boolean, (on: boolean) => void] {
-  const [live, setLiveState] = useState(readLive)
-
+export function useLive(): boolean {
+  const [live, setLive] = useState(liveStream.live)
   useEffect(() => {
-    const sync = () => setLiveState(readLive())
-    window.addEventListener(LIVE_EVENT, sync)
-    window.addEventListener('storage', sync)
-    return () => {
-      window.removeEventListener(LIVE_EVENT, sync)
-      window.removeEventListener('storage', sync)
-    }
+    setLive(liveStream.live)
+    return liveStream.watch(() => setLive(liveStream.live))
   }, [])
-
-  const setLive = useCallback((on: boolean) => {
-    try {
-      window.localStorage.setItem(LIVE_KEY, on ? 'on' : 'off')
-    } catch {
-      // Private browsing, or a storage quota. The setting still applies to
-      // this tab; it just will not be remembered.
-    }
-    window.dispatchEvent(new Event(LIVE_EVENT))
-  }, [])
-
-  return [live, setLive]
+  return live
 }
 
+/** How often a panel reads again while the stream is down: a floor, not a rate. */
+const FLOOR_MS = 30_000
+
 /**
- * Call `tick` every `everyMs` while the tab is visible and Live is on, and as
- * soon as the tab becomes visible again; says whether Live is on.
+ * Call `tick` whenever one of `on` changes (docs/data-architecture.md), and
+ * every FLOOR_MS while the tab is visible and its stream is down.
  *
- * A hidden tab does not poll. Browsers throttle background timers anyway, and
- * a laptop that wakes after a night asleep would otherwise fire a backlog of
- * them at once; coming back to the tab should show current figures, not wait
- * out an interval that has been stalled for however long it was hidden.
+ * The gateway sends at most one notice per topic per its interval, so `tick`
+ * is called no more often than the data can change. A notice that arrives
+ * while a tick is still reading is not lost: `tick` runs once more when it
+ * ends, since what it read may be older than the change.
  *
  * `tick` is read through a ref, so a caller passes a fresh closure each render
- * without restarting the interval. Shared by useLoader and the request log,
- * which had each written it out.
+ * without subscribing again; `on` is compared by its topics, not its identity.
+ * A change of `on` from none to some — a panel that stopped listening while a
+ * hand was mid-gesture — ticks once, for whatever it missed.
  */
-export function usePoll(tick: () => void, everyMs: number): boolean {
-  const [live] = useLive()
+export function useOnChange(on: readonly Topic[], tick: () => Promise<unknown> | void) {
   const tickRef = useRef(tick)
   tickRef.current = tick
+  const live = useLive()
+  const key = on.join(',')
+  const busy = useRef(false)
+  const again = useRef(false)
+  const was = useRef(key)
+
+  const fire = useCallback(async () => {
+    if (busy.current) {
+      again.current = true
+      return
+    }
+    busy.current = true
+    try {
+      do {
+        again.current = false
+        await tickRef.current()
+      } while (again.current)
+    } finally {
+      busy.current = false
+    }
+  }, [])
 
   useEffect(() => {
-    if (everyMs <= 0 || !live) return
-    const fire = () => {
-      if (document.visibilityState === 'visible') tickRef.current()
-    }
-    const timer = window.setInterval(fire, everyMs)
-    document.addEventListener('visibilitychange', fire)
-    return () => {
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', fire)
-    }
-  }, [everyMs, live])
+    const before = was.current
+    was.current = key
+    if (key === '') return
+    if (before === '') void fire()
+    return liveStream.on(key.split(',') as Topic[], () => void fire())
+  }, [key, fire])
 
-  return live
+  useEffect(() => {
+    if (live || key === '') return
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void fire()
+    }, FLOOR_MS)
+    return () => window.clearInterval(timer)
+  }, [live, key, fire])
 }
 
 /**
@@ -130,25 +123,27 @@ export function usePoll(tick: () => void, everyMs: number): boolean {
  * every render. `deps` is what actually re-fetches: pass the window size, the
  * filter, whatever the request is a function of.
  *
- * `loading` is only ever true for the first fetch. A manual refresh leaves the
+ * `loading` is only ever true for the first fetch. A reload leaves the
  * previous data on screen rather than replacing a populated panel with a
  * spinner for a few hundred milliseconds.
  *
- * Pass `refreshMs` and the panel keeps itself current. Three things keep that
- * from being a nuisance:
+ * `on` names the topics the answer is read from (api/live.ts): the panel reads
+ * again when one changes, and at a slow floor while the stream is down
+ * (useOnChange). Name every topic the endpoint reads — the gateway's cached
+ * reads list theirs where the routes are registered — or the panel goes stale
+ * on the one left out. Three things keep reading again from being a nuisance:
  *
- *   - A hidden tab does not poll, and becoming visible re-fetches (usePoll).
- *   - Only one request is ever in flight. A poll that outlives its interval —
- *     the usage report over a slow link — must not queue a second behind it.
- *     A change of `deps` or a reload is different: it is a new question, so
- *     it aborts whatever is in flight and asks it (see runs.ts).
+ *   - A hidden tab is told nothing, and reads again once when it is shown.
+ *   - Only one request is ever in flight. A notice while one is reading is
+ *     read again once it ends; a change of `deps` or a reload is a new
+ *     question, so it aborts whatever is in flight and asks it (runs.ts).
  *   - A background failure does not replace the panel with an error. It keeps
- *     the last good figures on screen and lets the next tick recover, because
- *     one dropped poll is not worth losing what you were reading.
+ *     the last good figures on screen and lets the next notice recover,
+ *     because one dropped read is not worth losing what you were reading.
  */
 export function useLoader<T>(
   load: (signal: AbortSignal) => Promise<T>,
-  { deps = [], refreshMs = 0 }: { deps?: unknown[]; refreshMs?: number } = {},
+  { deps = [], on = [] }: { deps?: unknown[]; on?: readonly Topic[] } = {},
 ) {
   const loadRef = useRef(load)
   loadRef.current = load
@@ -204,9 +199,9 @@ export function useLoader<T>(
 
   useEffect(() => () => runs.cancel(), [runs])
 
-  const live = usePoll(() => void run(true), refreshMs)
+  useOnChange(on, () => run(true))
 
-  return { data, error, loading, reload, setError, refreshing, updatedAt, live }
+  return { data, error, loading, reload, setError, refreshing, updatedAt }
 }
 
 /**
@@ -327,12 +322,13 @@ function entryScript(html: string): string {
  * watching the usage figures; index.html is served no-cache with an ETag, so an
  * unchanged answer is a 304.
  *
- * Checked once a minute while the tab is visible and Live is on, and whenever
- * the tab becomes visible again, which is when someone is about to look.
+ * Checked whenever the tab's stream comes back — a deploy ends every stream,
+ * so a new UI is always behind one — and whenever the tab becomes visible
+ * again, which is when someone is about to look.
  */
-export function useUpdateAvailable(everyMs = 60_000): boolean {
+export function useUpdateAvailable(): boolean {
   const [stale, setStale] = useState(false)
-  const [live] = useLive()
+  const live = useLive()
 
   useEffect(() => {
     const running =
@@ -353,14 +349,11 @@ export function useUpdateAvailable(everyMs = 60_000): boolean {
       }
     }
 
-    const timer = live ? window.setInterval(() => void check(), everyMs) : 0
+    if (live) void check()
     const onVisible = () => void check()
     document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      if (timer !== 0) window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [everyMs, live, stale])
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [live, stale])
 
   return stale
 }

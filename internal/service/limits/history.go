@@ -149,6 +149,17 @@ func roundUp2(n int64) int64 {
 type InFlight struct {
 	mu   sync.Mutex
 	open map[string]int
+	// changed is called on each request counted open or closed.
+	changed func()
+}
+
+// OnChange has fn called on each request counted open or closed from now on.
+func (f *InFlight) OnChange(fn func()) { f.changed = fn }
+
+func (f *InFlight) note() {
+	if f.changed != nil {
+		f.changed()
+	}
 }
 
 // NewInFlight returns an empty counter.
@@ -159,12 +170,14 @@ func (f *InFlight) Begin(key string) func() {
 	f.mu.Lock()
 	f.open[key]++
 	f.mu.Unlock()
+	f.note()
 	return func() {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		if f.open[key]--; f.open[key] <= 0 {
 			delete(f.open, key)
 		}
+		f.note()
 	}
 }
 

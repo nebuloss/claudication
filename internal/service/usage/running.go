@@ -4,6 +4,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"claudication/internal/live"
 )
 
 // Running is the requests the gateway is serving now, for the request log to
@@ -18,7 +20,11 @@ type Running struct {
 	mu   sync.Mutex
 	next uint64
 	open map[uint64]RunningRequest
+	hub  *live.Hub
 }
+
+// Announce tells h each request started and ended from now on.
+func (r *Running) Announce(h *live.Hub) { r.hub = h }
 
 // RunningRequest is one request being served, as far as it is known when it
 // is sent: what an operator reads in the log's row, less what only its end
@@ -49,12 +55,14 @@ func (r *Running) Start(q RunningRequest) (done func()) {
 	r.next++
 	id := r.next
 	r.open[id] = q
+	r.hub.Changed(live.Running)
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			r.mu.Lock()
 			delete(r.open, id)
 			r.mu.Unlock()
+			r.hub.Changed(live.Running)
 		})
 	}
 }

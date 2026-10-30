@@ -8,13 +8,6 @@ import { periodName } from './limits'
 /** The pieces of a client that its list and its pages both show. */
 
 /**
- * Clients change when someone adds one, but "last used" and the spent budget
- * move with traffic, and the budget is the figure an operator watches when
- * they are deciding whether a limit is set too low.
- */
-export const REFRESH_MS = 20_000
-
-/**
  * A client's limits and spend, as one row of figures: the same in the list
  * and on the client's own page, so the two cannot disagree about it.
  */

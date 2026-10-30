@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
-import { useNow } from '../hooks'
+import { useLive, useNow } from '../hooks'
 import { toneContainer, type Tone } from '../styles/tone'
 import { Button } from './button'
+import { Tip } from './info'
 import { Spinner } from './spinner'
 
 /**
@@ -136,68 +137,58 @@ export function Verbatim({ children }: { children: string }) {
 }
 
 /**
- * The header control for a panel that keeps itself up to date: how old the
- * figures are, and a way to ask for them now.
+ * What a panel that keeps itself current says about that: live while the tab
+ * is told each change (docs/data-architecture.md), and how old its figures
+ * are when it is not.
  *
- * Saying when the numbers were last read is the part that matters. A panel
- * that refreshes silently and one that has quietly stopped refreshing look
- * identical, and the difference between them is the whole question an operator
- * is asking when they glance at a dashboard.
+ * Saying so is the part that matters. A panel that updates silently and one
+ * that has quietly stopped look identical, and the difference between them is
+ * the whole question an operator is asking when they glance at a dashboard.
+ * There is no Refresh: a live panel is current, and one that is not reads
+ * again on its own as soon as the gateway answers.
  */
 export function Freshness({
   updatedAt,
   refreshing,
-  live,
-  onRefresh,
-  label = 'Refresh',
 }: {
   /** Epoch milliseconds of the last successful load; 0 before the first. */
   updatedAt: number
   refreshing: boolean
-  live: boolean
-  onRefresh: () => void
-  label?: string
 }) {
   const now = useNow()
+  const live = useLive()
+  if (updatedAt === 0) return null
 
-  let state: string
-  if (refreshing) state = 'updating…'
-  else if (updatedAt === 0) state = ''
-  else {
-    // To the second for the first minute, unlike ago(): this is the label
-    // that has to visibly move while someone watches the panel refresh.
-    const seconds = Math.max(0, Math.round((now - updatedAt) / 1000))
-    state =
-      seconds < 5
-        ? 'just now'
-        : seconds < 60
-          ? `${seconds}s ago`
-          : seconds < 3600
-            ? `${Math.floor(seconds / 60)}m ago`
-            : `${Math.floor(seconds / 3600)}h ago`
-  }
+  const seconds = Math.max(0, Math.round((now - updatedAt) / 1000))
+  const age =
+    seconds < 5
+      ? 'just now'
+      : seconds < 60
+        ? `${seconds}s ago`
+        : seconds < 3600
+          ? `${Math.floor(seconds / 60)}m ago`
+          : `${Math.floor(seconds / 3600)}h ago`
 
   return (
-    <div className="flex items-center gap-2">
-      {state !== '' && (
+    <Tip
+      tip={
+        live
+          ? `Updated as it changes · last read ${age}`
+          : `Not connected to the gateway: these figures were read ${age}, and are read again every 30 s until it answers`
+      }
+    >
+      <span
+        className="flex items-center gap-1.5 text-xs whitespace-nowrap text-on-surface-variant"
+        aria-live="polite"
+      >
         <span
-          className="flex items-center gap-1.5 text-xs whitespace-nowrap text-on-surface-variant"
-          aria-live="polite"
-        >
-          {live && (
-            <span
-              className={`size-1.5 shrink-0 rounded-full ${
-                refreshing ? 'bg-primary' : 'bg-on-surface-variant/50'
-              }`}
-              aria-hidden
-            />
-          )}
-          {state}
-        </span>
-      )}
-      <Button variant="text" onClick={onRefresh} disabled={refreshing}>
-        {label}
-      </Button>
-    </div>
+          className={`size-1.5 shrink-0 rounded-full ${
+            !live ? 'bg-error' : refreshing ? 'bg-primary' : 'bg-primary/50'
+          }`}
+          aria-hidden
+        />
+        {live ? 'live' : `offline · ${age}`}
+      </span>
+    </Tip>
   )
 }

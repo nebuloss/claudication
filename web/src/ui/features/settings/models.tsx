@@ -17,6 +17,7 @@ import {
   SettingSwitch,
   Stack,
 } from '../../primitives'
+import { READS } from '../../../api/live'
 
 /**
  * The global Models page: per provider, a switch for how its models are
@@ -39,7 +40,7 @@ import {
  * plan without the newest Opus serves the one before.
  */
 export default function ModelSettings() {
-  const { data, error, loading, reload } = useLoader((signal) => api.models.families(signal))
+  const { data, error, loading, reload } = useLoader((signal) => api.models.families(signal), { on: READS.families })
   if (loading && data === null) return <Loading>Reading what the accounts serve…</Loading>
   if (error !== '' || data === null) {
     return <ErrorState message={error || 'Could not read the model families.'} onRetry={() => void reload()} busy={loading} />

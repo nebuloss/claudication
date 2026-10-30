@@ -1,24 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, messageOf, type RequestRow } from '../../../api/client'
-import { usePoll } from '../../hooks'
+import { READS } from '../../../api/live'
+import { useOnChange } from '../../hooks'
 import { Runs } from '../../runs'
 import { useSession } from '../../session'
 import type { RequestFilter } from './filter'
 import { PAGE, RequestLogPager } from './pager'
 import { RequestRecord } from './record'
 
-/** The activity list's whole subject is what just happened, so it polls often. */
-const ACTIVITY_REFRESH_MS = 10_000
-
 /**
  * The request log for a filter: its pager, the three ways it is loading, and
- * the two things an operator can ask of it.
+ * the one thing an operator can ask of it.
  *
  * Its requests take turns through Runs, like every loader's: a first page —
- * a new filter, or Refresh — pre-empts whatever is in flight, because the old
- * filter's rows are not wanted any more; Load more pre-empts only a poll; a
- * poll never jumps the queue. Polling is usePoll's, so a hidden tab and Live
- * off behave here as they do on every other panel.
+ * a new filter — pre-empts whatever is in flight, because the old filter's
+ * rows are not wanted any more; Load more pre-empts only a poll; a poll never
+ * jumps the queue. A poll is a request logged or a chat named (useOnChange),
+ * so a hidden tab and a dropped stream behave here as on every other panel.
  */
 export function useRequestLog(filter: RequestFilter, onPolled: () => void) {
   const session = useSession()
@@ -93,7 +91,7 @@ export function useRequestLog(filter: RequestFilter, onPolled: () => void) {
     }
   }, [params, runs, onPolled])
 
-  const live = usePoll(() => void poll(), ACTIVITY_REFRESH_MS)
+  useOnChange(READS.requests, poll)
 
   useEffect(() => {
     // From the first page: the cursor belongs to the previous filter, and
@@ -112,8 +110,6 @@ export function useRequestLog(filter: RequestFilter, onPolled: () => void) {
     loadingMore,
     refreshing,
     updatedAt,
-    live,
-    refresh: () => void load(''),
     more: () => void load(pager.cursor),
   }
 }
