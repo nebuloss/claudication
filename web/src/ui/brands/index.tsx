@@ -9,11 +9,15 @@ import { BRANDS, type BrandName } from './marks'
  * terminal, so every row still leads with something.
  */
 
-/** A provider's mark, by provider id. */
+/**
+ * A provider's mark, by provider id: the company's, not a product's, so an
+ * account never wears the mark a client of the same vendor does (Claude Code,
+ * Codex, Antigravity).
+ */
 const PROVIDER: Record<string, BrandName> = {
-  anthropic: 'claude',
+  anthropic: 'anthropic',
   openai: 'openai',
-  google: 'gemini',
+  google: 'google',
 }
 
 /** A client type's mark, by type id (internal/service/clients). */
