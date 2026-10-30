@@ -59,11 +59,22 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
                   onClick={follow(c.href)}
                   aria-current={last ? 'page' : undefined}
                   aria-label={i === 0 ? c.label : undefined}
-                  className={`state-layer block truncate rounded-md3-full py-1.5 font-medium ${
-                    i === 0 ? 'px-2' : 'px-3'
+                  className={`state-layer flex items-center gap-1.5 truncate rounded-md3-full py-1.5 font-medium ${
+                    i === 0 ? 'px-2' : c.icon !== undefined ? 'pr-3 pl-2.5' : 'px-3'
                   } ${last ? 'max-w-[28ch] bg-surface-lowest text-on-surface shadow-sm' : 'max-w-[24ch]'}`}
                 >
-                  {i === 0 ? <HomeMark /> : c.label}
+                  {i === 0 ? (
+                    <HomeMark />
+                  ) : (
+                    <>
+                      {c.icon !== undefined && (
+                        <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current">
+                          <path d={ICON[c.icon]} />
+                        </svg>
+                      )}
+                      <span className="truncate">{c.label}</span>
+                    </>
+                  )}
                 </a>
               </Tip>
             </li>

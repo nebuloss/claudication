@@ -277,6 +277,11 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   const trail = (p) => trailOf(canonical(p), name).map((c) => c.label)
   // Every trail starts at the root, and no level is named twice.
   check('the overview is the root alone', trail('/'), ['Overview'])
+  // The section's crumb carries its glyph, as its rail entry does; the page's
+  // and the item's do not.
+  check('only the section crumb has an icon',
+    trailOf(canonical('/accounts/a1/usage'), name).map((c) => c.icon ?? ''), ['', 'accounts', '', ''])
+  check('a gateway page too', trailOf(canonical('/gateway/requests'), name).map((c) => c.icon ?? ''), ['', 'gateway', ''])
   check('a list', trail('/clients'), ['Overview', 'Clients'])
   check('settings is its own step', trail('/settings'), ['Overview', 'Settings'])
   check('a settings page', trail('/settings/models'), ['Overview', 'Settings', 'Models'])

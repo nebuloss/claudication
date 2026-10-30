@@ -296,6 +296,13 @@ export function navLevel(pathname: string): NavLevel {
 }
 
 /**
+ * A section's glyph, which its crumb carries as its rail entry does: home,
+ * then the section, both as marks. Pages and items carry none — the page's
+ * glyph is on the rail beside it, and an item's name is its own mark.
+ */
+const sectionIcon = (tab: (typeof TABS)[number]): IconName | undefined => ('icon' in tab ? tab.icon : undefined)
+
+/**
  * Every level from the root down to this page, each but the last a link. It
  * starts at the root — the gateway's overview, drawn as a home mark — and an
  * item's step is its overview, so no level is named twice.
@@ -309,12 +316,12 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
     list.find((s) => s.id === x)?.label ?? x ?? ''
   if ((top === 'accounts' || top === 'clients') && id !== undefined) {
     const base = pathOf(top, id)
-    out.push({ href: pathOf(top), label: tab.label })
+    out.push({ href: pathOf(top), label: tab.label, icon: sectionIcon(tab) })
     out.push({ href: base, label: name(top, id) })
     if (page !== undefined) out.push({ href: `${base}/${page}`, label: label(pagesOf(top), page) })
     return out
   }
-  out.push({ href: canonical(pathOf(tab.id)), label: tab.label })
+  out.push({ href: canonical(pathOf(tab.id)), label: tab.label, icon: sectionIcon(tab) })
   if (top === 'gateway' && id !== undefined) {
     out.push({ href: pathOf(top, id), label: label(GATEWAY_PAGES, id) })
   }
