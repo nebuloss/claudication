@@ -28,7 +28,7 @@ import {
 import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact } from '../../format'
 import { READS } from '../../../api/live'
-import { MarkTile, ProviderMark } from '../../brands'
+import { CompanyMark, MarkTile, ProviderMark } from '../../brands'
 
 /**
  * The accounts the pool draws on, grouped by provider, each group in its own
@@ -162,8 +162,16 @@ export default function Accounts() {
                   key={g.provider}
                   label={providerLabel(g.provider)}
                   // Named once there is more than one provider to tell apart.
-                  // In words: every row under it carries the provider's mark.
-                  title={groups.length > 1 ? `${providerLabel(g.provider)} · ${g.items.length}` : undefined}
+                  // The company's mark, over rows wearing the product's: a
+                  // heading and its rows never show the same one.
+                  title={
+                    groups.length > 1 ? (
+                      <span className="flex items-center gap-2">
+                        <CompanyMark provider={g.provider} />
+                        {providerLabel(g.provider)} · {g.items.length}
+                      </span>
+                    ) : undefined
+                  }
                 >
                   <Stack gap={2} as="ul">
                     {g.items.map((a, i) => (

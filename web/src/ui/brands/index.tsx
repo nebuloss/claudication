@@ -10,15 +10,26 @@ import { BRANDS, type BrandName } from './marks'
  */
 
 /**
- * A provider's mark, by provider id: the company's, not a product's, so an
- * account never wears the mark a client of the same vendor does (Claude Code,
- * Codex, Antigravity).
+ * The product an account signs in to, by provider id: what its rows and its
+ * page wear. ChatGPT has no mark of its own in the set, so it is OpenAI's on
+ * ChatGPT's green (Mark, 'chatgpt'), which also keeps it apart from the
+ * plain OpenAI mark heading its accounts.
  */
-const PROVIDER: Record<string, BrandName> = {
+const PROVIDER: Record<string, BrandName | 'chatgpt'> = {
+  anthropic: 'claude',
+  openai: 'chatgpt',
+  google: 'gemini',
+}
+
+/** A provider's company, by provider id: what heads its accounts, above rows wearing the product's. */
+const COMPANY: Record<string, BrandName> = {
   anthropic: 'anthropic',
   openai: 'openai',
   google: 'google',
 }
+
+/** ChatGPT's green, behind OpenAI's mark. */
+const CHATGPT_GREEN = '#10a37f'
 
 /** A client type's mark, by type id (internal/service/clients). */
 const CLIENT: Record<string, BrandName> = {
@@ -30,7 +41,21 @@ const CLIENT: Record<string, BrandName> = {
 
 const SIZE = { sm: 'size-4', md: 'size-5', lg: 'size-7' } as const
 
-function Mark({ name, size }: { name: BrandName | undefined; size: keyof typeof SIZE }) {
+function Mark({ name, size }: { name: BrandName | 'chatgpt' | undefined; size: keyof typeof SIZE }) {
+  if (name === 'chatgpt') {
+    const m = BRANDS.openai
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden className={`${SIZE[size]} shrink-0`}>
+        <circle cx="12" cy="12" r="12" fill={CHATGPT_GREEN} />
+        <g
+          transform="translate(4.5 4.5) scale(0.625)"
+          fill="#fff"
+          fillRule="evenodd"
+          dangerouslySetInnerHTML={{ __html: m.body }}
+        />
+      </svg>
+    )
+  }
   if (name === undefined) {
     return (
       <svg viewBox="0 0 24 24" aria-hidden className={`${SIZE[size]} shrink-0 fill-current text-on-surface-variant`}>
@@ -53,9 +78,14 @@ function Mark({ name, size }: { name: BrandName | undefined; size: keyof typeof 
   )
 }
 
-/** The mark of the provider an account signs in to. */
+/** The mark of the product an account signs in to: Claude, ChatGPT, Gemini. */
 export function ProviderMark({ provider, size = 'md' }: { provider: string; size?: keyof typeof SIZE }) {
   return <Mark name={PROVIDER[provider]} size={size} />
+}
+
+/** The mark of a provider's company — Anthropic, OpenAI, Google — over the accounts it groups. */
+export function CompanyMark({ provider, size = 'sm' }: { provider: string; size?: keyof typeof SIZE }) {
+  return <Mark name={COMPANY[provider]} size={size} />
 }
 
 /**
