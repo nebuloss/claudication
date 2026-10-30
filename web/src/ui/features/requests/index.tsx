@@ -91,16 +91,27 @@ export default function RequestsPanel({ scope = {}, title }: { scope?: RequestSc
   // all — and none under an account, which a request is only leased to once
   // it is sent. The filter is applied to them as they are (runningMatches).
   const running = scope.account === undefined ? (scope.key ?? '') : null
-  return <RecentRequests filter={filter.scopedTo(scope)} onNarrow={narrow} title={title} running={running} />
+  return (
+    <RecentRequests
+      filter={filter.scopedTo(scope)}
+      scope={scope}
+      onNarrow={narrow}
+      title={title}
+      running={running}
+    />
+  )
 }
 
 function RecentRequests({
   filter,
+  scope,
   onNarrow,
   title,
   running,
 }: {
   filter: RequestFilter
+  /** The account or client whose page this is: what the page is, not a narrowing. */
+  scope: RequestScope
   onNarrow: (f: RequestFilter) => void
   title?: string
   /** Whose running requests head the table: a client's id, '' for all, null for none. */
@@ -195,7 +206,10 @@ function RecentRequests({
   // outcome predicate is reachable from a link — the chat table's failures —
   // and invisible on arrival is the one state it must not have, so it is a
   // chip too.
-  const chips = filter.pinned().map(({ field, value }) => ({
+  //
+  // Not the page's own scope: on a client's page every row is the client's,
+  // the header says whose, and its chip could not be taken off anyway.
+  const chips = filter.outside(scope).pinned().map(({ field, value }) => ({
     key: `${field}:${value}`,
     label: `${fieldWord(field)}: ${chipValue(facets.label(field, value))}`,
     title: `Stop filtering by this ${fieldWord(field)}`,
@@ -212,35 +226,16 @@ function RecentRequests({
 
   const query = filter.query()
 
-  const actions = (
-    <div className="flex flex-wrap items-center justify-end gap-3">
-      {/* An anchor rather than a fetch-and-blob: the browser already knows
-          how to save a response it is given, it carries the session cookie
-          on its own, and a download that streams from the server never has
-          the whole file in the page.
-
-          The same filter as the table, so what lands in the file is what was
-          on the screen — including the rows below the ones loaded, which is
-          the reason to download rather than select and copy. */}
-      <ButtonLink href={`/admin/requests/export${query === '' ? '' : `?${query}`}`} variant="text">
-        Download CSV
-      </ButtonLink>
-      <Freshness updatedAt={log.updatedAt} refreshing={log.refreshing} />
-    </div>
-  )
-
-  // No card and no title of its own unless given one: on an account's or a
-  // client's page it is the body of a tab, and the tab is already called
-  // Requests.
+  // No card, no title and no live mark of its own unless given a title: on
+  // an account's or a client's page it is the body of a tab, the tab is
+  // already called Requests, and the page's header already says it is live.
+  // Nothing sits above the table there but what narrows it.
   return (
     <>
-      {title !== undefined ? (
-        <CardTitle aside={actions}>{title}</CardTitle>
-      ) : (
-        <div className="mb-4 flex flex-wrap items-end gap-3">
-          <span className="flex-grow" />
-          {actions}
-        </div>
+      {title !== undefined && (
+        <CardTitle aside={<Freshness updatedAt={log.updatedAt} refreshing={log.refreshing} />}>
+          {title}
+        </CardTitle>
       )}
 
       {/* What is narrowed, all of it, in one place. A filtered list that looks
@@ -323,6 +318,22 @@ function RecentRequests({
           <span className="text-xs text-on-surface-variant" aria-live="polite">
             {data.length} shown
           </span>
+          <span className="flex-grow" />
+          {/* Under the rows rather than above them: it is what you do with
+              what you have read, and above the table it took a row of its
+              own on every tab.
+
+              An anchor rather than a fetch-and-blob: the browser already
+              knows how to save a response it is given, it carries the session
+              cookie on its own, and a download that streams from the server
+              never has the whole file in the page.
+
+              The same filter as the table, so what lands in the file is what
+              was on the screen — including the rows below the ones loaded,
+              which is the reason to download rather than select and copy. */}
+          <ButtonLink href={`/admin/requests/export${query === '' ? '' : `?${query}`}`} variant="text">
+            Download CSV
+          </ButtonLink>
         </div>
       )}
 
