@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { toneContainer, toneInk, type Tone } from '../styles/tone'
+import { Tip } from './info'
 import { tile } from './surface'
 
 /** Figures and states, as the screens print them: chips, stats, label/value pairs. */
@@ -30,17 +31,18 @@ export function InputChip({
   title?: string
 }) {
   return (
-    <button
-      type="button"
-      onClick={onRemove}
-      title={title}
-      className="state-layer inline-flex h-7 items-center gap-1.5 rounded-md3-s border border-outline px-2.5 text-xs font-medium text-on-surface-variant"
-    >
-      {children}
-      <span aria-hidden className="text-base leading-none">
-        &times;
-      </span>
-    </button>
+    <Tip tip={title}>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="state-layer inline-flex h-7 items-center gap-1.5 rounded-md3-s border border-outline px-2.5 text-xs font-medium text-on-surface-variant"
+      >
+        {children}
+        <span aria-hidden className="text-base leading-none">
+          &times;
+        </span>
+      </button>
+    </Tip>
   )
 }
 

@@ -1,6 +1,6 @@
 import type { FacetValue, RequestFacets } from '../../../api/client'
 import { compact } from '../../format'
-import { MenuDivider, MenuRow, Muted, menuItem } from '../../primitives'
+import { MenuDivider, MenuRow, Muted, Tip, menuItem } from '../../primitives'
 import type { SetField } from './filter'
 import { messageLabel } from './record'
 
@@ -106,8 +106,10 @@ export function FacetList({
             onChange={() => onToggle(v.value)}
             className="size-4 shrink-0 accent-primary"
           />
-          <span className="min-w-0 flex-1 truncate" title={v.label ?? v.value}>
-            {v.label ?? (v.value === '' ? 'none' : v.value)}
+          <span className="min-w-0 flex-1">
+            <Tip tip={v.label ?? v.value} block>
+              <span className="block truncate">{v.label ?? (v.value === '' ? 'none' : v.value)}</span>
+            </Tip>
           </span>
           {/* Totals over the whole log, not over what this filter leaves, so
               they do not move as you tick things and cannot talk you into a

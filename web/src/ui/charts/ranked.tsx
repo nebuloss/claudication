@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
 import { MAGNITUDE, Palette, type Paint } from './paint'
+import { Tip } from '../primitives/info'
 import { LogScale } from './scale'
 
 /** One row of a ranked list: a name, how much of it, and what to print. */
@@ -114,23 +115,27 @@ function RankedBar({
       {/* The label is not decoration: four of the light-mode fills sit under
           3:1 on the card surface, and a visible label is what makes that
           legible rather than colour-alone. */}
-      <div className="w-40 shrink-0 truncate text-on-surface" title={row.label}>
-        {row.href !== undefined ? (
-          <a
-            href={row.href}
-            onClick={(e) => {
-              if (row.onOpen === undefined) return
-              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
-              e.preventDefault()
-              row.onOpen()
-            }}
-            className="underline decoration-dotted underline-offset-2 hover:text-primary"
-          >
-            {row.label}
-          </a>
-        ) : (
-          row.label
-        )}
+      <div className="w-40 shrink-0">
+        <Tip tip={row.label} block>
+          <div className="truncate text-on-surface">
+            {row.href !== undefined ? (
+              <a
+                href={row.href}
+                onClick={(e) => {
+                  if (row.onOpen === undefined) return
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+                  e.preventDefault()
+                  row.onOpen()
+                }}
+                className="underline decoration-dotted underline-offset-2 hover:text-primary"
+              >
+                {row.label}
+              </a>
+            ) : (
+              row.label
+            )}
+          </div>
+        </Tip>
       </div>
       <div className="h-5 min-w-0 flex-1 rounded-md3-s bg-surface-high">
         <div
@@ -199,8 +204,13 @@ export function CompositionBar({
               width: `${(row.value / total) * 100}%`,
               ...palette.paint(row.label).fill(),
             }}
-            title={`${row.label}: ${format(row.value)}`}
-          />
+          >
+            {/* The tip inside the segment rather than around it: the segment's
+                width is a share of the bar, which a wrapper would take away. */}
+            <Tip tip={`${row.label}: ${format(row.value)}`} block>
+              <span className="block h-7" />
+            </Tip>
+          </div>
         ))}
       </div>
       <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
@@ -210,8 +220,10 @@ export function CompositionBar({
               className="inline-block size-2.5 shrink-0 rounded-[2px]"
               style={palette.paint(row.label).swatch()}
             />
-            <span className="min-w-0 flex-1 truncate font-mono text-on-surface" title={row.label}>
-              {row.label}
+            <span className="min-w-0 flex-1">
+              <Tip tip={row.label} block>
+                <span className="block truncate font-mono text-on-surface">{row.label}</span>
+              </Tip>
             </span>
             <span className="shrink-0 tabular-nums text-on-surface-variant">
               {format(row.value)}

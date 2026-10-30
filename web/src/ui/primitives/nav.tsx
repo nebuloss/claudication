@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { NavLevel, NavLink } from '../route'
+import { Tip } from './info'
 import { follow } from './link'
 
 /**
@@ -51,18 +52,19 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
                   you are on, and clicked like the others — it opens that
                   page from its top, which is also how to get back to the top
                   of a long one. */}
-              <a
-                href={c.href}
-                onClick={follow(c.href)}
-                aria-current={last ? 'page' : undefined}
-                aria-label={i === 0 ? c.label : undefined}
-                title={i === 0 ? c.label : undefined}
-                className={`state-layer block truncate rounded-md3-full py-1.5 font-medium ${
-                  i === 0 ? 'px-2' : 'px-3'
-                } ${last ? 'max-w-[28ch] bg-surface-lowest text-on-surface shadow-sm' : 'max-w-[24ch]'}`}
-              >
-                {i === 0 ? <HomeMark /> : c.label}
-              </a>
+              <Tip tip={i === 0 ? c.label : undefined}>
+                <a
+                  href={c.href}
+                  onClick={follow(c.href)}
+                  aria-current={last ? 'page' : undefined}
+                  aria-label={i === 0 ? c.label : undefined}
+                  className={`state-layer block truncate rounded-md3-full py-1.5 font-medium ${
+                    i === 0 ? 'px-2' : 'px-3'
+                  } ${last ? 'max-w-[28ch] bg-surface-lowest text-on-surface shadow-sm' : 'max-w-[24ch]'}`}
+                >
+                  {i === 0 ? <HomeMark /> : c.label}
+                </a>
+              </Tip>
             </li>
           )
         })}
@@ -106,17 +108,18 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
       <ul className={`m-0 flex list-none gap-1 p-0 ${row ? 'min-w-max items-center' : 'flex-col'}`}>
         {level.back !== undefined && (
           <li className={row ? '' : 'mb-1 border-b border-outline-variant/60 pb-2'}>
-            <a
-              href={level.back.href}
-              onClick={follow(level.back.href)}
-              title={`Back to ${level.back.label}`}
-              className="state-layer flex h-10 min-w-0 items-center gap-2 rounded-md3-full bg-surface-lowest pr-4 pl-2 text-sm font-medium text-on-surface"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
-                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-              </svg>
-              <span className={`truncate ${row ? 'max-w-[16ch]' : ''}`}>{level.back.label}</span>
-            </a>
+            <Tip tip={`Back to ${level.back.label}`} block>
+              <a
+                href={level.back.href}
+                onClick={follow(level.back.href)}
+                className="state-layer flex h-10 min-w-0 items-center gap-2 rounded-md3-full bg-surface-lowest pr-4 pl-2 text-sm font-medium text-on-surface"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
+                  <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+                </svg>
+                <span className={`truncate ${row ? 'max-w-[16ch]' : ''}`}>{level.back.label}</span>
+              </a>
+            </Tip>
           </li>
         )}
         {level.items.map((l) => {

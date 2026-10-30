@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { api, type RunningRequest } from '../../../api/client'
 import { sameDayStamp } from '../../format'
 import { useLoader, useNow } from '../../hooks'
-import { Chip, Muted, Td, Tr } from '../../primitives'
+import { Chip, Muted, Td, Tip, Tr } from '../../primitives'
 
 /** How often the running requests are read again: a row comes and goes in seconds. */
 const RUNNING_MS = 2_000
@@ -63,9 +63,9 @@ export function RunningRowView({ q, now }: { q: RunningRequest; now: number }) {
         {q.ip || '—'}
       </Td>
       <Td>
-        <span title="Being served now: recorded here once it ends">
+        <Tip tip="Being served now: recorded here once it ends">
           <Chip tone={ms >= 60_000 ? 'warn' : 'neutral'}>{q.streaming ? 'streaming' : 'running'}</Chip>
-        </span>
+        </Tip>
       </Td>
       <Td nowrap>
         <span className="text-on-surface-variant">yes</span>

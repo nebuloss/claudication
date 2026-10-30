@@ -12,6 +12,7 @@ import {
   SearchField,
   CheckTree,
   Stack,
+  Tip,
   shownLeaves,
   useConfirm,
   type CheckNode,
@@ -186,18 +187,17 @@ function ModelChecklist({
           {name}
           {!m.listed && <span className="ml-2 text-xs text-warning">no longer listed upstream</span>}
           {m.auto_off === true && !on(m) && (
-            <span
-              className="ml-2 text-xs text-warning"
-              title="It kept failing on this account, so the gateway switched it off. It is still checked every 15 minutes and switched back on the first time it works. Switching it on yourself makes it yours again."
-            >
-              switched off automatically
-            </span>
+            <Tip tip="It kept failing on this account, so the gateway switched it off. It is still checked every 15 minutes and switched back on the first time it works. Switching it on yourself makes it yours again.">
+              <span className="ml-2 text-xs text-warning">switched off automatically</span>
+            </Tip>
           )}
         </>
       ),
       checked: on(m),
       facts: [
-        <code title={m.id}>{m.id}</code>,
+        <Tip tip={m.id}>
+          <code>{m.id}</code>
+        </Tip>,
         m.max_input_tokens !== undefined ? (
           <span className="tabular-nums">
             {compact(m.max_input_tokens)} in{m.max_tokens !== undefined && ` · ${compact(m.max_tokens)} out`}
@@ -209,16 +209,17 @@ function ModelChecklist({
         test === undefined ? undefined : (
           <>
             {t !== undefined && (
-              <span
-                className="min-w-0 truncate"
-                title={
+              <Tip
+                tip={
                   `${explain(t)}${t.error !== undefined && t.error !== explain(t) ? `\n${t.error}` : ''}` +
                   `\n${sourceOf(t)}, ${timeOfDay(t.at)}` +
                   (!t.ok && t.ok_at !== undefined ? `\nLast worked ${relative(t.ok_at)}` : '')
                 }
               >
-                <Chip tone={t.ok ? 'ok' : 'error'}>{brief(t)}</Chip>
-              </span>
+                <span className="min-w-0 truncate">
+                  <Chip tone={t.ok ? 'ok' : 'error'}>{brief(t)}</Chip>
+                </span>
+              </Tip>
             )}
             {m.listed && (
               <Button variant="text" size="sm" busy={testing[m.id] === true} onClick={() => void testOne(m.id)}>

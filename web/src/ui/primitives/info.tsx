@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { Popover, useAnchoredPanel } from './popover'
 
 /**
@@ -127,6 +127,81 @@ export function HoverTip({ children, tip, label }: { children: ReactNode; tip: R
       )}
     </>
   )
+}
+
+/** How long a pointer rests on something before its Tip opens, as a browser's own tooltip waits. */
+const TIP_DELAY_MS = 400
+
+/**
+ * The app's one hover popup: what was the browser's own `title` tooltip — a
+ * grey box in the system font, a second late, cut at the edge of the window,
+ * nothing on focus and nothing on a touch screen — in HoverTip's bubble,
+ * placed and dismissed like every other popup, so every hover in the app
+ * looks and behaves alike.
+ *
+ * It wraps what it explains and keeps out of its way: a button or a link
+ * inside is pressed as before, and its focus opens the tip as a pointer
+ * does. `tip` as text is one line, or with line breaks one bulleted point a
+ * line, as HoverTip's paragraphs are; empty, the children are drawn as they
+ * are, so a cell can pass a tip only some of its rows have. `block` for
+ * something that fills its line, a truncated cell's text.
+ */
+export function Tip({
+  children,
+  tip,
+  block = false,
+}: {
+  children: ReactNode
+  tip: ReactNode
+  block?: boolean
+}) {
+  const text = typeof tip === 'string' ? tip : null
+  // A short tip in a bubble its own size; a long one wraps at HoverTip's.
+  const width = text === null ? 320 : Math.min(320, Math.max(96, longestLine(text) * 7.2 + 34))
+  const p = useAnchoredPanel<HTMLSpanElement>({ width, maxHeight: 360 })
+  const id = useId()
+  const timer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  if (tip === undefined || tip === null || tip === false || tip === '') return <>{children}</>
+  const soon = () => {
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(p.show, TIP_DELAY_MS)
+  }
+  const away = () => {
+    window.clearTimeout(timer.current)
+    p.close()
+  }
+  return (
+    <>
+      <span
+        ref={p.anchor}
+        aria-describedby={p.open ? id : undefined}
+        onMouseEnter={soon}
+        onMouseLeave={away}
+        onFocusCapture={soon}
+        onBlurCapture={away}
+        className={block ? 'block min-w-0' : 'inline-flex max-w-full align-middle'}
+      >
+        {children}
+      </span>
+      {p.at !== null && (
+        <Popover panelRef={p.panel} at={p.at} role="tooltip" label="" id={id} className={TIP}>
+          {text === null ? tip : tipLines(text)}
+        </Popover>
+      )}
+    </>
+  )
+}
+
+function longestLine(text: string): number {
+  return Math.max(...text.split('\n').map((l) => l.length))
+}
+
+/** A text tip as Tip draws it: one line plain, several as bulleted points. */
+function tipLines(text: string): ReactNode {
+  const lines = text.split('\n').filter((l) => l.trim() !== '')
+  if (lines.length <= 1) return <span className="block break-words">{text}</span>
+  return lines.map((l, i) => <p key={i}>{l}</p>)
 }
 
 const NOTE_TONES = {

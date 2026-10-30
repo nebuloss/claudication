@@ -23,6 +23,7 @@ import {
   Stack,
   Table,
   Td,
+  Tip,
   Tr,
   WindowPicker,
   type Column,
@@ -104,7 +105,7 @@ function useModelPalette(chats: Chat[]): Palette {
  * The id, shortened to the part that identifies it.
  *
  * A uuid's first two groups are already unique across anything one gateway
- * sees, and the full value stays in the title attribute for copying. Shortened
+ * sees, and the full value is on its hover. Shortened
  * rather than hidden: it is the join key back to the client's own session
  * list, which is the whole point of printing it.
  */
@@ -309,14 +310,18 @@ export default function ChatsPanel({
                       }}
                       className="state-layer flex min-w-0 flex-1 flex-col rounded-md3-xs text-left"
                     >
-                      <span className="truncate font-medium text-on-surface" title={c.title}>
-                        {open === c.id ? '▾ ' : '▸ '}
-                        {chatName(c)}
-                      </span>
-                      <span title={c.id} className="truncate font-mono text-xs text-on-surface-variant">
-                        {shortID(c.id)}
-                        {c.title_manual && ' · named by hand'}
-                      </span>
+                      <Tip tip={c.title} block>
+                        <span className="block truncate font-medium text-on-surface">
+                          {open === c.id ? '▾ ' : '▸ '}
+                          {chatName(c)}
+                        </span>
+                      </Tip>
+                      <Tip tip={c.id} block>
+                        <span className="block truncate font-mono text-xs text-on-surface-variant">
+                          {shortID(c.id)}
+                          {c.title_manual && ' · named by hand'}
+                        </span>
+                      </Tip>
                     </button>
                     {/* Only beside a name: an unnamed chat already says how
                         it was run in place of one. */}

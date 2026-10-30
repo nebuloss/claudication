@@ -356,6 +356,39 @@ func (s *Store) ChatTitle(ctx context.Context, id string) (string, bool, error) 
 	return title, true, nil
 }
 
+// ChatTitles are the stored titles of the chats named, by id: what a page of
+// the request log shows its chat ids as on hover. One query for the page,
+// not one per row; a chat with no title is not in the map.
+func (s *Store) ChatTitles(ctx context.Context, ids []string) (map[string]string, error) {
+	out := map[string]string{}
+	seen := map[string]bool{}
+	var args []any
+	for _, id := range ids {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			args = append(args, id)
+		}
+	}
+	if len(args) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT conversation_id, title FROM chat_titles WHERE conversation_id IN (?`+
+			strings.Repeat(",?", len(args)-1)+`)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("chat titles: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return nil, fmt.Errorf("chat title: %w", err)
+		}
+		out[id] = title
+	}
+	return out, rows.Err()
+}
+
 // TitleRecord is a stored title and what it was written from.
 type TitleRecord struct {
 	Title string

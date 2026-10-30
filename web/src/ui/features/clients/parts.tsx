@@ -1,6 +1,6 @@
 import { type ApiKey, type SubscriptionShare } from '../../../api/client'
 import { accountHref } from '../../route'
-import { AppLink, Card, Figure, Muted, Stat, StatGrid, Table, Td, Tr } from '../../primitives'
+import { AppLink, Card, Figure, Muted, Stat, StatGrid, Table, Td, Tip, Tr } from '../../primitives'
 import { compact, smallPercent } from '../../format'
 import { providerTitle } from '../../clients/specs'
 import { periodName } from './limits'
@@ -84,11 +84,11 @@ export function SubscriptionCard({ share }: { share: SubscriptionShare }) {
                 <Td>
                   {/* The address on hover, for a named account: the name is
                       the operator's, the address is what tells it apart. */}
-                  <span title={a.name !== a.email ? a.email : undefined}>
+                  <Tip tip={a.name !== a.email ? a.email : undefined}>
                     <AppLink href={accountHref(a.account_id)} strong>
                       {a.name || a.email}
                     </AppLink>
-                  </span>{' '}
+                  </Tip>{' '}
                   <Muted as="span" size="xs">
                     {providerTitle(a.provider)}
                   </Muted>

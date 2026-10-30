@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Tip } from './info'
 import { Spinner } from './spinner'
 
 /**
@@ -109,23 +110,24 @@ export function Button({
   autoFocus?: boolean
 }) {
   return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled || busy}
-      title={title}
-      aria-pressed={pressed}
-      data-autofocus={autoFocus ? '' : undefined}
-      className={`${buttonClass({ variant, size, tone })} ${icon !== undefined ? 'pl-4' : ''}`}
-    >
-      {busy && <Spinner className={size === 'sm' ? 'size-3' : ''} />}
-      {icon !== undefined && !busy && (
-        <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
-          <path d={icon} />
-        </svg>
-      )}
-      {children}
-    </button>
+    <Tip tip={title}>
+      <button
+        type={type}
+        onClick={onClick}
+        disabled={disabled || busy}
+        aria-pressed={pressed}
+        data-autofocus={autoFocus ? '' : undefined}
+        className={`${buttonClass({ variant, size, tone })} ${icon !== undefined ? 'pl-4' : ''}`}
+      >
+        {busy && <Spinner className={size === 'sm' ? 'size-3' : ''} />}
+        {icon !== undefined && !busy && (
+          <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
+            <path d={icon} />
+          </svg>
+        )}
+        {children}
+      </button>
+    </Tip>
   )
 }
 
@@ -190,25 +192,26 @@ export function IconButton({
 }) {
   const ink = tone === 'error' ? 'text-error' : tone === 'primary' ? 'text-primary' : 'text-on-surface-variant'
   return (
-    <button
-      type={type}
-      title={label}
-      aria-label={label}
-      aria-busy={busy || undefined}
-      onClick={onClick}
-      disabled={disabled === true && !busy}
-      className={`state-layer grid size-9 shrink-0 place-items-center rounded-md3-full border border-outline disabled:pointer-events-none disabled:opacity-30 ${
-        busy ? 'pointer-events-none' : ''
-      } ${ink}`}
-    >
-      {busy ? (
-        <Spinner className="size-5" />
-      ) : (
-        <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
-          {children}
-        </svg>
-      )}
-    </button>
+    <Tip tip={label}>
+      <button
+        type={type}
+        aria-label={label}
+        aria-busy={busy || undefined}
+        onClick={onClick}
+        disabled={disabled === true && !busy}
+        className={`state-layer grid size-9 shrink-0 place-items-center rounded-md3-full border border-outline disabled:pointer-events-none disabled:opacity-30 ${
+          busy ? 'pointer-events-none' : ''
+        } ${ink}`}
+      >
+        {busy ? (
+          <Spinner className="size-5" />
+        ) : (
+          <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
+            {children}
+          </svg>
+        )}
+      </button>
+    </Tip>
   )
 }
 
@@ -230,17 +233,18 @@ export function IconLink({
   children: ReactNode
 }) {
   return (
-    <a
-      href={href}
-      title={label}
-      aria-label={label}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="state-layer grid size-10 shrink-0 place-items-center rounded-md3-full border border-outline text-on-surface-variant"
-    >
-      <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
-        {children}
-      </svg>
-    </a>
+    <Tip tip={label}>
+      <a
+        href={href}
+        aria-label={label}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="state-layer grid size-10 shrink-0 place-items-center rounded-md3-full border border-outline text-on-surface-variant"
+      >
+        <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
+          {children}
+        </svg>
+      </a>
+    </Tip>
   )
 }

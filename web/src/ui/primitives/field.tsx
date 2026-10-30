@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { Help } from './info'
+import { Help, Tip } from './info'
 import { Overline } from './data'
 import { Popover, menuItem, useAnchoredPanel } from './popover'
 import { tile } from './surface'
@@ -335,41 +335,42 @@ export function Checkbox({
     if (ref.current !== null) ref.current.indeterminate = indeterminate
   }, [indeterminate])
   return (
-    <label
-      title={title}
-      className={`inline-flex min-w-0 items-center gap-1 text-sm text-on-surface select-none ${quiet ? '' : 'pr-2'} ${
-        disabled === true ? 'cursor-default opacity-40' : 'cursor-pointer'
-      }`}
-    >
-      <span
-        className={`state-layer relative grid shrink-0 place-items-center rounded-md3-full ${dense ? 'size-8' : 'size-10'}`}
+    <Tip tip={title}>
+      <label
+        className={`inline-flex min-w-0 items-center gap-1 text-sm text-on-surface select-none ${quiet ? '' : 'pr-2'} ${
+          disabled === true ? 'cursor-default opacity-40' : 'cursor-pointer'
+        }`}
       >
-        <input
-          ref={ref}
-          type="checkbox"
-          checked={checked && !indeterminate}
-          disabled={disabled}
-          aria-label={quiet || children !== undefined ? label : undefined}
-          onChange={(e) => onChange(e.target.checked)}
-          className="peer size-[18px] cursor-[inherit] appearance-none rounded-[2px] border-2 border-on-surface-variant transition-colors checked:border-primary checked:bg-primary indeterminate:border-primary indeterminate:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        />
-        <svg
-          viewBox="0 0 24 24"
-          aria-hidden
-          className="pointer-events-none absolute hidden size-[14px] fill-on-primary peer-checked:block"
+        <span
+          className={`state-layer relative grid shrink-0 place-items-center rounded-md3-full ${dense ? 'size-8' : 'size-10'}`}
         >
-          <path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
-        </svg>
-        <svg
-          viewBox="0 0 24 24"
-          aria-hidden
-          className="pointer-events-none absolute hidden size-[14px] fill-on-primary peer-indeterminate:block"
-        >
-          <path d="M5 11h14v2H5z" />
-        </svg>
-      </span>
-      {quiet ? null : (children ?? label)}
-    </label>
+          <input
+            ref={ref}
+            type="checkbox"
+            checked={checked && !indeterminate}
+            disabled={disabled}
+            aria-label={quiet || children !== undefined ? label : undefined}
+            onChange={(e) => onChange(e.target.checked)}
+            className="peer size-[18px] cursor-[inherit] appearance-none rounded-[2px] border-2 border-on-surface-variant transition-colors checked:border-primary checked:bg-primary indeterminate:border-primary indeterminate:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          />
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden
+            className="pointer-events-none absolute hidden size-[14px] fill-on-primary peer-checked:block"
+          >
+            <path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+          </svg>
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden
+            className="pointer-events-none absolute hidden size-[14px] fill-on-primary peer-indeterminate:block"
+          >
+            <path d="M5 11h14v2H5z" />
+          </svg>
+        </span>
+        {quiet ? null : (children ?? label)}
+      </label>
+    </Tip>
   )
 }
 
@@ -415,17 +416,23 @@ export function SearchField({
         className={`${outlinedField(false, 'none')} h-10! px-10! focus:px-[39px]! focus-visible:px-[39px]! text-sm placeholder:text-on-surface-variant [&::-webkit-search-cancel-button]:hidden`}
       />
       {value !== '' && (
-        <button
-          type="button"
-          aria-label="Clear"
-          title="Clear"
-          onClick={() => onChange('')}
-          className="state-layer absolute top-1/2 right-1 grid size-8 -translate-y-1/2 place-items-center rounded-md3-full text-on-surface-variant"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
-            <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-          </svg>
-        </button>
+        // Placed by its own box rather than by the button's: the tip's
+        // wrapper is what the bubble is anchored to, so it has to sit where
+        // the button is drawn.
+        <span className="absolute top-1/2 right-1 -translate-y-1/2">
+          <Tip tip="Clear">
+            <button
+              type="button"
+              aria-label="Clear"
+              onClick={() => onChange('')}
+              className="state-layer grid size-8 place-items-center rounded-md3-full text-on-surface-variant"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
+                <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+              </svg>
+            </button>
+          </Tip>
+        </span>
       )}
     </label>
   )

@@ -22,6 +22,7 @@ import {
   Select,
   Stack,
   Switch,
+  Tip,
 } from '../../primitives'
 import { ago, compact } from '../../format'
 import { Client, type ClientTypes } from '../../clients/specs'
@@ -148,9 +149,9 @@ export function EnableSwitch({ client, onChanged }: { client: ClientWire; onChan
     if (!ok) setOn(!v)
   }
   return (
-    <span title={error || (on ? 'Serving this client' : 'This client is switched off')}>
+    <Tip tip={error || (on ? 'Serving this client' : 'This client is switched off')}>
       <Switch checked={on} onChange={(v) => void flip(v)} label={`Serve ${client.name}`} disabled={busy !== ''} quiet />
-    </span>
+    </Tip>
   )
 }
 

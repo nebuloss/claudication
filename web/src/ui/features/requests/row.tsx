@@ -1,6 +1,6 @@
 import type { ComponentProps, ReactNode } from 'react'
 import { millis, sameDayStamp } from '../../format'
-import { Chip, Muted, Td, Tr, appLinkClass } from '../../primitives'
+import { Chip, Muted, Td, Tip, Tr, appLinkClass } from '../../primitives'
 import type { SetField } from './filter'
 import { messageLabel, type RequestRecord } from './record'
 
@@ -18,31 +18,33 @@ export function StatusChip({ record }: { record: RequestRecord }) {
  * the request that happened to be carrying it.
  *
  * `plain` for a cell that brings its own appearance — the status chip — where
- * the dotted underline would be drawn through it.
+ * the dotted underline would be drawn through it. `tip` says what the click
+ * will narrow to.
  */
 function Filterable({
   onClick,
-  title,
+  tip,
   plain = false,
   children,
 }: {
   onClick: () => void
-  title?: string
+  tip?: string
   plain?: boolean
   children: ReactNode
 }) {
   return (
-    <button
-      type="button"
-      title={title}
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-      className={plain ? 'state-layer rounded-md3-s' : appLinkClass({ cell: true })}
-    >
-      {children}
-    </button>
+    <Tip tip={tip}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onClick()
+        }}
+        className={plain ? 'state-layer rounded-md3-s' : appLinkClass({ cell: true })}
+      >
+        {children}
+      </button>
+    </Tip>
   )
 }
 
@@ -54,14 +56,14 @@ function Filterable({
 function FilterableCell({
   value,
   shown = value,
-  title,
+  tip,
   onNarrow,
   ...cell
 }: {
   value: string | undefined
   /** What the cell prints, when it is not the whole value. */
   shown?: string
-  title: string
+  tip: string
   onNarrow: (value: string) => void
 } & Omit<ComponentProps<typeof Td>, 'children' | 'title'>) {
   return (
@@ -69,7 +71,7 @@ function FilterableCell({
       {value === undefined || value === '' ? (
         '—'
       ) : (
-        <Filterable onClick={() => onNarrow(value)} title={title}>
+        <Filterable onClick={() => onNarrow(value)} tip={tip}>
           {shown}
         </Filterable>
       )}
@@ -117,19 +119,25 @@ export function RequestRowView({
         // The client's own name first, when it asked by one: that is the
         // name its configuration shows, and the model is what it served.
         shown={record.modelLabel}
-        title={`Only requests for ${r.model}${r.virtual_model ? `, asked for as ${r.virtual_model}` : ''}`}
+        tip={`Only requests for ${r.model}${r.virtual_model ? `, asked for as ${r.virtual_model}` : ''}`}
         onNarrow={(v) => onNarrow('model', v)}
       />
       {/* The id, shortened. Nobody reads a session id, but they do recognise
           the first characters of the one they are looking at — and the click
-          is what this column is for. */}
+          is what this column is for. The hover names the chat by its title,
+          where the gateway has one, so the id says which conversation it is
+          without opening it. */}
       <FilterableCell
         max={9}
         mono
         muted
         value={r.conversation_id}
         shown={r.conversation_id?.slice(0, 12)}
-        title={`Only requests in ${r.conversation_id}`}
+        tip={
+          r.chat_title
+            ? `${r.chat_title}\nClick to show only this chat's requests`
+            : `Only requests in ${r.conversation_id}`
+        }
         onNarrow={(v) => onNarrow('chat', v)}
       />
       {/* Which client sent it, by the name it has now; narrows on its id so
@@ -138,7 +146,7 @@ export function RequestRowView({
         nowrap
         value={r.key_id}
         shown={r.key_name || r.key_id}
-        title={`Only requests from ${r.key_name ?? 'this client'}`}
+        tip={`Only requests from ${r.key_name ?? 'this client'}`}
         onNarrow={(v) => onNarrow('key', v)}
       />
       {/* The program that was running, from its User-Agent: what tells a
@@ -148,7 +156,7 @@ export function RequestRowView({
         nowrap
         muted
         value={r.client}
-        title={`Only requests from ${r.client}`}
+        tip={`Only requests from ${r.client}`}
         onNarrow={(v) => onNarrow('client', v)}
       />
       {/* Clickable, because "everything from that machine" is the next
@@ -158,7 +166,7 @@ export function RequestRowView({
         mono
         muted
         value={r.ip}
-        title={`Only requests from ${r.ip}`}
+        tip={`Only requests from ${r.ip}`}
         onNarrow={(v) => onNarrow('ip', v)}
       />
       {/* Clickable like the model and the address. The chip is what you
@@ -170,7 +178,7 @@ export function RequestRowView({
         <Filterable
           plain
           onClick={() => onNarrow('code', String(r.status))}
-          title={
+          tip={
             r.status === 0 ? 'Only requests that got no answer' : `Only requests that answered ${r.status}`
           }
         >
@@ -184,7 +192,7 @@ export function RequestRowView({
       <Td nowrap>
         <Filterable
           onClick={() => onNarrow('kind', record.change ? 'change' : record.refused ? 'rejected' : 'relayed')}
-          title={
+          tip={
             record.change
               ? 'Only changes clients’ agents made through the MCP server'
               : record.refused
@@ -205,9 +213,9 @@ export function RequestRowView({
         {/* Under the total, because the two together are what tell a long
             answer from one that sat silent before starting. */}
         {r.first_token_ms !== undefined && (
-          <div className="text-[11px] text-on-surface-variant" title="Time to first token">
-            first {millis(r.first_token_ms)}
-          </div>
+          <Tip tip="Time to first token" block>
+            <div className="text-[11px] text-on-surface-variant">first {millis(r.first_token_ms)}</div>
+          </Tip>
         )}
       </Td>
       {/* The stored class rather than the text: the text ends in a
@@ -219,7 +227,7 @@ export function RequestRowView({
               —
             </Muted>
           ) : (
-            <Filterable onClick={() => onNarrow('message', r.error_code ?? '')} title={r.error}>
+            <Filterable onClick={() => onNarrow('message', r.error_code ?? '')} tip={r.error}>
               <span
                 className={r.error_kind === 'content_check' ? 'text-warning' : 'text-on-surface-variant'}
               >

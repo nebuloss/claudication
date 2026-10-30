@@ -17,7 +17,7 @@ export { Chip, Figure, Figures, InputChip, KeyValue, Overline, Stat, StatGrid } 
 export { Banner, Empty, ErrorBanner, ErrorState, Freshness, Loading, Muted, Verbatim } from './feedback'
 export { Checkbox, Field, SearchField, Select, SettingSwitch, StepSlider, Switch, outlinedField } from './field'
 export type { SelectOption } from './field'
-export { Help, HoverTip, InfoTip, Note } from './info'
+export { Help, HoverTip, InfoTip, Note, Tip } from './info'
 export { AppLink, InlineLink, appLinkClass, follow, isPlainLeftClick, openRow, rowClick } from './link'
 export { AddButton, ListRow, ListSummary, ListToolbar, RowBadge } from './list'
 export { ContextMenu, MenuButton, MenuRow } from './menu'

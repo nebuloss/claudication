@@ -103,8 +103,11 @@ type RequestJSON struct {
 	// ID is the row's own id, which only grows. It is how the live log tells
 	// a new row from one it holds: At is to the second, and a busy gateway
 	// records several requests in one.
-	ID int64  `json:"id"`
-	At string `json:"at"`
+	ID int64 `json:"id"`
+	// ChatTitle is the title of the chat it belongs to, when the chat has one:
+	// what the log shows its chat id as on hover.
+	ChatTitle string `json:"chat_title,omitempty"`
+	At        string `json:"at"`
 	// KeyID and KeyName are the client that sent it — a client owns one key,
 	// so its id is the key's — kept as an id so the row narrows to the client
 	// whatever it is called now. Empty on a request refused before it named
@@ -224,9 +227,20 @@ func (s *Admin) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Each chat's title, for its id to show on hover: one query for the page.
+	ids := make([]string, 0, len(events))
+	for _, e := range events {
+		ids = append(ids, e.ConversationID)
+	}
+	titles, err := s.store.ChatTitles(r.Context(), ids)
+	if err != nil {
+		s.log.Warn("could not read the page's chat titles", "err", err)
+	}
 	out := make([]RequestJSON, 0, len(events))
 	for _, e := range events {
-		out = append(out, s.toRequestJSON(e))
+		row := s.toRequestJSON(e)
+		row.ChatTitle = titles[e.ConversationID]
+		out = append(out, row)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,

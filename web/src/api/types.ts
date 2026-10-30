@@ -373,6 +373,8 @@ export interface Chats {
 export interface RequestRow {
   /** The row's id, which only grows: what tells a polled row from a held one. */
   id: number
+  /** The title of the chat it belongs to, when the chat has one: its chat id on hover. */
+  chat_title?: string
   at: string
   /** The client that sent it: its id (its key's) and what it is called now. */
   key_id?: string

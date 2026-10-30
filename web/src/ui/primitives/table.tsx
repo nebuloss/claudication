@@ -1,4 +1,5 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Tip } from './info'
 import { rowClick } from './link'
 import { MenuRow } from './menu'
 import { MenuDivider, Popover, useAnchoredPanel } from './popover'
@@ -441,22 +442,23 @@ export function TrDetail({ colSpan, children }: { colSpan: number; children: Rea
  */
 export function RowToggle({ open, onToggle, label }: { open: boolean; onToggle: () => void; label: string }) {
   return (
-    <button
-      type="button"
-      aria-expanded={open}
-      aria-label={label}
-      title={label}
-      onClick={onToggle}
-      className="state-layer grid size-7 shrink-0 place-items-center rounded-full text-on-surface-variant"
-    >
-      <svg
-        viewBox="0 0 24 24"
-        aria-hidden
-        className={`size-5 fill-current transition-transform ${open ? 'rotate-90' : ''}`}
+    <Tip tip={label}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={label}
+        onClick={onToggle}
+        className="state-layer grid size-7 shrink-0 place-items-center rounded-full text-on-surface-variant"
       >
-        <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
-      </svg>
-    </button>
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden
+          className={`size-5 fill-current transition-transform ${open ? 'rotate-90' : ''}`}
+        >
+          <path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z" />
+        </svg>
+      </button>
+    </Tip>
   )
 }
 
@@ -497,20 +499,23 @@ export function Td({
 }) {
   return (
     <td
-      title={title}
       colSpan={colSpan}
       data-label={label}
       className={`px-2 py-2 ${muted ? 'text-on-surface-variant' : ''} ${nums ? 'tabular-nums' : ''} ${
         nowrap ? 'whitespace-nowrap' : ''
       } ${max !== undefined ? MAX[max] : ''} ${align === 'end' ? 'text-right' : ''}`}
     >
-      {max !== undefined || mono ? (
-        <div className={`${max !== undefined ? 'truncate' : ''} ${mono ? 'font-mono text-xs' : ''}`}>
-          {children}
-        </div>
-      ) : (
-        children
-      )}
+      {/* The tip holds the whole content, so a truncated cell's full text is
+          on the cell's own hover rather than only over its visible part. */}
+      <Tip tip={title} block>
+        {max !== undefined || mono ? (
+          <div className={`${max !== undefined ? 'truncate' : ''} ${mono ? 'font-mono text-xs' : ''}`}>
+            {children}
+          </div>
+        ) : (
+          children
+        )}
+      </Tip>
     </td>
   )
 }

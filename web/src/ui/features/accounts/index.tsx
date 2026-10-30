@@ -23,6 +23,7 @@ import {
   Section,
   Stack,
   Switch,
+  Tip,
 } from '../../primitives'
 import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact } from '../../format'
@@ -266,15 +267,16 @@ function AccountRow({
       leading={
         <>
           {orderable && (
-            <span
-              className="hidden cursor-grab text-on-surface-variant active:cursor-grabbing sm:block"
-              title="Drag to reorder"
-              aria-hidden
-            >
-              <svg viewBox="0 0 24 24" className="size-5 fill-current">
-                <path d="M9 4h2v2H9V4zm4 0h2v2h-2V4zM9 9h2v2H9V9zm4 0h2v2h-2V9zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2z" />
-              </svg>
-            </span>
+            <Tip tip="Drag to reorder">
+              <span
+                className="hidden cursor-grab text-on-surface-variant active:cursor-grabbing sm:block"
+                aria-hidden
+              >
+                <svg viewBox="0 0 24 24" className="size-5 fill-current">
+                  <path d="M9 4h2v2H9V4zm4 0h2v2h-2V4zM9 9h2v2H9V9zm4 0h2v2h-2V9zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2z" />
+                </svg>
+              </span>
+            </Tip>
           )}
           <RowBadge>{rank + 1}</RowBadge>
         </>
@@ -332,9 +334,9 @@ export function AccountSwitch({ account, onChanged }: { account: Account; onChan
     if (!ok) setOn(!v)
   }
   return (
-    <span title={error || (on ? 'Serving from this account' : 'This account is paused')}>
+    <Tip tip={error || (on ? 'Serving from this account' : 'This account is paused')}>
       <Switch checked={on} onChange={(v) => void flip(v)} label={`Serve from ${accountName(account)}`} disabled={busy !== ''} quiet />
-    </span>
+    </Tip>
   )
 }
 

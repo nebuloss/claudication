@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Tip } from './info'
 
 /** Picking one of a few: a segmented control, a tab bar, a reporting window. */
 
@@ -30,23 +31,23 @@ export function Segmented<T extends string>({
       className="inline-flex overflow-hidden rounded-md3-full border border-outline"
     >
       {options.map((o, i) => (
-        <button
-          key={o.id}
-          type="button"
-          role="radio"
-          aria-checked={value === o.id}
-          title={o.label}
-          onClick={() => onChange(o.id)}
-          className={`state-layer grid ${size === 'md' ? 'h-10 min-w-10' : 'h-8 min-w-8'} place-items-center px-3 text-xs font-medium ${
-            i > 0 ? 'border-l border-outline' : ''
-          } ${
-            value === o.id
-              ? 'bg-secondary-container text-on-secondary-container'
-              : 'text-on-surface-variant'
-          }`}
-        >
-          {o.content}
-        </button>
+        <Tip key={o.id} tip={o.label}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={value === o.id}
+            onClick={() => onChange(o.id)}
+            className={`state-layer grid ${size === 'md' ? 'h-10 min-w-10' : 'h-8 min-w-8'} place-items-center px-3 text-xs font-medium ${
+              i > 0 ? 'border-l border-outline' : ''
+            } ${
+              value === o.id
+                ? 'bg-secondary-container text-on-secondary-container'
+                : 'text-on-surface-variant'
+            }`}
+          >
+            {o.content}
+          </button>
+        </Tip>
       ))}
     </div>
   )
