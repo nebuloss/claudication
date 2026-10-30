@@ -49,10 +49,7 @@ export function Breadcrumbs({
   return (
     <nav
       aria-label="Breadcrumb"
-      // As wide as its trail rather than the page: a bar of empty colour
-      // past the last crumb was the widest thing in the header, and a menu
-      // dropping from a crumb lined up with nothing.
-      className="w-fit max-w-full min-w-0 overflow-x-auto rounded-md3-full bg-primary-container p-1 text-on-primary-container"
+      className="min-w-0 overflow-x-auto rounded-md3-full bg-primary-container p-1 text-on-primary-container"
     >
       <ol className="m-0 flex min-w-max list-none items-center gap-0.5 p-0 text-sm">
         {trail.map((c, i) => {
@@ -60,7 +57,9 @@ export function Breadcrumbs({
           return (
             <li key={c.href + i} className="flex items-center gap-0.5">
               {i > 0 && (
-                <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current opacity-60">
+                // Fainter than the ▾ beside a crumb, which is a control: this is
+                // only the step between two crumbs.
+                <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current opacity-35">
                   <path d={chevron} />
                 </svg>
               )}
@@ -140,7 +139,9 @@ function Crumb({
               aria-expanded={p.open}
               aria-label={`Other ${what}`}
               onClick={p.toggle}
-              className="state-layer mr-1 grid size-6 shrink-0 place-items-center rounded-full opacity-70 hover:opacity-100"
+              // A filled disc at full ink, so it reads as a button and not
+              // as one more separator beside the crumb.
+              className="state-layer mr-1 grid size-6 shrink-0 place-items-center rounded-full bg-on-primary-container/12"
             >
               <svg
                 viewBox="0 0 24 24"
