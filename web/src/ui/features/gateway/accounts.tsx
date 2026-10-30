@@ -35,7 +35,7 @@ export default function GatewayAccounts() {
     )
   }
   return (
-    <GatewayUsage title="Accounts" by="account" always={accounts.length > 0}>
+    <GatewayUsage by="account" always={accounts.length > 0}>
       {({ rows, shares }) => {
         const used = new Map(rollup(rows, (r) => r.account_id ?? '').map((u) => [u.id, u]))
         const out: AccountUse[] = accounts.map((a) => ({

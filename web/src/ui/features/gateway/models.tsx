@@ -19,7 +19,7 @@ type ModelUse = Rollup & { model: string; provider: string }
  */
 export default function GatewayModels() {
   return (
-    <GatewayUsage title="Models" by="model">
+    <GatewayUsage by="model">
       {({ rows }) => {
         const models: ModelUse[] = rollup(rows, (r) => JSON.stringify([r.provider, r.model]))
           .map((u) => ({ ...u, model: u.rows[0]!.model, provider: u.rows[0]!.provider }))

@@ -74,7 +74,6 @@ function AccountClients({ accountId }: { accountId: string }) {
   const shared = Object.keys(shares).length > 0
   return (
     <TableCard
-      title="Clients"
       aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}
       ready={data !== null}
       error={error}

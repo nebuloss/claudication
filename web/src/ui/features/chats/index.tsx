@@ -248,7 +248,6 @@ export default function ChatsPanel({
 
   return (
     <TableCard
-      title="Chats"
       aside={aside}
       ready={data !== null}
       error={error}

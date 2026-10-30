@@ -193,7 +193,6 @@ function SlotBreakdown({ clientId }: { clientId: string }) {
   const rows: SlotUse[] = data?.rows ?? []
   return (
     <TableCard
-      title="Model names"
       aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}
       ready={data !== null}
       error={error}

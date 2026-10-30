@@ -12,7 +12,7 @@ import { GatewayUsage } from './slots'
  */
 export default function GatewayClients() {
   return (
-    <GatewayUsage title="Clients" by="key">
+    <GatewayUsage by="key">
       {({ rows, shares }) => {
         const columns = poolColumns(shares)
         return (

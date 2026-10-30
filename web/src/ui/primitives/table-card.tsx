@@ -8,6 +8,10 @@ import { Card } from './surface'
  * the controls that shape it (a window, a freshness mark) in the header, the
  * table, and a note under it when the figures need one.
  *
+ * No title when the first column already says what the rows are — a table of
+ * clients headed "Clients" says it twice — and then what shapes the rows (a
+ * window picker) is a toolbar above the table.
+ *
  * The states every table has are said here once: the first read in flight, a
  * read that failed, and no rows. A chart over the same rows is a card of its
  * own above it, never inside it, so the table never shares its card.
@@ -23,7 +27,7 @@ export function TableCard({
   note,
   children,
 }: {
-  title: ReactNode
+  title?: ReactNode
   /** The window picker, the freshness mark: what shapes or describes the rows. */
   aside?: ReactNode
   /** Whether there is an answer to show: false while the first read is in flight. */
@@ -54,7 +58,10 @@ export function TableCard({
     )
   }
   return (
-    <Card title={title} aside={aside}>
+    <Card title={title} aside={title !== undefined ? aside : undefined}>
+      {title === undefined && aside !== undefined && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">{aside}</div>
+      )}
       {body}
     </Card>
   )

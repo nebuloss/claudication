@@ -1,4 +1,11 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 import { Tip } from './info'
 import { rowClick } from './link'
 import { MenuRow } from './menu'
@@ -53,7 +60,7 @@ function HeaderMenu({ col, children }: { col: Column; children: ReactNode }) {
         onClick={p.toggle}
         aria-haspopup="menu"
         aria-expanded={p.open}
-        className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 ${
+        className={`state-layer group flex w-full items-center gap-1.5 px-3 py-2.5 uppercase ${
           col.align === 'end' ? 'justify-end text-right' : 'text-left'
         } ${
           col.sorted !== undefined || col.filtered === true
@@ -160,7 +167,19 @@ function saveWidths(key: string, widths: Record<string, number>) {
 const MIN_COL = 56
 
 /**
+ * Whether a table sits inside another's unfolded row. The outer one is the
+ * tile; one inside it is drawn flat — no second tile, a ruled heading rather
+ * than a band — so an unfolded row reads as part of its table.
+ */
+const Nested = createContext(false)
+
+/**
  * A scrollable table. Wide content must never make the page scroll.
+ *
+ * Drawn on its own tile — the lightest surface, rounded and ringed — with its
+ * headings on a tinted band, so a table stands out from the card it sits on
+ * and its heading from its rows, in either theme. A table inside another's
+ * unfolded row is flat (Nested).
  *
  * `cap` bounds the height and pins the header inside it, for a list that grows
  * without limit: fifty rows is most of a screen, and a "load more" that
@@ -197,6 +216,7 @@ export function Table({
    */
   stack?: boolean
 }) {
+  const nested = useContext(Nested)
   const [widths, setWidths] = useState<Record<string, number>>(() =>
     resizable === undefined ? {} : loadWidths(resizable),
   )
@@ -237,7 +257,11 @@ export function Table({
   return (
     // isolate for the same reason the code viewer does: a capped table's
     // sticky heading needs to sit above its own rows, not above the page.
-    <div className={`isolate -mx-2 px-2 ${cap ? 'max-h-[30rem] overflow-auto' : 'overflow-x-auto'}`}>
+    <div
+      className={`isolate ${cap ? 'max-h-[30rem] overflow-auto' : 'overflow-x-auto'} ${
+        nested ? '' : 'rounded-md3-l bg-surface-lowest ring-1 ring-outline-variant/60'
+      }`}
+    >
       <table
         className={`text-sm [&_td]:align-middle ${stack ? 'table-stack' : ''} ${
           resizable === undefined
@@ -298,11 +322,19 @@ export function Table({
                         ? 'ascending'
                         : 'descending'
                   }
-                  className={`relative border-b border-outline text-xs font-semibold tracking-wide text-on-surface-variant uppercase ${
+                  className={`relative text-[11px] font-semibold tracking-wider text-on-surface-variant uppercase ${
                     col.align === 'end' ? 'text-right' : 'text-left'
                   } ${
-                    col.onSort === undefined && col.menu === undefined ? 'px-2 py-2' : 'p-0'
-                  } ${cap ? 'sticky top-0 z-10 bg-surface-container' : ''}`}
+                    // The table's edge inset is the cells': 20px. A heading
+                    // whose button carries 12px of it takes the other 8.
+                    col.onSort === undefined && col.menu === undefined
+                      ? 'px-3 py-2.5 first:pl-5 last:pr-5'
+                      : 'p-0 first:pl-2 last:pr-2'
+                  } ${
+                    nested
+                      ? `border-b border-outline-variant ${cap ? 'sticky top-0 z-10 bg-surface-lowest' : ''}`
+                      : `bg-surface-container ${cap ? 'sticky top-0 z-10' : ''}`
+                  }`}
                 >
                   {col.menu !== undefined ? (
                     <HeaderMenu col={col}>{col.menu}</HeaderMenu>
@@ -315,7 +347,7 @@ export function Table({
                       // direction, and handing it the click event straight
                       // would make every heading "sort by MouseEvent".
                       onClick={() => col.onSort?.()}
-                      className={`state-layer group flex w-full items-center gap-1.5 px-2 py-2 ${
+                      className={`state-layer group flex w-full items-center gap-1.5 px-3 py-2.5 uppercase ${
                         col.align === 'end' ? 'justify-end text-right' : 'text-left'
                       } ${
                         col.sorted ? 'text-on-surface' : 'hover:text-on-surface'
@@ -380,7 +412,9 @@ export function Table({
             })}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody>
+          <Nested.Provider value>{children}</Nested.Provider>
+        </tbody>
       </table>
     </div>
   )
@@ -407,13 +441,15 @@ export function Tr({
   selected?: boolean
   total?: boolean
 }) {
-  const rule = total ? 'border-t' : 'border-b last:border-0'
+  const rule = total ? 'border-t border-outline-variant' : 'border-b border-outline-variant/50 last:border-0'
   return (
     <tr
       onClick={onClick !== undefined ? rowClick(onClick) : undefined}
-      className={`${rule} border-outline-variant ${
-        onClick !== undefined ? 'state-layer cursor-pointer hover:bg-surface-container' : ''
-      } ${selected || total ? 'bg-surface-container/40' : ''}`}
+      className={`${rule} transition-colors hover:bg-surface-low ${
+        onClick !== undefined ? 'state-layer cursor-pointer' : ''
+      } ${selected ? 'bg-primary-container/25 hover:bg-primary-container/35' : ''} ${
+        total ? 'bg-surface-low font-medium' : ''
+      }`}
     >
       {children}
     </tr>
@@ -427,8 +463,8 @@ export function Tr({
  */
 export function TrDetail({ colSpan, children }: { colSpan: number; children: ReactNode }) {
   return (
-    <tr className="border-b border-outline-variant bg-surface-container/40 last:border-0">
-      <td colSpan={colSpan} className="px-2 pt-1 pb-4">
+    <tr className="border-b border-outline-variant/50 bg-primary-container/25 last:border-0">
+      <td colSpan={colSpan} className="px-4 pt-1 pb-4">
         {children}
       </td>
     </tr>
@@ -501,7 +537,7 @@ export function Td({
     <td
       colSpan={colSpan}
       data-label={label}
-      className={`px-2 py-2 ${muted ? 'text-on-surface-variant' : ''} ${nums ? 'tabular-nums' : ''} ${
+      className={`px-3 py-2.5 first:pl-5 last:pr-5 ${muted ? 'text-on-surface-variant' : ''} ${nums ? 'tabular-nums' : ''} ${
         nowrap ? 'whitespace-nowrap' : ''
       } ${max !== undefined ? MAX[max] : ''} ${align === 'end' ? 'text-right' : ''}`}
     >

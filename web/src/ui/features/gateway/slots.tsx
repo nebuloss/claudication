@@ -41,12 +41,10 @@ const NOUN: Record<Exclude<Dimension, 'status'>, string> = { model: 'model', key
  * accounts, each with its windows — so an idle week is not an empty page.
  */
 export function GatewayUsage({
-  title,
   by,
   always = false,
   children,
 }: {
-  title: string
   /** The breakdown the chart draws: the names the table lists. */
   by: Exclude<Dimension, 'status'>
   always?: boolean
@@ -86,9 +84,9 @@ export function GatewayUsage({
           <TrafficOf usage={data.usage} by={by} days={days} />
         )}
       </Card>
+      {/* No title: the first column names what the rows are, and the window
+          is the chart's, above. */}
       <TableCard
-        title={title}
-        aside={<Muted as="span" size="xs">over {lastDays(days)}</Muted>}
         ready={data !== null}
         empty={idle && !always ? <>Nothing proxied in {lastDays(days)}.</> : undefined}
       >
