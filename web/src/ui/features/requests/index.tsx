@@ -89,8 +89,12 @@ export default function RequestsPanel({ scope = {}, title }: { scope?: RequestSc
 
   // What is running now, at the top of what was recorded: a client's own, or
   // all — and none under an account, which a request is only leased to once
-  // it is sent.
-  const running = scope.account === undefined ? (scope.key ?? '') : null
+  // it is sent, nor while the operator has narrowed the log, since a running
+  // request has no status, tokens or message yet to match a filter by. The
+  // page's own scope is no narrowing: it was, and a client's Requests tab
+  // never showed its running requests at all.
+  const narrowed = filter.pinned().length > 0 || filter.status !== ''
+  const running = scope.account === undefined && !narrowed ? (scope.key ?? '') : null
   return <RecentRequests filter={filter.scopedTo(scope)} onNarrow={narrow} title={title} running={running} />
 }
 
@@ -126,9 +130,7 @@ function RecentRequests({
   useEffect(loadFacets, [loadFacets])
 
   const log = useRequestLog(filter, loadFacets)
-  // Only while nothing narrows the log: a running request has no status,
-  // tokens or message yet to match a filter by.
-  const live = useRunning(filter.pinned().length === 0 && filter.status === '' ? running : null)
+  const live = useRunning(running)
 
   // Clicking the column already in effect turns it around; clicking a new one
   // starts at the end people mean first — newest, biggest, longest.
