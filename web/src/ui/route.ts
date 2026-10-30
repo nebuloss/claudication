@@ -228,8 +228,27 @@ export type NavLevel = { back?: NavLink; items: NavLink[]; current: string }
 /** Names an account or a client by id, for the trail and the Back button. */
 export type Namer = (kind: 'accounts' | 'clients', id: string) => string
 
+/**
+ * The glyph each page leads with in the rail, by page rather than by section:
+ * Usage, Models and Requests are the same kind of page under an account, a
+ * client and the gateway, so they look the same under each. A page listed in
+ * a section's pages and not here is drawn without one, and a test says so.
+ */
+export const PAGE_ICONS: Record<string, IconName> = {
+  usage: 'usage',
+  models: 'models',
+  requests: 'requests',
+  chats: 'chats',
+  connection: 'connection',
+  advanced: 'advanced',
+  clients: 'clients',
+  accounts: 'accounts',
+  configuration: 'configuration',
+  diagnostics: 'diagnostics',
+}
+
 const links = (base: string, list: readonly Section[]): NavLink[] =>
-  list.map((s) => ({ href: `${base}/${s.id}`, label: s.label }))
+  list.map((s) => ({ href: `${base}/${s.id}`, label: s.label, icon: PAGE_ICONS[s.id] }))
 
 // The overview is the root itself, reached by the trail's home step, so it
 // is not one of the root's entries.

@@ -265,6 +265,11 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   // Settings lists its pages, as Gateway does, with the way back.
   check('settings opens on its general view from the top level', hrefs(lvl('/'))[3], '/settings')
   check('settings lists its pages', hrefs(lvl('/settings/models')), ['/settings/models', '/settings/configuration', '/settings/diagnostics'])
+  // Every entry of every rail leads with a glyph: a page added to a section
+  // without one in PAGE_ICONS would be the one bare row.
+  for (const path of ['/', '/accounts/a1/usage', '/clients/c1/usage', '/gateway/models', '/settings/models']) {
+    check(`every entry under ${path} has an icon`, lvl(path).items.filter((i) => i.icon === undefined).map((i) => i.label), [])
+  }
   check('the page open is current', lvl('/settings/models').current, '/settings/models')
   check('nothing is current on its general view', lvl('/settings').current, '/settings')
   check('and goes back to the main menu', lvl('/settings/models').back?.href, '/')
