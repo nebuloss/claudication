@@ -79,7 +79,7 @@ export function Breadcrumbs({
 /**
  * One step of the trail: a link, and — for a section, an account or a client —
  * a ▾ that lists the places beside it (SiblingMenu). The menu drops from the
- * whole crumb, left-aligned under it and at least as wide, so it reads as the
+ * whole crumb, left-aligned under it and exactly as wide, so it reads as the
  * crumb's own list rather than something beside it.
  */
 function Crumb({
@@ -93,7 +93,8 @@ function Crumb({
   last: boolean
   load?: (s: Siblings) => Promise<NavLink[]>
 }) {
-  const p = useAnchoredPanel<HTMLSpanElement>({ width: 240, matchAnchor: true, maxHeight: 420 })
+  // Exactly the crumb's width: the list is the crumb's own, dropped from it.
+  const p = useAnchoredPanel<HTMLSpanElement>({ width: 0, matchAnchor: true, maxHeight: 420 })
   const menu = c.siblings !== undefined && load !== undefined
   const what = c.siblings === undefined ? '' : c.siblings.kind === 'sections' ? 'sections' : c.siblings.kind
   return (
@@ -193,7 +194,9 @@ function SiblingList({
       live = false
     }
   }, [load, siblings])
-  // The crumb's own place, by its path: a sibling on the same item is this one.
+  // The crumb's own place, by its path: a sibling on the same item is this
+  // one. Marked by its fill alone: the list is as wide as the crumb, and a
+  // tick beside it cut the name it marks short.
   const isHere = (l: NavLink) => l.href === crumb.href || l.href.startsWith(`${crumb.href}/`)
   if (failed) return <p className="px-3 py-2 text-xs text-on-surface-variant">Could not read the {what}.</p>
   if (list === null) return <p className="px-3 py-2 text-xs text-on-surface-variant">Reading the {what}…</p>
@@ -223,11 +226,6 @@ function SiblingList({
               <span className="truncate">{l.label}</span>
               {l.detail !== undefined && <span className="truncate text-xs text-on-surface-variant">{l.detail}</span>}
             </span>
-            {here && (
-              <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-primary">
-                <path d={ICON.done} />
-              </svg>
-            )}
           </a>
         )
       })}
