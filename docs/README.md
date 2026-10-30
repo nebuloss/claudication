@@ -10,6 +10,7 @@ one rule that matters more than any of it.
 | [install.md](install.md) | Installing, the first run, configuration, reverse proxies, exposing it safely, updating, backups, building from source. |
 | [accounts.md](accounts.md) | Connecting Claude, ChatGPT and Google accounts, what each serves, and how their usage is read. |
 | [admin.md](admin.md) | The admin UI, clients' keys and limits, and the request history. |
+| [data-flow.md](data-flow.md) | How the admin UI gets its data and keeps it fresh, where that data changes, and the event channel proposed to replace polling. |
 | [models.md](models.md) | Model names, families, and where the gateway learns what a model can do. |
 | [relay.md](relay.md) | What the relay changes on the way upstream, and what it must never break. |
 | [endpoints.md](endpoints.md) | Every HTTP endpoint. |
