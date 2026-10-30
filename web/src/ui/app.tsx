@@ -199,7 +199,7 @@ export default function App() {
   // One value for the header, the nav and the page, so the tab underline stays
   // over its tab when the measure changes.
   const measure = MEASURE
-  const level = navLevel(here, nameOf)
+  const level = navLevel(here)
   const trail = trailOf(here, nameOf)
 
   return (

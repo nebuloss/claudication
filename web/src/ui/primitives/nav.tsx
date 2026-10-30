@@ -49,7 +49,10 @@ export function Breadcrumbs({
   return (
     <nav
       aria-label="Breadcrumb"
-      className="min-w-0 overflow-x-auto rounded-md3-full bg-primary-container p-1 text-on-primary-container"
+      // As wide as its trail rather than the page: a bar of empty colour
+      // past the last crumb was the widest thing in the header, and a menu
+      // dropping from a crumb lined up with nothing.
+      className="w-fit max-w-full min-w-0 overflow-x-auto rounded-md3-full bg-primary-container p-1 text-on-primary-container"
     >
       <ol className="m-0 flex min-w-max list-none items-center gap-0.5 p-0 text-sm">
         {trail.map((c, i) => {
@@ -65,35 +68,7 @@ export function Breadcrumbs({
                   you are on, and clicked like the others — it opens that
                   page from its top, which is also how to get back to the top
                   of a long one. */}
-              <span className="flex items-center">
-              <Tip tip={i === 0 ? c.label : undefined}>
-                <a
-                  href={c.href}
-                  onClick={follow(c.href)}
-                  aria-current={last ? 'page' : undefined}
-                  aria-label={i === 0 ? c.label : undefined}
-                  className={`state-layer flex items-center gap-1.5 truncate rounded-md3-full py-1.5 font-medium ${
-                    i === 0 ? 'px-2' : c.icon !== undefined ? 'pr-3 pl-2.5' : 'px-3'
-                  } ${last ? 'max-w-[28ch] bg-surface-lowest text-on-surface shadow-sm' : 'max-w-[24ch]'}`}
-                >
-                  {i === 0 ? (
-                    <HomeMark />
-                  ) : (
-                    <>
-                      {c.icon !== undefined && (
-                        <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current">
-                          <path d={ICON[c.icon]} />
-                        </svg>
-                      )}
-                      <span className="truncate">{c.label}</span>
-                    </>
-                  )}
-                </a>
-              </Tip>
-              {c.siblings !== undefined && siblingsOf !== undefined && (
-                <SiblingMenu crumb={c} siblings={c.siblings} load={siblingsOf} />
-              )}
-              </span>
+              <Crumb crumb={c} first={i === 0} last={last} load={siblingsOf} />
             </li>
           )
         })}
@@ -103,26 +78,112 @@ export function Breadcrumbs({
 }
 
 /**
- * A crumb's ▾: the places beside it, to go to without going up first — the
- * other sections, or the other accounts or clients, on the page of theirs
- * the trail is on. Read when it opens, so the bar costs nothing until asked.
+ * One step of the trail: a link, and — for a section, an account or a client —
+ * a ▾ that lists the places beside it (SiblingMenu). The menu drops from the
+ * whole crumb, left-aligned under it and at least as wide, so it reads as the
+ * crumb's own list rather than something beside it.
  */
-function SiblingMenu({
+function Crumb({
+  crumb: c,
+  first,
+  last,
+  load,
+}: {
+  crumb: NavLink
+  first: boolean
+  last: boolean
+  load?: (s: Siblings) => Promise<NavLink[]>
+}) {
+  const p = useAnchoredPanel<HTMLSpanElement>({ width: 240, matchAnchor: true, maxHeight: 420 })
+  const menu = c.siblings !== undefined && load !== undefined
+  const what = c.siblings === undefined ? '' : c.siblings.kind === 'sections' ? 'sections' : c.siblings.kind
+  return (
+    <span
+      ref={p.anchor}
+      className={`flex items-center rounded-md3-full ${last ? 'bg-surface-lowest text-on-surface shadow-sm' : ''} ${
+        p.open ? 'bg-on-primary-container/10' : ''
+      }`}
+    >
+      {/* Every step a link, the current one too: drawn as the page you are
+          on, and clicked like the others — it opens that page from its top,
+          which is also how to get back to the top of a long one. */}
+      <Tip tip={first ? c.label : undefined}>
+        <a
+          href={c.href}
+          onClick={follow(c.href)}
+          aria-current={last ? 'page' : undefined}
+          aria-label={first ? c.label : undefined}
+          className={`state-layer flex items-center gap-1.5 truncate rounded-md3-full py-1.5 font-medium ${
+            first ? 'px-2' : c.icon !== undefined ? 'pr-3 pl-2.5' : 'px-3'
+          } ${menu ? 'pr-1.5' : ''} ${last ? 'max-w-[28ch]' : 'max-w-[24ch]'}`}
+        >
+          {first ? (
+            <HomeMark />
+          ) : (
+            <>
+              {c.icon !== undefined && (
+                <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current">
+                  <path d={ICON[c.icon]} />
+                </svg>
+              )}
+              <span className="truncate">{c.label}</span>
+            </>
+          )}
+        </a>
+      </Tip>
+      {menu && (
+        <>
+          <Tip tip={p.open ? undefined : `Go to another of the ${what}`}>
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={p.open}
+              aria-label={`Other ${what}`}
+              onClick={p.toggle}
+              className="state-layer mr-1 grid size-6 shrink-0 place-items-center rounded-full opacity-70 hover:opacity-100"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                aria-hidden
+                className={`size-4 fill-current transition-transform ${p.open ? 'rotate-180' : ''}`}
+              >
+                <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
+              </svg>
+            </button>
+          </Tip>
+          {p.at !== null && (
+            <Popover panelRef={p.panel} at={p.at} role="menu" label={`Other ${what}`}>
+              <SiblingList crumb={c} siblings={c.siblings!} load={load!} what={what} onPick={p.close} />
+            </Popover>
+          )}
+        </>
+      )}
+    </span>
+  )
+}
+
+/**
+ * The places beside a crumb, to go to without going up first — the other
+ * sections, or the other accounts or clients, on the page of theirs the trail
+ * is on. Read when the menu opens, so the bar costs nothing until asked.
+ */
+function SiblingList({
   crumb,
   siblings,
   load,
+  what,
+  onPick,
 }: {
   crumb: NavLink
   siblings: Siblings
   load: (s: Siblings) => Promise<NavLink[]>
+  what: string
+  onPick: () => void
 }) {
-  const p = useAnchoredPanel({ width: 280, maxHeight: 420 })
   const [list, setList] = useState<NavLink[] | null>(null)
   const [failed, setFailed] = useState(false)
   useEffect(() => {
-    if (!p.open) return
     let live = true
-    setFailed(false)
     load(siblings).then(
       (l) => live && setList(l),
       () => live && setFailed(true),
@@ -130,72 +191,45 @@ function SiblingMenu({
     return () => {
       live = false
     }
-  }, [p.open, load, siblings])
-  const what = siblings.kind === 'sections' ? 'sections' : siblings.kind
+  }, [load, siblings])
   // The crumb's own place, by its path: a sibling on the same item is this one.
   const isHere = (l: NavLink) => l.href === crumb.href || l.href.startsWith(`${crumb.href}/`)
+  if (failed) return <p className="px-3 py-2 text-xs text-on-surface-variant">Could not read the {what}.</p>
+  if (list === null) return <p className="px-3 py-2 text-xs text-on-surface-variant">Reading the {what}…</p>
+  if (list.length === 0) return <p className="px-3 py-2 text-xs text-on-surface-variant">No other {what}.</p>
   return (
     <>
-      <Tip tip={p.open ? undefined : `Go to another of the ${what}`}>
-        <button
-          ref={p.anchor}
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={p.open}
-          aria-label={`Other ${what}`}
-          onClick={p.toggle}
-          className="state-layer -ml-1 grid size-6 shrink-0 place-items-center rounded-full opacity-70 hover:opacity-100"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden className={`size-4 fill-current transition-transform ${p.open ? 'rotate-180' : ''}`}>
-            <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
-          </svg>
-        </button>
-      </Tip>
-      {p.at !== null && (
-        <Popover panelRef={p.panel} at={p.at} role="menu" label={`Other ${what}`}>
-          {failed ? (
-            <p className="px-3 py-2 text-xs text-on-surface-variant">Could not read the {what}.</p>
-          ) : list === null ? (
-            <p className="px-3 py-2 text-xs text-on-surface-variant">Reading the {what}…</p>
-          ) : list.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-on-surface-variant">No other {what}.</p>
-          ) : (
-            list.map((l) => {
-              const here = isHere(l)
-              return (
-                <a
-                  key={l.href}
-                  role="menuitem"
-                  href={l.href}
-                  aria-current={here ? 'page' : undefined}
-                  onClick={(e) => {
-                    follow(l.href)(e)
-                    p.close()
-                  }}
-                  className={`${menuItem({ selected: here })} flex items-center gap-2`}
-                >
-                  {l.icon !== undefined && (
-                    <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current opacity-70">
-                      <path d={ICON[l.icon]} />
-                    </svg>
-                  )}
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate">{l.label}</span>
-                    {l.detail !== undefined && (
-                      <span className="truncate text-xs text-on-surface-variant">{l.detail}</span>
-                    )}
-                  </span>
-                  {here && (
-                    <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-primary">
-                      <path d={ICON.done} />
-                    </svg>
-                  )}
-                </a>
-              )
-            })
-          )}
-        </Popover>
-      )}
+      {list.map((l) => {
+        const here = isHere(l)
+        return (
+          <a
+            key={l.href}
+            role="menuitem"
+            href={l.href}
+            aria-current={here ? 'page' : undefined}
+            onClick={(e) => {
+              follow(l.href)(e)
+              onPick()
+            }}
+            className={`${menuItem({ selected: here })} flex items-center gap-2`}
+          >
+            {l.icon !== undefined && (
+              <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current opacity-70">
+                <path d={ICON[l.icon]} />
+              </svg>
+            )}
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate">{l.label}</span>
+              {l.detail !== undefined && <span className="truncate text-xs text-on-surface-variant">{l.detail}</span>}
+            </span>
+            {here && (
+              <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-primary">
+                <path d={ICON.done} />
+              </svg>
+            )}
+          </a>
+        )
+      })}
     </>
   )
 }
@@ -254,17 +288,13 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
             </Tip>
           </li>
         )}
-        {/* Whose pages these are, over them: the section, or the account or
-            client — so the rail says where it is as well as where up goes.
+        {/* Whose pages these are, over them: the section — so the rail says
+            where it is as well as where up goes.
             Not in the row a phone gets, which the path bar above already
             heads. */}
         {level.here !== undefined && !row && (
           <li
-            // A section's name in capitals, as the rail's other headings; an
-            // account's address or a client's name as it is written.
-            className={`flex min-w-0 items-center gap-2 px-4 pt-1 pb-1 text-xs font-semibold text-on-surface-variant ${
-              level.here.icon !== undefined ? 'tracking-wide uppercase' : ''
-            }`}
+            className="flex min-w-0 items-center gap-2 px-4 pt-1 pb-1 text-xs font-semibold tracking-wide text-on-surface-variant uppercase"
             aria-hidden
           >
             {level.here.icon !== undefined && (

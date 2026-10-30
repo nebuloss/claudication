@@ -240,7 +240,10 @@ export type NavLink = {
 export type NavLevel = {
   /** The level above, named as itself, with its own glyph. */
   back?: NavLink
-  /** The place whose pages these are — a section, an account, a client — as the rail heads them. */
+  /**
+   * The section whose pages these are, as the rail heads them. Not an
+   * account or a client: the trail and the page's own title name it already.
+   */
   here?: NavLink
   items: NavLink[]
   current: string
@@ -286,15 +289,14 @@ const HOME: NavLink = { href: '/', label: 'Overview', icon: 'home' }
 /** The first step of every trail: the gateway's overview, at the root. */
 export const ROOT_CRUMB: NavLink = { href: '/', label: 'Overview' }
 
-/** The navigation level of a canonical path; `name` names an account or a client heading its pages. */
-export function navLevel(pathname: string, name?: Namer): NavLevel {
+/** The navigation level of a canonical path. */
+export function navLevel(pathname: string): NavLevel {
   const [top, id, page] = segments(pathname)
   if ((top === 'accounts' || top === 'clients') && id !== undefined) {
     const base = pathOf(top, id)
     const list = TABS.find((t) => t.id === top)!
     return {
       back: { href: pathOf(top), label: list.label, icon: sectionIcon(list) },
-      here: { href: base, label: name !== undefined ? name(top, id) : id },
       items: links(base, pagesOf(top)),
       // On the item's overview, no entry: the overview is the item itself.
       current: page === undefined ? base : `${base}/${page}`,
