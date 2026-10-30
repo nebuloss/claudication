@@ -78,9 +78,13 @@ export function Breadcrumbs({
 
 /**
  * One step of the trail: a link, and — for a section, an account or a client —
- * a ▾ that lists the places beside it (SiblingMenu). The menu drops from the
- * whole crumb, left-aligned under it and exactly as wide, so it reads as the
- * crumb's own list rather than something beside it.
+ * a ▾ that lists the places beside it. The list drops from the whole crumb,
+ * left-aligned under it and exactly as wide, so it reads as the crumb's own.
+ *
+ * So that no name in the list is cut short, the crumb is as wide as the
+ * widest of them: its siblings are known up front — the sections are, an
+ * account's or a client's are read when the crumb appears — and every name
+ * is laid in one cell of the crumb's label, the crumb's own the only one seen.
  */
 function Crumb({
   crumb: c,
@@ -93,10 +97,26 @@ function Crumb({
   last: boolean
   load?: (s: Siblings) => Promise<NavLink[]>
 }) {
-  // Exactly the crumb's width: the list is the crumb's own, dropped from it.
   const p = useAnchoredPanel<HTMLSpanElement>({ width: 0, matchAnchor: true, maxHeight: 420 })
   const menu = c.siblings !== undefined && load !== undefined
   const what = c.siblings === undefined ? '' : c.siblings.kind === 'sections' ? 'sections' : c.siblings.kind
+  const key = c.siblings === undefined ? '' : JSON.stringify(c.siblings)
+  const [list, setList] = useState<NavLink[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    if (!menu || c.siblings === undefined || load === undefined) return
+    let live = true
+    setFailed(false)
+    load(c.siblings).then(
+      (l) => live && setList(l),
+      () => live && setFailed(true),
+    )
+    return () => {
+      live = false
+    }
+    // Keyed by what the siblings are, not the object, which is new each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, p.open])
   return (
     <span
       ref={p.anchor}
@@ -113,9 +133,9 @@ function Crumb({
           onClick={follow(c.href)}
           aria-current={last ? 'page' : undefined}
           aria-label={first ? c.label : undefined}
-          className={`state-layer flex items-center gap-1.5 truncate rounded-md3-full py-1.5 font-medium ${
+          className={`state-layer flex items-center gap-1.5 rounded-md3-full py-1.5 font-medium ${
             first ? 'px-2' : c.icon !== undefined ? 'pr-3 pl-2.5' : 'px-3'
-          } ${menu ? 'pr-1.5' : ''} ${last ? 'max-w-[28ch]' : 'max-w-[24ch]'}`}
+          } ${menu ? 'pr-1.5' : last ? 'max-w-[28ch] truncate' : 'max-w-[24ch] truncate'}`}
         >
           {first ? (
             <HomeMark />
@@ -126,7 +146,20 @@ function Crumb({
                   <path d={ICON[c.icon]} />
                 </svg>
               )}
-              <span className="truncate">{c.label}</span>
+              {menu ? (
+                // Every sibling's name in one cell: the cell is as wide as the
+                // widest, and only the crumb's own is seen.
+                <span className="grid whitespace-nowrap">
+                  <span className="col-start-1 row-start-1">{c.label}</span>
+                  {(list ?? []).map((l) => (
+                    <span key={l.href} aria-hidden className="invisible col-start-1 row-start-1">
+                      {l.label}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span className="truncate">{c.label}</span>
+              )}
             </>
           )}
         </a>
@@ -155,7 +188,7 @@ function Crumb({
           </Tip>
           {p.at !== null && (
             <Popover panelRef={p.panel} at={p.at} role="menu" label={`Other ${what}`}>
-              <SiblingList crumb={c} siblings={c.siblings!} load={load!} what={what} onPick={p.close} />
+              <SiblingList crumb={c} list={list} failed={failed} what={what} onPick={p.close} />
             </Popover>
           )}
         </>
@@ -167,36 +200,23 @@ function Crumb({
 /**
  * The places beside a crumb, to go to without going up first — the other
  * sections, or the other accounts or clients, on the page of theirs the trail
- * is on. Read when the menu opens, so the bar costs nothing until asked.
+ * is on. Read again each time the menu opens, so it is current.
  */
 function SiblingList({
   crumb,
-  siblings,
-  load,
+  list,
+  failed,
   what,
   onPick,
 }: {
   crumb: NavLink
-  siblings: Siblings
-  load: (s: Siblings) => Promise<NavLink[]>
+  list: NavLink[] | null
+  failed: boolean
   what: string
   onPick: () => void
 }) {
-  const [list, setList] = useState<NavLink[] | null>(null)
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
-    let live = true
-    load(siblings).then(
-      (l) => live && setList(l),
-      () => live && setFailed(true),
-    )
-    return () => {
-      live = false
-    }
-  }, [load, siblings])
   // The crumb's own place, by its path: a sibling on the same item is this
-  // one. Marked by its fill alone: the list is as wide as the crumb, and a
-  // tick beside it cut the name it marks short.
+  // one. Marked by its fill alone, which takes no room from its name.
   const isHere = (l: NavLink) => l.href === crumb.href || l.href.startsWith(`${crumb.href}/`)
   if (failed) return <p className="px-3 py-2 text-xs text-on-surface-variant">Could not read the {what}.</p>
   if (list === null) return <p className="px-3 py-2 text-xs text-on-surface-variant">Reading the {what}…</p>
@@ -222,9 +242,9 @@ function SiblingList({
                 <path d={ICON[l.icon]} />
               </svg>
             )}
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate">{l.label}</span>
-              {l.detail !== undefined && <span className="truncate text-xs text-on-surface-variant">{l.detail}</span>}
+            <span className="flex min-w-0 flex-1 flex-col whitespace-nowrap">
+              <span>{l.label}</span>
+              {l.detail !== undefined && <span className="text-xs text-on-surface-variant">{l.detail}</span>}
             </span>
           </a>
         )
