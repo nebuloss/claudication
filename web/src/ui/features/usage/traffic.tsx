@@ -19,7 +19,7 @@ import { compact } from '../../format'
  * Overview used to draw its own columns and Usage its own bars, which meant
  * two places deciding what a colour meant and two places to fix when the
  * answer changed. Which breakdown is the page's to say, not a tab bar's
- * inside the chart: Activity draws each on the page whose table holds the
+ * inside the chart: Gateway draws each on the page whose table holds the
  * same names — models over the models, outcomes over the request log.
  */
 

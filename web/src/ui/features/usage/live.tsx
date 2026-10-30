@@ -4,7 +4,7 @@ import { compact } from '../../format'
 /**
  * Requests per minute over the last hour, a column a minute, the newest on
  * the right: a client's live view on its Usage page and the gateway's on
- * Activity, which the server counts the same way (refusals included: this is
+ * Gateway, which the server counts the same way (refusals included: this is
  * the load arriving). One drawing for both, so the two strips read alike and
  * a client's can be held against the gateway's.
  */

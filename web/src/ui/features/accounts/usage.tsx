@@ -59,7 +59,7 @@ function AccountNow({ account: a, onChanged }: { account: Account; onChanged: ()
  * — unfolded — the names and models it used here with every token kind.
  *
  * The same rows as a client's own Usage page, read for one account, so the
- * two add up; and the same table as Activity's, which reads them for the
+ * two add up; and the same table as Gateway's, which reads them for the
  * whole gateway.
  */
 function AccountClients({ accountId }: { accountId: string }) {

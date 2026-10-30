@@ -17,7 +17,7 @@ type ModelUse = Rollup & { model: string; provider: string }
  * models. The model with its provider, because two providers can serve a
  * model of the same name and they are separate budgets.
  */
-export default function ActivityModels() {
+export default function GatewayModels() {
   return (
     <GatewayUsage title="Models" by="model">
       {({ rows }) => {

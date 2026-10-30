@@ -3,20 +3,24 @@ import { api } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { Card, Loading, Muted, Stack, Stat, StatGrid } from '../../primitives'
 import { compact } from '../../format'
+import { AvailabilityCard } from '../status'
 import { PerMinute } from '../usage/live'
 import { DEFAULT_DAYS, TrafficOf, WINDOWS } from './slots'
 import { READS } from '../../../api/live'
 
 /**
- * Activity's own page: the gateway's load. The last hour live, then the
+ * Gateway's own page: the gateway's load. The last hour live, then the
  * requests by outcome over days — is it failing now, has it been failing —
- * before the pages under it break the traffic down.
+ * and whether it was up, before the pages under it break the traffic down.
+ * Availability lives here rather than on the Overview, which says only what
+ * needs the operator: an incident of the last day is one of its notices.
  */
-export default function ActivityOverview() {
+export default function GatewayOverview() {
   return (
     <Stack>
       <LastHour />
       <Outcomes />
+      <AvailabilityCard />
     </Stack>
   )
 }

@@ -809,7 +809,7 @@ export interface ClientLive {
   history_recorded: boolean
 }
 
-/** What the whole gateway is doing now, for Activity's Requests page: a client's live figures without its limits. */
+/** What the whole gateway is doing now, for Gateway's Requests page: a client's live figures without its limits. */
 export type GatewayLive = Pick<ClientLive, 'per_minute' | 'since' | 'in_flight' | 'history_recorded'>
 
 /** Limits read off a client's own history. */

@@ -5,7 +5,7 @@ import type { SlotUse } from '../../../api/client'
  * account's.
  *
  * Every usage table is one of these over the same SlotUse rows — an account's
- * clients, a client's model names, and Activity's models, clients and
+ * clients, a client's model names, and Gateway's models, clients and
  * accounts — so the tables add up to one another because they are the same
  * rows folded differently, not because separate queries happen to agree.
  * Pure, so the arithmetic is checked under node (make test-web).

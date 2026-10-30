@@ -3,7 +3,11 @@
 Five screens, at the gateway's own address. Each page has a path of its own, so
 a link to one opens on it.
 
-**Overview** — whether the gateway can serve a request, and today's traffic.
+**Overview** — what needs the operator now, and whether the gateway can serve
+a request: its notices (an account to sign in again, a model failing
+everywhere, a client whose requests keep failing, an incident of the last
+day, each a link to where it is dealt with), today's traffic and its memory.
+The bell in the header carries the same notices on every page.
 
 **Accounts** — the Claude, ChatGPT and Google accounts the pool draws on, each
 provider's in its own priority order, each showing its 5-hour and 7-day
@@ -13,16 +17,18 @@ subscription usage, which clients drew on it, and a switch to pause it.
 model names, its usage with its limits beside it, its chats and its requests,
 a switch to turn it off, and one to shrink images Claude would refuse.
 
-**Activity** — where the traffic went, by model, by client and by account,
-each with its traffic over days above its table; and the requests: the last
-hour live, the outcomes over days, and the request log, every client's, with
-the upstream's own error text, paged back as far as retention keeps it.
+**Gateway** — the last hour live, the outcomes over days and the
+availability history, its 90 days and incidents behind History; where the
+traffic went, by model, by client and by account, each with its traffic over
+days above its table; and the request log, every client's, with the
+upstream's own error text, paged back as far as retention keeps it.
 
 **Settings** — a page each: **General**, the Gateway switch and the admin
 password and sessions; **Models**, how each provider's models are offered (by
 family, the default, or every model), which version each family serves (the
 latest, per account, or one for the gateway) and which account serves which; **MCP**, the MCP server's switch and address;
-**Configuration**, the configuration as loaded.
+**Configuration**, the configuration as loaded; **Diagnostics**, how changes
+reach the screens.
 
 ## Clients, keys and limits
 

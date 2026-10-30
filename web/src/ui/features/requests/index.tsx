@@ -67,7 +67,7 @@ function chipValue(value: string): string {
  * scope is in the path, so it is always applied and never written into the
  * query string, and the rest of the filter is.
  *
- * `title` is for a log that sits in a card among others, as on Activity's
+ * `title` is for a log that sits in a card among others, as on Gateway's
  * Requests page: the heading takes the toolbar's row, beside its actions,
  * rather than a row of its own above them.
  */

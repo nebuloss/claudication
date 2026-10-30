@@ -67,11 +67,11 @@ function emptyFields(): FilterFields {
   }
 }
 
-/** Where a scope's request log is: the item's own Requests page, or Activity. */
+/** Where a scope's request log is: the item's own Requests page, or Gateway. */
 function logPath(scope: RequestScope): string {
   if (scope.account !== undefined) return pathOf('accounts', scope.account, 'requests')
   if (scope.key !== undefined) return pathOf('clients', scope.key, 'requests')
-  return '/activity/requests'
+  return '/gateway/requests'
 }
 
 export class RequestFilter {
@@ -189,7 +189,7 @@ export class RequestFilter {
   /**
    * A link to the log, on the page it belongs to: narrowed to one account or
    * one key and not the other, that item's own Requests page, where the rest
-   * of its pages are a tab away; otherwise Activity's.
+   * of its pages are a tab away; otherwise Gateway's.
    */
   href(): string {
     const { account, key } = this.fields

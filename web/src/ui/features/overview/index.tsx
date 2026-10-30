@@ -4,7 +4,6 @@ import {
   type Overview as OverviewData,
 } from '../../../api/client'
 import { NoticesCard } from '../notices'
-import { AvailabilityCard } from '../status'
 import { useLoader } from '../../hooks'
 import {
   Banner,
@@ -58,18 +57,24 @@ function MemoryCard({ memory }: { memory: MemorySnapshot }) {
           </MeterRow>
         </div>
       )}
-      <StatGrid>
-        <Stat
-          label="Heap in use"
-          value={mib(memory.heap_in_use_bytes)}
-          hint={
-            memory.heap_limit_bytes > 0 ? `target ${mib(memory.heap_limit_bytes)}` : 'no target'
-          }
-        />
-        <Stat label="Idle" value={mib(memory.heap_idle_bytes)} hint="not yet returned" />
-        <Stat label="Goroutines" value={memory.goroutines} hint="streams and workers" />
-        <Stat label="Collections" value={compact(memory.gc_cycles)} hint="since start" />
-      </StatGrid>
+      {/* One line rather than four tiles: they explain the figure above, and
+          as tiles they were a screen's worth of the Overview. */}
+      <p className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-on-surface-variant">
+        <span>
+          heap <span className="text-on-surface tabular-nums">{mib(memory.heap_in_use_bytes)}</span>
+          {memory.heap_limit_bytes > 0 ? ` of a ${mib(memory.heap_limit_bytes)} target` : ''}
+        </span>
+        <span>
+          idle <span className="text-on-surface tabular-nums">{mib(memory.heap_idle_bytes)}</span> not yet
+          returned
+        </span>
+        <span>
+          <span className="text-on-surface tabular-nums">{memory.goroutines}</span> goroutines
+        </span>
+        <span>
+          <span className="text-on-surface tabular-nums">{compact(memory.gc_cycles)}</span> collections
+        </span>
+      </p>
     </Card>
   )
 }
@@ -172,8 +177,6 @@ export default function Overview() {
           </div>
         )}
       </Card>
-
-      <AvailabilityCard />
 
       {data.memory !== undefined && <MemoryCard memory={data.memory} />}
 

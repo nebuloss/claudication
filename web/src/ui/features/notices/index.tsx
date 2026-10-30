@@ -78,7 +78,7 @@ function NoticeList({ notices, onOpen }: { notices: Notice[]; onOpen?: () => voi
   )
 }
 
-/** The Overview's card: every notice, in a box that scrolls past a dozen. */
+/** The Overview's card: every notice, in a box that scrolls past five or so, so Status stays on the first screen. */
 export function NoticesCard() {
   const { data } = useNotices()
   if (data === null) return null
@@ -99,7 +99,7 @@ export function NoticesCard() {
       {data.length === 0 ? (
         <Muted size="xs">No account, model or client needs attention now.</Muted>
       ) : (
-        <div className="max-h-96 overflow-y-auto overscroll-contain pr-2">
+        <div className="max-h-64 overflow-y-auto overscroll-contain pr-2">
           <NoticeList notices={data} />
         </div>
       )}

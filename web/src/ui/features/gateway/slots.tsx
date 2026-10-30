@@ -7,7 +7,7 @@ import { Traffic, type Dimension } from '../usage/traffic'
 import { READS } from '../../../api/live'
 
 /**
- * The windows Activity is read over: a week, a fortnight, a month — one
+ * The windows Gateway is read over: a week, a fortnight, a month — one
  * picker per page, driving its chart and its table together, so the lines
  * and the rows under them are the same days.
  *
@@ -24,7 +24,7 @@ export const DEFAULT_DAYS = 7
 export type GatewaySlots = { rows: SlotUse[]; shares: Record<string, SubscriptionShare> }
 
 /**
- * One of Activity's breakdowns in its card: the window picker and the
+ * One of Gateway's breakdowns in its card: the window picker and the
  * freshness in the header, then the traffic over those days by the same
  * names as the table, then the table, drawn by the page from the gateway-wide
  * rows. The loading, failed and empty states are said the same way on all

@@ -354,7 +354,7 @@ const gateway = {
   config: (signal?: AbortSignal) => http.get<GatewayConfig>('/admin/config', signal),
   live: (signal?: AbortSignal) => http.get<LiveStats>('/admin/live', signal),
   notices: async (signal?: AbortSignal): Promise<Notice[]> =>
-    (await http.get<{ notices: Notice[] }>('/admin/notices', signal)).notices,
+    (await http.get<{ notices: Notice[] | null }>('/admin/notices', signal)).notices ?? [],
 
   setServing: (enabled: boolean) => http.send('POST', '/admin/gateway', { body: { enabled } }),
 
@@ -377,7 +377,7 @@ const traffic = {
 
   /**
    * Every client's traffic by account, model name and model, and each
-   * client's share of the windows: Activity's Models, Clients and Accounts
+   * client's share of the windows: Gateway's Models, Clients and Accounts
    * tables are all folded from these rows.
    */
   slots: async (days: number, signal?: AbortSignal) => {

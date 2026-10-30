@@ -12,6 +12,7 @@ import (
 
 	"claudication/internal/httpapi/httpx"
 	"claudication/internal/memlimit"
+	"claudication/internal/service/uptime"
 	"claudication/internal/store"
 )
 
@@ -63,6 +64,9 @@ const (
 	memoryNear = 0.85
 	// How far back a billing refusal is still news.
 	refusalWindow = time.Hour
+	// How far back an incident is still news: the Gateway page keeps the
+	// 90 days.
+	incidentWindow = 24 * time.Hour
 )
 
 // handleNotices is the gateway's current problems, the worst first.
@@ -77,7 +81,8 @@ func (s *Admin) handleNotices(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Admin) notices(ctx context.Context, now time.Time) ([]notice, error) {
-	var out []notice
+	// Empty rather than nil: none is a list with nothing in it, not null.
+	out := []notice{}
 	add := func(n notice) { out = append(out, n) }
 
 	if !s.serving.On() {
@@ -95,6 +100,12 @@ func (s *Admin) notices(ctx context.Context, now time.Time) ([]notice, error) {
 			Title: fmt.Sprintf("The gateway is using %.0f%% of its memory limit", 100*float64(m.RSS)/float64(m.Limit)),
 			Detail: fmt.Sprintf("%d MiB of %d MiB: past the limit, the system stops it.",
 				m.RSS>>20, m.Limit>>20)})
+	}
+
+	if s.uptime != nil {
+		if rep, err := s.uptime.Report(ctx); err == nil {
+			incidentNotices(rep.Incidents, now, add)
+		}
 	}
 
 	accounts, err := s.store.ListAccounts(ctx)
@@ -143,7 +154,7 @@ func (s *Admin) notices(ctx context.Context, now time.Time) ([]notice, error) {
 		add(notice{ID: "content-check", Severity: noticeWarn, Kind: "gateway", Provider: "anthropic",
 			Title:  fmt.Sprintf("Anthropic refused %d %s in the last hour as a third-party app", n, plural(n, "request", "requests")),
 			Detail: "“Third-party apps now draw from your extra usage”: refused for what the request contained, not the account. docs/refused-requests.md has the triggers found so far.",
-			Link:   "/activity/requests?code=content_check",
+			Link:   "/gateway/requests?code=content_check",
 			Since:  last})
 	}
 
@@ -308,6 +319,34 @@ func (s *Admin) clientNotices(ctx context.Context, now time.Time, add func(notic
 	return nil
 }
 
+// incidentNotices: the gateway down or degraded in the last day, or now. The
+// report's incidents are newest first.
+func incidentNotices(incidents []uptime.Incident, now time.Time, add func(notice)) {
+	for _, in := range incidents {
+		start := time.UnixMilli(in.Start)
+		end := now
+		if in.End != nil {
+			end = time.UnixMilli(*in.End)
+		}
+		if now.Sub(end) > incidentWindow {
+			return
+		}
+		state := in.State
+		n := notice{ID: fmt.Sprintf("incident:%d", in.Start), Kind: "gateway", Link: "/gateway", Since: start}
+		if in.End == nil {
+			n.Severity = noticeError
+			n.Title = fmt.Sprintf("The gateway is %s, for %s so far", state, roughly(end.Sub(start)))
+		} else {
+			n.Severity = noticeWarn
+			if state == "degraded" {
+				n.Severity = noticeInfo
+			}
+			n.Title = fmt.Sprintf("The gateway was %s for %s", state, roughly(end.Sub(start)))
+		}
+		add(n)
+	}
+}
+
 func sortedKeys(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -334,5 +373,5 @@ func roughly(d time.Duration) string {
 	case d >= 2*time.Minute:
 		return fmt.Sprintf("%d minutes", int(d.Minutes()))
 	}
-	return "moments"
+	return "a minute"
 }

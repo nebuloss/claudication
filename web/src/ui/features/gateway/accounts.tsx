@@ -24,7 +24,7 @@ type AccountUse = Rollup & { account?: Account; name: string }
  * account since removed is listed by the name its history kept, for as long
  * as it has traffic in the window.
  */
-export default function ActivityAccounts() {
+export default function GatewayAccounts() {
   const list = useLoader((signal) => api.accounts.list(signal), { on: READS.accounts })
   const accounts = list.data?.accounts ?? null
   if (accounts === null) {

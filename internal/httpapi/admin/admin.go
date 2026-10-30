@@ -23,6 +23,7 @@ import (
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/settings"
+	"claudication/internal/service/uptime"
 	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
 )
@@ -55,6 +56,7 @@ type Admin struct {
 	facets         facetCache
 	hub            *live.Hub
 	reads          readCache
+	uptime         *uptime.Sampler
 }
 
 // Deps is what an Admin is built from. Every field is required.
@@ -95,6 +97,9 @@ type Deps struct {
 	// Hub is told every change, and tells the tabs that show it
 	// (docs/data-architecture.md).
 	Hub *live.Hub
+	// Uptime is the availability history, whose recent incidents are
+	// notices.
+	Uptime *uptime.Sampler
 }
 
 // Models is what the admin screens read of the gateway's model list: the same
@@ -149,7 +154,7 @@ func New(d Deps) *Admin {
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
 		availability: d.Availability, modelChecks: d.ModelChecks, running: d.Running,
-		hub: d.Hub,
+		hub: d.Hub, uptime: d.Uptime,
 	}
 }
 
@@ -246,7 +251,7 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	// Thirty seconds for what time alone changes: a sign-in nearing its end,
 	// a client's failures leaving the window, the process's memory.
 	mux.Handle("GET /admin/notices", cached("notices", 30*time.Second, s.handleNotices,
-		live.Accounts, live.Quota, live.Pool, live.Models, live.Clients, live.Requests, live.Settings))
+		live.Accounts, live.Quota, live.Pool, live.Models, live.Clients, live.Requests, live.Settings, live.Uptime))
 	mux.Handle("GET /admin/requests/running", admin(s.handleRunning))
 	mux.Handle("GET /admin/usage/slots", cached("slots", 30*time.Second, s.handleGatewaySlots,
 		live.Clients, live.Accounts, live.Requests))

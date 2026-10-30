@@ -10,7 +10,7 @@ import { byTokens, rollup, tokensOf, withoutAccount, type Rollup } from './rollu
 /**
  * The usage tables: one implementation of a table of rollups, and the tables
  * built on it — by client, by model name — that the account's, the client's
- * and Activity's pages all draw with. One, so a figure is formatted, aligned
+ * and Gateway's pages all draw with. One, so a figure is formatted, aligned
  * and stacked on a phone the same way wherever it is read, and a fix to one
  * table is a fix to all of them.
  */
@@ -138,7 +138,7 @@ export function Share({ points }: { points: number | undefined }) {
 
 /**
  * One window's part of a client: the points, and whose window it is when a
- * column holds several — the gateway's clients on Activity, against each
+ * column holds several — the gateway's clients on Gateway, against each
  * provider's pool. Named only then: on one account, or one provider, the
  * heading says it all.
  */
@@ -202,7 +202,7 @@ function slotsOf(rows: readonly SlotUse[]): string {
 }
 
 /**
- * Usage by client: an account's own page, and on Activity the gateway's, a
+ * Usage by client: an account's own page, and on Gateway the gateway's, a
  * model's and an account's clients. A row each, its share of each window
  * given, its figures, and — where `detail` is on — unfolded to the model
  * names and models it used.

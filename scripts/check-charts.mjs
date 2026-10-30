@@ -216,12 +216,12 @@ check('an account has no chats: a chat is a client\'s', canonical('/accounts/a1/
 check('a client has', canonical('/clients/c1/chats'), '/clients/c1/chats')
 check('and its usage, limits beside it', canonical('/clients/c1/usage'), '/clients/c1/usage')
 check('an unknown page is its overview', canonical('/clients/c1/nonesuch'), '/clients/c1')
-check('activity is its own overview', canonical('/activity'), '/activity')
-check('its tables are pages', canonical('/activity/models'), '/activity/models')
-check('the request log too', canonical('/activity/requests'), '/activity/requests')
-check('chats are not on activity', canonical('/activity/chats'), '/activity')
+check('gateway is its own overview', canonical('/gateway'), '/gateway')
+check('its tables are pages', canonical('/gateway/models'), '/gateway/models')
+check('the request log too', canonical('/gateway/requests'), '/gateway/requests')
+check('chats are not on gateway', canonical('/gateway/chats'), '/gateway')
 // Its overview is its own path, not a page named overview under it.
-check('nor an overview page', canonical('/activity/overview'), '/activity')
+check('nor an overview page', canonical('/gateway/overview'), '/gateway')
 // Ids are encoded once, whatever they hold.
 check('an id is kept encoded', canonical('/clients/a%2Fb'), '/clients/a%2Fb')
 check('and decoded when read', segments('/clients/a%2Fb/usage'), ['clients', 'a/b', 'usage'])
@@ -232,7 +232,7 @@ check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts
 check('a client page too', tab('/clients/c1/requests'), 'clients')
 // Round trip: every canonical path is its own canonical form.
 {
-  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/activity/models', '/activity/accounts', '/activity/requests', '/settings', '/settings/models']
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/gateway/models', '/gateway/accounts', '/gateway/requests', '/settings', '/settings/models']
   check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
 }
 
@@ -245,13 +245,13 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
 
   check('the top level has no way up', lvl('/').back, undefined)
   // The overview is the root itself, reached by the trail's first step.
-  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'Clients', 'Activity', 'Settings'])
+  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'Clients', 'Gateway', 'Settings'])
   check('a list is on the top level', lvl('/clients').current, '/clients')
-  check('activity opens on its overview', hrefs(lvl('/'))[2], '/activity')
-  check('activity lists its four pages', hrefs(lvl('/activity/clients')), [
-    '/activity/models', '/activity/clients', '/activity/accounts', '/activity/requests',
+  check('gateway opens on its overview', hrefs(lvl('/'))[2], '/gateway')
+  check('gateway lists its four pages', hrefs(lvl('/gateway/clients')), [
+    '/gateway/models', '/gateway/clients', '/gateway/accounts', '/gateway/requests',
   ])
-  check('and the page open is current', lvl('/activity/clients').current, '/activity/clients')
+  check('and the page open is current', lvl('/gateway/clients').current, '/gateway/clients')
   check('an account lists its pages in a client\'s order', hrefs(lvl('/accounts/a1/usage')), [
     '/accounts/a1/usage', '/accounts/a1/models',
     '/accounts/a1/requests', '/accounts/a1/connection', '/accounts/a1/advanced',
@@ -262,7 +262,7 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
   check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')
   check('and goes back to the list', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients' })
-  // Settings lists its pages, as Activity does, with the way back.
+  // Settings lists its pages, as Gateway does, with the way back.
   check('settings opens on its general view from the top level', hrefs(lvl('/'))[3], '/settings')
   check('settings lists its pages', hrefs(lvl('/settings/models')), ['/settings/models', '/settings/configuration', '/settings/diagnostics'])
   check('the page open is current', lvl('/settings/models').current, '/settings/models')
@@ -277,10 +277,10 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('a settings page', trail('/settings/models'), ['Overview', 'Settings', 'Models'])
   check('a client is its name, not its name then Overview', trail('/clients/c1'), ['Overview', 'Clients', 'clients:c1'])
   check('a page of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
-  check('an activity page', trail('/activity/requests'), ['Overview', 'Activity', 'Requests'])
-  // Its overview is Activity itself, so the trail stops there.
-  check('activity is its own step', trail('/activity'), ['Overview', 'Activity'])
-  check('nothing is current on its overview', lvl('/activity').current, '/activity')
+  check('a gateway page', trail('/gateway/requests'), ['Overview', 'Gateway', 'Requests'])
+  // Its overview is Gateway itself, so the trail stops there.
+  check('gateway is its own step', trail('/gateway'), ['Overview', 'Gateway'])
+  check('nothing is current on its overview', lvl('/gateway').current, '/gateway')
   check('the item step is its overview', trailOf('/clients/c1/usage', name)[2].href, '/clients/c1')
 }
 
@@ -494,7 +494,7 @@ console.log('\nâ€” RequestFilter: the URL is the filter, and survives the trip â
   check('one account opens its own Requests page',
     requestsHref({ account: ['acc 1'], status: 'failed' }), '/accounts/acc%201/requests?status=failed')
   check('one client too', requestsHref({ key: ['k'] }), '/clients/k/requests')
-  check('both stay on Activity', requestsHref({ key: ['k'], account: ['a'] }), '/activity/requests?key=k&account=a')
+  check('both stay on Gateway', requestsHref({ key: ['k'], account: ['a'] }), '/gateway/requests?key=k&account=a')
   const scope = { key: 'k' }
   const scoped = RequestFilter.of({ model: ['m'] }).scopedTo(scope)
   check('a scope is applied', scoped.values('key'), ['k'])

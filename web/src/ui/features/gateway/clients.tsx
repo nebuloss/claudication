@@ -10,7 +10,7 @@ import { GatewayUsage } from './slots'
  * provider's pooled windows — the estimate its own page shows — and unfolded
  * to the model names and models it used.
  */
-export default function ActivityClients() {
+export default function GatewayClients() {
   return (
     <GatewayUsage title="Clients" by="key">
       {({ rows, shares }) => {

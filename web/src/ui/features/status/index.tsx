@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Solid, type Paint } from '../../charts/paint'
 import { StateStrip } from '../../charts/strip'
-import { Card, Chip, Muted, Stat, StatGrid, type Tone } from '../../primitives'
+import { Button, Card, Chip, Modal, Muted, Stat, StatGrid, type Tone } from '../../primitives'
 import { lasted, percent, useStatus, type Bucket, type Incident, type StatusReport, type UptimeState } from './report'
 
 /**
@@ -238,27 +238,63 @@ function FittedIncidents({ report, limit }: { report: StatusReport; limit: numbe
 /**
  * The same history on the admin Overview, read from the same public endpoint
  * the welcome page reads, so the operator sees exactly what the world does.
+ *
+ * Short on the Overview — the three figures, the 90-day strip and a line on
+ * the incidents — because the whole history took most of the page and pushed
+ * everything else below the fold. History opens the rest in a dialog: the
+ * 24-hour strip, the key, and every incident.
  */
 export function AvailabilityCard() {
   const { result, last } = useStatus()
+  const [open, setOpen] = useState(false)
+  const latest = last?.incidents[0]
   return (
-    <Card title="Availability">
+    <Card
+      title="Availability"
+      aside={
+        last !== null && (
+          <Button variant="outlined" size="sm" onClick={() => setOpen(true)}>
+            History
+          </Button>
+        )
+      }
+    >
       {last === null ? (
         <Muted>{result.kind === 'unreachable' ? 'Could not read the availability history.' : 'Loading…'}</Muted>
       ) : (
-        <div className="flex flex-col gap-6">
-          <UptimeFigures report={last} />
-          <UptimeStrips report={last} />
-          <div>
-            <h3 className="mb-2 text-sm font-medium text-on-surface">
-              Recent incidents
-              {last.incidents.length > 0 && (
-                <span className="ml-2 font-normal text-on-surface-variant">{last.incidents.length} in 90 days</span>
-              )}
-            </h3>
-            <IncidentList report={last} scroll />
-          </div>
+        <div className="flex flex-col gap-4">
+          <p className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-on-surface-variant">
+            {(['24h', '7d', '90d'] as const).map((w) => (
+              <span key={w}>
+                <span className="text-base text-on-surface tabular-nums">{percent(last.uptime[w])}</span>{' '}
+                over {w === '24h' ? '24 hours' : w === '7d' ? '7 days' : '90 days'}
+              </span>
+            ))}
+          </p>
+          <Strip buckets={last.days} title="Last 90 days" from="90 days ago" to="Today" words={dayWords} unit="days" />
+          <Muted size="xs">
+            {latest === undefined
+              ? 'No incidents in the last 90 days.'
+              : `${last.incidents.length} ${last.incidents.length === 1 ? 'incident' : 'incidents'} in 90 days, the latest ${whenFormat.format(latest.start)} UTC${latest.end === null ? ', ongoing' : ''}.`}
+          </Muted>
         </div>
+      )}
+      {open && last !== null && (
+        <Modal title="Availability" size="lg" onClose={() => setOpen(false)}>
+          <div className="flex flex-col gap-6">
+            <UptimeFigures report={last} />
+            <UptimeStrips report={last} />
+            <div>
+              <h3 className="mb-2 text-sm font-medium text-on-surface">
+                Incidents
+                {last.incidents.length > 0 && (
+                  <span className="ml-2 font-normal text-on-surface-variant">{last.incidents.length} in 90 days</span>
+                )}
+              </h3>
+              <IncidentList report={last} scroll />
+            </div>
+          </div>
+        </Modal>
       )}
     </Card>
   )
