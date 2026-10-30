@@ -162,14 +162,8 @@ export default function Accounts() {
                   key={g.provider}
                   label={providerLabel(g.provider)}
                   // Named once there is more than one provider to tell apart.
-                  title={
-                    groups.length > 1 ? (
-                      <span className="flex items-center gap-2">
-                        <ProviderMark provider={g.provider} size="sm" />
-                        {providerLabel(g.provider)} · {g.items.length}
-                      </span>
-                    ) : undefined
-                  }
+                  // In words: every row under it carries the provider's mark.
+                  title={groups.length > 1 ? `${providerLabel(g.provider)} · ${g.items.length}` : undefined}
                 >
                   <Stack gap={2} as="ul">
                     {g.items.map((a, i) => (

@@ -103,9 +103,11 @@ function Crumb({
   const what = c.siblings === undefined ? '' : c.siblings.kind === 'sections' ? 'sections' : c.siblings.kind
   const key = c.siblings === undefined ? '' : JSON.stringify(c.siblings)
   const [list, setList] = useState<NavLink[] | null>(null)
-  // The crumb's own entry in its list: its mark, drawn in the crumb as in the
-  // list, so the crumb is as wide as an entry with a mark needs.
-  const self = list?.find((l) => l.href === c.href || l.href.startsWith(`${c.href}/`))
+  // Whether the list's entries carry a mark. The crumb does not draw its own
+  // — the page's title under the bar carries it — but it keeps the mark's
+  // room, at its end, so it is as wide as an entry with a mark needs and the
+  // list cuts no name.
+  const marked = list?.some((l) => l.brand !== undefined) === true
   const [failed, setFailed] = useState(false)
   useEffect(() => {
     if (!menu || c.siblings === undefined || load === undefined) return
@@ -150,14 +152,13 @@ function Crumb({
                   <path d={ICON[c.icon]} />
                 </svg>
               )}
-              {self?.brand !== undefined && <BrandOf brand={self.brand} />}
               {menu ? (
                 // Every sibling's name in one cell: the cell is as wide as the
                 // widest, and only the crumb's own is seen.
                 <span className="grid whitespace-nowrap">
                   <span className="col-start-1 row-start-1">{c.label}</span>
                   {(list ?? []).map((l) => (
-                    <span key={l.href} aria-hidden className="invisible col-start-1 row-start-1">
+                    <span key={l.href} aria-hidden className={`invisible col-start-1 row-start-1 ${marked ? 'pr-6' : ''}`}>
                       {l.label}
                     </span>
                   ))}
