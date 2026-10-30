@@ -254,23 +254,22 @@ function AccountRow({
       href={accountHref(a.id)}
       leading={
         <>
-          {/* The handle's room on every row, the handle only where there is
-              an order to change: a provider with one account drew none, and
-              its row's name started a handle further left than the rest. */}
-          {orderable ? (
-            <Tip tip="Drag to reorder">
-              <span
-                className="hidden cursor-grab text-on-surface-variant active:cursor-grabbing sm:block"
-                aria-hidden
-              >
-                <svg viewBox="0 0 24 24" className="size-5 fill-current">
-                  <path d="M9 4h2v2H9V4zm4 0h2v2h-2V4zM9 9h2v2H9V9zm4 0h2v2h-2V9zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2z" />
-                </svg>
-              </span>
-            </Tip>
-          ) : (
-            <span className="hidden size-5 shrink-0 sm:block" aria-hidden />
-          )}
+          {/* The handle on every row, so every row's name starts in one
+              place; faded and inert where there is no order to change — a
+              provider's only account — rather than an empty gap. The row is
+              not draggable then (draggable above), so this only says so. */}
+          <Tip tip={orderable ? 'Drag to reorder' : `The only ${providerLabel(a.provider)} account: nothing to reorder`}>
+            <span
+              className={`hidden text-on-surface-variant sm:block ${
+                orderable ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed opacity-30'
+              }`}
+              aria-hidden
+            >
+              <svg viewBox="0 0 24 24" className="size-5 fill-current">
+                <path d="M9 4h2v2H9V4zm4 0h2v2h-2V4zM9 9h2v2H9V9zm4 0h2v2h-2V9zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2zm-4 5h2v2H9v-2zm4 0h2v2h-2v-2z" />
+              </svg>
+            </span>
+          </Tip>
           <RowBadge>{rank + 1}</RowBadge>
           <MarkTile accent={a.accent}>
             <ProviderMark provider={a.provider} />
@@ -296,16 +295,14 @@ function AccountRow({
       meters={a.quota !== undefined ? <QuotaGauges quota={a.quota} /> : undefined}
       actions={
         <>
-          {orderable && (
-            <>
-              <IconButton label="Higher priority" disabled={busy || rank === 0} onClick={onMoveUp}>
-                <path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z" />
-              </IconButton>
-              <IconButton label="Lower priority" disabled={busy || rank === total - 1} onClick={onMoveDown}>
-                <path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z" />
-              </IconButton>
-            </>
-          )}
+          {/* On every row, as the handle is, so the switches line up down
+              the list; disabled where there is no order to change. */}
+          <IconButton label="Higher priority" disabled={!orderable || busy || rank === 0} onClick={onMoveUp}>
+            <path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z" />
+          </IconButton>
+          <IconButton label="Lower priority" disabled={!orderable || busy || rank === total - 1} onClick={onMoveDown}>
+            <path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z" />
+          </IconButton>
           <AccountSwitch account={a} onChanged={onChanged} />
         </>
       }
