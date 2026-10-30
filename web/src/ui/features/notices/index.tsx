@@ -78,31 +78,28 @@ function NoticeList({ notices, onOpen }: { notices: Notice[]; onOpen?: () => voi
   )
 }
 
-/** The Overview's card: every notice, in a box that scrolls past five or so, so Status stays on the first screen. */
+/**
+ * The Overview's card: every notice, in a box that scrolls past five or so,
+ * so Status stays on the first screen. Nothing at all when there is none —
+ * the bell in the header still says so — so a healthy gateway's Overview
+ * opens on its status.
+ */
 export function NoticesCard() {
   const { data } = useNotices()
-  if (data === null) return null
+  if (data === null || data.length === 0) return null
   const errors = data.filter((n) => n.severity === 'error').length
   return (
     <Card
       title="Notices"
       aside={
         <Muted as="span" size="xs">
-          {data.length === 0
-            ? 'nothing needs you'
-            : errors > 0
-              ? `${errors} to fix · ${data.length} in all`
-              : `${data.length} to look at`}
+          {errors > 0 ? `${errors} to fix · ${data.length} in all` : `${data.length} to look at`}
         </Muted>
       }
     >
-      {data.length === 0 ? (
-        <Muted size="xs">No account, model or client needs attention now.</Muted>
-      ) : (
-        <div className="max-h-64 overflow-y-auto overscroll-contain pr-2">
-          <NoticeList notices={data} />
-        </div>
-      )}
+      <div className="max-h-64 overflow-y-auto overscroll-contain pr-2">
+        <NoticeList notices={data} />
+      </div>
     </Card>
   )
 }

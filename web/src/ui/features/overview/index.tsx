@@ -5,6 +5,7 @@ import {
 } from '../../../api/client'
 import { NoticesCard } from '../notices'
 import { useLoader } from '../../hooks'
+import type { ReactNode } from 'react'
 import {
   Banner,
   Card,
@@ -12,70 +13,125 @@ import {
   Freshness,
   InlineLink,
   Loading,
-  MeterRow,
+  Muted,
+  Overline,
   Page,
   Stat,
   StatGrid,
-  UsageBar,
+  tile,
+  type Tone,
 } from '../../primitives'
 import { compact, duration, mib } from '../../format'
 import { READS } from '../../../api/live'
 
 /**
- * The gateway's own memory, against its ceiling.
+ * The gateway's own process: its memory against its ceiling, and what that
+ * memory is.
  *
  * On a small container memory is the first thing to run out, and when it does
  * the kernel kills the process with every stream open — so the figure worth
  * watching is resident memory against the limit, not the Go heap alone. The
- * heap and the idle memory not yet returned are there to say why the
- * resident figure is what it is: idle memory goes back to the system after a
- * burst, so a high reading that falls a minute later is the trimmer working.
+ * bar under it says why the resident figure is what it is: the heap in use,
+ * idle heap not yet returned — it goes back to the system after a burst, so a
+ * high reading that falls a minute later is the trimmer working — and the
+ * rest, the runtime's own stacks and tables.
  */
-function MemoryCard({ memory }: { memory: MemorySnapshot }) {
+function ProcessCard({ memory }: { memory: MemorySnapshot }) {
+  const rss = memory.rss_bytes
   const limit = memory.limit_bytes
-  const pct = limit > 0 ? Math.min(100, Math.round((memory.rss_bytes / limit) * 100)) : undefined
-  const tight = pct !== undefined && pct >= 90
-  const tone = tight ? 'error' : pct !== undefined && pct >= 75 ? 'warn' : 'neutral'
+  const pct = limit > 0 && rss > 0 ? Math.min(100, (rss / limit) * 100) : undefined
+  const tone = pct === undefined ? 'neutral' : pct >= 90 ? 'error' : pct >= 75 ? 'warn' : 'ok'
+  // What resident memory is made of; "other" is what the heap does not
+  // explain, never below zero when the figures were read a moment apart.
+  const heap = memory.heap_in_use_bytes
+  const idle = memory.heap_idle_bytes
+  const other = Math.max(0, rss - heap - idle)
+  const whole = Math.max(rss, heap + idle, 1)
+  const parts = [
+    { label: 'heap in use', bytes: heap, fill: 'bg-primary' },
+    { label: 'idle, not yet returned', bytes: idle, fill: 'bg-primary/40' },
+    { label: 'runtime and stacks', bytes: other, fill: 'bg-outline' },
+  ]
 
   return (
-    <Card title="Memory">
-      {memory.rss_bytes > 0 && (
-        <div className="mb-3">
-          <MeterRow
-            title="Process (resident)"
-            figure={`${mib(memory.rss_bytes)}${limit > 0 ? ` of ${mib(limit)}` : ''}`}
-            hint={pct !== undefined ? `${pct}%` : undefined}
-            alert={tight}
-          >
-            <UsageBar percent={pct ?? 0} tone={tone} />
-            {limit === 0 && (
-              <p className="mt-1 text-[11px] text-on-surface-variant">
-                No limit known. Set <code>memory-limit</code> on a container that cannot see its
-                own, so the runtime collects before the kernel kills it.
-              </p>
-            )}
-          </MeterRow>
+    <Card title="Process">
+      <div className={`${tile} grid gap-6 p-4 sm:grid-cols-[auto_1fr] sm:items-center`}>
+        <Gauge percent={pct} tone={tone}>
+          <span className="text-lg leading-6 text-on-surface tabular-nums">{rss > 0 ? mib(rss) : '—'}</span>
+          <span className="text-[11px] text-on-surface-variant">
+            {limit > 0 ? `of ${mib(limit)}` : 'resident'}
+          </span>
+        </Gauge>
+        <div className="flex min-w-0 flex-col gap-4">
+          {rss > 0 && (
+            <div>
+              <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-high">
+                {parts.map((p) => (
+                  <span key={p.label} className={p.fill} style={{ width: `${(p.bytes / whole) * 100}%` }} />
+                ))}
+              </div>
+              <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-on-surface-variant">
+                {parts.map((p) => (
+                  <li key={p.label} className="flex items-center gap-1.5">
+                    <span className={`size-2 rounded-full ${p.fill}`} aria-hidden />
+                    {p.label} <span className="text-on-surface tabular-nums">{mib(p.bytes)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+            {[
+              ['Heap target', memory.heap_limit_bytes > 0 ? mib(memory.heap_limit_bytes) : 'none'],
+              ['Limit', limit > 0 ? `${Math.round(pct ?? 0)}% used` : 'unknown'],
+              ['Goroutines', String(memory.goroutines)],
+              ['Collections', compact(memory.gc_cycles)],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <Overline as="dt">{label}</Overline>
+                <dd className="m-0 mt-0.5 text-base text-on-surface tabular-nums">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          {limit === 0 && (
+            <Muted size="xs">
+              No limit known. Set <code>memory-limit</code> on a container that cannot see its own, so the
+              runtime collects before the kernel kills it.
+            </Muted>
+          )}
         </div>
-      )}
-      {/* One line rather than four tiles: they explain the figure above, and
-          as tiles they were a screen's worth of the Overview. */}
-      <p className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-on-surface-variant">
-        <span>
-          heap <span className="text-on-surface tabular-nums">{mib(memory.heap_in_use_bytes)}</span>
-          {memory.heap_limit_bytes > 0 ? ` of a ${mib(memory.heap_limit_bytes)} target` : ''}
-        </span>
-        <span>
-          idle <span className="text-on-surface tabular-nums">{mib(memory.heap_idle_bytes)}</span> not yet
-          returned
-        </span>
-        <span>
-          <span className="text-on-surface tabular-nums">{memory.goroutines}</span> goroutines
-        </span>
-        <span>
-          <span className="text-on-surface tabular-nums">{compact(memory.gc_cycles)}</span> collections
-        </span>
-      </p>
+      </div>
     </Card>
+  )
+}
+
+/**
+ * A ring filled to `percent`, in the meaning colour of `tone`, with a
+ * reading inside it. An empty ring when there is nothing to measure against.
+ */
+function Gauge({ percent, tone, children }: { percent: number | undefined; tone: Tone; children: ReactNode }) {
+  const r = 42
+  const c = 2 * Math.PI * r
+  const stroke = { ok: 'stroke-success', warn: 'stroke-warning', error: 'stroke-error', neutral: 'stroke-primary' }[tone]
+  return (
+    <div className="relative grid size-28 shrink-0 place-items-center justify-self-center">
+      <svg viewBox="0 0 100 100" className="absolute inset-0 -rotate-90" aria-hidden>
+        <circle cx="50" cy="50" r={r} fill="none" strokeWidth="9" className="stroke-surface-high" />
+        {percent !== undefined && percent > 0 && (
+          <circle
+            cx="50"
+            cy="50"
+            r={r}
+            fill="none"
+            strokeWidth="9"
+            strokeLinecap="round"
+            strokeDasharray={`${(Math.max(2, percent) / 100) * c} ${c}`}
+            className={stroke}
+          />
+        )}
+      </svg>
+      <span className="relative flex flex-col items-center">{children}</span>
+    </div>
   )
 }
 
@@ -178,7 +234,7 @@ export default function Overview() {
         )}
       </Card>
 
-      {data.memory !== undefined && <MemoryCard memory={data.memory} />}
+      {data.memory !== undefined && <ProcessCard memory={data.memory} />}
 
       {unknown && (
         <Banner tone="warn">
