@@ -5,7 +5,6 @@ import {
   Actions,
   Button,
   Card,
-  Empty,
   ErrorBanner,
   Loading,
   Muted,
@@ -13,6 +12,7 @@ import {
   Stack,
   Stat,
   StatGrid,
+  TableCard,
   WindowPicker,
 } from '../../primitives'
 import { ago, compact, lastDays } from '../../format'
@@ -186,21 +186,22 @@ function ReplayNote({ replay: r }: { replay: LimitReplay }) {
 /** What the client spent, by model name and the model each served. */
 function SlotBreakdown({ clientId }: { clientId: string }) {
   const [days, setDays] = useState<number>(7)
-  const { data, error, loading } = useLoader((signal) => api.clients.usage(clientId, days, signal), {
+  const { data, error, loading, reload } = useLoader((signal) => api.clients.usage(clientId, days, signal), {
     deps: [clientId, days],
     on: READS.slots,
   })
   const rows: SlotUse[] = data?.rows ?? []
   return (
-    <Card title="Model names" aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}>
-      <ErrorBanner error={error} />
-      {loading && data === null ? (
-        <Loading />
-      ) : rows.length === 0 ? (
-        <Empty>This client sent nothing in {lastDays(days)}.</Empty>
-      ) : (
-        <SlotTable rows={rows} />
-      )}
-    </Card>
+    <TableCard
+      title="Model names"
+      aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}
+      ready={data !== null}
+      error={error}
+      onRetry={() => void reload()}
+      busy={loading}
+      empty={rows.length === 0 ? <>This client sent nothing in {lastDays(days)}.</> : undefined}
+    >
+      <SlotTable rows={rows} />
+    </TableCard>
   )
 }

@@ -95,10 +95,12 @@ export function Loading({ children = 'Loading…' }: { children?: ReactNode }) {
 
 /** A list or a report with nothing in it, said in its own words. */
 export function Empty({ children }: { children: ReactNode }) {
+  // A div, not a paragraph: a card caps its paragraphs at a reading width,
+  // and this stands in for a table or a chart as wide as the card.
   return (
-    <p className="rounded-md3-m border border-dashed border-outline-variant px-4 py-10 text-center text-sm text-on-surface-variant">
+    <div className="w-full rounded-md3-m border border-dashed border-outline-variant px-4 py-10 text-center text-sm text-on-surface-variant">
       {children}
-    </p>
+    </div>
   )
 }
 

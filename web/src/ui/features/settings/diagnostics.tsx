@@ -3,7 +3,7 @@ import { api, type LiveStats } from '../../../api/client'
 import { TOPICS } from '../../../api/live'
 import { compact } from '../../format'
 import { useLive, useLoader } from '../../hooks'
-import { Card, ErrorState, Loading, Muted, Overline, Stat, StatGrid, Table, Td, Tr, UsageBar, tile } from '../../primitives'
+import { Card, ErrorState, Loading, Overline, Stat, StatGrid, Table, TableCard, Td, Tr, UsageBar, tile } from '../../primitives'
 
 /**
  * How changes reach the screens (docs/data-architecture.md), as the gateway
@@ -102,51 +102,49 @@ export default function Diagnostics() {
         </ul>
       </Card>
 
-      <Card title="Cached reads">
-        {reads.length === 0 ? (
-          <Muted size="xs">None read since the gateway started.</Muted>
-        ) : (
-          <div className={`${tile} px-4 py-2`}>
-            <Table head={['Read', 'Topics', 'Kept', 'Computed', 'Kept share', 'Last cost']}>
-              {reads.map((r) => {
-                const n = r.hits + r.misses
-                return (
-                  <Tr key={r.route}>
-                    <Td nowrap>
-                      <span className="font-medium text-on-surface">{r.route}</span>
-                    </Td>
-                    <Td>
-                      <span className="flex flex-wrap gap-1">
-                        {r.topics.split(',').map((t) => (
-                          <span
-                            key={t}
-                            className="rounded-md3-s bg-surface-high px-1.5 py-0.5 font-mono text-[11px] text-on-surface-variant"
-                          >
-                            {t}
-                          </span>
-                        ))}
+      <TableCard
+        title="Cached reads"
+        ready
+        empty={reads.length === 0 ? 'None read since the gateway started.' : undefined}
+      >
+        <Table head={['Read', 'Topics', 'Kept', 'Computed', 'Kept share', 'Last cost']}>
+          {reads.map((r) => {
+            const n = r.hits + r.misses
+            return (
+              <Tr key={r.route}>
+                <Td nowrap>
+                  <span className="font-medium text-on-surface">{r.route}</span>
+                </Td>
+                <Td>
+                  <span className="flex flex-wrap gap-1">
+                    {r.topics.split(',').map((t) => (
+                      <span
+                        key={t}
+                        className="rounded-md3-s bg-surface-high px-1.5 py-0.5 font-mono text-[11px] text-on-surface-variant"
+                      >
+                        {t}
                       </span>
-                    </Td>
-                    <Td nums>{compact(r.hits)}</Td>
-                    <Td nums>{compact(r.misses)}</Td>
-                    <Td nowrap>
-                      <span className="flex items-center gap-2 tabular-nums">
-                        <span className="w-16">
-                          <UsageBar percent={n > 0 ? (r.hits / n) * 100 : null} tone="ok" />
-                        </span>
-                        {n > 0 ? percent(r.hits / n) : '—'}
-                      </span>
-                    </Td>
-                    <Td nums nowrap>
-                      {r.last_ms.toFixed(1)} ms
-                    </Td>
-                  </Tr>
-                )
-              })}
-            </Table>
-          </div>
-        )}
-      </Card>
+                    ))}
+                  </span>
+                </Td>
+                <Td nums>{compact(r.hits)}</Td>
+                <Td nums>{compact(r.misses)}</Td>
+                <Td nowrap>
+                  <span className="flex items-center gap-2 tabular-nums">
+                    <span className="w-16">
+                      <UsageBar percent={n > 0 ? (r.hits / n) * 100 : null} tone="ok" />
+                    </span>
+                    {n > 0 ? percent(r.hits / n) : '—'}
+                  </span>
+                </Td>
+                <Td nums nowrap>
+                  {r.last_ms.toFixed(1)} ms
+                </Td>
+              </Tr>
+            )
+          })}
+        </Table>
+      </TableCard>
     </div>
   )
 }

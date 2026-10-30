@@ -11,17 +11,14 @@ import ChatContextDetail from './context'
 import { requestsHref, type FilterFields } from '../requests/filter'
 import {
   AppLink,
-  Card,
   Chip,
   ContextMenu,
-  Empty,
   ErrorBanner,
-  ErrorState,
-  Loading,
   MenuRow,
   Muted,
   Stack,
   Table,
+  TableCard,
   Td,
   Tip,
   Tr,
@@ -160,27 +157,25 @@ const CHAT_WINDOWS = [1, 7, 30] as const
  */
 export function ChatsPage({ scope = {} }: { scope?: UsageScope }) {
   const [days, setDays] = useState<number>(7)
-  // The window above the card rather than in it, so the card starts with
-  // the chats.
   return (
-    <Stack gap={3}>
-      <div className="flex justify-end">
-        <WindowPicker value={days} windows={CHAT_WINDOWS} onChange={setDays} />
-      </div>
-      <Card>
-        <ChatsPanel days={days} scope={scope} />
-      </Card>
-    </Stack>
+    <ChatsPanel
+      days={days}
+      scope={scope}
+      aside={<WindowPicker value={days} windows={CHAT_WINDOWS} onChange={setDays} />}
+    />
   )
 }
 
 export default function ChatsPanel({
   days,
   scope = {},
+  aside,
 }: {
   days: number
   /** One account's or one key's chats, or every chat when empty. */
   scope?: UsageScope
+  /** The card's header controls: the window picker. */
+  aside?: ReactNode
 }) {
   const [sort, setSort] = useState<SortKey>('tokens')
   // The chat whose context curve is open, if any. One at a time: each is a
@@ -242,17 +237,8 @@ export default function ChatsPanel({
     return (v: number) => (leader > 0 ? Math.max(2, (scale.y(v) / leader) * 100) : 2)
   }, [sorted])
 
-  if (loading && data === null) return <Loading />
-  if (error !== '') {
-    return <ErrorState message={error} onRetry={() => void reload()} busy={loading} />
-  }
-
   const unattributed = report?.unattributed
   const anonymous = unattributed !== undefined && unattributed.requests > 0
-
-  if (sorted.length === 0 && !anonymous) {
-    return <Empty>No conversations in this window.</Empty>
-  }
 
   const column = (label: string, key: SortKey): Column => ({
     label,
@@ -261,208 +247,218 @@ export default function ChatsPanel({
   })
 
   return (
-    <Stack gap={3}>
-      <Table
-        cap
-        resizable="chats"
-        head={[
-          'Chat',
-          'Client',
-          'Models',
-          column('Tokens', 'tokens'),
-          column('Context', 'context'),
-          column('Requests', 'requests'),
-          column('Started', 'last'),
-          'Span',
-        ]}
-      >
-        {sorted.map((c) => (
-          <Fragment key={c.id}>
-            <Tr selected={open === c.id}>
-              {/* The name when there is one, the id when there is not. The id
-                  stays on the line beneath either way: it is the join key back to
-                  the client's own session list, which is where the conversation
-                  itself can actually be read. */}
-              <Td>
-                {editing === c.id ? (
-                  <TitleEditor
-                    initial={c.title}
-                    onSave={(title) => saveTitle(c, title)}
-                    onCancel={() => setEditing(null)}
-                  />
-                ) : (
-                  /* The row's own control: opening the context curve is what a
-                     chat row is clicked for, and a button says so to a keyboard
-                     and a screen reader as well as to a pointer. Right-click (or
-                     the keyboard's menu key) is for its name. */
-                  <div className="flex min-w-0 items-center gap-2">
-                    <button
-                      type="button"
-                      aria-expanded={open === c.id}
-                      aria-haspopup="menu"
-                      onClick={() => setOpen(open === c.id ? null : c.id)}
-                      onContextMenu={(e) => {
-                        e.preventDefault()
-                        rename.setError('')
-                        setMenu({ id: c.id, x: e.clientX, y: e.clientY })
-                      }}
-                      className="state-layer flex min-w-0 flex-1 flex-col rounded-md3-xs text-left"
-                    >
-                      <Tip tip={c.title} block>
-                        <span className="block truncate font-medium text-on-surface">
-                          {open === c.id ? '▾ ' : '▸ '}
-                          {chatName(c)}
-                        </span>
-                      </Tip>
-                      <Tip tip={c.id} block>
-                        <span className="block truncate font-mono text-xs text-on-surface-variant">
-                          {shortID(c.id)}
-                          {c.title_manual && ' · named by hand'}
-                        </span>
-                      </Tip>
-                    </button>
-                    {/* Only beside a name: an unnamed chat already says how
-                        it was run in place of one. */}
-                    {c.title !== '' && c.surface && <Chip>{c.surface}</Chip>}
-                  </div>
-                )}
-                {menu?.id === c.id && (
-                  <ContextMenu at={menu} label={`Title of ${c.title || c.id}`} onClose={closeMenu}>
-                    <MenuRow
-                      onClick={() => {
-                        setMenu(null)
-                        setEditing(c.id)
-                      }}
-                    >
-                      Rename…
-                    </MenuRow>
-                  </ContextMenu>
-                )}
-              </Td>
-              <Td muted nowrap>
-                {c.client || '—'}
-              </Td>
-              <Td nowrap>
-                <div className="flex items-center gap-2">
-                  {c.models.map((m) => (
-                    <span key={m} className="flex items-center gap-1 text-xs">
-                      <span
-                        aria-hidden
-                        className="size-2 shrink-0 rounded-[2px]"
-                        style={{ background: palette.colour(m) }}
-                      />
-                      {m.replace(/^claude-/, '')}
-                    </span>
-                  ))}
-                  {c.models.length === 0 && <Muted as="span">—</Muted>}
-                </div>
-              </Td>
-              <Td nowrap>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-24 shrink-0 overflow-hidden rounded-sm bg-surface-container">
-                    <span
-                      className="block h-full"
-                      style={{
-                        width: `${width(tokens(c))}%`,
-                        background: palette.colour(c.models[0] ?? ''),
-                      }}
+    <TableCard
+      title="Chats"
+      aside={aside}
+      ready={data !== null}
+      error={error}
+      onRetry={() => void reload()}
+      busy={loading}
+      empty={sorted.length === 0 && !anonymous ? 'No conversations in this window.' : undefined}
+    >
+      <Stack gap={3}>
+        <Table
+          cap
+          resizable="chats"
+          head={[
+            'Chat',
+            'Client',
+            'Models',
+            column('Tokens', 'tokens'),
+            column('Context', 'context'),
+            column('Requests', 'requests'),
+            column('Started', 'last'),
+            'Span',
+          ]}
+        >
+          {sorted.map((c) => (
+            <Fragment key={c.id}>
+              <Tr selected={open === c.id}>
+                {/* The name when there is one, the id when there is not. The id
+                    stays on the line beneath either way: it is the join key back to
+                    the client's own session list, which is where the conversation
+                    itself can actually be read. */}
+                <Td>
+                  {editing === c.id ? (
+                    <TitleEditor
+                      initial={c.title}
+                      onSave={(title) => saveTitle(c, title)}
+                      onCancel={() => setEditing(null)}
                     />
-                  </span>
-                  <span className="tabular-nums">{compact(tokens(c))}</span>
+                  ) : (
+                    /* The row's own control: opening the context curve is what a
+                       chat row is clicked for, and a button says so to a keyboard
+                       and a screen reader as well as to a pointer. Right-click (or
+                       the keyboard's menu key) is for its name. */
+                    <div className="flex min-w-0 items-center gap-2">
+                      <button
+                        type="button"
+                        aria-expanded={open === c.id}
+                        aria-haspopup="menu"
+                        onClick={() => setOpen(open === c.id ? null : c.id)}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          rename.setError('')
+                          setMenu({ id: c.id, x: e.clientX, y: e.clientY })
+                        }}
+                        className="state-layer flex min-w-0 flex-1 flex-col rounded-md3-xs text-left"
+                      >
+                        <Tip tip={c.title} block>
+                          <span className="block truncate font-medium text-on-surface">
+                            {open === c.id ? '▾ ' : '▸ '}
+                            {chatName(c)}
+                          </span>
+                        </Tip>
+                        <Tip tip={c.id} block>
+                          <span className="block truncate font-mono text-xs text-on-surface-variant">
+                            {shortID(c.id)}
+                            {c.title_manual && ' · named by hand'}
+                          </span>
+                        </Tip>
+                      </button>
+                      {/* Only beside a name: an unnamed chat already says how
+                          it was run in place of one. */}
+                      {c.title !== '' && c.surface && <Chip>{c.surface}</Chip>}
+                    </div>
+                  )}
+                  {menu?.id === c.id && (
+                    <ContextMenu at={menu} label={`Title of ${c.title || c.id}`} onClose={closeMenu}>
+                      <MenuRow
+                        onClick={() => {
+                          setMenu(null)
+                          setEditing(c.id)
+                        }}
+                      >
+                        Rename…
+                      </MenuRow>
+                    </ContextMenu>
+                  )}
+                </Td>
+                <Td muted nowrap>
+                  {c.client || '—'}
+                </Td>
+                <Td nowrap>
+                  <div className="flex items-center gap-2">
+                    {c.models.map((m) => (
+                      <span key={m} className="flex items-center gap-1 text-xs">
+                        <span
+                          aria-hidden
+                          className="size-2 shrink-0 rounded-[2px]"
+                          style={{ background: palette.colour(m) }}
+                        />
+                        {m.replace(/^claude-/, '')}
+                      </span>
+                    ))}
+                    {c.models.length === 0 && <Muted as="span">—</Muted>}
+                  </div>
+                </Td>
+                <Td nowrap>
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-24 shrink-0 overflow-hidden rounded-sm bg-surface-container">
+                      <span
+                        className="block h-full"
+                        style={{
+                          width: `${width(tokens(c))}%`,
+                          background: palette.colour(c.models[0] ?? ''),
+                        }}
+                      />
+                    </span>
+                    <span className="tabular-nums">{compact(tokens(c))}</span>
+                  </div>
+                </Td>
+                {/* What the client resends each turn, and how often it has started
+                    over. The peak is the question a compaction setting answers. */}
+                <Td nowrap>
+                  {c.context !== undefined && c.context.model !== '' ? (
+                    <div className="flex flex-col">
+                      <span className="tabular-nums text-on-surface">{compact(c.context.now)}</span>
+                      <span className="text-xs tabular-nums text-on-surface-variant">
+                        peak {compact(c.context.peak)}
+                        {c.context.compactions > 0 && ` · ${c.context.compactions}× compacted`}
+                      </span>
+                    </div>
+                  ) : (
+                    <Muted as="span">—</Muted>
+                  )}
+                </Td>
+                {/* Both numbers link into the request log, on different filters:
+                    the total asks "what happened in this chat", the failures ask
+                    "which ones broke". They are real links — the URL carries the
+                    filter, so it can be shared, bookmarked and walked back to —
+                    rather than a list this table grows for itself. */}
+                <Td nums nowrap>
+                  <RequestLink filter={{ chat: [c.id] }}>
+                    {c.requests}
+                  </RequestLink>
+                  {c.errors > 0 && (
+                    <RequestLink
+                      tone="error"
+                      filter={{ chat: [c.id], status: 'failed' }}
+                    >
+                      · {c.errors} failed
+                    </RequestLink>
+                  )}
+                </Td>
+                <Td title={c.first} nums nowrap muted>
+                  {sameDayStamp(c.first, 'minute', '—')}
+                </Td>
+                <Td nums nowrap muted>
+                  {between(c.first, c.last)}
+                </Td>
+              </Tr>
+              {open === c.id && (
+                <tr className="border-b border-outline-variant bg-surface-container/40">
+                  <td colSpan={8} className="px-3 pt-1 pb-4">
+                    <ChatContextDetail
+                      id={c.id}
+                      colour={palette.colour(c.context?.model || c.models[0] || '')}
+                     
+                    />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          ))}
+  
+          {/* Shown rather than dropped: without it the totals here would not add
+              up to the ones above, and this row is how an operator finds out a
+              client is talking to the gateway unlabelled. Never merged into a
+              chat — a fabricated grouping is indistinguishable from a true one
+              once it is in the table. */}
+          {anonymous && (
+            <Tr total>
+              <Td muted>
+                <div className="flex flex-col">
+                  <span className="font-medium">Unattributed</span>
+                  <span className="text-xs italic">no session id sent</span>
                 </div>
               </Td>
-              {/* What the client resends each turn, and how often it has started
-                  over. The peak is the question a compaction setting answers. */}
-              <Td nowrap>
-                {c.context !== undefined && c.context.model !== '' ? (
-                  <div className="flex flex-col">
-                    <span className="tabular-nums text-on-surface">{compact(c.context.now)}</span>
-                    <span className="text-xs tabular-nums text-on-surface-variant">
-                      peak {compact(c.context.peak)}
-                      {c.context.compactions > 0 && ` · ${c.context.compactions}× compacted`}
-                    </span>
-                  </div>
-                ) : (
-                  <Muted as="span">—</Muted>
-                )}
+              <Td muted>—</Td>
+              <Td muted>—</Td>
+              <Td muted nums nowrap>
+                {compact(tokens(unattributed))}
               </Td>
-              {/* Both numbers link into the request log, on different filters:
-                  the total asks "what happened in this chat", the failures ask
-                  "which ones broke". They are real links — the URL carries the
-                  filter, so it can be shared, bookmarked and walked back to —
-                  rather than a list this table grows for itself. */}
-              <Td nums nowrap>
-                <RequestLink filter={{ chat: [c.id] }}>
-                  {c.requests}
-                </RequestLink>
-                {c.errors > 0 && (
-                  <RequestLink
-                    tone="error"
-                    filter={{ chat: [c.id], status: 'failed' }}
-                  >
-                    · {c.errors} failed
-                  </RequestLink>
-                )}
+              <Td muted>—</Td>
+              <Td muted nums nowrap>
+                {unattributed.requests}
+                {unattributed.errors > 0 && <span> · {unattributed.errors} failed</span>}
               </Td>
-              <Td title={c.first} nums nowrap muted>
-                {sameDayStamp(c.first, 'minute', '—')}
-              </Td>
-              <Td nums nowrap muted>
-                {between(c.first, c.last)}
-              </Td>
+              <Td muted>—</Td>
+              <Td muted>—</Td>
             </Tr>
-            {open === c.id && (
-              <tr className="border-b border-outline-variant bg-surface-container/40">
-                <td colSpan={8} className="px-3 pt-1 pb-4">
-                  <ChatContextDetail
-                    id={c.id}
-                    colour={palette.colour(c.context?.model || c.models[0] || '')}
-                   
-                  />
-                </td>
-              </tr>
-            )}
-          </Fragment>
-        ))}
-
-        {/* Shown rather than dropped: without it the totals here would not add
-            up to the ones above, and this row is how an operator finds out a
-            client is talking to the gateway unlabelled. Never merged into a
-            chat — a fabricated grouping is indistinguishable from a true one
-            once it is in the table. */}
-        {anonymous && (
-          <Tr total>
-            <Td muted>
-              <div className="flex flex-col">
-                <span className="font-medium">Unattributed</span>
-                <span className="text-xs italic">no session id sent</span>
-              </div>
-            </Td>
-            <Td muted>—</Td>
-            <Td muted>—</Td>
-            <Td muted nums nowrap>
-              {compact(tokens(unattributed))}
-            </Td>
-            <Td muted>—</Td>
-            <Td muted nums nowrap>
-              {unattributed.requests}
-              {unattributed.errors > 0 && <span> · {unattributed.errors} failed</span>}
-            </Td>
-            <Td muted>—</Td>
-            <Td muted>—</Td>
-          </Tr>
-        )}
-      </Table>
-
-      <ErrorBanner error={rename.error} />
-
-      <Muted size="xs">
-        A chat is grouped by the session id its client sends, never by anything read from the
-        messages. Context is what its main model is resent each turn; open a chat to see it grow
-        and where its client compacted. Right-click a chat’s name to rename it. {report !== undefined && report.total > sorted.length
-          ? `Showing the ${sorted.length} busiest of ${report.total}.`
-          : ''}
-      </Muted>
-    </Stack>
+          )}
+        </Table>
+  
+        <ErrorBanner error={rename.error} />
+  
+        <Muted size="xs">
+          A chat is grouped by the session id its client sends, never by anything read from the
+          messages. Context is what its main model is resent each turn; open a chat to see it grow
+          and where its client compacted. Right-click a chat’s name to rename it. {report !== undefined && report.total > sorted.length
+            ? `Showing the ${sorted.length} busiest of ${report.total}.`
+            : ''}
+        </Muted>
+      </Stack>
+    </TableCard>
   )
 }

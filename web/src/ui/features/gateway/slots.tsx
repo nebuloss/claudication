@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { api, type SlotUse, type SubscriptionShare, type Usage } from '../../../api/client'
 import { useLoader } from '../../hooks'
-import { Card, Empty, ErrorState, Freshness, Loading, Muted, Stack, WindowPicker } from '../../primitives'
+import { Card, Empty, ErrorState, Freshness, Loading, Muted, Stack, TableCard, WindowPicker } from '../../primitives'
 import { lastDays } from '../../format'
 import { Traffic, type Dimension } from '../usage/traffic'
 import { READS } from '../../../api/live'
@@ -23,12 +23,15 @@ export const DEFAULT_DAYS = 7
 
 export type GatewaySlots = { rows: SlotUse[]; shares: Record<string, SubscriptionShare> }
 
+/** What the chart's lines are, as its title names them. */
+const NOUN: Record<Exclude<Dimension, 'status'>, string> = { model: 'model', key: 'client', account: 'account' }
+
 /**
- * One of Gateway's breakdowns in its card: the window picker and the
- * freshness in the header, then the traffic over those days by the same
- * names as the table, then the table, drawn by the page from the gateway-wide
- * rows. The loading, failed and empty states are said the same way on all
- * three pages.
+ * One of Gateway's breakdowns: the traffic over the window by the same names
+ * as the table, in a card with the window picker and the freshness, then the
+ * table in a card of its own (TableCard), drawn by the page from the
+ * gateway-wide rows — as the request log sits under its outcomes. The
+ * loading, failed and empty states are said the same way on all three pages.
  *
  * One read for both — the rows and the report the chart is drawn from — so
  * the two share one freshness and one refresh, and cannot be from different
@@ -63,10 +66,11 @@ export function GatewayUsage({
   if (error !== '' && data === null) {
     return <ErrorState message={error} onRetry={() => void reload()} busy={loading} />
   }
+  const idle = data !== null && data.slots.rows.length === 0
   return (
     <Stack>
       <Card
-        title={title}
+        title={`Traffic by ${NOUN[by]}`}
         aside={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <WindowPicker value={days} windows={WINDOWS} onChange={setDays} />
@@ -76,15 +80,20 @@ export function GatewayUsage({
       >
         {data === null ? (
           <Loading />
-        ) : data.slots.rows.length === 0 && !always ? (
+        ) : idle ? (
           <Empty>Nothing proxied in {lastDays(days)}.</Empty>
         ) : (
-          <>
-            <TrafficOf usage={data.usage} by={by} days={days} />
-            <div className="mt-6">{children(data.slots, days)}</div>
-          </>
+          <TrafficOf usage={data.usage} by={by} days={days} />
         )}
       </Card>
+      <TableCard
+        title={title}
+        aside={<Muted as="span" size="xs">over {lastDays(days)}</Muted>}
+        ready={data !== null}
+        empty={idle && !always ? <>Nothing proxied in {lastDays(days)}.</> : undefined}
+      >
+        {data !== null && children(data.slots, days)}
+      </TableCard>
     </Stack>
   )
 }

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { api, type Account } from '../../../api/client'
 import { useLoader } from '../../hooks'
-import { Card, Empty, ErrorBanner, Loading, Stat, StatGrid, WindowPicker } from '../../primitives'
+import { Card, Stat, StatGrid, TableCard, WindowPicker } from '../../primitives'
+import { READS } from '../../../api/live'
 import { accountStatus } from '../../domain/account'
 import { ago, compact, lastDays } from '../../format'
 import { byTokens } from '../usage/rollup'
@@ -64,43 +65,39 @@ function AccountNow({ account: a, onChanged }: { account: Account; onChanged: ()
  */
 function AccountClients({ accountId }: { accountId: string }) {
   const [days, setDays] = useState<number>(7)
-  const { data, error, loading } = useLoader((signal) => api.accounts.clients(accountId, days, signal), {
+  const { data, error, loading, reload } = useLoader((signal) => api.accounts.clients(accountId, days, signal), {
     deps: [accountId, days],
+    on: READS.slots,
   })
   const rows = data?.rows ?? []
   const shares = data?.shares ?? {}
   const shared = Object.keys(shares).length > 0
   return (
-    <Card title="Clients" aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}>
-      <ErrorBanner error={error} />
-      {loading && data === null ? (
-        <Loading />
-      ) : rows.length === 0 ? (
-        <Empty>No client used this account in {lastDays(days)}.</Empty>
-      ) : (
-        <>
-          <ClientTable
-            rows={rows}
-            provider={false}
-            shares={shared ? accountShareColumns((id) => shares[id]) : []}
-            sort={(x, y) =>
-              // By the share of the windows, the 7-day one first: that is the
-              // question the page is opened to answer, and it is the window
-              // that runs out over a week. Tokens break the ties, which with
-              // no shares at all (usage history off, or a quota never read)
-              // is every row.
-              (shares[y.id]?.seven_day ?? 0) - (shares[x.id]?.seven_day ?? 0) ||
-              (shares[y.id]?.five_hour ?? 0) - (shares[x.id]?.five_hour ?? 0) ||
-              byTokens(x, y)
-            }
-          />
-          {shared && (
-            <div className="mt-4">
-              <ShareNote />
-            </div>
-          )}
-        </>
-      )}
-    </Card>
+    <TableCard
+      title="Clients"
+      aside={<WindowPicker value={days} windows={WINDOWS} onChange={setDays} />}
+      ready={data !== null}
+      error={error}
+      onRetry={() => void reload()}
+      busy={loading}
+      empty={rows.length === 0 ? <>No client used this account in {lastDays(days)}.</> : undefined}
+      note={shared ? <ShareNote /> : undefined}
+    >
+      <ClientTable
+        rows={rows}
+        provider={false}
+        shares={shared ? accountShareColumns((id) => shares[id]) : []}
+        sort={(x, y) =>
+          // By the share of the windows, the 7-day one first: that is the
+          // question the page is opened to answer, and it is the window
+          // that runs out over a week. Tokens break the ties, which with
+          // no shares at all (usage history off, or a quota never read)
+          // is every row.
+          (shares[y.id]?.seven_day ?? 0) - (shares[x.id]?.seven_day ?? 0) ||
+          (shares[y.id]?.five_hour ?? 0) - (shares[x.id]?.five_hour ?? 0) ||
+          byTokens(x, y)
+        }
+      />
+    </TableCard>
   )
 }
