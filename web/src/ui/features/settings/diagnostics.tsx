@@ -107,7 +107,16 @@ export default function Diagnostics() {
         ready
         empty={reads.length === 0 ? 'None read since the gateway started.' : undefined}
       >
-        <Table head={['Read', 'Topics', 'Kept', 'Computed', 'Kept share', 'Last cost']}>
+        <Table
+          head={[
+            'Read',
+            'Topics',
+            { label: 'Kept', align: 'end' },
+            { label: 'Computed', align: 'end' },
+            'Kept share',
+            { label: 'Last cost', align: 'end' },
+          ]}
+        >
           {reads.map((r) => {
             const n = r.hits + r.misses
             return (
@@ -127,8 +136,12 @@ export default function Diagnostics() {
                     ))}
                   </span>
                 </Td>
-                <Td nums>{compact(r.hits)}</Td>
-                <Td nums>{compact(r.misses)}</Td>
+                <Td nums align="end">
+                  {compact(r.hits)}
+                </Td>
+                <Td nums align="end">
+                  {compact(r.misses)}
+                </Td>
                 <Td nowrap>
                   <span className="flex items-center gap-2 tabular-nums">
                     <span className="w-16">
@@ -137,7 +150,7 @@ export default function Diagnostics() {
                     {n > 0 ? percent(r.hits / n) : '—'}
                   </span>
                 </Td>
-                <Td nums nowrap>
+                <Td nums nowrap align="end">
                   {r.last_ms.toFixed(1)} ms
                 </Td>
               </Tr>
