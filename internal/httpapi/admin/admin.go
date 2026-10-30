@@ -131,6 +131,9 @@ type Models interface {
 	Bindable(ctx context.Context, off modelsvc.Off, b store.Binding) (modelsvc.Choice, string)
 	// SetPin sets the one version a family serves, "" for the latest.
 	SetPin(ctx context.Context, f clients.Follow, model string) error
+	// FailingEverywhere are the models failing on every account that would
+	// serve them now.
+	FailingEverywhere(ctx context.Context) []modelsvc.FailingModel
 	// NewSlot is the binding a name added to a client starts on, and why it
 	// cannot be made.
 	NewSlot(ctx context.Context, off modelsvc.Off, b store.Binding) (store.Binding, modelsvc.Choice, string)
@@ -240,6 +243,10 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/overview", cached("overview", 10*time.Second, s.handleOverview,
 		live.Accounts, live.Quota, live.Pool, live.Clients, live.Requests))
 	mux.Handle("GET /admin/usage", cached("usage", 30*time.Second, s.handleUsage, live.Requests))
+	// Thirty seconds for what time alone changes: a sign-in nearing its end,
+	// a client's failures leaving the window, the process's memory.
+	mux.Handle("GET /admin/notices", cached("notices", 30*time.Second, s.handleNotices,
+		live.Accounts, live.Quota, live.Pool, live.Models, live.Clients, live.Requests, live.Settings))
 	mux.Handle("GET /admin/requests/running", admin(s.handleRunning))
 	mux.Handle("GET /admin/usage/slots", cached("slots", 30*time.Second, s.handleGatewaySlots,
 		live.Clients, live.Accounts, live.Requests))

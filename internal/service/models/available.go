@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
@@ -284,6 +285,52 @@ func (s *Catalog) failingEverywhere(ctx context.Context, provider, model string)
 	if err != nil {
 		return false
 	}
+	return s.failingAmong(candidates, model)
+}
+
+// FailingModel is a model failing on every account that would serve it.
+type FailingModel struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Name     string `json:"name,omitempty"`
+}
+
+// FailingEverywhere are the models some account lists that every account
+// that would serve them is failing now: what clients are not offered until
+// one works again, and what the operator should hear about.
+func (s *Catalog) FailingEverywhere(ctx context.Context) []FailingModel {
+	if s.failing == nil {
+		return nil
+	}
+	s.rolesMu.Lock()
+	listed := make(map[string][]listedModel, len(s.listed))
+	for p, ms := range s.listed {
+		listed[p] = append([]listedModel(nil), ms...)
+	}
+	s.rolesMu.Unlock()
+	var out []FailingModel
+	for provider, models := range listed {
+		candidates, err := s.pool.Candidates(ctx, provider)
+		if err != nil {
+			continue
+		}
+		for _, m := range models {
+			if s.failingAmong(candidates, m.ID) {
+				out = append(out, FailingModel{Provider: provider, Model: m.ID, Name: m.Name})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Provider != out[j].Provider {
+			return out[i].Provider < out[j].Provider
+		}
+		return out[i].Model < out[j].Model
+	})
+	return out
+}
+
+// failingAmong is failingEverywhere over accounts already read.
+func (s *Catalog) failingAmong(candidates []store.Account, model string) bool {
 	some := false
 	for _, a := range candidates {
 		if !a.Serves(model) || !s.Lists(a.ID, model) {

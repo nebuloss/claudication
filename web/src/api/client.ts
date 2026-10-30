@@ -49,6 +49,7 @@ import type {
   UsageScope,
   RunningRequests,
   LiveStats,
+  Notice,
 } from './types'
 
 export * from './types'
@@ -352,6 +353,8 @@ const gateway = {
   overview: (signal?: AbortSignal) => http.get<Overview>('/admin/overview', signal),
   config: (signal?: AbortSignal) => http.get<GatewayConfig>('/admin/config', signal),
   live: (signal?: AbortSignal) => http.get<LiveStats>('/admin/live', signal),
+  notices: async (signal?: AbortSignal): Promise<Notice[]> =>
+    (await http.get<{ notices: Notice[] }>('/admin/notices', signal)).notices,
 
   setServing: (enabled: boolean) => http.send('POST', '/admin/gateway', { body: { enabled } }),
 

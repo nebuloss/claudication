@@ -905,3 +905,23 @@ export interface LiveStats {
     last_ms: number
   }[]
 }
+
+/**
+ * GET /admin/notices: one of the gateway's current problems, gone once it is
+ * (internal/httpapi/admin, notices.go).
+ */
+export interface Notice {
+  /** Stable while the problem lasts. */
+  id: string
+  severity: 'error' | 'warn' | 'info'
+  kind: 'gateway' | 'account' | 'model' | 'client'
+  title: string
+  detail?: string
+  /** Whose it is, for the UI to name. */
+  provider?: string
+  /** Where it is dealt with. */
+  link?: string
+  /** When it began, or when it ends. */
+  since?: string
+  until?: string
+}

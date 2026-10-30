@@ -3,6 +3,7 @@ import {
   type MemorySnapshot,
   type Overview as OverviewData,
 } from '../../../api/client'
+import { NoticesCard } from '../notices'
 import { AvailabilityCard } from '../status'
 import { useLoader } from '../../hooks'
 import {
@@ -81,12 +82,7 @@ function MemoryCard({ memory }: { memory: MemorySnapshot }) {
  * user arrives to do was a card at the bottom of a dashboard. Those live with
  * the key a client is given, so this links there rather than repeating them.
  */
-export default function Overview({
-  serving = true,
-}: {
-  /** The gateway switch: off, no client is served, and the overview says so first. */
-  serving?: boolean
-}) {
+export default function Overview() {
   const { data, error, loading, reload, refreshing, updatedAt } = useLoader<OverviewData>(
     (signal) => api.gateway.overview(signal),
     { on: READS.overview },
@@ -116,12 +112,6 @@ export default function Overview({
 
   return (
     <Page>
-      {!serving && (
-        <Banner tone="error">
-          The gateway is switched off: every client is refused until it is switched back on.{' '}
-          <InlineLink href="/settings">Settings</InlineLink>.
-        </Banner>
-      )}
       {!data.ready && (
         <Banner tone="warn">
           No usable account, so the gateway cannot serve a request yet.{' '}
@@ -136,24 +126,10 @@ export default function Overview({
           <InlineLink href="/clients">Point a client at it</InlineLink>.
         </Banner>
       )}
-      {(data.accounts.needs_reauth ?? 0) > 0 && (
-        <Banner tone="error">
-          {data.accounts.needs_reauth === 1
-            ? 'An account has lost its login. It serves until its current token expires,'
-            : `${data.accounts.needs_reauth} accounts have lost their login. They serve until their current tokens expire,`}{' '}
-          and nothing the gateway does brings a refused login back.{' '}
-          <InlineLink href="/accounts">Reconnect</InlineLink>.
-        </Banner>
-      )}
-      {data.accounts.needs_reauth_soon > 0 && (
-        <Banner tone="warn">
-          {data.accounts.needs_reauth_soon === 1
-            ? 'An account needs re-authorising soon.'
-            : `${data.accounts.needs_reauth_soon} accounts need re-authorising soon.`}{' '}
-          Refreshing cannot push that date back.{' '}
-          <InlineLink href="/accounts">Reconnect</InlineLink>.
-        </Banner>
-      )}
+      {/* What needs the operator, each a link to where it is dealt with:
+          the gateway switched off, an account to sign in again, a model
+          failing everywhere, a client whose requests keep failing. */}
+      <NoticesCard />
 
       <Card
         title="Status"
