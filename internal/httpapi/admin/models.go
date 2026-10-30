@@ -33,7 +33,10 @@ func (s *Admin) handleAccountModels(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	body, err := s.models.ListFor(ctx, id, "limit=1000")
+	// The list the gateway last read, so a page load, and the page's reads
+	// while the account's models are checked, call no upstream; ?fresh=1
+	// reads it again.
+	body, err := s.models.AccountList(ctx, id, r.URL.Query().Get("fresh") == "1")
 	if err != nil {
 		s.log.Warn("could not read an account's models", "account", id, "err", err)
 		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,

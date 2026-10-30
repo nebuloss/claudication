@@ -282,11 +282,11 @@ func TestAnUnreadAccountKeepsItsLastList(t *testing.T) {
 	addAccount(t, srv, st, "max@example.com", "max-access", "r2", time.Now().Add(time.Hour))
 	ctx := context.Background()
 
-	if _, err := srv.models.List(ctx); err != nil {
+	if _, err := srv.models.Fresh(ctx); err != nil {
 		t.Fatal(err)
 	}
 	maxDown.Store(true)
-	body, err := srv.models.List(ctx)
+	body, err := srv.models.Fresh(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,8 +297,13 @@ func TestAnUnreadAccountKeepsItsLastList(t *testing.T) {
 		t.Errorf("opus-5-5 routes to %q, want anthropic", p)
 	}
 	proDown.Store(true)
-	if _, err := srv.models.List(ctx); err == nil {
+	if _, err := srv.models.Fresh(ctx); err == nil {
 		t.Error("with no account answering, the last lists were shown as current")
+	}
+	// A plain read answers from the lists last read, whatever the upstreams
+	// do now: a page load calls no upstream.
+	if body, err := srv.models.List(ctx); err != nil || !strings.Contains(string(body), `"claude-opus-5-5"`) {
+		t.Errorf("a read with every upstream down: %v %s", err, body)
 	}
 }
 

@@ -88,7 +88,18 @@ export function SlotsCard({
         {c.slots.map((s) => (
           <SlotRow key={s.id} client={c} slot={s} choices={choices} onChanged={onChanged} onNamed={onNamed} />
         ))}
-        {c.type.extraSlots && <AddSlot client={c} choices={choices} onAdded={onNamed} />}
+        {c.type.extraSlots && (
+          <AddSlot
+            client={c}
+            choices={choices}
+            onAdded={(name) => {
+              onNamed(name)
+              // The new name is the client's now: reloaded at once, not at
+              // the page's next poll, 20 s later.
+              onChanged()
+            }}
+          />
+        )}
       </Stack>
     </Card>
   )

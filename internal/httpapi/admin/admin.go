@@ -96,8 +96,13 @@ type Deps struct {
 type Models interface {
 	// List is every model the gateway serves.
 	List(ctx context.Context) ([]byte, error)
+	// Fresh is List read from every upstream now.
+	Fresh(ctx context.Context) ([]byte, error)
 	// ListFor is the upstream list as one account sees it, unfiltered.
 	ListFor(ctx context.Context, accountID, rawQuery string) ([]byte, error)
+	// AccountList is one account's list as the gateway last read it, read
+	// from its upstream only when it has none or fresh asks.
+	AccountList(ctx context.Context, accountID string, fresh bool) ([]byte, error)
 	// For is the list one key is offered, its client's slots in it: what
 	// /v1/models answers it, and what its client's configs are written from.
 	For(ctx context.Context, key store.APIKey) ([]byte, error)

@@ -105,8 +105,9 @@ type Catalog struct {
 	// nextRead is when the lists are read again: newestTTL after a whole
 	// read, listRetry after one that missed an account (remember).
 	nextRead time.Time
-	// lastLists are each account's last list that could be read, standing
-	// in for one that cannot be this time (List).
+	// lastLists are each account's last list that could be read: what a
+	// read of the model list is answered from (List), and what stands in
+	// for an account that cannot be read this time (readLists).
 	lastLists map[string][]byte
 	// refreshing is closed when the refresh in flight ends; nil when none
 	// is (refreshFamilies).
@@ -541,11 +542,12 @@ func (s *Catalog) refreshFamilies(ctx context.Context) {
 	}
 }
 
-// refresh is the background read refreshFamilies starts.
+// refresh is the background read refreshFamilies starts: the one place, with
+// Fresh, the upstreams' lists are read again once an account has one.
 func (s *Catalog) refresh(done chan struct{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), refreshWait)
 	defer cancel()
-	if _, err := s.List(ctx); err != nil {
+	if _, err := s.list(ctx, true); err != nil {
 		s.log.Debug("model lists unreadable", "err", err)
 	}
 	s.rolesMu.Lock()
@@ -766,12 +768,33 @@ func modelsAllowedFor(body []byte, key store.APIKey) []byte {
 // routed to no one; with none, it is skipped. When no account could be read
 // at all it is an error, as before, whatever stood in: an upstream that
 // answers nobody is not a list to show as current.
+//
+// Answered from each account's last list (lastLists): a read of the model
+// list — /v1/models, a client's files and install command, the admin's
+// model screens, the agent's list_models — used to call every account's
+// upstream every time, a ChatGPT list being 573 KB, and the Models page of
+// an account being checked read it every 3 s. The lists are read again in
+// the background (refreshFamilies, every newestTTL) and on Fresh; only an
+// account with no list yet is read here.
 func (s *Catalog) List(ctx context.Context) ([]byte, error) {
+	s.refreshFamilies(ctx)
+	return s.list(ctx, false)
+}
+
+// Fresh is List read from every upstream now: what an operator asks for by
+// name, never what a page load does.
+func (s *Catalog) Fresh(ctx context.Context) ([]byte, error) {
+	return s.list(ctx, true)
+}
+
+// list is List, from the upstreams when upstream and from the last lists
+// otherwise.
+func (s *Catalog) list(ctx context.Context, upstream bool) ([]byte, error) {
 	accounts, err := s.store.ListAccounts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	bodies, errs := s.readLists(ctx, accounts)
+	bodies, errs := s.readLists(ctx, accounts, upstream)
 	var (
 		parts   [][]byte
 		lastErr error
@@ -843,18 +866,26 @@ func (s *Catalog) List(ctx context.Context) ([]byte, error) {
 	return joinLists(parts), nil
 }
 
-// readLists asks every switched-on account for its list at once — one slow
-// upstream used to hold up every account after it, and a request's deadline
-// ran out on the later ones — in the order of accounts, an error where one
-// could not be read. Each list read is kept, to stand in for that account
-// when a later read of it fails (lastList).
-func (s *Catalog) readLists(ctx context.Context, accounts []store.Account) ([][]byte, []error) {
+// readLists is every switched-on account's list, in the order of accounts,
+// an error where one could not be read. fresh asks each upstream, all at once
+// — one slow upstream used to hold up every account after it, and a
+// request's deadline ran out on the later ones; otherwise an account's last
+// list answers, and only one with none is asked. Each list read is kept, to
+// answer later reads and to stand in for that account when a later read of
+// it fails (lastList).
+func (s *Catalog) readLists(ctx context.Context, accounts []store.Account, fresh bool) ([][]byte, []error) {
 	bodies := make([][]byte, len(accounts))
 	errs := make([]error, len(accounts))
 	var wg sync.WaitGroup
 	for i, a := range accounts {
 		if a.Disabled() || s.relayFor(a.Provider) == nil {
 			continue
+		}
+		if !fresh {
+			if kept := s.lastList(a.ID); kept != nil {
+				bodies[i] = kept
+				continue
+			}
 		}
 		wg.Add(1)
 		go func() {
@@ -877,6 +908,27 @@ func (s *Catalog) readLists(ctx context.Context, accounts []store.Account) ([][]
 	// Only the accounts there are now: a removed one's list goes with it.
 	s.lastLists = kept
 	return bodies, errs
+}
+
+// AccountList is one account's model list as List answers it: its last
+// list, read from its upstream only when it has none or fresh asks.
+func (s *Catalog) AccountList(ctx context.Context, accountID string, fresh bool) ([]byte, error) {
+	if !fresh {
+		if kept := s.lastList(accountID); kept != nil {
+			return kept, nil
+		}
+	}
+	body, err := s.ListFor(ctx, accountID, "limit=1000")
+	if err != nil {
+		return nil, err
+	}
+	s.rolesMu.Lock()
+	if s.lastLists == nil {
+		s.lastLists = map[string][]byte{}
+	}
+	s.lastLists[accountID] = body
+	s.rolesMu.Unlock()
+	return body, nil
 }
 
 // lastList is the last list an account gave, or nil.

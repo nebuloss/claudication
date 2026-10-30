@@ -38,7 +38,8 @@ func TestConfigReportsSettingsAndSwitches(t *testing.T) {
 }
 
 // The setup screen lists models through the session, not a key; an upstream
-// it cannot reach is a 502, never an empty list that reads as "no models".
+// it cannot reach, asked fresh, is a 502, never an empty list that reads as
+// "no models".
 func TestAdminModels(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	fake := &fakeAnthropic{}
@@ -53,7 +54,12 @@ func TestAdminModels(t *testing.T) {
 		t.Fatalf("models: %d %s", status, body)
 	}
 	fake.set(func(f *fakeAnthropic) { f.modelsFail = true })
-	if status, body := call(t, base, http.MethodGet, "/admin/models", "", c); status != http.StatusBadGateway {
+	// A plain read answers from the lists last read; a fresh one asks the
+	// upstream, and says it cannot be reached.
+	if status, body := call(t, base, http.MethodGet, "/admin/models", "", c); status != http.StatusOK {
+		t.Errorf("a read with the upstream failing: %d %s", status, body)
+	}
+	if status, body := call(t, base, http.MethodGet, "/admin/models?fresh=1", "", c); status != http.StatusBadGateway {
 		t.Errorf("failing upstream: %d %s", status, body)
 	}
 }

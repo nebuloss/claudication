@@ -90,7 +90,13 @@ func (s *Admin) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	body, err := s.models.List(ctx)
+	// The lists the gateway last read; ?fresh=1 reads every upstream now,
+	// which is where an upstream that cannot be reached is said.
+	list := s.models.List
+	if r.URL.Query().Get("fresh") == "1" {
+		list = s.models.Fresh
+	}
+	body, err := list(ctx)
 	if err != nil {
 		s.log.Warn("could not read the upstream model list", "err", err)
 		httpx.WriteError(w, http.StatusBadGateway, httpx.KindUpstream,
