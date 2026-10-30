@@ -62,16 +62,23 @@ export function Stat({
   value,
   hint,
   tone,
+  dense = false,
 }: {
   label: string
   value: ReactNode
   hint?: ReactNode
   tone?: Tone
+  /** Tighter, for a screen of many — the Overview's eight. */
+  dense?: boolean
 }) {
   return (
-    <div className={`${tile} px-4 py-3`}>
+    <div className={`${tile} ${dense ? 'px-4 py-2.5' : 'px-4 py-3'}`}>
       <Overline>{label}</Overline>
-      <div className={`mt-1 text-2xl leading-8 font-normal tabular-nums ${toneInk[tone ?? 'neutral']}`}>
+      <div
+        className={`${dense ? 'mt-0.5 text-xl leading-7' : 'mt-1 text-2xl leading-8'} font-normal tabular-nums ${
+          toneInk[tone ?? 'neutral']
+        }`}
+      >
         {value}
       </div>
       {hint !== undefined && <div className="mt-0.5 text-xs text-on-surface-variant">{hint}</div>}

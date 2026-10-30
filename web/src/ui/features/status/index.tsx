@@ -244,12 +244,13 @@ function FittedIncidents({ report, limit }: { report: StatusReport; limit: numbe
  * everything else below the fold. History opens the rest in a dialog: the
  * 24-hour strip, the key, and every incident.
  */
-export function AvailabilityCard() {
+export function AvailabilityCard({ fill = false }: { fill?: boolean }) {
   const { result, last } = useStatus()
   const [open, setOpen] = useState(false)
   const latest = last?.incidents[0]
   return (
     <Card
+      fill={fill}
       title="Availability"
       aside={
         last !== null && (
@@ -262,21 +263,28 @@ export function AvailabilityCard() {
       {last === null ? (
         <Muted>{result.kind === 'unreachable' ? 'Could not read the availability history.' : 'Loading…'}</Muted>
       ) : (
-        <div className="flex flex-col gap-4">
-          <p className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-on-surface-variant">
+        <div className={`flex flex-col gap-4 ${fill ? 'min-h-0 flex-1' : ''}`}>
+          <p className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-on-surface-variant">
             {(['24h', '7d', '90d'] as const).map((w) => (
-              <span key={w}>
-                <span className="text-base text-on-surface tabular-nums">{percent(last.uptime[w])}</span>{' '}
-                over {w === '24h' ? '24 hours' : w === '7d' ? '7 days' : '90 days'}
+              <span key={w} title={`Up over the last ${w === '24h' ? '24 hours' : w === '7d' ? '7 days' : '90 days'}`}>
+                <span className="text-base text-on-surface tabular-nums">{percent(last.uptime[w])}</span> {w}
               </span>
             ))}
           </p>
           <Strip buckets={last.days} title="Last 90 days" from="90 days ago" to="Today" words={dayWords} unit="days" />
-          <Muted size="xs">
-            {latest === undefined
-              ? 'No incidents in the last 90 days.'
-              : `${last.incidents.length} ${last.incidents.length === 1 ? 'incident' : 'incidents'} in 90 days, the latest ${whenFormat.format(latest.start)} UTC${latest.end === null ? ', ongoing' : ''}.`}
-          </Muted>
+          {fill ? (
+            // As many of the latest incidents as the room left holds, as the
+            // welcome page lists them; a line saying how many when none fit.
+            <div className="flex min-h-0 flex-1 flex-col">
+              <IncidentList report={last} limit={30} fit />
+            </div>
+          ) : (
+            <Muted size="xs">
+              {latest === undefined
+                ? 'No incidents in the last 90 days.'
+                : `${last.incidents.length} ${last.incidents.length === 1 ? 'incident' : 'incidents'} in 90 days, the latest ${whenFormat.format(latest.start)} UTC${latest.end === null ? ', ongoing' : ''}.`}
+            </Muted>
+          )}
         </div>
       )}
       {open && last !== null && (

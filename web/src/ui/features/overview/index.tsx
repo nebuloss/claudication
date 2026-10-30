@@ -11,11 +11,9 @@ import {
   Card,
   ErrorState,
   Freshness,
+  InfoTip,
   InlineLink,
   Loading,
-  Muted,
-  Overline,
-  Page,
   Stat,
   StatGrid,
   tile,
@@ -36,7 +34,7 @@ import { READS } from '../../../api/live'
  * high reading that falls a minute later is the trimmer working — and the
  * rest, the runtime's own stacks and tables.
  */
-function ProcessCard({ memory }: { memory: MemorySnapshot }) {
+function ProcessCard({ memory, fill = false }: { memory: MemorySnapshot; fill?: boolean }) {
   const rss = memory.rss_bytes
   const limit = memory.limit_bytes
   const pct = limit > 0 && rss > 0 ? Math.min(100, (rss / limit) * 100) : undefined
@@ -48,14 +46,14 @@ function ProcessCard({ memory }: { memory: MemorySnapshot }) {
   const other = Math.max(0, rss - heap - idle)
   const whole = Math.max(rss, heap + idle, 1)
   const parts = [
-    { label: 'heap in use', bytes: heap, fill: 'bg-primary' },
-    { label: 'idle, not yet returned', bytes: idle, fill: 'bg-primary/40' },
-    { label: 'runtime and stacks', bytes: other, fill: 'bg-outline' },
+    { label: 'heap', tip: 'Heap in use', bytes: heap, fill: 'bg-primary' },
+    { label: 'idle', tip: 'Idle heap, not yet returned to the system', bytes: idle, fill: 'bg-primary/40' },
+    { label: 'runtime', tip: 'The runtime and its stacks', bytes: other, fill: 'bg-outline' },
   ]
 
   return (
-    <Card title="Process">
-      <div className={`${tile} grid gap-6 p-4 sm:grid-cols-[auto_1fr] sm:items-center`}>
+    <Card title="Process" fill={fill}>
+      <div className={`${tile} grid gap-5 p-4 sm:grid-cols-[auto_1fr] sm:items-center ${fill ? 'min-h-0' : ''}`}>
         <Gauge percent={pct} tone={tone}>
           <span className="text-lg leading-6 text-on-surface tabular-nums">{rss > 0 ? mib(rss) : '—'}</span>
           <span className="text-[11px] text-on-surface-variant">
@@ -72,7 +70,7 @@ function ProcessCard({ memory }: { memory: MemorySnapshot }) {
               </div>
               <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-on-surface-variant">
                 {parts.map((p) => (
-                  <li key={p.label} className="flex items-center gap-1.5">
+                  <li key={p.label} className="flex items-center gap-1.5" title={p.tip}>
                     <span className={`size-2 rounded-full ${p.fill}`} aria-hidden />
                     {p.label} <span className="text-on-surface tabular-nums">{mib(p.bytes)}</span>
                   </li>
@@ -80,25 +78,38 @@ function ProcessCard({ memory }: { memory: MemorySnapshot }) {
               </ul>
             </div>
           )}
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-            {[
-              ['Heap target', memory.heap_limit_bytes > 0 ? mib(memory.heap_limit_bytes) : 'none'],
-              ['Limit', limit > 0 ? `${Math.round(pct ?? 0)}% used` : 'unknown'],
-              ['Goroutines', String(memory.goroutines)],
-              ['Collections', compact(memory.gc_cycles)],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <Overline as="dt">{label}</Overline>
-                <dd className="m-0 mt-0.5 text-base text-on-surface tabular-nums">{value}</dd>
-              </div>
-            ))}
-          </dl>
-          {limit === 0 && (
-            <Muted size="xs">
-              No limit known. Set <code>memory-limit</code> on a container that cannot see its own, so the
-              runtime collects before the kernel kills it.
-            </Muted>
-          )}
+          {/* One line of figures, each its word after it: as four labelled
+              tiles at half the width their labels ran into each other. */}
+          <p className="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-on-surface-variant">
+            <span>
+              limit{' '}
+              {limit > 0 ? (
+                <span className="text-on-surface tabular-nums">{Math.round(pct ?? 0)}%</span>
+              ) : (
+                // The advice behind an ⓘ: three lines of it under the figures
+                // were what made the Overview scroll.
+                <span className="inline-flex items-center gap-1 text-on-surface">
+                  none
+                  <InfoTip label="About the memory limit">
+                    No limit known. Set <code>memory-limit</code> on a container that cannot see its own, so the
+                    runtime collects before the kernel kills it.
+                  </InfoTip>
+                </span>
+              )}
+            </span>
+            <span>
+              target{' '}
+              <span className="text-on-surface tabular-nums">
+                {memory.heap_limit_bytes > 0 ? mib(memory.heap_limit_bytes) : 'none'}
+              </span>
+            </span>
+            <span>
+              <span className="text-on-surface tabular-nums">{memory.goroutines}</span> goroutines
+            </span>
+            <span>
+              <span className="text-on-surface tabular-nums">{compact(memory.gc_cycles)}</span> collections
+            </span>
+          </p>
         </div>
       </div>
     </Card>
@@ -172,7 +183,12 @@ export default function Overview() {
   const day = data.last_24h
 
   return (
-    <Page>
+    // The window's height on a wide screen, as the welcome page is (the
+    // owner's ask: no scrollbar, whatever the window): the status at its own
+    // height, and availability and the process sharing what is left, the
+    // incidents listing as many as it holds. The shell gives it that height
+    // (app.tsx); a window too short even for that scrolls inside it.
+    <div className="flex flex-col gap-5 lg:min-h-0 lg:flex-1">
       {!data.ready && (
         <Banner tone="warn">
           No usable account, so the gateway cannot serve a request yet.{' '}
@@ -195,19 +211,19 @@ export default function Overview() {
         }
       >
         <StatGrid>
-          <Stat
+          <Stat dense
             label="Proxy"
             value={data.ready ? 'Ready' : 'Not ready'}
             tone={data.ready ? 'ok' : 'error'}
             hint={`up ${duration(data.uptime_s)}`}
           />
-          <Stat
+          <Stat dense
             label="Accounts"
             value={data.accounts.usable}
             hint={`of ${data.accounts.total} connected`}
           />
-          <Stat label="Clients" value={data.keys.total} hint="set up" />
-          <Stat
+          <Stat dense label="Clients" value={data.keys.total} hint="set up" />
+          <Stat dense
             label="Requests 24h"
             value={day ? compact(day.requests) : '—'}
             hint={day && day.errors > 0 ? `${day.errors} failed` : 'no failures'}
@@ -217,24 +233,31 @@ export default function Overview() {
         {day !== undefined && day.requests > 0 && (
           <div className="mt-3">
             <StatGrid>
-            <Stat label="In 24h" value={compact(day.input_tokens)} hint="input tokens" />
-            <Stat label="Out 24h" value={compact(day.output_tokens)} hint="output tokens" />
-            <Stat
+            <Stat dense label="In 24h" value={compact(day.input_tokens)} hint="input tokens" />
+            <Stat dense label="Out 24h" value={compact(day.output_tokens)} hint="output tokens" />
+            <Stat dense
               label="Cached 24h"
               value={compact(day.cache_read_tokens + day.cache_write_tokens)}
               hint="cache tokens"
             />
-            <Stat label="Latency" value={`${day.median_ms}ms`} hint={`p95 ${day.p95_ms}ms`} />
+            <Stat dense label="Latency" value={`${day.median_ms}ms`} hint={`p95 ${day.p95_ms}ms`} />
             </StatGrid>
           </div>
         )}
       </Card>
 
-      {/* Whether it has been up: the figures and the 90 days here, the rest
-          behind History. An incident of the last day is a notification too. */}
-      <AvailabilityCard />
-
-      {data.memory !== undefined && <ProcessCard memory={data.memory} />}
+      {/* Whether it has been up and what the process holds, side by side on
+          a wide screen so the Overview fits a laptop's window without
+          scrolling; one above the other on a narrow one. The figures and the
+          90 days here, the rest behind History; an incident of the last day
+          is a notification too. */}
+      {/* Capped as the welcome page's grid is: on a tall screen the
+          incidents have their room and the rest of the window stays empty,
+          rather than the process's figures floating in a tall white box. */}
+      <div className="grid gap-4 lg:min-h-64 lg:max-h-[28rem] lg:flex-1 lg:grid-cols-2">
+        <AvailabilityCard fill />
+        {data.memory !== undefined && <ProcessCard memory={data.memory} fill />}
+      </div>
 
       {unknown && (
         <Banner tone="warn">
@@ -245,6 +268,6 @@ export default function Overview() {
         </Banner>
       )}
 
-    </Page>
+    </div>
   )
 }

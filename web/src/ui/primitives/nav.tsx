@@ -327,23 +327,6 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
             </Tip>
           </li>
         )}
-        {/* Whose pages these are, over them: the section — so the rail says
-            where it is as well as where up goes.
-            Not in the row a phone gets, which the path bar above already
-            heads. */}
-        {level.here !== undefined && !row && (
-          <li
-            className="flex min-w-0 items-center gap-2 px-4 pt-1 pb-1 text-xs font-semibold tracking-wide text-on-surface-variant uppercase"
-            aria-hidden
-          >
-            {level.here.icon !== undefined && (
-              <svg viewBox="0 0 24 24" className="size-4 shrink-0 fill-current">
-                <path d={ICON[level.here.icon]} />
-              </svg>
-            )}
-            <span className="truncate">{level.here.label}</span>
-          </li>
-        )}
         {level.items.map((l) => {
           const on = l.href === level.current
           return (

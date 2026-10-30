@@ -254,7 +254,10 @@ function AccountRow({
       href={accountHref(a.id)}
       leading={
         <>
-          {orderable && (
+          {/* The handle's room on every row, the handle only where there is
+              an order to change: a provider with one account drew none, and
+              its row's name started a handle further left than the rest. */}
+          {orderable ? (
             <Tip tip="Drag to reorder">
               <span
                 className="hidden cursor-grab text-on-surface-variant active:cursor-grabbing sm:block"
@@ -265,6 +268,8 @@ function AccountRow({
                 </svg>
               </span>
             </Tip>
+          ) : (
+            <span className="hidden size-5 shrink-0 sm:block" aria-hidden />
           )}
           <RowBadge>{rank + 1}</RowBadge>
           <MarkTile accent={a.accent}>

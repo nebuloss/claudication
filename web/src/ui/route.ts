@@ -242,11 +242,6 @@ export type NavLink = {
 export type NavLevel = {
   /** The level above, named as itself, with its own glyph. */
   back?: NavLink
-  /**
-   * The section whose pages these are, as the rail heads them. Not an
-   * account or a client: the trail and the page's own title name it already.
-   */
-  here?: NavLink
   items: NavLink[]
   current: string
 }
@@ -308,7 +303,6 @@ export function navLevel(pathname: string): NavLevel {
     // On its overview, no entry: the overview is Gateway itself.
     return {
       back: HOME,
-      here: { href: pathOf(top), label: 'Gateway', icon: 'gateway' },
       items: links('/gateway', GATEWAY_PAGES),
       current: id === undefined ? pathOf(top) : pathOf(top, id),
     }
@@ -316,7 +310,6 @@ export function navLevel(pathname: string): NavLevel {
   if (top === 'settings') {
     return {
       back: HOME,
-      here: { href: pathOf(top), label: 'Settings', icon: 'settings' },
       items: links('/settings', SETTINGS_PAGES),
       current: id === undefined ? pathOf(top) : pathOf(top, id),
     }

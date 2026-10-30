@@ -205,7 +205,10 @@ export default function App() {
   return (
     <SessionProvider onExpired={expired}>
       <ConfirmProvider>
-        <div className="min-h-dvh">
+        {/* The Overview is the window's height on a wide screen, with no
+            scrollbar (features/overview); every other screen grows with its
+            content. */}
+        <div className={tab === 'overview' ? 'flex min-h-dvh flex-col lg:h-dvh' : 'min-h-dvh'}>
           {/* z-30 rather than z-10: this is the app's chrome and everything on a
               screen scrolls under it. At z-10 it tied with the sticky line-number
               gutter in a code block and with a capped table's sticky heading, and
@@ -244,14 +247,22 @@ export default function App() {
           {/* The top padding is the row's, once, and both sides start at the
               row's top: padded separately, the rail's panel sat 6px below the
               page's first card. */}
-          <div className={`mx-auto ${measure} px-4 sm:px-6 md:flex md:items-start md:gap-8 md:pt-6`}>
+          <div
+            className={`mx-auto w-full ${measure} px-4 sm:px-6 md:flex md:items-start md:gap-8 md:pt-6 ${
+              tab === 'overview' ? 'lg:min-h-0 lg:flex-1 lg:items-stretch' : ''
+            }`}
+          >
             <aside className="hidden w-52 shrink-0 md:sticky md:top-32 md:block">
               <NavRail level={level} />
             </aside>
             <div className="pt-4 md:hidden">
               <NavRail level={level} row />
             </div>
-            <main className="min-w-0 flex-1 pt-6 pb-16 md:pt-0">
+            <main
+              className={`min-w-0 flex-1 pt-6 md:pt-0 ${
+                tab === 'overview' ? 'pb-6 lg:flex lg:min-h-0 lg:flex-col lg:overflow-y-auto' : 'pb-16'
+              }`}
+            >
               {tab === 'overview' && <Overview />}
               {/* Keyed by the item, so moving from one account's page to another's
                   starts clean rather than showing the last one's state. */}
