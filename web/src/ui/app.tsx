@@ -14,6 +14,7 @@ import {
   ACCOUNT_PAGES,
   GATEWAY_PAGES,
   CLIENT_PAGES,
+  SECTION_LINKS,
   SETTINGS_PAGES,
   navLevel,
   pageIdOf,
@@ -21,6 +22,8 @@ import {
   reloadOnNextNavigation,
   tabOf,
   trailOf,
+  type NavLink,
+  type Siblings,
 } from './route'
 // OverviewData, because Overview is already the panel above.
 import {
@@ -41,6 +44,8 @@ import {
   VersionTag,
 } from './primitives'
 import { READS } from '../api/live'
+import { accountName } from './domain/account'
+import { providerLabel } from './providers'
 import { NoticeBell } from './features/notices'
 
 type State =
@@ -194,7 +199,7 @@ export default function App() {
   // One value for the header, the nav and the page, so the tab underline stays
   // over its tab when the measure changes.
   const measure = MEASURE
-  const level = navLevel(here)
+  const level = navLevel(here, nameOf)
   const trail = trailOf(here, nameOf)
 
   return (
@@ -229,7 +234,7 @@ export default function App() {
             {/* Where this page is: every level above it a link. The tabs that
                 used to be here are the rail's top level now. */}
             <div className={`mx-auto ${measure} px-4 pt-3 pb-3 sm:px-6`}>
-              <Breadcrumbs trail={trail} />
+              <Breadcrumbs trail={trail} siblingsOf={siblingsOf} />
             </div>
           </header>
 
@@ -279,6 +284,22 @@ export default function App() {
       </ConfirmProvider>
     </SessionProvider>
   )
+}
+
+/**
+ * What a crumb's menu offers (Breadcrumbs): the sections, or every account or
+ * client — on the page of theirs the trail is on — named as their own pages
+ * name them. Read when the menu opens; both lists are cached reads.
+ */
+async function siblingsOf(s: Siblings): Promise<NavLink[]> {
+  if (s.kind === 'sections') return SECTION_LINKS
+  const at = (id: string) => (s.page !== undefined ? pathOf(s.kind, id, s.page) : pathOf(s.kind, id))
+  if (s.kind === 'accounts') {
+    const { accounts } = await api.accounts.list()
+    return accounts.map((a) => ({ href: at(a.id), label: accountName(a), detail: providerLabel(a.provider) }))
+  }
+  const { clients } = await api.clients.list()
+  return clients.map((c) => ({ href: at(c.id), label: c.name }))
 }
 
 const REPO = 'https://github.com/nebuloss/claudication'

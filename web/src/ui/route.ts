@@ -211,8 +211,22 @@ export function tabOf(pathname: string): Tab {
   return TABS.some((t) => t.id === top) ? (top as Tab) : 'overview'
 }
 
+/**
+ * The places beside a step of the trail, which its crumb offers to go to
+ * without going up first: the other sections, or the other accounts or
+ * clients — on the same page of theirs when the trail is on one.
+ */
+export type Siblings = { kind: 'sections' } | { kind: 'accounts' | 'clients'; page?: string }
+
 /** A place to go: where, and what the navigation calls it. */
-export type NavLink = { href: string; label: string; icon?: IconName }
+export type NavLink = {
+  href: string
+  label: string
+  icon?: IconName
+  siblings?: Siblings
+  /** A second line that tells apart two places of the same name: an account's provider. */
+  detail?: string
+}
 
 /**
  * The navigation for one page: the choices on its own level, which one is
@@ -223,7 +237,14 @@ export type NavLink = { href: string; label: string; icon?: IconName }
  * above them. The level above is one Back away, and the
  * breadcrumb (trailOf) shows every level at once.
  */
-export type NavLevel = { back?: NavLink; items: NavLink[]; current: string }
+export type NavLevel = {
+  /** The level above, named as itself, with its own glyph. */
+  back?: NavLink
+  /** The place whose pages these are — a section, an account, a client — as the rail heads them. */
+  here?: NavLink
+  items: NavLink[]
+  current: string
+}
 
 /** Names an account or a client by id, for the trail and the Back button. */
 export type Namer = (kind: 'accounts' | 'clients', id: string) => string
@@ -255,19 +276,25 @@ const links = (base: string, list: readonly Section[]): NavLink[] =>
 const ROOT: NavLink[] = TABS.flatMap((t) =>
   t.id === 'overview' ? [] : [{ href: `/${t.id}`, label: t.label, icon: t.icon }],
 )
-const HOME: NavLink = { href: '/', label: 'Main menu' }
+
+/** The sections, each opening on its first page: what a section crumb offers. */
+export const SECTION_LINKS: NavLink[] = ROOT.map((l) => ({ ...l, href: canonical(l.href) }))
+
+/** The way up from a section: to the overview, named and drawn as itself. */
+const HOME: NavLink = { href: '/', label: 'Overview', icon: 'home' }
 
 /** The first step of every trail: the gateway's overview, at the root. */
 export const ROOT_CRUMB: NavLink = { href: '/', label: 'Overview' }
 
-/** The navigation level of a canonical path. */
-export function navLevel(pathname: string): NavLevel {
+/** The navigation level of a canonical path; `name` names an account or a client heading its pages. */
+export function navLevel(pathname: string, name?: Namer): NavLevel {
   const [top, id, page] = segments(pathname)
   if ((top === 'accounts' || top === 'clients') && id !== undefined) {
     const base = pathOf(top, id)
     const list = TABS.find((t) => t.id === top)!
     return {
-      back: { href: pathOf(top), label: list.label },
+      back: { href: pathOf(top), label: list.label, icon: sectionIcon(list) },
+      here: { href: base, label: name !== undefined ? name(top, id) : id },
       items: links(base, pagesOf(top)),
       // On the item's overview, no entry: the overview is the item itself.
       current: page === undefined ? base : `${base}/${page}`,
@@ -277,6 +304,7 @@ export function navLevel(pathname: string): NavLevel {
     // On its overview, no entry: the overview is Gateway itself.
     return {
       back: HOME,
+      here: { href: pathOf(top), label: 'Gateway', icon: 'gateway' },
       items: links('/gateway', GATEWAY_PAGES),
       current: id === undefined ? pathOf(top) : pathOf(top, id),
     }
@@ -284,6 +312,7 @@ export function navLevel(pathname: string): NavLevel {
   if (top === 'settings') {
     return {
       back: HOME,
+      here: { href: pathOf(top), label: 'Settings', icon: 'settings' },
       items: links('/settings', SETTINGS_PAGES),
       current: id === undefined ? pathOf(top) : pathOf(top, id),
     }
@@ -316,12 +345,17 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
     list.find((s) => s.id === x)?.label ?? x ?? ''
   if ((top === 'accounts' || top === 'clients') && id !== undefined) {
     const base = pathOf(top, id)
-    out.push({ href: pathOf(top), label: tab.label, icon: sectionIcon(tab) })
-    out.push({ href: base, label: name(top, id) })
+    out.push({ href: pathOf(top), label: tab.label, icon: sectionIcon(tab), siblings: { kind: 'sections' } })
+    out.push({ href: base, label: name(top, id), siblings: { kind: top, page } })
     if (page !== undefined) out.push({ href: `${base}/${page}`, label: label(pagesOf(top), page) })
     return out
   }
-  out.push({ href: canonical(pathOf(tab.id)), label: tab.label, icon: sectionIcon(tab) })
+  out.push({
+    href: canonical(pathOf(tab.id)),
+    label: tab.label,
+    icon: sectionIcon(tab),
+    siblings: { kind: 'sections' },
+  })
   if (top === 'gateway' && id !== undefined) {
     out.push({ href: pathOf(top, id), label: label(GATEWAY_PAGES, id) })
   }

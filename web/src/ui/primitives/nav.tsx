@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react'
-import type { NavLevel, NavLink } from '../route'
+import { useEffect, useState, type ReactNode } from 'react'
+import type { NavLevel, NavLink, Siblings } from '../route'
 import { ICON } from './icons'
+import { Popover, menuItem, useAnchoredPanel } from './popover'
 import { Tip } from './info'
 import { follow } from './link'
 
@@ -33,7 +34,18 @@ function HomeMark() {
  * it sat under the app's name in the same weight and colour and read as a
  * subtitle; filled, it reads as the control it is.
  */
-export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
+export function Breadcrumbs({
+  trail,
+  siblingsOf,
+}: {
+  trail: NavLink[]
+  /**
+   * The places beside a step, for a crumb that offers them (NavLink.siblings):
+   * read when its menu opens, by the shell, which knows the accounts and
+   * clients.
+   */
+  siblingsOf?: (s: Siblings) => Promise<NavLink[]>
+}) {
   return (
     <nav
       aria-label="Breadcrumb"
@@ -53,6 +65,7 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
                   you are on, and clicked like the others — it opens that
                   page from its top, which is also how to get back to the top
                   of a long one. */}
+              <span className="flex items-center">
               <Tip tip={i === 0 ? c.label : undefined}>
                 <a
                   href={c.href}
@@ -77,11 +90,113 @@ export function Breadcrumbs({ trail }: { trail: NavLink[] }) {
                   )}
                 </a>
               </Tip>
+              {c.siblings !== undefined && siblingsOf !== undefined && (
+                <SiblingMenu crumb={c} siblings={c.siblings} load={siblingsOf} />
+              )}
+              </span>
             </li>
           )
         })}
       </ol>
     </nav>
+  )
+}
+
+/**
+ * A crumb's ▾: the places beside it, to go to without going up first — the
+ * other sections, or the other accounts or clients, on the page of theirs
+ * the trail is on. Read when it opens, so the bar costs nothing until asked.
+ */
+function SiblingMenu({
+  crumb,
+  siblings,
+  load,
+}: {
+  crumb: NavLink
+  siblings: Siblings
+  load: (s: Siblings) => Promise<NavLink[]>
+}) {
+  const p = useAnchoredPanel({ width: 280, maxHeight: 420 })
+  const [list, setList] = useState<NavLink[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    if (!p.open) return
+    let live = true
+    setFailed(false)
+    load(siblings).then(
+      (l) => live && setList(l),
+      () => live && setFailed(true),
+    )
+    return () => {
+      live = false
+    }
+  }, [p.open, load, siblings])
+  const what = siblings.kind === 'sections' ? 'sections' : siblings.kind
+  // The crumb's own place, by its path: a sibling on the same item is this one.
+  const isHere = (l: NavLink) => l.href === crumb.href || l.href.startsWith(`${crumb.href}/`)
+  return (
+    <>
+      <Tip tip={p.open ? undefined : `Go to another of the ${what}`}>
+        <button
+          ref={p.anchor}
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={p.open}
+          aria-label={`Other ${what}`}
+          onClick={p.toggle}
+          className="state-layer -ml-1 grid size-6 shrink-0 place-items-center rounded-full opacity-70 hover:opacity-100"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden className={`size-4 fill-current transition-transform ${p.open ? 'rotate-180' : ''}`}>
+            <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
+          </svg>
+        </button>
+      </Tip>
+      {p.at !== null && (
+        <Popover panelRef={p.panel} at={p.at} role="menu" label={`Other ${what}`}>
+          {failed ? (
+            <p className="px-3 py-2 text-xs text-on-surface-variant">Could not read the {what}.</p>
+          ) : list === null ? (
+            <p className="px-3 py-2 text-xs text-on-surface-variant">Reading the {what}…</p>
+          ) : list.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-on-surface-variant">No other {what}.</p>
+          ) : (
+            list.map((l) => {
+              const here = isHere(l)
+              return (
+                <a
+                  key={l.href}
+                  role="menuitem"
+                  href={l.href}
+                  aria-current={here ? 'page' : undefined}
+                  onClick={(e) => {
+                    follow(l.href)(e)
+                    p.close()
+                  }}
+                  className={`${menuItem({ selected: here })} flex items-center gap-2`}
+                >
+                  {l.icon !== undefined && (
+                    <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current opacity-70">
+                      <path d={ICON[l.icon]} />
+                    </svg>
+                  )}
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate">{l.label}</span>
+                    {l.detail !== undefined && (
+                      <span className="truncate text-xs text-on-surface-variant">{l.detail}</span>
+                    )}
+                  </span>
+                  {here && (
+                    <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-primary">
+                      <path d={ICON.done} />
+                    </svg>
+                  )}
+                </a>
+              )
+            })
+          )}
+        </Popover>
+      )}
+    </>
   )
 }
 
@@ -129,9 +244,35 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
                 <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
                   <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
                 </svg>
+                {level.back.icon !== undefined && (
+                  <svg viewBox="0 0 24 24" aria-hidden className="size-4 shrink-0 fill-current opacity-70">
+                    <path d={ICON[level.back.icon]} />
+                  </svg>
+                )}
                 <span className={`truncate ${row ? 'max-w-[16ch]' : ''}`}>{level.back.label}</span>
               </a>
             </Tip>
+          </li>
+        )}
+        {/* Whose pages these are, over them: the section, or the account or
+            client — so the rail says where it is as well as where up goes.
+            Not in the row a phone gets, which the path bar above already
+            heads. */}
+        {level.here !== undefined && !row && (
+          <li
+            // A section's name in capitals, as the rail's other headings; an
+            // account's address or a client's name as it is written.
+            className={`flex min-w-0 items-center gap-2 px-4 pt-1 pb-1 text-xs font-semibold text-on-surface-variant ${
+              level.here.icon !== undefined ? 'tracking-wide uppercase' : ''
+            }`}
+            aria-hidden
+          >
+            {level.here.icon !== undefined && (
+              <svg viewBox="0 0 24 24" className="size-4 shrink-0 fill-current">
+                <path d={ICON[level.here.icon]} />
+              </svg>
+            )}
+            <span className="truncate">{level.here.label}</span>
           </li>
         )}
         {level.items.map((l) => {

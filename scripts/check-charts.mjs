@@ -261,7 +261,12 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   ])
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
   check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')
-  check('and goes back to the list', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients' })
+  check('and goes back to the list, drawn as it', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients', icon: 'clients' })
+  check('a section goes back to the overview, named so', lvl('/gateway/models').back, { href: '/', label: 'Overview', icon: 'home' })
+  // A crumb offers its siblings: the sections, or the other items on the same page.
+  check('a section crumb offers the sections', trailOf(canonical('/gateway/models'), name)[1].siblings, { kind: 'sections' })
+  check('an item crumb offers the others, on its page',
+    trailOf(canonical('/accounts/a1/models'), name)[2].siblings, { kind: 'accounts', page: 'models' })
   // Settings lists its pages, as Gateway does, with the way back.
   check('settings opens on its general view from the top level', hrefs(lvl('/'))[3], '/settings')
   check('settings lists its pages', hrefs(lvl('/settings/models')), ['/settings/models', '/settings/configuration', '/settings/diagnostics'])
