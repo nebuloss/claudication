@@ -327,6 +327,8 @@ body {
   .table-stack > tbody > tr > td {
     padding: 0;
     text-align: start;
+    /* A stacked row is a card of cells, not a grid of columns: no rules. */
+    border-right-width: 0 !important;
   }
   .table-stack > tbody > tr > td:not([data-label]) {
     grid-column: 1 / -1;

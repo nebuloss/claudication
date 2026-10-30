@@ -3,10 +3,8 @@ import { api, type RequestFacets } from '../../../api/client'
 import {
   Button,
   ButtonLink,
-  CardTitle,
   Empty,
   ErrorBanner,
-  Freshness,
   InputChip,
   Loading,
   MenuDivider,
@@ -66,12 +64,8 @@ function chipValue(value: string): string {
  * The request log. Under an account or a key it is that one's requests: the
  * scope is in the path, so it is always applied and never written into the
  * query string, and the rest of the filter is.
- *
- * `title` is for a log that sits in a card among others, as on Gateway's
- * Requests page: the heading takes the toolbar's row, beside its actions,
- * rather than a row of its own above them.
  */
-export default function RequestsPanel({ scope = {}, title }: { scope?: RequestScope; title?: string }) {
+export default function RequestsPanel({ scope = {} }: { scope?: RequestScope }) {
   // Read once per mount and on Back, so a link lands on its filter and the
   // browser's history still works.
   const [filter, setFilter] = useState(() => RequestFilter.fromSearch(window.location.search))
@@ -96,7 +90,6 @@ export default function RequestsPanel({ scope = {}, title }: { scope?: RequestSc
       filter={filter.scopedTo(scope)}
       scope={scope}
       onNarrow={narrow}
-      title={title}
       running={running}
     />
   )
@@ -106,14 +99,12 @@ function RecentRequests({
   filter,
   scope,
   onNarrow,
-  title,
   running,
 }: {
   filter: RequestFilter
   /** The account or client whose page this is: what the page is, not a narrowing. */
   scope: RequestScope
   onNarrow: (f: RequestFilter) => void
-  title?: string
   /** Whose running requests head the table: a client's id, '' for all, null for none. */
   running: string | null
 }) {
@@ -226,17 +217,12 @@ function RecentRequests({
 
   const query = filter.query()
 
-  // No card, no title and no live mark of its own unless given a title: on
-  // an account's or a client's page it is the body of a tab, the tab is
-  // already called Requests, and the page's header already says it is live.
-  // Nothing sits above the table there but what narrows it.
+  // No title and no live mark of its own: the page is already called
+  // Requests, and the freshness mark says only whether the tab is connected,
+  // which the header's bell and every other panel say too. Nothing sits
+  // above the table but what narrows it.
   return (
     <>
-      {title !== undefined && (
-        <CardTitle aside={<Freshness updatedAt={log.updatedAt} refreshing={log.refreshing} />}>
-          {title}
-        </CardTitle>
-      )}
 
       {/* What is narrowed, all of it, in one place. A filtered list that looks
           like the whole list is how someone concludes the gateway served four

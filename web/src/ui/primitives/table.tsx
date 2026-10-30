@@ -270,21 +270,25 @@ export function Table({
               stack
               ? 'w-full sm:min-w-max'
               : 'w-full min-w-max'
-            : // Column rules, on a resizable table only.
-              //
-              // On the cells, heading included, so each edge is one unbroken
-              // line from the top of the table to the bottom. It was two
-              // before — a rule the resize handle drew inside the heading, and
-              // a border on the body cells — which met at the heading's own
-              // bottom border and left a visible step where they did not quite
-              // line up.
-              //
-              // Lighter than the row rules: these run the height of the table
-              // and there are ten of them, so at full strength they read as a
-              // spreadsheet rather than a list. Never on the last column,
-              // where the rule would be the table's own right edge drawn
-              // twice.
-              'min-w-full [&_td]:border-r [&_th]:border-r [&_td]:border-outline-variant/50 [&_th]:border-outline-variant/50 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0'
+            : 'min-w-full'
+        } ${
+          // Column rules, on every table but one inside an unfolded row,
+          // which is part of that row and not a grid of its own.
+          //
+          // On the cells, heading included, so each edge is one unbroken
+          // line from the top of the table to the bottom. It was two
+          // before — a rule the resize handle drew inside the heading, and a
+          // border on the body cells — which met at the heading's own bottom
+          // border and left a visible step where they did not quite line up.
+          //
+          // Lighter than the row rules: these run the height of the table
+          // and there are ten of them, so at full strength they read as a
+          // spreadsheet rather than a list. Never on the last column, where
+          // the rule would be the table's own right edge drawn twice. An
+          // unfolded row's single cell spans every column and carries none.
+          nested
+            ? ''
+            : '[&>tbody>tr>td]:border-r [&>thead>tr>th]:border-r [&>tbody>tr>td]:border-outline-variant/50 [&>thead>tr>th]:border-outline-variant/50 [&>tbody>tr>td:last-child]:border-r-0 [&>thead>tr>th:last-child]:border-r-0'
         }`}
         // Fixed only once something has been dragged: until then the browser
         // sizes the columns to their content, which is the better default and
