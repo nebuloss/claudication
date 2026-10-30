@@ -21,7 +21,9 @@ import {
   Muted,
   Spinner,
   Stack,
+  Steps,
 } from '../../primitives'
+import { ProviderMark } from '../../brands'
 import { PROVIDERS, providerOf } from '../../providers'
 import { useSession } from '../../session'
 import { useNow } from '../../hooks'
@@ -170,98 +172,95 @@ function PasteFlow({
     setBlocked(false)
   }
 
+  // Where the operator is in it: nothing opened yet, approving in the tab,
+  // pasting what came back.
+  const opened = start !== null
   return (
-    <>
-      <ErrorBanner error={error} className="mb-4" />
-
-      {start === null ? (
-        <>
-          {who !== undefined ? (
-            <p className="mb-4 text-sm text-on-surface-variant">
-              Sign in as <span className="font-medium text-on-surface">{who}</span> to give this
-              account fresh credentials. It keeps its place in the list and its history. If your
-              browser is signed in to a different {label} account, {vendor} approves as that one
-              and the gateway refuses it — sign out of {site} first, or use the private-window
-              link offered on the next step.
-            </p>
-          ) : (
-            <p className="mb-4 text-sm text-on-surface-variant">
-              Opens the {label} consent screen in a new tab and authorises this gateway using OAuth
-              with PKCE. Add one account per subscription: they are served in the order listed
-              below, and the next takes over when {vendor} says one has run out. The account
-              added is whichever one your browser is signed in to on {site}.
-            </p>
-          )}
-          <Button onClick={begin} busy={phase === 'starting'}>
-            {phase === 'starting'
-              ? 'Opening…'
-              : who !== undefined
-                ? 'Start reconnect'
-                : `Start ${label} login`}
-          </Button>
-        </>
-      ) : (
-        <form onSubmit={finish}>
-          <Stack>
-            {blocked && (
-              <Banner tone="warn">Your browser blocked the new tab. Open the link below by hand.</Banner>
-            )}
-
-            <ol className="m-0 flex list-decimal flex-col gap-2 pl-5 text-sm text-on-surface-variant">
-              <li>
-                Approve access
-                {who !== undefined && (
-                  <>
-                    {' '}
-                    as <span className="font-medium text-on-surface">{who}</span>
-                  </>
-                )}{' '}
-                in the tab that just opened{' '}
-                <InlineLink href={start.auth_url ?? ''} primary>
-                  (reopen it)
-                </InlineLink>
-              </li>
-              <li>{p?.pasteHint ?? `${vendor} then shows you an authorization code.`}</li>
-              <li>Paste it below — the whole callback URL works too.</li>
-            </ol>
-
-            {who !== undefined && (
-              <CopyField
-                label="Signed in as someone else? Open this in a private window"
-                value={start.auth_url ?? ''}
-              />
-            )}
-
-            <Field
-              label="Callback URL or code"
-              value={pasted}
-              onChange={setPasted}
-              autoFocus
-              mono
-            />
-
-            <Actions>
-              <Button type="submit" busy={phase === 'exchanging'}>
-                {phase === 'exchanging'
-                  ? 'Exchanging…'
-                  : who !== undefined
-                    ? 'Finish reconnect'
-                    : 'Finish login'}
-              </Button>
-              <Button
-                variant="text"
-                onClick={() => {
-                  reset()
-                  onCancel()
-                }}
-              >
-                Cancel
-              </Button>
-            </Actions>
-          </Stack>
-        </form>
-      )}
-    </>
+    <Stack>
+      <ErrorBanner error={error} />
+      {blocked && <Banner tone="warn">Your browser blocked the new tab. Open the link below by hand.</Banner>}
+      <Muted size="xs">
+        {who !== undefined ? (
+          <>
+            Sign in as <span className="font-medium text-on-surface">{who}</span> to give this account
+            fresh credentials; it keeps its place in the list and its history. If your browser is signed in
+            to a different {label} account, {vendor} approves as that one and the gateway refuses it — sign
+            out of {site} first, or use the private-window link below.
+          </>
+        ) : (
+          <>
+            Authorises this gateway with OAuth and PKCE, as whichever {label} account your browser is
+            signed in to on {site}. Add one account per subscription: they serve in the order listed, the
+            next taking over when {vendor} says one has run out.
+          </>
+        )}
+      </Muted>
+      <form onSubmit={finish}>
+        <Steps
+          steps={[
+            {
+              title: `Open ${vendor}'s sign-in`,
+              detail: opened ? (
+                <>
+                  Opened in a new tab.{' '}
+                  <InlineLink href={start.auth_url ?? ''} primary>
+                    Open it again
+                  </InlineLink>
+                </>
+              ) : (
+                'In a new tab, where you sign in and approve.'
+              ),
+              state: opened ? 'done' : 'active',
+              children: (
+                <Button icon="launch" onClick={begin} busy={phase === 'starting'}>
+                  {phase === 'starting' ? 'Opening…' : who !== undefined ? 'Start reconnect' : `Sign in with ${label}`}
+                </Button>
+              ),
+            },
+            {
+              title: who !== undefined ? <>Approve as {who}</> : 'Approve access',
+              detail: p?.pasteHint ?? `${vendor} then shows you an authorization code.`,
+              state: opened ? 'active' : 'todo',
+              children:
+                who !== undefined && opened ? (
+                  <CopyField
+                    label="Signed in as someone else? Open this in a private window"
+                    value={start.auth_url ?? ''}
+                  />
+                ) : undefined,
+            },
+            {
+              title: 'Paste the code here',
+              detail: 'The whole callback URL works too.',
+              state: opened ? 'active' : 'todo',
+              children: (
+                <Stack gap={3}>
+                  <Field label="Callback URL or code" value={pasted} onChange={setPasted} autoFocus mono />
+                  <Actions>
+                    <Button type="submit" icon="login" busy={phase === 'exchanging'}>
+                      {phase === 'exchanging'
+                        ? 'Signing in…'
+                        : who !== undefined
+                          ? 'Finish reconnect'
+                          : 'Finish sign-in'}
+                    </Button>
+                    <Button
+                      variant="text"
+                      onClick={() => {
+                        reset()
+                        onCancel()
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </Actions>
+                </Stack>
+              ),
+            },
+          ]}
+        />
+      </form>
+    </Stack>
   )
 }
 
@@ -366,94 +365,95 @@ function DeviceFlow({
     }
   }, [start, provider, session])
 
+  const coded = start !== null
   return (
-    <>
-      <ErrorBanner error={error} className="mb-4" />
-
-      {start === null ? (
-        <>
-          <p className="mb-4 text-sm text-on-surface-variant">
-            {who !== undefined ? (
-              <>
-                Sign in as <span className="font-medium text-on-surface">{who}</span>, in the same
-                workspace, to give this account fresh credentials. It keeps its place in the list
-                and its history.
-              </>
+    <Stack>
+      <ErrorBanner error={error} />
+      <Muted size="xs">
+        {who !== undefined ? (
+          <>
+            Sign in as <span className="font-medium text-on-surface">{who}</span>, in the same workspace, to
+            give this account fresh credentials; it keeps its place in the list and its history.
+          </>
+        ) : (
+          <>
+            A code to enter on OpenAI&rsquo;s own page, in any browser signed in to the {label} account to
+            add. Each workspace is an account of its own: a personal one and a Team one under the same
+            address are added separately.
+          </>
+        )}
+      </Muted>
+      <Steps
+        steps={[
+          {
+            title: 'Get a code',
+            detail: coded ? 'From OpenAI, for this sign-in only.' : 'OpenAI gives one for this sign-in.',
+            state: coded ? 'done' : 'active',
+            children: (
+              <Button icon={error !== '' ? 'refresh' : 'login'} onClick={begin} busy={starting}>
+                {starting
+                  ? 'Asking OpenAI…'
+                  : error !== ''
+                    ? 'Get a new code'
+                    : who !== undefined
+                      ? 'Start reconnect'
+                      : `Sign in with ${label}`}
+              </Button>
+            ),
+          },
+          {
+            title: who !== undefined ? <>Enter it on OpenAI&rsquo;s page, as {who}</> : 'Enter it on OpenAI’s page',
+            detail: coded ? `Then approve. The code works for ${countdown(left)} more.` : 'Then approve.',
+            state: coded ? 'active' : 'todo',
+            children: coded ? (
+              <Stack gap={3}>
+                {/* Large, because it is read off this screen and typed into
+                    another one, often on another device; copied, for the same
+                    browser. */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <code
+                    aria-label="Your code"
+                    className="rounded-md3-m bg-surface-lowest px-4 py-2 font-mono text-3xl font-medium tracking-[0.2em] text-on-surface ring-1 ring-outline-variant select-all"
+                  >
+                    {start.user_code ?? ''}
+                  </code>
+                  <CopyButton label="Copy code" value={start.user_code ?? ''} />
+                </div>
+                <Actions>
+                  <ButtonLink href={start.verification_uri ?? ''} external variant="filled">
+                    Open the device page
+                  </ButtonLink>
+                  <Button
+                    variant="text"
+                    onClick={() => {
+                      setStart(null)
+                      setError('')
+                      onCancel()
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </Actions>
+              </Stack>
+            ) : undefined,
+          },
+          {
+            title: 'Added here on its own',
+            detail: coded ? (
+              // tabular-nums: the clock ticks every second, and proportional
+              // digits made the line twitch as they changed width.
+              <span className="inline-flex items-center gap-2 tabular-nums">
+                <Spinner className="shrink-0" />
+                Waiting for the approval — {countdown(left)} left.
+              </span>
             ) : (
-              <>
-                Gives you a code to enter on OpenAI&rsquo;s own page, in any browser signed in to
-                the {label} account to add. Each workspace is an account of its own: a personal one
-                and a Team one under the same address are added separately. Its GPT models can then
-                be bound to any client's model names.
-              </>
-            )}
-          </p>
-          <Button onClick={begin} busy={starting}>
-            {starting
-              ? 'Asking OpenAI…'
-              : error !== ''
-                ? 'Get a new code'
-                : who !== undefined
-                  ? 'Start reconnect'
-                  : `Start ${label} login`}
-          </Button>
-        </>
-      ) : (
-        <Stack>
-          <ol className="m-0 flex list-decimal flex-col gap-2 pl-5 text-sm text-on-surface-variant">
-            <li>
-              Open OpenAI&rsquo;s device page and sign in
-              {who !== undefined && (
-                <>
-                  {' '}
-                  as <span className="font-medium text-on-surface">{who}</span>
-                </>
-              )}
-              .
-            </li>
-            <li>Enter the code below, and approve.</li>
-            <li>This page notices on its own and adds the account.</li>
-          </ol>
-
-          {/* Large, because it is read off this screen and typed into another
-              one, often on another device; copied, for the same browser. */}
-          <div className="flex flex-wrap items-center gap-3">
-            <code
-              aria-label="Your code"
-              className="rounded-md3-m border border-outline-variant bg-surface px-4 py-2 font-mono text-3xl font-medium tracking-[0.2em] text-on-surface select-all"
-            >
-              {start.user_code ?? ''}
-            </code>
-            <CopyButton label="Copy code" value={start.user_code ?? ''} />
-          </div>
-
-          <Actions>
-            <ButtonLink href={start.verification_uri ?? ''} external variant="filled">
-              Open the device page
-            </ButtonLink>
-            <Button
-              variant="text"
-              onClick={() => {
-                setStart(null)
-                setError('')
-                onCancel()
-              }}
-            >
-              Cancel
-            </Button>
-          </Actions>
-
-          <Muted size="xs">
-            {/* tabular-nums: the clock ticks every second, and proportional
-                digits made the line twitch as they changed width. */}
-            <span className="inline-flex items-center gap-2 tabular-nums">
-              <Spinner className="shrink-0" />
-              Waiting for the code to be entered — {countdown(left)} left.
-            </span>
-          </Muted>
-        </Stack>
-      )}
-    </>
+              'This page notices the approval and adds the account.'
+            ),
+            state: 'todo',
+          },
+        ]}
+      />
+    </Stack>
   )
 }
 
@@ -473,7 +473,9 @@ export default function AddAccount({
   const [provider, setProvider] = useState(PROVIDERS[0].id)
   return (
     <Modal title="Add an account" onClose={onCancel} size="lg">
-      <div role="radiogroup" aria-label="Provider" className="mb-5 grid gap-2 sm:grid-cols-2">
+      {/* Which product to sign in to: each with its mark, its plan, and a
+          radio's dot, so the choice reads as one before anything else. */}
+      <div role="radiogroup" aria-label="Provider" className="mb-6 grid gap-3 sm:grid-cols-3">
         {PROVIDERS.map((p) => {
           const on = p.id === provider
           return (
@@ -483,14 +485,29 @@ export default function AddAccount({
               role="radio"
               aria-checked={on}
               onClick={() => setProvider(p.id)}
-              className={`state-layer flex flex-col items-start gap-1 rounded-md3-m border p-4 text-left ${
+              className={`state-layer relative flex flex-col items-start gap-3 rounded-md3-l p-4 text-left ring-inset ${
                 on
-                  ? 'border-2 border-primary bg-secondary-container p-[15px] text-on-secondary-container'
-                  : 'border-outline text-on-surface'
+                  ? 'bg-secondary-container text-on-secondary-container ring-2 ring-primary'
+                  : 'bg-surface-lowest text-on-surface ring-1 ring-outline-variant'
               }`}
             >
-              <span className="text-sm font-medium">{p.label}</span>
-              <span className="text-xs opacity-80">{p.detail}</span>
+              <span className="flex w-full items-center justify-between">
+                <span className="grid size-10 place-items-center rounded-full bg-surface-high">
+                  <ProviderMark provider={p.id} size="lg" />
+                </span>
+                <span
+                  aria-hidden
+                  className={`grid size-5 place-items-center rounded-full border-2 ${
+                    on ? 'border-primary' : 'border-outline'
+                  }`}
+                >
+                  {on && <span className="size-2.5 rounded-full bg-primary" />}
+                </span>
+              </span>
+              <span>
+                <span className="block text-sm font-medium">{p.label}</span>
+                <span className="mt-0.5 block text-xs opacity-80">{p.detail}</span>
+              </span>
             </button>
           )
         })}

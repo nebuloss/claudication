@@ -21,6 +21,9 @@ export const ICON = {
   logout:
     'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z',
   more: 'M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z',
+  // Signing in: going to a provider's page, and coming back signed in.
+  launch: 'M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z',
+  login: 'M11 7 9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5zm9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14z',
   // The top-level sections (route.ts, TABS), and the overview above them.
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
   accounts:
