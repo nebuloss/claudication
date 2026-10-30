@@ -252,7 +252,6 @@ function AccountRow({
   return (
     <ListRow
       href={accountHref(a.id)}
-      highlight={a.serving}
       leading={
         <>
           {orderable && (

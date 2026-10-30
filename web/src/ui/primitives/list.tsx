@@ -18,7 +18,6 @@ export function ListRow({
   chips,
   meters,
   actions,
-  highlight = false,
 }: {
   href: string
   /** A rank, an icon: what this item is at a glance. */
@@ -31,15 +30,11 @@ export function ListRow({
   meters?: ReactNode
   /** Controls beside the chevron, like moving it in an order. */
   actions?: ReactNode
-  /** The item in use right now, tinted. */
-  highlight?: boolean
 }) {
   return (
     <div
       onClick={openRow(href)}
-      className={`state-layer flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-md3-l px-4 py-3 ${
-        highlight ? 'bg-secondary-container' : 'bg-surface-lowest'
-      }`}
+      className="state-layer flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-md3-l bg-surface-lowest px-4 py-3"
     >
       {/* basis-48: the name's share before the row wraps. With none, the
           figures beside it fitted on a phone by squeezing the name to
