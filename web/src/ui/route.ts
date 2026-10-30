@@ -227,7 +227,7 @@ export type NavLink = {
   /** A second line that tells apart two places of the same name: an account's provider. */
   detail?: string
   /** Whose it is, drawn as its vendor's mark: an account's provider, a client's type. */
-  brand?: { provider: string } | { client: string }
+  brand?: ({ provider: string } | { client: string }) & { accent?: string }
 }
 
 /**

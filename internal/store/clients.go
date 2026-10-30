@@ -50,8 +50,11 @@ type Client struct {
 	ConfiguredAt *time.Time
 	// Base is the address its machine was set up with (base in schema.sql),
 	// '' until an install or update command of its was fetched.
-	Base  string
-	Slots []ClientSlot
+	Base string
+	// Accent is the colour it wears (Accents), which tells it from another
+	// client of its type.
+	Accent string
+	Slots  []ClientSlot
 }
 
 // ClientSlot is one of a client's model slots.
@@ -120,9 +123,14 @@ func (s *Store) CreateClient(ctx context.Context, name, typ string,
 		if key, plaintext, err = s.insertKey(ctx, tx, name, limits); err != nil {
 			return invalidClient(err.Error())
 		}
+		// The first colour its type's others do not wear.
+		used, err := accentsUsed(ctx, tx, `SELECT accent FROM clients WHERE type = ?`, t.ID)
+		if err != nil {
+			return fmt.Errorf("create client: %w", err)
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO clients (key_id, type, mode) VALUES (?, ?, ?)`,
-			key.ID, t.ID, string(clients.Binding)); err != nil {
+			`INSERT INTO clients (key_id, type, mode, accent) VALUES (?, ?, ?, ?)`,
+			key.ID, t.ID, string(clients.Binding), nextAccent(used)); err != nil {
 			return fmt.Errorf("create client: %w", err)
 		}
 		now := time.Now()
@@ -186,7 +194,7 @@ func checkSlotName(name string) (string, error) {
 }
 
 // clientColumns are a client's own columns, read beside its key's.
-const clientColumns = `c.type, c.mode, c.disabled_at, c.configured_at, c.base`
+const clientColumns = `c.type, c.mode, c.disabled_at, c.configured_at, c.base, c.accent`
 
 // Clients lists every client, oldest first, with its key and its slots. The
 // gateway's own key is no client and is not in it.
@@ -246,7 +254,7 @@ func scanClient(sc scanner) (Client, error) {
 		mode                 string
 		disabled, configured sql.NullInt64
 	)
-	key, err := scanKeyAround(sc, nil, []any{&c.Type, &mode, &disabled, &configured, &c.Base})
+	key, err := scanKeyAround(sc, nil, []any{&c.Type, &mode, &disabled, &configured, &c.Base, &c.Accent})
 	if err != nil {
 		return Client{}, err
 	}

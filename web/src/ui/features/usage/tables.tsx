@@ -6,7 +6,7 @@ import { ago, compact, smallPercent } from '../../format'
 import { providerTitle } from '../../clients/specs'
 import { useClientTypes } from '../clients/types'
 import { byTokens, rollup, tokensOf, withoutAccount, type Rollup } from './rollup'
-import { ClientMark } from '../../brands'
+import { ClientMark, MarkTile } from '../../brands'
 
 /**
  * The usage tables: one implementation of a table of rollups, and the tables
@@ -239,7 +239,9 @@ export function ClientTable({
         label: (c) => `${c.name}'s models`,
         cell: (c) => (
           <span className="flex min-w-0 items-center gap-2.5">
-            <ClientMark type={c.type} />
+            <MarkTile accent={c.rows[0]?.accent} size="sm">
+              <ClientMark type={c.type} size="sm" />
+            </MarkTile>
             <span className="min-w-0">
               <AppLink href={clientHref(c.id)} strong>
                 {c.name}

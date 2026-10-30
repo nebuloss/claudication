@@ -17,6 +17,8 @@ type SlotUse struct {
 	// for a client since deleted.
 	Name string `json:"client"`
 	Type string `json:"type"`
+	// Accent is the colour the client wears (Accents), "" for one deleted.
+	Accent string `json:"accent,omitempty"`
 	// AccountID and Account are the account that served it and what it is
 	// called now, on the gateway-wide rows only: a scoped read is either one
 	// account's already, or a client's added up over its accounts.
@@ -75,6 +77,7 @@ func (s *Store) SlotUsage(ctx context.Context, scope SlotScope, since time.Time)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT key_id, COALESCE(`+nameOf(nameKey, "u.key_id")+`, ''),
 		        COALESCE((SELECT type FROM clients c WHERE c.key_id = u.key_id), ''),
+		        COALESCE((SELECT accent FROM clients c WHERE c.key_id = u.key_id), ''),
 		        `+account+`, COALESCE(`+nameOf(nameAccount, account)+`, ''),
 		        alias, model, provider, COUNT(*), COALESCE(SUM(`+sqlIsError+`), 0),
 		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
@@ -93,7 +96,7 @@ func (s *Store) SlotUsage(ctx context.Context, scope SlotScope, since time.Time)
 			u    SlotUse
 			last int64
 		)
-		if err := rows.Scan(&u.KeyID, &u.Name, &u.Type, &u.AccountID, &u.Account, &u.Slot, &u.Model, &u.Provider,
+		if err := rows.Scan(&u.KeyID, &u.Name, &u.Type, &u.Accent, &u.AccountID, &u.Account, &u.Slot, &u.Model, &u.Provider,
 			&u.Requests, &u.Errors, &u.InputTokens, &u.OutputTokens, &u.CacheTokens, &u.ReasoningTokens, &last); err != nil {
 			return nil, fmt.Errorf("slot usage: %w", err)
 		}

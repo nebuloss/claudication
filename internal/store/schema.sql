@@ -107,7 +107,11 @@ CREATE TABLE clients (
     -- update_config writes that one again rather than guess one from the
     -- request, which behind a proxy can name an address the client cannot
     -- reach. '' until a command is fetched.
-    base          TEXT    NOT NULL DEFAULT ''
+    base          TEXT    NOT NULL DEFAULT '',
+    -- The colour it wears (store.Accents), which tells it from another client
+    -- of its type. Handed out when it is made, the first its type's others do
+    -- not wear (043).
+    accent        TEXT    NOT NULL DEFAULT ''
 ) WITHOUT ROWID;
 
 -- A client's models switched off: what it may not name in direct mode, and
@@ -194,6 +198,10 @@ CREATE TABLE accounts (
     -- decision, not an inference: a personal subscription and a work one are
     -- not interchangeable. Quota is a reason to skip, not the ordering.
     position           INTEGER NOT NULL DEFAULT 0,
+    -- The colour it wears (store.Accents): the tile its mark sits on, which
+    -- tells it from another account of its provider. Handed out when it is
+    -- added, the first its provider's others do not wear (043).
+    accent             TEXT    NOT NULL DEFAULT '',
     -- Identity is set once, at login, and never rewritten by a refresh.
     -- auth2api derives the email from every refresh response, so a refresh
     -- that omits the account object renames the row to "unknown", orphaning

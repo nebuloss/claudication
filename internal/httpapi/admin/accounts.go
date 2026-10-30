@@ -19,6 +19,8 @@ type AccountJSON struct {
 	// Name is what the operator calls the account; omitted when it has
 	// none, and the UI shows the address in its place.
 	Name string `json:"name,omitempty"`
+	// Accent is the colour it wears (store.Accents).
+	Accent string `json:"accent"`
 	// Plan is the subscription the sign-in named (ChatGPT's plus, pro,
 	// team); omitted when it named none.
 	Plan          string `json:"plan,omitempty"`
@@ -85,6 +87,7 @@ func toAccountJSON(a store.Account, prov provider.Accounts) AccountJSON {
 		Provider:  a.Provider,
 		Email:     a.Email,
 		Name:      a.Name,
+		Accent:    a.Accent,
 		Plan:      a.Plan,
 		ExpiresAt: a.ExpiresAt.UTC().Format(time.RFC3339),
 		CreatedAt: a.CreatedAt.UTC().Format(time.RFC3339),
@@ -367,6 +370,34 @@ func (s *Admin) handleSetAccountDisabled(w http.ResponseWriter, r *http.Request)
 // handleSetAccountName names an account, or with an empty name lets it be
 // known by its address again. A PUT of the whole name, so the same request
 // twice leaves the same name.
+// handleSetAccountAccent sets the colour an account wears.
+func (s *Admin) handleSetAccountAccent(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Accent string `json:"accent"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	id := r.PathValue("id")
+	switch err := s.store.SetAccountAccent(r.Context(), id, body.Accent); {
+	case errors.Is(err, store.ErrAccountNotFound):
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such account")
+		return
+	case errors.Is(err, store.ErrInvalidAccent):
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
+		return
+	case err != nil:
+		httpx.Internal(w, s.log, "colour account", err)
+		return
+	}
+	acct, err := s.store.Account(r.Context(), id)
+	if err != nil {
+		httpx.Internal(w, s.log, "read the coloured account", err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, s.accountJSON(acct))
+}
+
 func (s *Admin) handleSetAccountName(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`

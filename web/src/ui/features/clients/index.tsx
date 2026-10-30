@@ -109,7 +109,7 @@ function ClientRow({
     <ListRow
       href={clientHref(c.id)}
       leading={
-        <MarkTile>
+        <MarkTile accent={k.accent}>
           <ClientMark type={c.type.id} />
         </MarkTile>
       }

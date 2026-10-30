@@ -27,7 +27,7 @@ export function DetailHeader({
   title: string
   rename?: Omit<Parameters<typeof EditableTitle>[0], 'shown'>
   subtitle?: ReactNode
-  /** Whose it is at a glance: the provider's or the tool's mark, before the title. */
+  /** Whose it is at a glance: its mark on its accent, before the title — the picker that recolours it. */
   mark?: ReactNode
   /** Status at a glance: chips, meters. */
   aside?: ReactNode
@@ -42,7 +42,7 @@ export function DetailHeader({
           itself, with its pencil beside it. */}
       <div className="min-w-0 grow has-[form]:basis-full">
         <div className="flex min-w-0 items-center gap-3">
-          {mark !== undefined && <span className="grid shrink-0 place-items-center [&>svg]:size-7">{mark}</span>}
+          {mark !== undefined && <span className="shrink-0">{mark}</span>}
           <div className="min-w-0 grow">
             {rename !== undefined ? (
               <EditableTitle {...rename} shown={title} />

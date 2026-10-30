@@ -28,7 +28,9 @@ import (
 // what makes it a client.
 type ClientJSON struct {
 	KeyJSON
-	Type     string       `json:"type"`
+	Type string `json:"type"`
+	// Accent is the colour it wears (store.Accents).
+	Accent   string       `json:"accent"`
 	Mode     clients.Mode `json:"mode"`
 	Disabled bool         `json:"disabled"`
 	// NameChats is whether its chats are named: its "Name chats" switch, or
@@ -95,7 +97,7 @@ type SlotJSON struct {
 
 // clientJSON is a client as the admin API reports it, its slots resolved.
 func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) ClientJSON {
-	out := ClientJSON{KeyJSON: key, Type: c.Type, Mode: c.Mode, Disabled: c.DisabledAt != nil,
+	out := ClientJSON{KeyJSON: key, Type: c.Type, Accent: c.Accent, Mode: c.Mode, Disabled: c.DisabledAt != nil,
 		NameChats: c.NameChats || c.Spec().NamesItsChats,
 		FitImages: c.FitImages, AgentManage: c.AgentManage,
 		Slots: make([]SlotJSON, 0, len(c.Slots))}
@@ -429,6 +431,29 @@ func (s *Admin) handleSetClientNameChats(w http.ResponseWriter, r *http.Request)
 
 // handleSetClientFitImages switches a client's image fitting, from its next
 // request.
+// handleSetClientAccent sets the colour a client wears.
+func (s *Admin) handleSetClientAccent(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.loadClient(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Accent string `json:"accent"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	err := s.store.SetClientAccent(r.Context(), c.ID, body.Accent)
+	if errors.Is(err, store.ErrInvalidAccent) {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, err.Error())
+		return
+	}
+	if s.clientError(w, err, "colour client") {
+		return
+	}
+	s.writeClient(w, r, c.ID, nil)
+}
+
 func (s *Admin) handleSetClientFitImages(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.loadClient(w, r)
 	if !ok {

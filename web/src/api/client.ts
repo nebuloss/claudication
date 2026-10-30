@@ -206,6 +206,7 @@ const accounts = {
 
   /** Names an account; '' gives it back its address as its name. */
   setName: (id: string, name: string) => http.put<Account>(path`/admin/accounts/${id}/name`, { name }),
+  setAccent: (id: string, accent: string) => http.put<Account>(path`/admin/accounts/${id}/accent`, { accent }),
 
   remove: (id: string) => http.send('DELETE', path`/admin/accounts/${id}`),
 
@@ -263,6 +264,9 @@ const clients = {
 
   setNameChats: async (id: string, enabled: boolean): Promise<ClientWire> =>
     (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/name-chats`, { enabled })).client,
+
+  setAccent: async (id: string, accent: string): Promise<ClientWire> =>
+    (await http.put<{ client: ClientWire }>(path`/admin/clients/${id}/accent`, { accent })).client,
 
   setFitImages: async (id: string, enabled: boolean): Promise<ClientWire> =>
     (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/fit-images`, { enabled })).client,

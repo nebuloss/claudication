@@ -267,7 +267,7 @@ function AccountRow({
             </Tip>
           )}
           <RowBadge>{rank + 1}</RowBadge>
-          <MarkTile>
+          <MarkTile accent={a.accent}>
             <ProviderMark provider={a.provider} />
           </MarkTile>
         </>

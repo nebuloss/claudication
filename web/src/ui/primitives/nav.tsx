@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { NavLevel, NavLink, Siblings } from '../route'
-import { ClientMark, ProviderMark } from '../brands'
+import { ClientMark, MarkTile, ProviderMark } from '../brands'
 import { ICON } from './icons'
 import { Popover, menuItem, useAnchoredPanel } from './popover'
 import { Tip } from './info'
@@ -262,10 +262,14 @@ function SiblingList({
 
 /** An account's provider's or a client's type's mark, at a crumb's size. */
 function BrandOf({ brand }: { brand: NonNullable<NavLink['brand']> }) {
-  return 'provider' in brand ? (
-    <ProviderMark provider={brand.provider} size="sm" />
-  ) : (
-    <ClientMark type={brand.client} size="sm" />
+  return (
+    <MarkTile accent={brand.accent} size="sm">
+      {'provider' in brand ? (
+        <ProviderMark provider={brand.provider} size="sm" />
+      ) : (
+        <ClientMark type={brand.client} size="sm" />
+      )}
+    </MarkTile>
   )
 }
 

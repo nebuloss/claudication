@@ -42,6 +42,8 @@ export interface Account {
    * accountName (ui/domain/account) is the one to show.
    */
   name?: string
+  /** The colour it wears (brands/accents.ts), which tells it from another account of its provider. */
+  accent?: string
   /** The subscription the sign-in named (ChatGPT's plus, pro, team). */
   plan?: string
   expires_at: string
@@ -768,6 +770,8 @@ export interface InstallState {
 /** A client, and the key it holds. */
 export interface ClientWire extends ApiKey {
   type: string
+  /** The colour it wears (brands/accents.ts), which tells it from another client of its type. */
+  accent?: string
   mode: ClientMode
   disabled: boolean
   disabled_at?: string
@@ -835,6 +839,8 @@ export interface SlotUse {
   client_id: string
   client: string
   type: string
+  /** The colour the client wears; absent for one deleted. */
+  accent?: string
   /** The account that served it, and what it is called: on the gateway-wide rows only. */
   account_id?: string
   account?: string

@@ -43,6 +43,9 @@ type Account struct {
 	// Position is the operator's priority order, lowest first. The pool serves
 	// from the top of this list, not from whichever account looks quietest.
 	Position int
+	// Accent is the colour it wears (Accents), which tells it from another
+	// account of its provider.
+	Accent string
 	// Quota is what the upstream last reported about this account's
 	// subscription windows. Zero-valued until a response has been seen.
 	Quota AccountQuota
@@ -266,12 +269,18 @@ func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Ac
 	// take the same place. A reconnect keeps its place: position is not in the
 	// update list.
 	if err := s.inTx(ctx, "store account", func(tx *sql.Tx) error {
+		// The first colour its provider's others do not wear; an account
+		// signed in again keeps its own (the conflict below leaves it).
+		used, err := accentsUsed(ctx, tx, `SELECT accent FROM accounts WHERE provider = ?`, acct.Provider)
+		if err != nil {
+			return fmt.Errorf("store account: %w", err)
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO accounts (id, provider, email, account_uuid, plan, access_token, refresh_token,
 			                      expires_at, refresh_expires_at, created_at, last_refresh_at,
-			                      position)
+			                      position, accent)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-			        (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts))
+			        (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts), ?)
 			ON CONFLICT (provider, email, account_uuid) DO UPDATE SET
 				plan               = COALESCE(NULLIF(excluded.plan, ''), plan),
 				access_token       = excluded.access_token,
@@ -286,7 +295,7 @@ func (s *Store) UpsertAccount(ctx context.Context, acct Account, tok Tokens) (Ac
 				refresh_dead_at    = NULL`,
 			acct.ID, acct.Provider, acct.Email, acct.AccountUUID, acct.Plan,
 			sealedAccess, sealedRefresh,
-			ms(acct.ExpiresAt), nullMS(acct.RefreshExpiresAt), ms(now), ms(now)); err != nil {
+			ms(acct.ExpiresAt), nullMS(acct.RefreshExpiresAt), ms(now), ms(now), nextAccent(used)); err != nil {
 			return fmt.Errorf("store account: %w", err)
 		}
 		// The row that took the write, which is not acct.ID on a reconnect.
@@ -313,7 +322,7 @@ const accountColumns = `accounts.id, provider, email, name, account_uuid, plan, 
                         refresh_dead_at,
                         q.updated_at, q.five_hour_util, q.five_hour_reset, COALESCE(q.five_hour_status, ''),
                         q.seven_day_util, q.seven_day_reset, COALESCE(q.seven_day_status, ''),
-                        position, COALESCE(q.detail, ''),
+                        position, accent, COALESCE(q.detail, ''),
                         COALESCE((SELECT group_concat(model, char(31)) FROM account_models_off o
                                    WHERE o.account_id = accounts.id), '')`
 
@@ -332,7 +341,7 @@ func scanAccount(sc scanner) (Account, error) {
 	if err := sc.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.AccountUUID, &a.Plan, &expiresAt, &refreshExpires,
 		&createdAt, &lastRefresh, &lastUsed, &a.LastError, &disabled, &refreshDead,
 		&quotaUpdated, &util5h, &reset5h, &a.Quota.FiveHourStatus,
-		&util7d, &reset7d, &a.Quota.SevenDayStatus, &a.Position,
+		&util7d, &reset7d, &a.Quota.SevenDayStatus, &a.Position, &a.Accent,
 		&a.Quota.Detail, &modelsOff); err != nil {
 		return Account{}, err
 	}

@@ -26,7 +26,7 @@ import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact, dateTime, relative } from '../../format'
 import { windowTitle } from '../../domain/quota'
 import { READS } from '../../../api/live'
-import { ProviderMark } from '../../brands'
+import { AccentPicker, ProviderMark } from '../../brands'
 
 /**
  * One account, Claude or ChatGPT, on its pages:
@@ -109,7 +109,15 @@ export default function AccountPage({
         kind="accounts"
         id={account.id}
         title={accountName(account)}
-        mark={<ProviderMark provider={account.provider} />}
+        mark={
+          <AccentPicker
+            accent={account.accent}
+            label="this account"
+            onPick={(a) => void api.accounts.setAccent(account.id, a).then(reload, () => reload())}
+          >
+            <ProviderMark provider={account.provider} />
+          </AccentPicker>
+        }
         rename={{
           value: account.name ?? '',
           // An unnamed account's field is empty with its address in grey:

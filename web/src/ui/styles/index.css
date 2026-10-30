@@ -111,6 +111,24 @@
   --radius-md3-full: 9999px;
 }
 
+/* The accents, as plain variables rather than in @theme: Tailwind writes out
+   only the theme variables a utility uses, and these are read by var() in
+   an inline style (brands/accents.ts), which it cannot see. Before the dark
+   blocks below, which redefine them. */
+:root {
+  /* The accents an account or a client wears (store.Accents): the tile its
+     mark sits on, which tells two of one provider or one type apart. Soft
+     enough to carry any mark in its own colours; none is a status colour. */
+  --color-accent-blue: #d3e3ff;
+  --color-accent-violet: #e8dcff;
+  --color-accent-teal: #c6ebe4;
+  --color-accent-pink: #ffd8e6;
+  --color-accent-indigo: #dadfff;
+  --color-accent-cyan: #c9ecf6;
+  --color-accent-sand: #efe0c2;
+  --color-accent-slate: #dce3eb;
+}
+
 /* Light is the base palette on bare :root; dark is redefined twice — in the
    prefers-color-scheme query (guarded so an explicit light choice still wins)
    and on [data-theme="dark"], so the in-app toggle overrides the OS in both
@@ -187,6 +205,15 @@
     --color-code-string: #6ecfa0;
     --color-code-number: #e8a877;
     --color-code-punct: #7f7973;
+    /* The accents, deep enough for a mark to read on them. */
+    --color-accent-blue: #22406b;
+    --color-accent-violet: #41306b;
+    --color-accent-teal: #164842;
+    --color-accent-pink: #5e2944;
+    --color-accent-indigo: #2e3675;
+    --color-accent-cyan: #164a57;
+    --color-accent-sand: #4d3f22;
+    --color-accent-slate: #36434f;
   }
 }
 
@@ -256,6 +283,15 @@ color-scheme: dark;
   --color-code-string: #6ecfa0;
   --color-code-number: #e8a877;
   --color-code-punct: #7f7973;
+  /* The accents, deep enough for a mark to read on them. */
+  --color-accent-blue: #22406b;
+  --color-accent-violet: #41306b;
+  --color-accent-teal: #164842;
+  --color-accent-pink: #5e2944;
+  --color-accent-indigo: #2e3675;
+  --color-accent-cyan: #164a57;
+  --color-accent-sand: #4d3f22;
+  --color-accent-slate: #36434f;
 }
 
 html {
