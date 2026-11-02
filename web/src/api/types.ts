@@ -335,13 +335,21 @@ export interface Chat {
  * — compacted. See internal/store/context.go for the rule.
  */
 export interface ChatContext {
-  /** Empty when no request in the window succeeded. */
+  /** The main thread's model now; empty when no request in the window succeeded. */
   model: string
+  /**
+   * The models of the main thread, in the order they first carried it: more
+   * than one when the chat switched model. Every other model ran beside it —
+   * titles, quick checks.
+   */
+  main_models?: string[]
   now: number
   peak: number
   compactions: number
   /** When it compacted, oldest first. Only on one chat's detail. */
   compacted_at?: string[]
+  /** When the main thread changed model, and to which, oldest first. Only on one chat's detail. */
+  switches?: { at: string; model: string }[]
 }
 
 export interface ChatDetail {

@@ -36,6 +36,7 @@ export function LineChart<T>({
   hovered = null,
   onHover,
   marks = [],
+  switches = [],
 }: {
   data: readonly T[]
   series: readonly LineSeries<T>[]
@@ -50,6 +51,9 @@ export function LineChart<T>({
   /** Columns where something happened that the lines alone do not say — a
    *  chat compacting — drawn as a guide the full height of the plot. */
   marks?: readonly number[]
+  /** Columns where the series changed what it measures — a chat switching
+   *  model — drawn solid, to tell them from the marks. */
+  switches?: readonly number[]
 }) {
   const [ref, W] = useChartWidth<SVGSVGElement>(720)
   const plotH = height - PAD.top - PAD.bottom
@@ -123,6 +127,19 @@ export function LineChart<T>({
           strokeWidth={1.5}
           strokeDasharray="4 3"
           className="text-warning"
+        />
+      ))}
+
+      {switches.map((i) => (
+        <line
+          key={`switch-${i}`}
+          x1={x(i)}
+          x2={x(i)}
+          y1={PAD.top}
+          y2={PAD.top + plotH}
+          stroke="currentColor"
+          strokeWidth={1.5}
+          className="text-tertiary"
         />
       ))}
 

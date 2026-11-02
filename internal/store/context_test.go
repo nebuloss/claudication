@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 )
@@ -92,6 +93,36 @@ func TestChatContextFollowsTheMainModel(t *testing.T) {
 	}
 	if len(report.Chats) != 1 || report.Chats[0].Context.Peak != 600_000 {
 		t.Errorf("chat list context = %+v", report.Chats)
+	}
+}
+
+// A model switched to mid-chat carries the context on: the new model is the
+// main thread from there, with the same history, so the switch is marked and
+// is not a compaction, and the small model beside both stays out.
+func TestChatContextFollowsASwitch(t *testing.T) {
+	st := newTestStore(t)
+	start := time.Now().Add(-time.Hour)
+	recordTurns(t, st, "c1", start, []turn{
+		{model: "sonnet", prompt: 100_000},
+		{model: "haiku", prompt: 3_000}, // a title, beside it
+		{model: "sonnet", prompt: 200_000},
+		{model: "opus", prompt: 210_000}, // switched: the same history, resent
+		{model: "opus", prompt: 260_000},
+		{model: "opus", prompt: 60_000}, // compacted
+	})
+	events, err := st.ChatEvents(context.Background(), "c1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := ContextOf(events)
+	if c.Model != "opus" || c.Now != 60_000 || c.Peak != 260_000 || c.Compactions != 1 {
+		t.Errorf("context = %+v; want opus, now 60k, peak 260k, 1 compaction", c)
+	}
+	if want := []string{"sonnet", "opus"}; !slices.Equal(c.MainModels, want) {
+		t.Errorf("main models = %v, want %v", c.MainModels, want)
+	}
+	if len(c.Switches) != 1 || c.Switches[0].Model != "opus" {
+		t.Errorf("switches = %+v, want one, to opus", c.Switches)
 	}
 }
 

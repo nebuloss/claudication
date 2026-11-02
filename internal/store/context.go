@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -21,12 +22,14 @@ import (
 // The figures are read off the requests the gateway relayed, with two rules
 // that keep them honest:
 //
-//   - Only one model counts: the one that carried the chat's largest prompt.
-//     A chat is not one stream of requests. crush titles a session on its small
-//     model and Claude Code runs subagents beside the main thread, and their
-//     prompts are a fraction of the conversation's — counted with it, every
-//     such call would read as the context collapsing.
-//   - A compaction is that model's context falling below half of what its
+//   - Only the main thread counts: the models that carried the conversation,
+//     each with a largest prompt at least half the chat's largest. A chat is
+//     not one stream of requests. crush titles a session on its small model
+//     and Claude Code runs subagents beside the main thread, and their prompts
+//     are a fraction of the conversation's — counted with it, every such call
+//     would read as the context collapsing. A switch of model mid-chat is not
+//     one of those: the new model is resent the same history, and carries on.
+//   - A compaction is the main thread's context falling below half of what its
 //     previous request carried, from at least compactionFloor. A summary is a
 //     small fraction of what it replaces; ordinary turns move by a tool result
 //     at a time. The floor keeps the first few turns of a chat, where halving is
@@ -40,9 +43,21 @@ import (
 const compactionFloor = 50_000
 
 // ChatContext is where one chat's context stands.
+//
+// It follows the chat's main thread, which is not always one model: a user
+// can switch model mid-chat (Claude Code's /model), and the new model is
+// resent the same history, so the context carries on rather than starting
+// over. The main thread is every model whose largest prompt is at least half
+// the chat's largest — a model that carried the conversation — and not the
+// small ones beside it: a title asked of a fast model, a quick check. Its
+// requests are read as one sequence, so a switch is not a compaction, and
+// where the model changed is kept beside where it compacted.
 type ChatContext struct {
-	// Model is the one whose requests are counted; see above.
+	// Model is the main thread's model now: its latest request's.
 	Model string `json:"model"`
+	// MainModels are the models of the main thread, in the order they first
+	// carried it; every other model in the chat ran beside it.
+	MainModels []string `json:"main_models,omitempty"`
 	// Now is the prompt of that model's latest successful request.
 	Now int64 `json:"now"`
 	// Peak is the largest prompt it carried.
@@ -51,6 +66,15 @@ type ChatContext struct {
 	Compactions int `json:"compactions"`
 	// CompactedAt is when, oldest first; filled in for one chat's detail only.
 	CompactedAt []time.Time `json:"compacted_at,omitempty"`
+	// Switches is when the main thread changed model and to which, oldest
+	// first; for one chat's detail only.
+	Switches []ModelSwitch `json:"switches,omitempty"`
+}
+
+// ModelSwitch is the main thread moving to another model.
+type ModelSwitch struct {
+	At    time.Time `json:"at"`
+	Model string    `json:"model"`
 }
 
 // PromptTokens is a request's context, by the rule above.
@@ -58,56 +82,64 @@ func (e UsageEvent) PromptTokens() int64 {
 	return int64(e.InputTokens) + int64(e.CacheReadTokens) + int64(e.CacheWriteTokens)
 }
 
-// contextTracker reads one chat's requests, oldest first, and keeps the
-// figures for every model in it until it is known which one counts.
+// contextTracker reads one chat's requests, oldest first, and keeps them
+// until it is known which models are the main thread: that takes the whole
+// chat, since a model's peak decides it.
 type contextTracker struct {
-	models map[string]*modelContext
-	order  []string
+	seen []prompted
 }
 
-type modelContext struct {
-	now, peak   int64
-	compactions int
-	at          []time.Time
+type prompted struct {
+	model  string
+	at     time.Time
+	prompt int64
 }
 
-func (t *contextTracker) add(model string, at time.Time, prompt int64, keepTimes bool) {
+func (t *contextTracker) add(model string, at time.Time, prompt int64) {
 	if model == "" || prompt <= 0 {
 		return
 	}
-	if t.models == nil {
-		t.models = map[string]*modelContext{}
-	}
-	m, ok := t.models[model]
-	if !ok {
-		m = &modelContext{}
-		t.models[model] = m
-		t.order = append(t.order, model)
-	}
-	if m.now >= compactionFloor && prompt*2 < m.now {
-		m.compactions++
-		if keepTimes {
-			m.at = append(m.at, at)
-		}
-	}
-	m.now = prompt
-	m.peak = max(m.peak, prompt)
+	t.seen = append(t.seen, prompted{model, at, prompt})
 }
 
-// result is the counted model's figures. Ties go to the model seen first, so
-// the answer does not depend on map order.
-func (t *contextTracker) result() ChatContext {
-	var best string
-	for _, name := range t.order {
-		if best == "" || t.models[name].peak > t.models[best].peak {
-			best = name
-		}
+// result is the main thread's figures; keepTimes fills in when it compacted
+// and switched, which only one chat's detail shows.
+func (t *contextTracker) result(keepTimes bool) ChatContext {
+	peaks := map[string]int64{}
+	var top int64
+	for _, p := range t.seen {
+		peaks[p.model] = max(peaks[p.model], p.prompt)
+		top = max(top, p.prompt)
 	}
-	if best == "" {
+	if top == 0 {
 		return ChatContext{}
 	}
-	m := t.models[best]
-	return ChatContext{Model: best, Now: m.now, Peak: m.peak, Compactions: m.compactions, CompactedAt: m.at}
+	var out ChatContext
+	var now int64
+	for _, p := range t.seen {
+		if peaks[p.model]*2 < top {
+			continue // beside the main thread
+		}
+		if out.Model != "" && p.model != out.Model {
+			if keepTimes {
+				out.Switches = append(out.Switches, ModelSwitch{At: p.at, Model: p.model})
+			}
+		}
+		if !slices.Contains(out.MainModels, p.model) {
+			out.MainModels = append(out.MainModels, p.model)
+		}
+		if now >= compactionFloor && p.prompt*2 < now {
+			out.Compactions++
+			if keepTimes {
+				out.CompactedAt = append(out.CompactedAt, p.at)
+			}
+		}
+		now = p.prompt
+		out.Model = p.model
+		out.Peak = max(out.Peak, p.prompt)
+	}
+	out.Now = now
+	return out
 }
 
 // counts reports whether a request says anything about the conversation's
@@ -123,10 +155,10 @@ func ContextOf(events []UsageEvent) ChatContext {
 	var t contextTracker
 	for _, e := range events {
 		if counts(e) {
-			t.add(e.Model, e.At, e.PromptTokens(), true)
+			t.add(e.Model, e.At, e.PromptTokens())
 		}
 	}
-	return t.result()
+	return t.result(true)
 }
 
 // ChatContexts works out the context of each listed chat over the requests
@@ -159,7 +191,7 @@ func (s *Store) ChatContexts(ctx context.Context, ids []string, since time.Time)
 	)
 	flush := func() {
 		if current != "" {
-			out[current] = t.result()
+			out[current] = t.result(false)
 		}
 	}
 	for rows.Next() {
@@ -174,7 +206,7 @@ func (s *Store) ChatContexts(ctx context.Context, ids []string, since time.Time)
 			flush()
 			current, t = id, contextTracker{}
 		}
-		t.add(model, fromMS(at), prompt, false)
+		t.add(model, fromMS(at), prompt)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("chat contexts: %w", err)

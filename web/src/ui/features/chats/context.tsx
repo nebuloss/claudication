@@ -41,7 +41,7 @@ export default function ChatContextDetail({
   )
   const [hovered, setHovered] = useState<number | null>(null)
 
-  const { points, marks } = useMemo(() => curve(data), [data])
+  const { points, marks, switches } = useMemo(() => curve(data), [data])
 
   if (loading && data === null) return <Loading />
   if (error !== '') {
@@ -80,17 +80,23 @@ export default function ChatContextDetail({
           hovered={hovered}
           onHover={setHovered}
           marks={marks}
+          switches={switches}
         />
       </div>
     </Stack>
   )
 }
 
-/** The counted model's requests as points, and the ones it compacted at. */
-function curve(data: ChatDetail | null): { points: Point[]; marks: number[] } {
-  if (data === null || data.context.model === '') return { points: [], marks: [] }
+/**
+ * The main thread's requests as points — every model that carried it, so a
+ * switch carries the line on — with the ones it compacted at and the ones it
+ * switched model at.
+ */
+function curve(data: ChatDetail | null): { points: Point[]; marks: number[]; switches: number[] } {
+  if (data === null || data.context.model === '') return { points: [], marks: [], switches: [] }
+  const main = data.context.main_models ?? [data.context.model]
   const rows = data.requests.filter(
-    (r) => r.status === 200 && r.path !== INTERNAL_PATH && r.model === data.context.model,
+    (r) => r.status === 200 && r.path !== INTERNAL_PATH && main.includes(r.model ?? ''),
   )
   const points = rows.map((r) => ({ at: r.at, prompt: prompt(r) }))
 
@@ -103,7 +109,10 @@ function curve(data: ChatDetail | null): { points: Point[]; marks: number[] } {
     const i = points.findIndex((p, j) => seconds(p.at) === s && !marks.includes(j))
     if (i >= 0) marks.push(i)
   }
-  return { points, marks }
+  // A switch is where the line's model changed.
+  const switches: number[] = []
+  for (let i = 1; i < rows.length; i++) if (rows[i]!.model !== rows[i - 1]!.model) switches.push(i)
+  return { points, marks, switches }
 }
 
 /**
@@ -143,6 +152,12 @@ function Summary({
           <span className="ml-1 inline-block h-0 w-4 border-t-[1.5px] border-dashed border-warning align-middle" />
         )}
       </span>
+      {(ctx.switches?.length ?? 0) > 0 && (
+        <span>
+          switched model {ctx.switches!.length}×
+          <span className="ml-1 inline-block h-0 w-4 border-t-[1.5px] border-tertiary align-middle" />
+        </span>
+      )}
       <span>
         on {ctx.model.replace(/^claude-/, '')} · last {requests} requests
       </span>

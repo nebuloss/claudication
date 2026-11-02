@@ -9,6 +9,7 @@ import {
   AppLink,
   Button,
   Card,
+  Chip,
   ErrorState,
   Loading,
   Muted,
@@ -59,8 +60,9 @@ export function ChatPage({ client, id, page }: { client: string; id: string; pag
       />
     )
   }
-  if (page === 'requests') return <ChatRequests rows={rows} />
-  if (page === 'transcript') return <ChatTranscript client={client} id={id} rows={rows} />
+  const thread = threadOf(chat.data)
+  if (page === 'requests') return <ChatRequests rows={rows} thread={thread} />
+  if (page === 'transcript') return <ChatTranscript client={client} id={id} rows={rows} thread={thread} />
   return <ChatOverview client={client} id={id} detail={chat.data} title={title} />
 }
 
@@ -69,12 +71,47 @@ function focusOf(): number {
   return Number(new URLSearchParams(window.location.search).get('request') ?? '') || 0
 }
 
+/**
+ * Where each request stands against the chat's main thread — the models that
+ * carried the conversation (ChatContext.main_models): beside it (a title, a
+ * quick check, on a model of its own), or on it, and then whether the main
+ * thread had just switched to its model. A line on the main thread names no
+ * model, since the chat's overview does; one beside it does, and a switch is
+ * a divider.
+ */
+type Place = { side: boolean; switchedTo?: string }
+
+function threadOf(detail: ChatDetail): Map<number, Place> {
+  const main = new Set(detail.context.main_models ?? (detail.context.model !== '' ? [detail.context.model] : []))
+  const out = new Map<number, Place>()
+  let last = ''
+  for (const r of detail.requests) {
+    const model = r.model ?? ''
+    if (model === '' || !main.has(model)) {
+      out.set(r.id, { side: model !== '' && main.size > 0 })
+      continue
+    }
+    out.set(r.id, { side: false, switchedTo: last !== '' && model !== last ? model : undefined })
+    last = model
+  }
+  return out
+}
+
 function tokensOf(r: RequestRow): number {
   return r.input_tokens + r.output_tokens + r.cache_tokens
 }
 
-/** One model a chat ran on, by the name it was asked by. */
-type ModelUse = { asked: string; model: string; provider: string; requests: number; tokens: number }
+/** One model a chat ran on, by the name it was asked by, and when. */
+type ModelUse = {
+  asked: string
+  model: string
+  provider: string
+  requests: number
+  tokens: number
+  first: string
+  last: string
+  main: boolean
+}
 
 /**
  * What the chat is: its figures, the models it ran on — each by the name the
@@ -101,18 +138,32 @@ function ChatOverview({
   const ctx = detail.context
 
   const models = useMemo(() => {
+    const main = new Set(ctx.main_models ?? [ctx.model])
     const by = new Map<string, ModelUse>()
     for (const r of rows) {
       const model = r.model ?? ''
       const asked = r.virtual_model ?? ''
       const key = `${asked}\u0000${model}`
-      const u = by.get(key) ?? { asked, model, provider: r.provider ?? '', requests: 0, tokens: 0 }
+      const u = by.get(key) ?? {
+        asked,
+        model,
+        provider: r.provider ?? '',
+        requests: 0,
+        tokens: 0,
+        first: r.at,
+        last: r.at,
+        main: main.has(model),
+      }
       u.requests++
       u.tokens += tokensOf(r)
+      u.last = r.at
       by.set(key, u)
     }
-    return [...by.values()].sort((a, b) => b.tokens - a.tokens)
-  }, [rows])
+    // The main thread first, in the order it ran on them; then the rest.
+    return [...by.values()].sort((a, b) =>
+      a.main !== b.main ? (a.main ? -1 : 1) : a.main ? a.first.localeCompare(b.first) : b.tokens - a.tokens,
+    )
+  }, [rows, ctx])
 
   return (
     <Stack>
@@ -169,6 +220,12 @@ function ChatOverview({
                 )}
                 <code className="text-on-surface">{m.model || '—'}</code>
                 {m.provider !== '' && <Muted as="span">{m.provider}</Muted>}
+                {!m.main && <Chip>beside the chat</Chip>}
+                {/* When it was in use: two periods read as the chat switching. */}
+                <Muted as="span">
+                  {timeOfDay(m.first)}
+                  {m.last !== m.first && `–${timeOfDay(m.last)}`}
+                </Muted>
                 <span className="flex-grow" />
                 <span className="tabular-nums text-on-surface">{m.requests}</span>
                 <Muted as="span">{m.requests === 1 ? 'request' : 'requests'}</Muted>
@@ -203,7 +260,7 @@ function ChatOverview({
 const rowKey = (row: RequestRow) => String(row.id)
 
 /** Every request of the chat, a line each, oldest first. */
-function ChatRequests({ rows }: { rows: RequestRow[] }) {
+function ChatRequests({ rows, thread }: { rows: RequestRow[]; thread: Map<number, Place> }) {
   const [shown, setShown] = useState<RequestRecord | null>(null)
   const focus = focusOf()
   return (
@@ -215,7 +272,12 @@ function ChatRequests({ rows }: { rows: RequestRow[] }) {
         estimate={52}
         focus={focus === 0 ? undefined : rows.findIndex((r) => r.id === focus)}
         render={(row) => (
-          <Turn row={row} focused={row.id === focus} onOpen={() => setShown(new RequestRecord(row))} />
+          <Turn
+            row={row}
+            place={thread.get(row.id)}
+            focused={row.id === focus}
+            onOpen={() => setShown(new RequestRecord(row))}
+          />
         )}
       />
       {shown !== null && <RequestDetail record={shown} onClose={() => setShown(null)} inChat />}
@@ -228,7 +290,17 @@ function ChatRequests({ rows }: { rows: RequestRow[] }) {
  * conversation and its answer. Only the turns of the rows drawn are read from
  * their recordings, and each is kept once read: a recording never changes.
  */
-function ChatTranscript({ client, id, rows }: { client: string; id: string; rows: RequestRow[] }) {
+function ChatTranscript({
+  client,
+  id,
+  rows,
+  thread,
+}: {
+  client: string
+  id: string
+  rows: RequestRow[]
+  thread: Map<number, Place>
+}) {
   const [shown, setShown] = useState<RequestRecord | null>(null)
   const focus = focusOf()
   const recorded = useMemo(() => rows.filter((r) => (r.capture ?? 0) > 0), [rows])
@@ -266,6 +338,7 @@ function ChatTranscript({ client, id, rows }: { client: string; id: string; rows
         render={(row) => (
           <Turn
             row={row}
+            place={thread.get(row.id)}
             turn={kept.current.get(row.id)}
             focused={row.id === focus}
             onOpen={() => setShown(new RequestRecord(row))}
@@ -279,22 +352,36 @@ function ChatTranscript({ client, id, rows }: { client: string; id: string; rows
 
 function Turn({
   row,
+  place,
   turn,
   focused,
   onOpen,
 }: {
   row: RequestRow
+  place?: Place
   turn?: ChatTurn
   focused: boolean
   onOpen: () => void
 }) {
   const record = new RequestRecord(row)
   return (
+    <div>
+      {place?.switchedTo !== undefined && (
+        <div className="flex items-center gap-3 pb-2 text-xs text-tertiary">
+          <span className="h-px flex-1 bg-tertiary/50" />
+          <span>
+            switched to <code>{place.switchedTo}</code>
+          </span>
+          <span className="h-px flex-1 bg-tertiary/50" />
+        </div>
+      )}
     <section className={`rounded-md3-l bg-surface-container p-3 ${focused ? 'ring-2 ring-inset ring-primary' : ''}`}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <span className="tabular-nums text-on-surface-variant">{timeOfDay(row.at, 'second')}</span>
         <StatusChip record={record} />
-        <span className="text-on-surface">{record.modelLabel}</span>
+        {/* Only a model beside the main thread is named: the chat's own is
+            on its overview, and a switch is the divider above. */}
+        {place?.side === true && <Chip>{record.modelLabel}</Chip>}
         <Muted as="span">
           {record.tokensShort} · {millis(row.duration_ms)}
         </Muted>
@@ -322,5 +409,6 @@ function Turn({
         </div>
       )}
     </section>
+    </div>
   )
 }
