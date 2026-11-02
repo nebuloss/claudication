@@ -16,7 +16,8 @@ const FOCUSABLE =
  *
  * `size` widens the panel for content that is genuinely wider than a
  * confirmation — an API key is 40-odd monospace characters and wrapping it
- * makes it harder to check what was copied. `sheet` is a panel along the
+ * makes it harder to check what was copied; `xl` is for a request's recorded
+ * bodies, which are code and read best unwrapped. `sheet` is a panel along the
  * right edge, the window's height, for a list read beside the page it
  * leads to: the notification centre.
  */
@@ -29,7 +30,7 @@ export function Modal({
   title: string
   children: ReactNode
   onClose: () => void
-  size?: 'md' | 'lg' | 'sheet'
+  size?: 'md' | 'lg' | 'xl' | 'sheet'
 }) {
   useEscapeKey(onClose)
   const sheet = size === 'sheet'
@@ -90,7 +91,7 @@ export function Modal({
           sheet
             ? 'animate-sheet-in relative flex h-full w-full max-w-md flex-col overflow-y-auto overscroll-contain rounded-l-md3-xl bg-surface-high p-6 shadow-xl outline-none'
             : `relative my-auto w-full ${
-                size === 'lg' ? 'max-w-xl' : 'max-w-md'
+                size === 'xl' ? 'max-w-4xl' : size === 'lg' ? 'max-w-xl' : 'max-w-md'
               } rounded-md3-xl bg-surface-high p-6 shadow-xl outline-none`
         }
       >

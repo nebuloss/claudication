@@ -20,7 +20,20 @@ subscription usage, which clients drew on it, and a switch to pause it.
 
 **Clients** — the tools that use the gateway: each one's key and setup, its
 model names, its usage with its limits beside it, its chats and its requests,
-a switch to turn it off, and one to shrink images Claude would refuse.
+a switch to turn it off, one to shrink images Claude would refuse, and one to
+record its content.
+
+**Recording content.** A client's *Record content* switch keeps, for an hour,
+everything its requests carry: each request as the client sent it, every
+attempt as the gateway sent it upstream (translated, where it was), and both
+answers, each part of a stream timed. A recorded request opens from the
+request log with a Content section: each body as a conversation — read into
+Anthropic Messages, the form every API is translated through, so Claude Code,
+Codex and gemini-cli read alike — or raw, and downloadable as HAR for browser
+developer tools, Charles or Fiddler. It is held in memory only
+(`internal/service/capture`): never in the database or a backup, cleared by a
+restart or an update, credentials taken out of every header, each body cut at
+8 MB and 256 MB held in all, the oldest dropped first.
 
 **Traffic** — the last hour live; where the traffic went, by model, by client
 and by account, each with its traffic over days above its table; and the

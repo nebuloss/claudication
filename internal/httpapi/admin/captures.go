@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -119,6 +120,21 @@ func (s *Admin) writeHAR(w http.ResponseWriter, xs []*capture.Exchange, name str
 	_, _ = w.Write(b)
 }
 
+// Normalizer reads one leg's request and answer, each in its dialect, into
+// Anthropic Messages — the gateway's common form — for the admin UI to draw
+// every API's content one way. The composition root supplies it, since only
+// it may import the dialects.
+type Normalizer func(dialect string, request []byte, status int, header http.Header, answer []byte) Normalized
+
+// Normalized is a leg read into Messages: the request, and the answer as one
+// message, each nil with the reason it could not be read.
+type Normalized struct {
+	Request      json.RawMessage
+	RequestError string
+	Answer       json.RawMessage
+	AnswerError  string
+}
+
 // ExchangeJSON is one recorded exchange as the admin UI reads it.
 type ExchangeJSON struct {
 	capture.Summary
@@ -144,6 +160,10 @@ type MessageJSON struct {
 	Status int         `json:"status,omitempty"`
 	Header [][2]string `json:"header"`
 	Body   BodyJSON    `json:"body"`
+	// Messages is the body read into Anthropic Messages, when it could be,
+	// and MessagesError why when it could not.
+	Messages      json.RawMessage `json:"messages,omitempty"`
+	MessagesError string          `json:"messages_error,omitempty"`
 }
 
 // BodyJSON is a body's text, or its bytes in base64 when they are not text.
@@ -160,21 +180,42 @@ type BodyJSON struct {
 }
 
 func (s *Admin) exchangeJSON(x *capture.Exchange) ExchangeJSON {
-	out := ExchangeJSON{Summary: x.Summary(), Client: legJSON(&x.Client), Upstream: make([]LegJSON, 0, len(x.Upstream))}
+	out := ExchangeJSON{Summary: x.Summary(), Client: s.legJSON(&x.Client), Upstream: make([]LegJSON, 0, len(x.Upstream))}
 	for _, l := range x.Upstream {
-		out.Upstream = append(out.Upstream, legJSON(l))
+		out.Upstream = append(out.Upstream, s.legJSON(l))
 	}
 	return out
 }
 
-func legJSON(l *capture.Leg) LegJSON {
+func (s *Admin) legJSON(l *capture.Leg) LegJSON {
 	out := LegJSON{
 		Dialect: l.Dialect, Account: l.Account, Started: l.Started, Ended: l.Ended, Error: l.Error,
 		Request: messageJSON(&l.Request),
 	}
+	var answer []byte
+	var status int
+	var header http.Header
 	if l.Response != nil {
 		m := messageJSON(l.Response)
 		out.Response = &m
+		answer, status, header = l.Response.Body.Bytes(), l.Response.Status, l.Response.Header
+	}
+	if s.normalize == nil {
+		return out
+	}
+	// A cut body is not a document: what is kept of it is shown raw.
+	if l.Request.Body.Truncated() {
+		out.Request.MessagesError = "it was cut at the limit per body"
+		return out
+	}
+	if l.Response != nil && l.Response.Body.Truncated() {
+		answer = nil
+		out.Response.MessagesError = "it was cut at the limit per body"
+	}
+	n := s.normalize(l.Dialect, l.Request.Body.Bytes(), status, header, answer)
+	out.Request.Messages, out.Request.MessagesError = n.Request, n.RequestError
+	if out.Response != nil && answer != nil {
+		out.Response.Messages, out.Response.MessagesError = n.Answer, n.AnswerError
 	}
 	return out
 }

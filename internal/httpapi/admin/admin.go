@@ -59,6 +59,7 @@ type Admin struct {
 	reads          readCache
 	uptime         *uptime.Sampler
 	capture        *capture.Capture
+	normalize      Normalizer
 }
 
 // Deps is what an Admin is built from. Every field is required.
@@ -104,6 +105,8 @@ type Deps struct {
 	Uptime *uptime.Sampler
 	// Capture is the clients' recorded content.
 	Capture *capture.Capture
+	// Normalize reads recorded bodies into Messages; nil shows them raw only.
+	Normalize Normalizer
 }
 
 // Models is what the admin screens read of the gateway's model list: the same
@@ -158,7 +161,7 @@ func New(d Deps) *Admin {
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
 		availability: d.Availability, modelChecks: d.ModelChecks, running: d.Running,
-		hub: d.Hub, uptime: d.Uptime, capture: d.Capture,
+		hub: d.Hub, uptime: d.Uptime, capture: d.Capture, normalize: d.Normalize,
 	}
 }
 

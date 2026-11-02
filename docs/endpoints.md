@@ -25,11 +25,15 @@
 | `PUT,DELETE /admin/clients/{id}/slots/{slot}` | admin | Bind, rename or remove a model name.       |
 | `GET /admin/clients/{id}/files?base=`         | admin | Its files, as the gateway writes them.     |
 | `POST /admin/clients/{id}/agent-manage`       | admin | Whether its agent may change it over MCP.  |
+| `POST,DELETE /admin/clients/{id}/capture`     | admin | Record its content for a while, or stop.   |
 | `POST /admin/keys/{id}/{install,update}`      | admin | One install or update command.             |
 | `PATCH,DELETE /admin/keys/{id}`               | admin | Edit a client's limits, or delete it.      |
 | `POST /admin/gateway`                         | admin | The Gateway switch.                        |
 | `GET /admin/usage`                            | admin | Totals and breakdowns over a window.       |
 | `GET /admin/requests`                         | admin | The request log, paged.                    |
+| `GET,DELETE /admin/captures?key=`             | admin | Recorded content held, or clearing it.     |
+| `GET /admin/captures/{id}`, `…/har`           | admin | One recorded request, or it as HAR.        |
+| `GET /admin/captures/export?key=`             | admin | Everything held, as HAR.                   |
 
 Model discovery is pinned by the contract: `GET /v1/models?limit=1000`, a
 3-second timeout, **any redirect counts as failure**, and Claude Code keeps only

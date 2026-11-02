@@ -37,6 +37,14 @@ const geminiAnswer = "data: {\"response\":{\"candidates\":[{\"content\":{\"role\
 // each provider's relay pointed at its stub.
 func geminiUpstream(t *testing.T) (*store.Store, string, *upstreamStub, *upstreamStub) {
 	t.Helper()
+	_, st, base, claude, google := geminiServer(t)
+	return st, base, claude, google
+}
+
+// geminiServer is geminiUpstream with the server, for a test that also
+// reads the admin API.
+func geminiServer(t *testing.T) (*Server, *store.Store, string, *upstreamStub, *upstreamStub) {
+	t.Helper()
 	srv, st, _ := newTestServer(t)
 
 	claude := &upstreamStub{}
@@ -99,7 +107,7 @@ func geminiUpstream(t *testing.T) (*store.Store, string, *upstreamStub, *upstrea
 	}
 	base, cancel, done := startServer(t, srv)
 	t.Cleanup(func() { cancel(); <-done })
-	return st, base, claude, google
+	return srv, st, base, claude, google
 }
 
 // geminiTurns are the requests that were turns, not quota reads.

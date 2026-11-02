@@ -463,6 +463,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
 		Models: s.models, Install: installs, Availability: s.availability, ModelChecks: s.modelChecks,
 		Running: s.running, Hub: s.hub, Uptime: s.uptime, Capture: s.capture,
+		Normalize: s.normalizer(),
 	})
 	s.web = web.New(web.Deps{Log: log, Files: webdist})
 	// The MCP server, behind the gateway's own key check and answering with

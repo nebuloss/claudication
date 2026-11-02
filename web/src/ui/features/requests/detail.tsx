@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { millis } from '../../format'
 import { Banner, Chip, CopyButton, KeyValue, Modal, Muted, Overline, Stack, Verbatim } from '../../primitives'
+import { RecordedContent } from './content'
 import type { RequestRecord } from './record'
 import { StatusChip } from './row'
 
@@ -27,7 +28,8 @@ function Mono({ children }: { children: ReactNode }) {
 export function RequestDetail({ record, onClose }: { record: RequestRecord; onClose: () => void }) {
   const row = record.row
   return (
-    <Modal title="Request" onClose={onClose} size="lg">
+    // Wider with a recording: its bodies are code, and read best unwrapped.
+    <Modal title="Request" onClose={onClose} size={row.capture !== undefined && row.capture > 0 ? 'xl' : 'lg'}>
       <Stack>
         <div className="flex flex-wrap items-center gap-3">
           <StatusChip record={record} />
@@ -99,6 +101,17 @@ export function RequestDetail({ record, onClose }: { record: RequestRecord; onCl
               <CopyButton label="Copy message" value={row.error ?? ''} />
             </div>
             <Verbatim>{row.error ?? ''}</Verbatim>
+          </div>
+        )}
+
+        {/* Only while its client was being recorded, and only until the
+            gateway restarts or needs the room. */}
+        {row.capture !== undefined && row.capture > 0 && (
+          <div>
+            <Overline as="div">Content</Overline>
+            <div className="mt-2">
+              <RecordedContent id={row.capture} />
+            </div>
           </div>
         )}
       </Stack>

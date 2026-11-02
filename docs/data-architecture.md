@@ -45,6 +45,8 @@ changes.
 | `chats` | chat titles | 1 s |
 | `settings` | the gateway's switches | at once |
 | `uptime` | uptime samples and outages | 10 s |
+| `inbox` | notifications marked read | at once |
+| `captures` | a client's content recording switched, and each request it recorded | 2 s |
 
 The interval bounds how often a topic is announced, whatever its rate of
 change: at a hundred requests a second, `requests` is one notice every two

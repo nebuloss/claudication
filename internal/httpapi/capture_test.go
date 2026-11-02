@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"claudication/internal/service/capture"
 	"claudication/internal/store"
@@ -107,6 +109,22 @@ func TestRecordingAClientsContent(t *testing.T) {
 		}
 	}
 
+	// Every body reads as one conversation, whatever API it was in: the
+	// Responses request and the Responses answer the client got, and the
+	// Messages request and stream Claude was sent and answered.
+	if got := said(t, &ex.Client.Request); !strings.Contains(got, "what is in auth.go?") {
+		t.Errorf("client request read as %q", got)
+	}
+	if got := said(t, &up.Request); !strings.Contains(got, "what is in auth.go?") {
+		t.Errorf("upstream request read as %q", got)
+	}
+	if got := said(t, up.Response); got != "hi" {
+		t.Errorf("Claude's answer read as %q, want hi", got)
+	}
+	if got := said(t, ex.Client.Response); got != "hi" {
+		t.Errorf("the client's answer read as %q (%s), want hi", got, ex.Client.Response.MessagesError)
+	}
+
 	// The log's row says it has a recording.
 	status, body = call(t, abase, http.MethodGet, "/admin/requests?limit=5", "", ck)
 	if status != http.StatusOK || !bytes.Contains(body, []byte(fmt.Sprintf(`"capture":%d`, x.ID))) {
@@ -133,6 +151,61 @@ func TestRecordingAClientsContent(t *testing.T) {
 	}
 }
 
+// Gemini's two shapes read as one conversation too: gemini-cli's request
+// and the chunks it was answered, and Code Assist's wrapped request and
+// wrapped answer — streamed and not.
+func TestRecordedGeminiReadsAsAConversation(t *testing.T) {
+	srv, st, base, _, _ := geminiServer(t)
+	abase, ck := adminAPI(t, srv)
+	k, key, err := st.CreateKey(context.Background(), "cli", store.KeyLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.capture.Record(k.ID, time.Minute)
+
+	for _, method := range []string{"streamGenerateContent", "generateContent"} {
+		if resp, body := sendGemini(t, base, key, "gemini-2.5-pro", method, cliRequest); resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: %d %s", method, resp.StatusCode, body)
+		}
+	}
+	held := srv.capture.List("")
+	if len(held) != 2 {
+		t.Fatalf("held %d, want 2", len(held))
+	}
+	for _, x := range held {
+		status, body := call(t, abase, http.MethodGet, fmt.Sprintf("/admin/captures/%d", x.ID), "", ck)
+		if status != http.StatusOK {
+			t.Fatalf("capture: %d %s", status, body)
+		}
+		var ex struct {
+			Client   legView   `json:"client"`
+			Upstream []legView `json:"upstream"`
+		}
+		if err := json.Unmarshal(body, &ex); err != nil || len(ex.Upstream) != 1 {
+			t.Fatalf("%v, %d upstream legs", err, len(ex.Upstream))
+		}
+		up := ex.Upstream[0]
+		for name, m := range map[string]*messageView{
+			"client request": &ex.Client.Request, "Code Assist request": &up.Request,
+		} {
+			if got := said(t, m); got != "hi" {
+				t.Errorf("%s read as %q (%s)", name, got, m.MessagesError)
+			}
+		}
+		for name, m := range map[string]*messageView{
+			"client answer": ex.Client.Response, "Code Assist answer": up.Response,
+		} {
+			if m == nil || m.Messages == nil {
+				t.Errorf("%s %s not read: %+v", x.Route, name, m)
+				continue
+			}
+			if got := said(t, m); got != "hi" {
+				t.Errorf("%s %s read as %q (%s)", x.Route, name, got, m.MessagesError)
+			}
+		}
+	}
+}
+
 type legView struct {
 	Dialect  string       `json:"dialect"`
 	Request  messageView  `json:"request"`
@@ -144,4 +217,44 @@ type messageView struct {
 	Body   struct {
 		Text string `json:"text"`
 	} `json:"body"`
+	Messages      json.RawMessage `json:"messages"`
+	MessagesError string          `json:"messages_error"`
+}
+
+// said is the text a body read into Messages says: its turns' text for a
+// request, its content's for an answer.
+func said(t *testing.T, m *messageView) string {
+	t.Helper()
+	if m == nil || m.Messages == nil {
+		t.Fatalf("not read into Messages: %+v", m)
+	}
+	var v struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(m.Messages, &v); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	parts := []json.RawMessage{v.Content}
+	for _, msg := range v.Messages {
+		parts = append(parts, msg.Content)
+	}
+	for _, p := range parts {
+		var text string
+		if json.Unmarshal(p, &text) == nil {
+			out.WriteString(text)
+			continue
+		}
+		var blocks []struct {
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(p, &blocks)
+		for _, b := range blocks {
+			out.WriteString(b.Text)
+		}
+	}
+	return out.String()
 }

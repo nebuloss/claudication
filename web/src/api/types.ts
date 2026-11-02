@@ -377,6 +377,8 @@ export interface RequestRow {
   id: number
   /** The title of the chat it belongs to, when the chat has one: its chat id on hover. */
   chat_title?: string
+  /** The recording of its content, while one is held (GET /admin/captures/{id}). */
+  capture?: number
   at: string
   /** The client that sent it: its id (its key's) and what it is called now. */
   key_id?: string
@@ -789,6 +791,8 @@ export interface ClientWire extends ApiKey {
    * until switched on; the read tools need nothing.
    */
   agent_manage: boolean
+  /** While its content is being recorded, when that ends (internal/service/capture). */
+  recording_until?: string
   configured_at?: string
   install: InstallState
   /** Its update link's state: the keyless command a configured client's page offers. */
@@ -933,3 +937,74 @@ export interface Notice {
   /** When the operator marked it read; absent while unread. */
   read?: string
 }
+
+/**
+ * Recorded content (internal/service/capture): one client request and what
+ * passed for it, held in memory while its client is recorded.
+ */
+export interface CaptureSummary {
+  id: number
+  at: string
+  key_id: string
+  key_name?: string
+  route: string
+  /** The request log row it belongs to. */
+  event?: number
+  status: number
+  model?: string
+  provider?: string
+  /** How many times the relay sent it upstream. */
+  attempts: number
+  /** What it holds in memory. */
+  bytes: number
+}
+
+export interface CaptureStatus {
+  held: number
+  used: number
+  budget: number
+  /** When each recording key's recording ends. */
+  recording: Record<string, string>
+}
+
+/** A body: its text, or its bytes in base64 when they are not text. */
+export interface CaptureBody {
+  text: string
+  base64?: boolean
+  size: number
+  /** Cut at the gateway's limit per body. */
+  truncated?: boolean
+  /** How many writes it arrived in: about one per event for a stream. */
+  parts: number
+  last_ms?: number
+}
+
+export interface CaptureMessage {
+  method?: string
+  url?: string
+  status?: number
+  header: [string, string][]
+  body: CaptureBody
+  /** The body read into Anthropic Messages, the gateway's common form, when it could be. */
+  messages?: unknown
+  /** Why it could not be, when it could not. */
+  messages_error?: string
+}
+
+/** One side's request and answer: the client's, or one upstream attempt. */
+export interface CaptureLeg {
+  /** The API the bodies are in: anthropic, openai, gemini. */
+  dialect: string
+  account?: string
+  started: string
+  ended?: string
+  error?: string
+  request: CaptureMessage
+  response: CaptureMessage | null
+}
+
+export interface CaptureExchange extends CaptureSummary {
+  client: CaptureLeg
+  upstream: CaptureLeg[]
+}
+

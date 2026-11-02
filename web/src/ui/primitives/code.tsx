@@ -14,11 +14,12 @@ import { CONCEAL, CopyButton, RevealButton, saveAs } from './copy'
  * reason the charts are hand-drawn: the binary ships this UI inside it, and
  * highlight.js with three languages registered would be a large fraction of
  * what the whole bundle costs today. It only ever renders files from
- * configs/clients, which are ours, so it does not have to survive hostile or
- * malformed input — only to be right about JSON, TOML and shell.
+ * configs/clients, which are ours, and recorded request bodies, which are not:
+ * a body is only ever drawn as text, so the worst a hostile one can do is be
+ * highlighted wrongly.
  */
 
-export type Lang = 'json' | 'jsonc' | 'toml' | 'sh'
+export type Lang = 'json' | 'jsonc' | 'toml' | 'sh' | 'sse' | 'text'
 
 /** One highlighting rule: what to match, and what it is. */
 type Rule = { re: string; cls: string }
@@ -26,7 +27,19 @@ type Rule = { re: string; cls: string }
 const STRING = String.raw`"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'`
 const NUMBER = String.raw`\b-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b`
 
+const JSON_RULES: Rule[] = [
+  { re: String.raw`"(?:\\.|[^"\\])*"(?=\s*:)`, cls: 'key' },
+  { re: STRING, cls: 'string' },
+  { re: String.raw`\b(?:true|false|null)\b`, cls: 'number' },
+  { re: NUMBER, cls: 'number' },
+  { re: String.raw`[{}\[\],:]`, cls: 'punct' },
+]
+
 const RULES: Record<Lang, Rule[]> = {
+  // A server-sent event stream: its field names, then each data line's JSON.
+  sse: [{ re: String.raw`^(?:event|id|retry):.*`, cls: 'key' }, { re: String.raw`^data:`, cls: 'comment' }, ...JSON_RULES],
+  // Anything else, as it is.
+  text: [],
   // Order matters: the first rule that matches at a position wins, so
   // comments and strings come before anything that could match inside one.
   json: [
@@ -108,6 +121,7 @@ function concealed(line: string, secret: string, lang: Lang): ReactNode {
 function highlight(line: string, lang: Lang): ReactNode {
   const re = COMPILED[lang]
   const rules = RULES[lang]
+  if (rules.length === 0) return line
   re.lastIndex = 0
 
   const out: ReactNode[] = []
@@ -146,6 +160,8 @@ const LANG_LABEL: Record<Lang, string> = {
   jsonc: 'JSON with comments',
   toml: 'TOML',
   sh: 'shell',
+  sse: 'event stream',
+  text: 'text',
 }
 
 export function CodeViewer({

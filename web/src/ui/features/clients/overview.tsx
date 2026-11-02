@@ -1,11 +1,13 @@
 import { api, type GatewayConfig } from '../../../api/client'
-import { useAction } from '../../hooks'
+import { useAction, useNow } from '../../hooks'
+import { relative, timeOfDay } from '../../format'
 import { navigate } from '../../route'
 import {
   Button,
   Card,
   DangerZone,
   ErrorBanner,
+  InlineLink,
   Note,
   SettingSwitch,
   Stack,
@@ -66,6 +68,11 @@ function SettingsCard({ client: c, onChanged }: { client: Client; onChanged: () 
       await api.clients.setFitImages(c.id, on)
       onChanged()
     })
+  const switchRecording = (on: boolean) =>
+    run('record', async () => {
+      await (on ? api.clients.record(c.id) : api.clients.stopRecording(c.id))
+      onChanged()
+    })
   const switchAgent = (on: boolean) =>
     run('agent', async () => {
       await api.clients.setAgentManage(c.id, on)
@@ -120,6 +127,13 @@ function SettingsCard({ client: c, onChanged }: { client: Client; onChanged: () 
           info="Only on a request Claude serves, and only the images over the limit; everything else goes up byte for byte. Images from earlier turns count, so a long conversation crosses the line on its own. It is the one change the gateway makes to what the model is shown, which is why it is off until switched on. The cost is bounded: Claude already downscales to 2576 px on 4.7 and later, and to 1568 px before."
         />
 
+        <RecordSwitch
+          until={k.recording_until}
+          busy={busy !== ''}
+          onChange={(on) => void switchRecording(on)}
+          clientId={c.id}
+        />
+
         {/* Off until the operator says so: with it, a model decides what this
             client runs. The read tools need nothing, and nothing here reaches
             its limits, its key, its type or any other client. */}
@@ -170,3 +184,46 @@ function DeleteCard({ client: c }: { client: Client }) {
     </>
   )
 }
+
+/**
+ * Recording the client's content (internal/service/capture): on for an hour
+ * at a time, then off by itself, and forgotten when the gateway restarts.
+ * Each recorded request opens from the request log with what it carried.
+ */
+function RecordSwitch({
+  until,
+  busy,
+  onChange,
+  clientId,
+}: {
+  until: string | undefined
+  busy: boolean
+  onChange: (on: boolean) => void
+  clientId: string
+}) {
+  const now = useNow(15_000)
+  const ends = until === undefined ? 0 : new Date(until).getTime()
+  const on = ends > now
+  return (
+    <SettingSwitch
+      checked={on}
+      onChange={onChange}
+      disabled={busy}
+      label="Record content — keep what its requests carry, and what they were answered, for an hour"
+      info="Each request is kept as the client sent it, as the gateway sent it upstream, and both answers, credentials taken out. In memory only: never written to disk or a backup, and lost when the gateway restarts or is updated. Open a request in the log to read it; download it as HAR for developer tools."
+    >
+      {on && (
+        <Note>
+          Recording until {timeOfDay(until ?? '')} ({relative(until ?? '')}).{' '}
+          <InlineLink href={`/clients/${encodeURIComponent(clientId)}/requests`}>See its requests</InlineLink> ·{' '}
+          {/* A plain link: the browser downloads it, rather than the app
+              navigating to it. */}
+          <a href={api.captures.exportHref(clientId)} download className="underline underline-offset-2">
+            Download all as HAR
+          </a>
+        </Note>
+      )}
+    </SettingSwitch>
+  )
+}
+

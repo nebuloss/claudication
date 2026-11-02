@@ -29,3 +29,10 @@ export function smallPercent(v: number): string {
   if (v > 0 && v < 0.1) return '<0.1%'
   return `${v < 10 ? v.toFixed(1) : Math.round(v)}%`
 }
+
+/** A body's size: bytes, KB or MB, decimal, as a file manager says them. */
+export function bytesLabel(n: number): string {
+  if (n < 1000) return `${String(n)} B`
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)} kB`
+  return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)} MB`
+}

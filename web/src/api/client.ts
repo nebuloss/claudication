@@ -16,6 +16,9 @@
  */
 import { HttpTransport, path, sessionExpiry } from './transport'
 import type {
+  CaptureExchange,
+  CaptureStatus,
+  CaptureSummary,
   Account,
   AccountList,
   AccountModel,
@@ -271,6 +274,13 @@ const clients = {
   setFitImages: async (id: string, enabled: boolean): Promise<ClientWire> =>
     (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/fit-images`, { enabled })).client,
 
+  /** Record its content for some minutes, the server's default hour when 0. */
+  record: async (id: string, minutes = 0): Promise<ClientWire> =>
+    (await http.post<{ client: ClientWire }>(path`/admin/clients/${id}/capture`, { minutes })).client,
+
+  stopRecording: async (id: string): Promise<ClientWire> =>
+    (await http.call<{ client: ClientWire }>('DELETE', path`/admin/clients/${id}/capture`)).client,
+
   /** Rename a slot and bind it: to a real model, or to a target it follows. */
   setSlot: async (id: string, slot: string, name: string, binding: { model?: string; follows?: string }) =>
     (await http.send('PUT', path`/admin/clients/${id}/slots/${slot}`, { body: { name, ...binding } })),
@@ -446,4 +456,20 @@ const traffic = {
   },
 }
 
-export const api = { session, accounts, clients, models, gateway, traffic }
+/** Recorded content: what is held, one exchange, and its export as HAR. */
+const captures = {
+  list: (key: string, signal?: AbortSignal) =>
+    http.get<{ status: CaptureStatus; captures: CaptureSummary[] | null }>(
+      key === '' ? '/admin/captures' : `/admin/captures?key=${encodeURIComponent(key)}`,
+      signal,
+    ),
+  get: (id: number, signal?: AbortSignal) => http.get<CaptureExchange>(`/admin/captures/${String(id)}`, signal),
+  clear: (key: string) =>
+    http.send('DELETE', key === '' ? '/admin/captures' : `/admin/captures?key=${encodeURIComponent(key)}`),
+  /** Links rather than reads: the browser downloads them, with the session's cookie. */
+  harHref: (id: number) => `/admin/captures/${String(id)}/har`,
+  exportHref: (key: string) =>
+    key === '' ? '/admin/captures/export' : `/admin/captures/export?key=${encodeURIComponent(key)}`,
+}
+
+export const api = { session, accounts, clients, models, gateway, traffic, captures }
