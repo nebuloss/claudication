@@ -532,6 +532,11 @@ console.log('\n— RequestLogPager: polling must not undo paging —')
   const flood = Array.from({ length: PAGE }, (_, i) => at(10 + i)).reverse()
   const over = held.merged({ rows: flood, nextCursor: 'p' })
   check('a whole page of new rows starts over rather than leave a hole', [over.rows.length, over.cursor], [PAGE, 'p'])
+  const recorded = { ...at(5), capture: 12 }
+  const later = held.merged({ rows: [recorded, at(4)], nextCursor: 'p' })
+  check('a held row that gained its recording is taken from the poll',
+    later.rows.map((r) => [r.id, r.capture ?? 0]), [[5, 12], [4, 0], [3, 0]])
+  check('and the paging cursor is kept', later.cursor, 'c2')
 }
 
 console.log('\n— commitTitle: what Enter in a title being renamed does —')

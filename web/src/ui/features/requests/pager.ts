@@ -47,13 +47,27 @@ export class RequestLogPager<R extends Stamped> {
    * arrived and what is held. Starting over is the honest answer to that — a
    * list with a silent gap in the middle is worse than a short one — and so
    * is the page's own cursor, which the hole would otherwise sit behind.
+   *
+   * A row already held is taken from the poll when the poll's differs. A row
+   * is written when its request ends, but what is said of it can arrive a
+   * moment later — the recording of its content is tied to it just after
+   * (internal/service/capture) — and a row read in between would otherwise
+   * keep saying it has none for as long as it is on screen.
    */
   merged(page: Page<R>): RequestLogPager<R> {
     if (this.rows.length === 0) return RequestLogPager.first(page)
     const newest = this.rows.reduce((m, r) => Math.max(m, r.id), 0)
     const fresh = page.rows.filter((r) => r.id > newest)
-    if (fresh.length === 0) return this
     if (fresh.length >= PAGE) return RequestLogPager.first(page)
-    return new RequestLogPager([...fresh, ...this.rows], this.cursor)
+    const polled = new Map(page.rows.map((r) => [r.id, r]))
+    let changed = false
+    const held = this.rows.map((r) => {
+      const now = polled.get(r.id)
+      if (now === undefined || JSON.stringify(now) === JSON.stringify(r)) return r
+      changed = true
+      return now
+    })
+    if (fresh.length === 0 && !changed) return this
+    return new RequestLogPager([...fresh, ...held], this.cursor)
   }
 }
