@@ -13,10 +13,9 @@ import { toneContainer, type Tone } from '../../styles/tone'
  * from its state on every read (GET /admin/notices) — an account to sign in
  * again, a model failing everywhere, a client whose requests keep failing.
  * A notice goes once its problem does, and each is a link to the page where
- * it is dealt with. One that will not go — a model retired upstream — can be
- * marked read: it stays listed, faded and last, out of the bell's count, until
- * its problem is gone; the gateway forgets the mark then, so the same problem
- * starting again is news.
+ * it is dealt with. One the operator has seen can be marked read, and goes
+ * too: the gateway keeps the mark until the problem is gone and forgets it
+ * then, so the same problem starting again is news.
  *
  * Read through the bell in the header, from any page: its count in the
  * colour of the worst, and the notification centre — a sheet along the
@@ -70,11 +69,10 @@ function NoticeRow({
 }: {
   n: Notice
   onOpen: () => void
-  onMark: (ids: string[], read: boolean) => Promise<void>
+  onMark: (ids: string[]) => Promise<void>
 }) {
   const s = SEVERITY[n.severity]
   const at = when(n)
-  const read = n.read !== undefined
   const [busy, setBusy] = useState(false)
   const body = (
     <>
@@ -101,7 +99,7 @@ function NoticeRow({
   return (
     // The row is the way to the notice's page; the read switch sits beside
     // it, not in it, since a button cannot live inside a link.
-    <li className={`flex items-start rounded-md3-l bg-surface-lowest ${read ? 'opacity-60' : ''}`}>
+    <li className="flex items-start rounded-md3-l bg-surface-lowest">
       {n.link === undefined || go === undefined ? (
         <div className={row}>{body}</div>
       ) : (
@@ -116,22 +114,22 @@ function NoticeRow({
           {body}
         </a>
       )}
-      {/* Borderless, as the row's chevron is: an envelope ticked to mark it
-          read, the unread envelope to put it back. */}
-      <Tip tip={read ? 'Mark as unread' : 'Mark as read'}>
+      {/* Borderless, as the row's chevron is: the envelope ticked. A read
+          notice leaves the list. */}
+      <Tip tip="Mark as read">
         <button
           type="button"
-          aria-label={read ? 'Mark as unread' : 'Mark as read'}
+          aria-label="Mark as read"
           aria-busy={busy || undefined}
           onClick={() => {
             setBusy(true)
-            void onMark([n.id], !read).finally(() => setBusy(false))
+            void onMark([n.id]).finally(() => setBusy(false))
           }}
           className={`state-layer mt-2.5 mr-2 grid size-9 shrink-0 place-items-center rounded-md3-full text-on-surface-variant ${
             busy ? 'pointer-events-none' : ''
           }`}
         >
-          {busy ? <Spinner className="size-5" /> : <Glyph icon={read ? 'unread' : 'read'} className="size-5" />}
+          {busy ? <Spinner className="size-5" /> : <Glyph icon="read" className="size-5" />}
         </button>
       </Tip>
     </li>
@@ -149,16 +147,12 @@ function NoticeCenter({ notices, onClose }: { notices: Notice[]; onClose: () => 
   const [marking, setMarking] = useState(false)
   const session = useSession()
   const count = (s: Severity) => notices.filter((n) => n.severity === s).length
-  // Unread first, the server's order kept within each: what has been seen
-  // goes to the bottom rather than out of sight.
-  const filtered = only === 'all' ? notices : notices.filter((n) => n.severity === only)
-  const shown = [...filtered.filter((n) => n.read === undefined), ...filtered.filter((n) => n.read !== undefined)]
-  const unread = shown.filter((n) => n.read === undefined)
+  const shown = only === 'all' ? notices : notices.filter((n) => n.severity === only)
   // The list follows from the live stream: the mark's write tells every tab.
-  const mark = async (ids: string[], read: boolean) => {
+  const mark = async (ids: string[]) => {
     setError('')
     try {
-      await api.gateway.markNotices(ids, read)
+      await api.gateway.markNotices(ids)
     } catch (err) {
       if (!session.report(err)) setError(messageOf(err))
     }
@@ -180,7 +174,7 @@ function NoticeCenter({ notices, onClose }: { notices: Notice[]; onClose: () => 
       ) : (
         <div className="flex flex-col gap-5">
           {/* By how bad: each with its count, those with none left out but All;
-              and every unread one shown marked read at once. */}
+              and every one shown marked read at once. */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex flex-1 flex-wrap gap-2" role="radiogroup" aria-label="Show">
               {filters
@@ -207,7 +201,7 @@ function NoticeCenter({ notices, onClose }: { notices: Notice[]; onClose: () => 
                   )
                 })}
             </div>
-            {unread.length > 0 && (
+            {shown.length > 0 && (
               <Button
                 variant="text"
                 size="sm"
@@ -215,10 +209,7 @@ function NoticeCenter({ notices, onClose }: { notices: Notice[]; onClose: () => 
                 busy={marking}
                 onClick={() => {
                   setMarking(true)
-                  void mark(
-                    unread.map((n) => n.id),
-                    true,
-                  ).finally(() => setMarking(false))
+                  void mark(shown.map((n) => n.id)).finally(() => setMarking(false))
                 }}
               >
                 Mark all as read
@@ -257,20 +248,14 @@ function NoticeCenter({ notices, onClose }: { notices: Notice[]; onClose: () => 
 export function NoticeBell() {
   const { data } = useNotices()
   const [open, setOpen] = useState(false)
-  const notices = data ?? []
-  // The count is what has not been read; the centre still lists the rest.
-  const unread = notices.filter((n) => n.read === undefined)
-  const worst = unread.some((n) => n.severity === 'error')
+  // A notice marked read is gone from the bell and the centre alike.
+  const notices = (data ?? []).filter((n) => n.read === undefined)
+  const worst = notices.some((n) => n.severity === 'error')
     ? 'bg-error text-on-error'
-    : unread.some((n) => n.severity === 'warn')
+    : notices.some((n) => n.severity === 'warn')
       ? 'bg-warning text-on-warning'
       : 'bg-surface-highest text-on-surface'
-  const label =
-    unread.length > 0
-      ? `Notifications: ${unread.length} unread`
-      : notices.length > 0
-        ? `Notifications: ${notices.length} read`
-        : 'Notifications: nothing needs you'
+  const label = notices.length === 0 ? 'Notifications: nothing needs you' : `Notifications: ${notices.length}`
   return (
     <>
       <Tip tip={label}>
@@ -283,11 +268,11 @@ export function NoticeBell() {
           className="state-layer relative grid size-10 shrink-0 place-items-center rounded-md3-full border border-outline text-on-surface-variant"
         >
           <Glyph icon="bell" className="size-5" />
-          {unread.length > 0 && (
+          {notices.length > 0 && (
             <span
               className={`absolute -top-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[0.6875rem] font-medium tabular-nums ${worst}`}
             >
-              {unread.length}
+              {notices.length}
             </span>
           )}
         </button>

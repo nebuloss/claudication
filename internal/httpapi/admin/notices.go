@@ -47,8 +47,8 @@ type notice struct {
 	// Since is when it began, or At when it will end, when either is known.
 	Since time.Time `json:"since,omitzero"`
 	Until time.Time `json:"until,omitzero"`
-	// Read is when the operator marked it read: it stays listed, out of the
-	// bell's count, until its problem is gone.
+	// Read is when the operator marked it read: the UI no longer shows it,
+	// until its problem is gone and comes back.
 	Read time.Time `json:"read,omitzero"`
 }
 
