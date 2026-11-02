@@ -33,16 +33,21 @@ const (
 	// still uses claude.ai and is simply out of date.
 	anthropicAuthURL = "https://claude.com/cai/oauth/authorize"
 
-	// Deliberately NOT the bundle's TOKEN_URL
-	// (https://platform.claude.com/v1/oauth/token). That host was tried and
-	// answered "client_id: Field required" for a request carrying a client_id,
-	// and it rate-limits hard enough that its behaviour on a well-formed body
-	// could never be observed. This host was verified by probe to parse our
-	// exact JSON body — a fake code gets the correct
-	// {"error":"invalid_grant","error_description":"Invalid 'code' in request."}
-	// rather than a schema complaint. Prefer the endpoint we can demonstrate
-	// works; revisit if it is retired.
+	// Where a refresh goes. Not the bundle's TOKEN_URL: platform.claude.com
+	// rate-limits refreshes hard (a fake refresh token got 429 "Rate limited"
+	// on 2026-11-02 where this host answers invalid_grant), and this host has
+	// refreshed every account the gateway holds.
 	anthropicTokenURL = "https://api.anthropic.com/v1/oauth/token"
+
+	// Where an authorization code goes first: the bundle's TOKEN_URL, the
+	// host the client itself exchanges at (2.1.316, `qos`). On 2026-11-02 a
+	// real code sent to anthropicTokenURL came back twice as
+	// "invalid_grant: Invalid 'code' in request." while the same request
+	// shape — read off the 2.1.316 bundle, field for field — is what
+	// `claude` sends here. Both hosts parse our exact body (a fake code gets
+	// that same invalid_grant from each), so a fake code cannot tell them
+	// apart; ExchangeCode tries this one and falls back.
+	anthropicExchangeURL = "https://platform.claude.com/v1/oauth/token"
 
 	// The client's MANUAL_REDIRECT_URL: Anthropic renders a page showing the
 	// code, which is the flow `claude` itself uses when it asks you to paste
@@ -137,13 +142,13 @@ type tokenResponse struct {
 	} `json:"account"`
 }
 
-func postToken(ctx context.Context, client *http.Client, body any) (oauth.Result, error) {
+func postToken(ctx context.Context, client *http.Client, tokenURL string, body any) (oauth.Result, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return oauth.Result{}, fmt.Errorf("encode token request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicTokenURL, strings.NewReader(string(payload)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(string(payload)))
 	if err != nil {
 		return oauth.Result{}, fmt.Errorf("build token request: %w", err)
 	}
@@ -234,20 +239,34 @@ func postToken(ctx context.Context, client *http.Client, body any) (oauth.Result
 // redirectURI must be the same one the authorize request carried. That much is
 // a hard rule — the client replays its own choice here for exactly this reason
 // (`useManualRedirect: !hasPendingResponse()`), and a mismatch is rejected.
+//
+// It goes to the host the client exchanges at, and on any refusal to the one
+// refreshes go to (see anthropicExchangeURL). A code is spent only by a
+// successful exchange, so a refused one can be offered again; the second
+// host's answer is the one returned, with the first's beside it.
 func ExchangeCode(ctx context.Context, client *http.Client, code, verifier, state, redirectURI string) (oauth.Result, error) {
-	return postToken(ctx, client, map[string]string{
+	body := map[string]string{
 		"code":          code,
 		"grant_type":    "authorization_code",
 		"client_id":     ClientID,
 		"redirect_uri":  redirectURI,
 		"code_verifier": verifier,
 		"state":         state,
-	})
+	}
+	res, first := postToken(ctx, client, anthropicExchangeURL, body)
+	if first == nil || ctx.Err() != nil {
+		return res, first
+	}
+	res, err := postToken(ctx, client, anthropicTokenURL, body)
+	if err != nil {
+		return oauth.Result{}, fmt.Errorf("%w (and from %s: %v)", err, anthropicExchangeURL, first)
+	}
+	return res, nil
 }
 
 // Refresh exchanges a refresh token for a new access token.
 func Refresh(ctx context.Context, client *http.Client, refreshToken string) (oauth.Result, error) {
-	res, err := postToken(ctx, client, map[string]string{
+	res, err := postToken(ctx, client, anthropicTokenURL, map[string]string{
 		"client_id":     ClientID,
 		"grant_type":    "refresh_token",
 		"refresh_token": refreshToken,

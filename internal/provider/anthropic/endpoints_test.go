@@ -83,7 +83,7 @@ func upstream(t *testing.T, h http.HandlerFunc) (*http.Client, *redirect) {
 // --- token endpoint ---------------------------------------------------------
 
 // The exchange must carry exactly the fields the client sends, to the host
-// that was shown to parse them; anything else is rejected with an error that
+// the client sends them to; anything else is rejected with an error that
 // names a field the request plainly contained.
 func TestExchangeCodeSendsTheClientsRequest(t *testing.T) {
 	client, rt := upstream(t, func(w http.ResponseWriter, _ *http.Request) {
@@ -99,8 +99,11 @@ func TestExchangeCodeSendsTheClientsRequest(t *testing.T) {
 	}
 
 	got := rt.last(t)
-	if got.method != http.MethodPost || got.host != "api.anthropic.com" || got.path != "/v1/oauth/token" {
-		t.Errorf("sent %s %s%s, want POST api.anthropic.com/v1/oauth/token", got.method, got.host, got.path)
+	if got.method != http.MethodPost || got.host != "platform.claude.com" || got.path != "/v1/oauth/token" {
+		t.Errorf("sent %s %s%s, want POST platform.claude.com/v1/oauth/token", got.method, got.host, got.path)
+	}
+	if n := len(rt.reqs); n != 1 {
+		t.Errorf("%d requests for an exchange the first host accepted, want 1", n)
 	}
 	if ct := got.header.Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q", ct)
@@ -231,7 +234,7 @@ func TestTokenExchangeRefusesToFollowARedirect(t *testing.T) {
 		mu.Unlock()
 		http.Redirect(w, r, "https://elsewhere.example/token", http.StatusFound)
 	})
-	_, err := ExchangeCode(context.Background(), client, "c", "v", "s", RedirectManual)
+	_, err := Refresh(context.Background(), client, "rt")
 	if err == nil || !strings.Contains(err.Error(), "redirected (302)") ||
 		!strings.Contains(err.Error(), "elsewhere.example") {
 		t.Fatalf("err = %v, want a redirect refusal naming the target", err)
@@ -650,5 +653,45 @@ func TestErrorCode(t *testing.T) {
 		if got := ErrorCode(c.status, c.body); got != c.want {
 			t.Errorf("ErrorCode(%d, %.40q) = %q, want %q", c.status, c.body, got, c.want)
 		}
+	}
+}
+
+// A code the client's host refuses goes to the host refreshes use, with the
+// same body: a refused code is not spent, and on 2026-11-02 one host refused
+// codes for no visible reason. Both refusals reach the operator.
+func TestExchangeCodeFallsBackToTheRefreshHost(t *testing.T) {
+	var mu sync.Mutex
+	var hits int
+	client, rt := upstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		hits++
+		n := hits
+		mu.Unlock()
+		if n == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":"invalid_grant","error_description":"Invalid 'code' in request."}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"access_token":"at","refresh_token":"rt","expires_in":3600}`)
+	})
+	res, err := ExchangeCode(context.Background(), client, "the-code", "verifier", "st", RedirectManual)
+	if err != nil || res.AccessToken != "at" {
+		t.Fatalf("exchange: %+v, %v", res, err)
+	}
+	if len(rt.reqs) != 2 || rt.reqs[0].host != "platform.claude.com" || rt.reqs[1].host != "api.anthropic.com" {
+		t.Fatalf("requests went to %+v, want platform.claude.com then api.anthropic.com", rt.reqs)
+	}
+	if string(rt.reqs[0].body) != string(rt.reqs[1].body) {
+		t.Errorf("the second host got a different body:\n%s\n%s", rt.reqs[0].body, rt.reqs[1].body)
+	}
+
+	// Both refuse: the error says what each said, and stays an invalid grant.
+	client, _ = upstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"invalid_grant","error_description":"Invalid 'code' in request."}`)
+	})
+	_, err = ExchangeCode(context.Background(), client, "c", "v", "s", RedirectManual)
+	if !errors.Is(err, oauth.ErrInvalidGrant) || !strings.Contains(err.Error(), "platform.claude.com") {
+		t.Errorf("err = %v, want an invalid grant naming both hosts' answers", err)
 	}
 }

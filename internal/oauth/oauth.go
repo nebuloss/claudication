@@ -17,10 +17,13 @@ import (
 	"time"
 )
 
-// ErrInvalidGrant is the refusal that never comes right on its own: the
-// refresh token has been revoked, has expired, or was already spent. Retrying
-// it is not patience, it is a loop — only a human at a browser can fix it.
-var ErrInvalidGrant = errors.New("the refresh token is no longer valid")
+// ErrInvalidGrant is the refusal that never comes right on its own: the grant
+// — a refresh token, or an authorization code being exchanged — has been
+// revoked, has expired, or was already spent. Retrying it is not patience, it
+// is a loop — only a human at a browser can fix it. Its words name no grant
+// because both kinds wrap it: a code refused at sign-in once read as "the
+// refresh token is no longer valid".
+var ErrInvalidGrant = errors.New("the provider refused the grant")
 
 // ErrDeviceSpent is a device-code sign-in that cannot be finished by asking
 // again: the code expired, or it was approved and the provider has handed its
