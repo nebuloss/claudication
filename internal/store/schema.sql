@@ -445,6 +445,16 @@ CREATE TABLE settings (
     updated_at INTEGER NOT NULL
 ) WITHOUT ROWID;
 
+-- Notifications the operator has marked read, by the notice's id, which is
+-- stable while its problem lasts (internal/httpapi/admin/notices.go). A
+-- notification is worked out from state on every read, never stored, so this
+-- is the only thing about one the gateway keeps; a mark is dropped once its
+-- problem is gone, so the same problem starting again reads as new.
+CREATE TABLE notices_read (
+    id      TEXT    PRIMARY KEY,
+    read_at INTEGER NOT NULL
+) WITHOUT ROWID;
+
 -- Single-use sign-in links: a short random token rather than an encoded
 -- credential, spent on first use. Stored rather than held in memory so one can
 -- be minted from a shell, which is the case that matters -- a link made from a

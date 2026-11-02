@@ -930,4 +930,6 @@ export interface Notice {
   /** When it began, or when it ends. */
   since?: string
   until?: string
+  /** When the operator marked it read; absent while unread. */
+  read?: string
 }

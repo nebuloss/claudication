@@ -253,7 +253,8 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	// Thirty seconds for what time alone changes: a sign-in nearing its end,
 	// a client's failures leaving the window, the process's memory.
 	mux.Handle("GET /admin/notices", cached("notices", 30*time.Second, s.handleNotices,
-		live.Accounts, live.Quota, live.Pool, live.Models, live.Clients, live.Requests, live.Settings, live.Uptime))
+		live.Accounts, live.Quota, live.Pool, live.Models, live.Clients, live.Requests, live.Settings, live.Uptime, live.Inbox))
+	mux.Handle("POST /admin/notices/read", admin(s.handleNoticesRead))
 	mux.Handle("GET /admin/requests/running", admin(s.handleRunning))
 	mux.Handle("GET /admin/usage/slots", cached("slots", 30*time.Second, s.handleGatewaySlots,
 		live.Clients, live.Accounts, live.Requests))

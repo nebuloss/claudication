@@ -47,6 +47,9 @@ type notice struct {
 	// Since is when it began, or At when it will end, when either is known.
 	Since time.Time `json:"since,omitzero"`
 	Until time.Time `json:"until,omitzero"`
+	// Read is when the operator marked it read: it stays listed, out of the
+	// bell's count, until its problem is gone.
+	Read time.Time `json:"read,omitzero"`
 }
 
 // The thresholds, each the point past which the operator would want to know
@@ -72,12 +75,52 @@ const (
 // handleNotices is the gateway's current problems, the worst first.
 func (s *Admin) handleNotices(w http.ResponseWriter, r *http.Request) {
 	out, err := s.notices(r.Context(), time.Now())
+	if err == nil {
+		err = s.withReadMarks(r.Context(), out)
+	}
 	if err != nil {
 		s.log.Error("notices", "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not work out the notices")
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"notices": out})
+}
+
+// withReadMarks says which notices the operator has read, and forgets the
+// marks of those whose problem is gone: the same problem starting again is
+// news, not something already seen.
+func (s *Admin) withReadMarks(ctx context.Context, out []notice) error {
+	marks, err := s.store.NoticesRead(ctx)
+	if err != nil {
+		return err
+	}
+	current := make(map[string]bool, len(out))
+	for i := range out {
+		current[out[i].ID] = true
+		out[i].Read = marks[out[i].ID]
+	}
+	return s.store.ForgetNoticesRead(ctx, current)
+}
+
+// handleNoticesRead marks notices read, or unread with "read": false.
+func (s *Admin) handleNoticesRead(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs  []string `json:"ids"`
+		Read *bool    `json:"read"`
+	}
+	if !httpx.DecodeJSON(w, r, &body) {
+		return
+	}
+	if len(body.IDs) == 0 || len(body.IDs) > 500 {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.KindInvalidRequest, "name between 1 and 500 notices")
+		return
+	}
+	read := body.Read == nil || *body.Read
+	if err := s.store.MarkNotices(r.Context(), body.IDs, read); err != nil {
+		httpx.Internal(w, s.log, "mark the notices", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Admin) notices(ctx context.Context, now time.Time) ([]notice, error) {

@@ -41,6 +41,8 @@ const (
 	Settings Topic = "settings"
 	// Uptime: uptime samples and outages.
 	Uptime Topic = "uptime"
+	// Inbox: the notifications marked read.
+	Inbox Topic = "inbox"
 )
 
 // Topics are every topic, in the order the UI lists them, each with the
@@ -61,6 +63,7 @@ var Topics = []struct {
 	{Chats, time.Second},
 	{Settings, 0},
 	{Uptime, 10 * time.Second},
+	{Inbox, 0},
 }
 
 // Tick is how often the hub announces what changed.

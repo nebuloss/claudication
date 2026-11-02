@@ -359,6 +359,8 @@ const gateway = {
   live: (signal?: AbortSignal) => http.get<LiveStats>('/admin/live', signal),
   notices: async (signal?: AbortSignal): Promise<Notice[]> =>
     (await http.get<{ notices: Notice[] | null }>('/admin/notices', signal)).notices ?? [],
+  /** Marks notices read, or unread with read false. */
+  markNotices: (ids: string[], read = true) => http.send('POST', '/admin/notices/read', { body: { ids, read } }),
 
   setServing: (enabled: boolean) => http.send('POST', '/admin/gateway', { body: { enabled } }),
 
