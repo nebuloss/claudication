@@ -26,7 +26,7 @@ import { accountName, accountStatus, isNamed } from '../../domain/account'
 import { compact, dateTime, relative } from '../../format'
 import { windowTitle } from '../../domain/quota'
 import { READS } from '../../../api/live'
-import { AccentPicker, ProviderMark } from '../../brands'
+import { AccentPicker, MarkTile, ProviderMark } from '../../brands'
 
 /**
  * One account, Claude or ChatGPT, on its pages:
@@ -105,20 +105,28 @@ export default function AccountPage({
 
   return (
     <Page>
+      {/* Its name, colour and switch are changed on its overview alone, as a
+          client's are. */}
       <DetailHeader
         kind="accounts"
         id={account.id}
         title={accountName(account)}
         mark={
-          <AccentPicker
-            accent={account.accent}
-            label="this account"
-            onPick={(a) => void api.accounts.setAccent(account.id, a).then(reload, () => reload())}
-          >
-            <ProviderMark provider={account.provider} />
-          </AccentPicker>
+          page === '' ? (
+            <AccentPicker
+              accent={account.accent}
+              label="this account"
+              onPick={(a) => void api.accounts.setAccent(account.id, a).then(reload, () => reload())}
+            >
+              <ProviderMark provider={account.provider} />
+            </AccentPicker>
+          ) : (
+            <MarkTile accent={account.accent} size="lg">
+              <ProviderMark provider={account.provider} />
+            </MarkTile>
+          )
         }
-        rename={{
+        rename={page === '' ? {
           value: account.name ?? '',
           // An unnamed account's field is empty with its address in grey:
           // what it is called until it is named, and what Enter on an empty
@@ -130,7 +138,7 @@ export default function AccountPage({
             await api.accounts.setName(account.id, name)
             void reload()
           },
-        }}
+        } : undefined}
         subtitle={[
           // The address under a name, as the one thing that tells two
           // accounts named alike apart, and the account the provider knows.
@@ -150,7 +158,9 @@ export default function AccountPage({
                 <QuotaGauges quota={account.quota} />
               </Figures>
             )}
-            <AccountSwitch key={String(account.disabled)} account={account} onChanged={() => void reload()} />
+            {page === '' && (
+              <AccountSwitch key={String(account.disabled)} account={account} onChanged={() => void reload()} />
+            )}
           </>
         }
         freshness={{ updatedAt, refreshing }}

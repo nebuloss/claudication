@@ -17,7 +17,7 @@ import { KeyFigures } from './parts'
 import { useClientTypes } from './types'
 import { ClientUsage } from './usage'
 import { READS } from '../../../api/live'
-import { AccentPicker, ClientMark } from '../../brands'
+import { AccentPicker, ClientMark, MarkTile } from '../../brands'
 
 /**
  * One client, on its overview and the pages beside it: its usage and limits,
@@ -56,6 +56,10 @@ export function ClientPage({
   }
   const client = new Client(data, types.type(data.type))
   const changed = () => void reload()
+  // Its name, colour and switch are changed on its overview alone: the
+  // pages beside it are about what it did and what it serves, and say whose
+  // they are without offering to change it on each.
+  const overview = page === ''
 
   const pages: Record<ClientPageId, () => ReactNode> = {
     '': () => <ClientOverview client={client} types={types} config={config} onChanged={changed} />,
@@ -73,15 +77,21 @@ export function ClientPage({
         id={client.id}
         title={client.name}
         mark={
-          <AccentPicker
-            accent={data.accent}
-            label="this client"
-            onPick={(a) => void api.clients.setAccent(client.id, a).then(changed, changed)}
-          >
-            <ClientMark type={data.type} />
-          </AccentPicker>
+          overview ? (
+            <AccentPicker
+              accent={data.accent}
+              label="this client"
+              onPick={(a) => void api.clients.setAccent(client.id, a).then(changed, changed)}
+            >
+              <ClientMark type={data.type} />
+            </AccentPicker>
+          ) : (
+            <MarkTile accent={data.accent} size="lg">
+              <ClientMark type={data.type} />
+            </MarkTile>
+          )
         }
-        rename={{
+        rename={overview ? {
           value: client.name,
           label: 'Client name',
           // The key's limits go back as they are: the endpoint takes the
@@ -95,13 +105,13 @@ export function ClientPage({
             })
             changed()
           },
-        }}
+        } : undefined}
         subtitle={`${client.type.label} · ${types.apiTitle(client.type)}`}
         aside={
           <Figures>
             <ClientChips client={client} />
             <KeyFigures k={client.wire} always={false} />
-            <EnableSwitch key={String(client.wire.disabled)} client={client.wire} onChanged={changed} />
+            {overview && <EnableSwitch key={String(client.wire.disabled)} client={client.wire} onChanged={changed} />}
           </Figures>
         }
         freshness={{ updatedAt, refreshing }}
