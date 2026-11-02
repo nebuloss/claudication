@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 /**
- * The names of accounts and clients, by id, for the navigation.
+ * The names of accounts, clients and chats, by id, for the navigation.
  *
  * The path holds an id; the breadcrumb and the Back button should say the
  * account's email or the client's name. The pages that load an account or a
@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 const names = new Map<string, string>()
 const EVENT = 'claudication:names'
 
-export type ItemKind = 'accounts' | 'clients'
+export type ItemKind = 'accounts' | 'clients' | 'chats'
 
 /** Remember what an account or a client is called. */
 export function nameItem(kind: ItemKind, id: string, name: string) {
@@ -21,9 +21,13 @@ export function nameItem(kind: ItemKind, id: string, name: string) {
   window.dispatchEvent(new Event(EVENT))
 }
 
-/** An account's or a client's name; a short form of its id until it is known. */
+/** An account's, a client's or a chat's name; a short form of its id until it is known. */
 export function nameOf(kind: ItemKind, id: string): string {
-  return names.get(`${kind}/${id}`) ?? (id.length > 10 ? `${id.slice(0, 8)}…` : id)
+  const known = names.get(`${kind}/${id}`)
+  if (known !== undefined) return known
+  // A chat id is longer and its start is what tells two apart.
+  if (kind === 'chats') return id.length <= 14 ? id : `${id.slice(0, 13)}…`
+  return id.length > 10 ? `${id.slice(0, 8)}…` : id
 }
 
 /** Re-render when a name becomes known. */

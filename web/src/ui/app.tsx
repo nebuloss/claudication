@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Accounts from './features/accounts'
 import AccountPage from './features/accounts/page'
 import Traffic from './features/traffic'
@@ -8,7 +8,7 @@ import Settings from './features/settings'
 import SignIn from './features/sign-in'
 import ThemeToggle from './features/theme-toggle'
 import { usePath, useLoader, useUpdateAvailable } from './hooks'
-import { nameOf, useNames } from './names'
+import { nameItem, nameOf, useNames } from './names'
 import { SessionProvider } from './session'
 import {
   ACCOUNT_PAGES,
@@ -16,6 +16,7 @@ import {
   CLIENT_PAGES,
   SECTION_LINKS,
   SETTINGS_PAGES,
+  chatHref,
   navLevel,
   pageIdOf,
   pathOf,
@@ -95,6 +96,8 @@ export default function App() {
   // The trail and the rail name an account or a key once its page has said
   // what it is called.
   useNames()
+  // The client's chats, for the rail on one chat's page.
+  const chats = useChatLinks(path, state.phase === 'in')
   // The configuration, loaded once for the whole signed-in app and handed to
   // Settings, which renders it and reloads it after a switch.
   //
@@ -199,7 +202,7 @@ export default function App() {
   // One value for the header, the nav and the page, so the tab underline stays
   // over its tab when the measure changes.
   const measure = MEASURE
-  const level = navLevel(here)
+  const level = navLevel(here, chats)
   const trail = trailOf(here, nameOf)
 
   return (
@@ -336,3 +339,38 @@ function Version() {
   if (data === null) return null
   return <VersionTag>{data.version}</VersionTag>
 }
+
+/** How many of a client's chats a chat's page lists beside it. */
+const RAIL_CHATS = 15
+
+/**
+ * On a chat's page, the client's latest chats, for the rail to list beside
+ * it: the level below the client's pages is its chats. Read only there, and
+ * named as their rows name them; each one's title is remembered for the trail
+ * and the page's title too.
+ */
+function useChatLinks(path: string[], signedIn: boolean): NavLink[] | undefined {
+  const [top, client = '', page, chat = ''] = path
+  const on = signedIn && top === 'clients' && page === 'chats' && chat !== ''
+  const { data } = useLoader((signal) => (on ? api.traffic.chats(7, { key: client }, signal) : Promise.resolve(null)), {
+    deps: [on, client],
+    on: READS.chats,
+  })
+  const rows = useMemo(
+    () =>
+      [...(data?.report?.chats ?? [])]
+        .sort((a, b) => new Date(b.last).getTime() - new Date(a.last).getTime())
+        .slice(0, RAIL_CHATS),
+    [data],
+  )
+  useEffect(() => {
+    for (const c of rows) if (c.title !== '') nameItem('chats', c.id, c.title)
+  }, [rows])
+  if (!on) return undefined
+  return rows.map((c) => ({
+    href: chatHref(client, c.id),
+    label: c.title !== '' ? c.title : nameOf('chats', c.id),
+    icon: 'chats' as const,
+  }))
+}
+

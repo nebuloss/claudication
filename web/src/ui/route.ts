@@ -265,7 +265,7 @@ export type NavLevel = {
 }
 
 /** Names an account or a client by id, for the trail and the Back button. */
-export type Namer = (kind: 'accounts' | 'clients', id: string) => string
+export type Namer = (kind: 'accounts' | 'clients' | 'chats', id: string) => string
 
 /**
  * The glyph each page leads with in the rail, by page rather than by section:
@@ -304,9 +304,26 @@ const HOME: NavLink = { href: '/', label: 'Overview', icon: 'home' }
 /** The first step of every trail: the gateway's overview, at the root. */
 export const ROOT_CRUMB: NavLink = { href: '/', label: 'Overview' }
 
-/** The navigation level of a canonical path. */
-export function navLevel(pathname: string): NavLevel {
-  const [top, id, page] = segments(pathname)
+/**
+ * The navigation level of a canonical path. `chats` are the client's chats
+ * to list on one chat's page, when the shell has read them; without them the
+ * chat open is its level's one entry.
+ */
+export function navLevel(pathname: string, chats?: readonly NavLink[]): NavLevel {
+  const [top, id, page, chat] = segments(pathname)
+  // A chat is a level below its client's pages: the way up is its Chats,
+  // and the entries beside it are the client's other chats.
+  if (top === 'clients' && id !== undefined && page === 'chats' && chat !== undefined) {
+    const here = chatHref(id, chat)
+    const listed = chats ?? []
+    return {
+      back: { href: pathOf(top, id, page), label: 'Chats', icon: 'chats' },
+      items: listed.some((l) => l.href === here)
+        ? [...listed]
+        : [{ href: here, label: shortChat(chat), icon: 'chats' }, ...listed],
+      current: here,
+    }
+  }
   if ((top === 'accounts' || top === 'clients') && id !== undefined) {
     const base = pathOf(top, id)
     const list = TABS.find((t) => t.id === top)!
@@ -363,7 +380,7 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
     out.push({ href: pathOf(top), label: tab.label, icon: sectionIcon(tab), siblings: { kind: 'sections' } })
     out.push({ href: base, label: name(top, id), siblings: { kind: top, page } })
     if (page !== undefined) out.push({ href: `${base}/${page}`, label: label(pagesOf(top), page) })
-    if (page === 'chats' && chat !== undefined) out.push({ href: chatHref(id, chat), label: shortChat(chat) })
+    if (page === 'chats' && chat !== undefined) out.push({ href: chatHref(id, chat), label: name('chats', chat) })
     return out
   }
   out.push({

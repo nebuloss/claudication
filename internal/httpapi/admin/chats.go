@@ -117,10 +117,15 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 	// would put Go field names on the wire and give this one endpoint a
 	// vocabulary of its own.
 	captured := s.capture.ForEvents()
+	titles, err := s.store.ChatTitles(r.Context(), []string{id})
+	if err != nil {
+		s.log.Warn("could not read the chat's title", "err", err, "chat", id)
+	}
 	out := make([]RequestJSON, 0, len(events))
 	for _, e := range events {
 		row := s.toRequestJSON(e)
 		row.Capture = captured[e.ID]
+		row.ChatTitle = titles[id]
 		out = append(out, row)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{

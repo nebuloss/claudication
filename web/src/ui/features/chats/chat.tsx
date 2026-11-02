@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type ChatTurn, type RequestRow } from '../../../api/client'
 import { READS } from '../../../api/live'
 import { useLoader } from '../../hooks'
 import { millis, timeOfDay } from '../../format'
 import { clientHref } from '../../route'
-import { AppLink, Button, Card, ErrorState, Loading, Muted, Note, Stack, Switch, VirtualList } from '../../primitives'
+import { nameItem } from '../../names'
+import { AppLink, Button, ErrorState, Loading, Muted, Note, Stack, Switch, VirtualList } from '../../primitives'
 import { Conversation } from '../requests/conversation'
 import { RequestDetail } from '../requests/detail'
 import { RequestRecord } from '../requests/record'
@@ -59,6 +60,12 @@ export function ChatView({ client, id }: { client: string; id: string }) {
   for (const t of read.data?.turns ?? []) kept.current.set(t.event, t)
   const turns = kept.current
 
+  // Named for the header, the trail and the rail, which are drawn above it.
+  const named = rows.find((r) => r.chat_title !== undefined && r.chat_title !== '')?.chat_title ?? ''
+  useEffect(() => {
+    if (named !== '') nameItem('chats', id, named)
+  }, [id, named])
+
   if (chat.loading && chat.data === null) return <Loading>Reading the chat…</Loading>
   if (chat.data === null) {
     return (
@@ -75,25 +82,22 @@ export function ChatView({ client, id }: { client: string; id: string }) {
 
   return (
     <Stack>
-      <Card
-        title={title || 'Unnamed chat'}
-        aside={<AppLink href={`${clientHref(client)}/chats`}>All chats</AppLink>}
-      >
-        <Stack gap={3}>
-          <Muted>
-            <code className="break-all">{id}</code> · {rows.length} {rows.length === 1 ? 'request' : 'requests'}
-            {recorded > 0 && `, ${String(recorded)} recorded`}
-          </Muted>
-          {recorded === 0 && (
-            <Note>
-              None of these requests was recorded, so what they said is not here: switch on{' '}
-              <strong>Record content</strong> on the{' '}
-              <AppLink href={clientHref(client)}>client&rsquo;s overview</AppLink> and its next turns read as a
-              transcript.
-            </Note>
-          )}
-        </Stack>
-      </Card>
+      {/* The header above names the chat; this is what it is beyond its name. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <Muted>
+          {title === '' && 'Unnamed · '}
+          <code className="break-all">{id}</code> · {rows.length} {rows.length === 1 ? 'request' : 'requests'}
+          {recorded > 0 && `, ${String(recorded)} recorded`}
+        </Muted>
+        <AppLink href={`${clientHref(client)}/chats`}>All chats</AppLink>
+      </div>
+      {recorded === 0 && (
+        <Note>
+          None of these requests was recorded, so what they said is not here: switch on{' '}
+          <strong>Record content</strong> on the <AppLink href={clientHref(client)}>client&rsquo;s overview</AppLink>{' '}
+          and its next turns read as a transcript.
+        </Note>
+      )}
 
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">

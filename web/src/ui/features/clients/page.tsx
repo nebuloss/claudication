@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { api, type GatewayConfig } from '../../../api/client'
 import { useLoader } from '../../hooks'
 import { CLIENT_PAGES, PAGE_ICONS, type ClientPageId } from '../../route'
+import { nameOf } from '../../names'
 import { DetailHeader } from '../detail'
 import { ChatsPage } from '../chats'
 import { ChatView } from '../chats/chat'
@@ -119,7 +120,7 @@ export function ClientPage({
           overview
             ? undefined
             : {
-                label: chat !== '' ? 'Chat' : (CLIENT_PAGES.find((p) => p.id === page)?.label ?? ''),
+                label: chat !== '' ? nameOf('chats', chat) : (CLIENT_PAGES.find((p) => p.id === page)?.label ?? ''),
                 icon: PAGE_ICONS[page],
               }
         }

@@ -330,19 +330,21 @@ export function NavRail({ level, row = false }: { level: NavLevel; row?: boolean
         {level.items.map((l) => {
           const on = l.href === level.current
           return (
-            <li key={l.href}>
+            <li key={l.href} className="min-w-0">
               <a
                 href={l.href}
                 onClick={follow(l.href)}
                 aria-current={on ? 'page' : undefined}
-                className={`${railItem(on)} ${l.icon !== undefined ? 'gap-3 pl-3' : ''}`}
+                title={l.label}
+                className={`${railItem(on)} min-w-0 ${l.icon !== undefined ? 'gap-3 pl-3' : ''}`}
               >
                 {l.icon !== undefined && (
                   <svg viewBox="0 0 24 24" aria-hidden className="size-5 shrink-0 fill-current">
                     <path d={ICON[l.icon]} />
                   </svg>
                 )}
-                {l.label}
+                {/* Cut rather than widen the rail: a chat's title is a sentence. */}
+                <span className="min-w-0 truncate">{l.label}</span>
               </a>
             </li>
           )
