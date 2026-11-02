@@ -9,6 +9,7 @@ import { LogScale, Palette } from '../../charts'
 import { useAction, useLoader } from '../../hooks'
 import ChatContextDetail from './context'
 import { requestsHref, type FilterFields } from '../requests/filter'
+import { chatHref } from '../../route'
 import {
   AppLink,
   Chip,
@@ -161,6 +162,7 @@ export function ChatsPage({ scope = {} }: { scope?: UsageScope }) {
     <ChatsPanel
       days={days}
       scope={scope}
+      client={scope.key}
       aside={<WindowPicker value={days} windows={CHAT_WINDOWS} onChange={setDays} />}
     />
   )
@@ -169,9 +171,12 @@ export function ChatsPage({ scope = {} }: { scope?: UsageScope }) {
 export default function ChatsPanel({
   days,
   scope = {},
+  client,
   aside,
 }: {
   days: number
+  /** The client the chats are of, whose pages each chat links to. */
+  client?: string
   /** One account's or one key's chats, or every chat when empty. */
   scope?: UsageScope
   /** The card's header controls: the window picker. */
@@ -285,27 +290,37 @@ export default function ChatsPanel({
                       onCancel={() => setEditing(null)}
                     />
                   ) : (
-                    /* The row's own control: opening the context curve is what a
-                       chat row is clicked for, and a button says so to a keyboard
-                       and a screen reader as well as to a pointer. Right-click (or
-                       the keyboard's menu key) is for its name. */
+                    /* The arrow opens the context curve in place; the name is a
+                       link to the chat's own page, where its requests are read
+                       forwards. Right-click (or the keyboard's menu key) on the
+                       name is for renaming it. */
                     <div className="flex min-w-0 items-center gap-2">
                       <button
                         type="button"
                         aria-expanded={open === c.id}
-                        aria-haspopup="menu"
+                        aria-label={`Context of ${chatName(c)}`}
                         onClick={() => setOpen(open === c.id ? null : c.id)}
+                        className="state-layer shrink-0 self-start rounded-md3-xs px-1 text-on-surface-variant"
+                      >
+                        {open === c.id ? '▾' : '▸'}
+                      </button>
+                      <div
+                        className="flex min-w-0 flex-1 flex-col"
                         onContextMenu={(e) => {
                           e.preventDefault()
                           rename.setError('')
                           setMenu({ id: c.id, x: e.clientX, y: e.clientY })
                         }}
-                        className="state-layer flex min-w-0 flex-1 flex-col rounded-md3-xs text-left"
                       >
                         <Tip tip={c.title} block>
-                          <span className="block truncate font-medium text-on-surface">
-                            {open === c.id ? '▾ ' : '▸ '}
-                            {chatName(c)}
+                          <span className="block truncate font-medium">
+                            {client !== undefined ? (
+                              <AppLink href={chatHref(client, c.id)} strong>
+                                {chatName(c)}
+                              </AppLink>
+                            ) : (
+                              <span className="text-on-surface">{chatName(c)}</span>
+                            )}
                           </span>
                         </Tip>
                         <Tip tip={c.id} block>
@@ -314,7 +329,7 @@ export default function ChatsPanel({
                             {c.title_manual && ' · named by hand'}
                           </span>
                         </Tip>
-                      </button>
+                      </div>
                       {/* Only beside a name: an unnamed chat already says how
                           it was run in place of one. */}
                       {c.title !== '' && c.surface && <Chip>{c.surface}</Chip>}
@@ -452,8 +467,9 @@ export default function ChatsPanel({
   
         <Muted size="xs">
           A chat is grouped by the session id its client sends, never by anything read from the
-          messages. Context is what its main model is resent each turn; open a chat to see it grow
-          and where its client compacted. Right-click a chat’s name to rename it. {report !== undefined && report.total > sorted.length
+          messages. Open a chat for its requests read forwards — what each said, while its client was
+          recorded. Context is what its main model is resent each turn; ▸ shows it grow and where its
+          client compacted. Right-click a chat’s name to rename it. {report !== undefined && report.total > sorted.length
             ? `Showing the ${sorted.length} busiest of ${report.total}.`
             : ''}
         </Muted>

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { millis } from '../../format'
 import { Banner, Chip, CopyButton, KeyValue, Modal, Muted, Overline, Stack, Verbatim } from '../../primitives'
+import { chatHref } from '../../route'
+import { ButtonLink } from '../../primitives'
 import { RecordedContent } from './content'
 import type { RequestRecord } from './record'
 import { StatusChip } from './row'
@@ -25,8 +27,23 @@ function Mono({ children }: { children: ReactNode }) {
  * error pasted into an issue without the model and the account beside it is a
  * sentence with no subject, and a request that worked has no error to paste.
  */
-export function RequestDetail({ record, onClose }: { record: RequestRecord; onClose: () => void }) {
+export function RequestDetail({
+  record,
+  onClose,
+  inChat = false,
+}: {
+  record: RequestRecord
+  onClose: () => void
+  /** Opened from its chat's page, which it then need not link to. */
+  inChat?: boolean
+}) {
   const row = record.row
+  // Its place in its chat, where the turns around it are: a chat is a
+  // client's, so only for a request that names both.
+  const chat =
+    !inChat && row.conversation_id !== undefined && row.conversation_id !== '' && row.key_id !== undefined && row.key_id !== ''
+      ? chatHref(row.key_id, row.conversation_id, row.id)
+      : ''
   return (
     // Wider with a recording: its bodies are code, and read best unwrapped.
     <Modal title="Request" onClose={onClose} size={row.capture !== undefined && row.capture > 0 ? 'xl' : 'lg'}>
@@ -41,6 +58,11 @@ export function RequestDetail({ record, onClose }: { record: RequestRecord; onCl
                 : 'forwarded to the upstream'}
           </Muted>
           <span className="flex-grow" />
+          {chat !== '' && (
+            <ButtonLink href={chat} variant="text" size="sm" icon="chats" navigate>
+              Open in its chat
+            </ButtonLink>
+          )}
           <CopyButton label="Copy record" value={record.asText()} />
         </div>
 

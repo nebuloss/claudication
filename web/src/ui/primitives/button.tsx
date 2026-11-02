@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { ICON, type IconName } from './icons'
 import { Tip } from './info'
+import { follow } from './link'
 import { Spinner } from './spinner'
 
 /**
@@ -166,10 +167,19 @@ export function ButtonLink({
   size = 'md',
   tone,
   icon,
-}: ButtonLook & { href: string; children: ReactNode; external?: boolean; icon?: IconName }) {
+  navigate = false,
+}: ButtonLook & {
+  href: string
+  children: ReactNode
+  external?: boolean
+  icon?: IconName
+  /** A page of the app's own, opened without reloading the app. */
+  navigate?: boolean
+}) {
   return (
     <a
       href={href}
+      {...(navigate ? { onClick: follow(href) } : {})}
       // noreferrer as well as noopener: the opened page has no business
       // knowing which gateway sent it.
       {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}

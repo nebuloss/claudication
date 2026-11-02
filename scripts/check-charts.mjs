@@ -297,6 +297,13 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('traffic is its own step', trail('/traffic'), ['Overview', 'Traffic'])
   check('nothing is current on its overview', lvl('/traffic').current, '/traffic')
   check('the item step is its overview', trailOf('/clients/c1/usage', name)[2].href, '/clients/c1')
+  // A chat is a client's, a page under its Chats.
+  check('a chat has its own page', canonical('/clients/c1/chats/sess-1'), '/clients/c1/chats/sess-1')
+  check('only under a client', canonical('/accounts/a1/chats/sess-1'), '/accounts/a1')
+  check('and only under Chats', canonical('/clients/c1/usage/sess-1'), '/clients/c1/usage')
+  check('a chat is a step of the trail', trail('/clients/c1/chats/sess-1'),
+    ['Overview', 'Clients', 'clients:c1', 'Chats', 'sess-1'])
+  check('its rail is still the client\'s, on Chats', lvl('/clients/c1/chats/sess-1').current, '/clients/c1/chats')
 }
 
 console.log('\n— client specs: a slot\'s binding is one menu value —')

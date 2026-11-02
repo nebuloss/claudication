@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -113,9 +114,12 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 	// conversion. store.UsageEvent carries no JSON tags, so returning it raw
 	// would put Go field names on the wire and give this one endpoint a
 	// vocabulary of its own.
+	captured := s.capture.ForEvents()
 	out := make([]RequestJSON, 0, len(events))
 	for _, e := range events {
-		out = append(out, s.toRequestJSON(e))
+		row := s.toRequestJSON(e)
+		row.Capture = captured[e.ID]
+		out = append(out, row)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,
@@ -125,4 +129,90 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 		// chart marks the same falls the list counts.
 		"context": store.ContextOf(events),
 	})
+}
+
+// TurnJSON is what one recorded request of a chat added to it: the messages
+// new since the chat's previous turn on its model, and the answer.
+type TurnJSON struct {
+	// Event is the request's row, and Capture its recording.
+	Event   int64  `json:"event"`
+	Capture uint64 `json:"capture"`
+	// Offset is how many messages came before the added ones, which numbers
+	// them as the conversation does.
+	Offset int `json:"offset"`
+	// Restarted is a request that carried fewer messages than the turn
+	// before it on its model: the client compacted or started over, or it is
+	// a side request on the same model. Its messages are all shown.
+	Restarted bool              `json:"restarted,omitempty"`
+	Added     []json.RawMessage `json:"added"`
+	Answer    json.RawMessage   `json:"answer,omitempty"`
+	// Unread is why the request could not be read as a conversation.
+	Unread string `json:"unread,omitempty"`
+}
+
+// handleChatTranscript answers what each recorded request of a chat added
+// to it, oldest first: the chat read as a transcript, from the recordings
+// still held (internal/service/capture).
+//
+// A client resends the whole conversation every turn, so a request's own
+// body is mostly the turns before it. What is new is what follows the
+// previous request on the same model, its answer included — counted, not
+// compared: Claude Code moves its cache markers between turns, so the same
+// message is not the same bytes twice, and the count is what holds. Each
+// model is followed on its own, since a client's side requests — titles,
+// subagents — run beside the main thread on other models.
+func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	events, err := s.store.ChatEvents(r.Context(), id, 0)
+	if err != nil {
+		s.log.Error("chat events", "err", err, "chat", id)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the chat")
+		return
+	}
+	captured := s.capture.ForEvents()
+	seen := map[string]int{}
+	turns := []TurnJSON{}
+	for _, e := range events {
+		cid, ok := captured[e.ID]
+		if !ok {
+			continue
+		}
+		x, ok := s.capture.Get(cid)
+		if !ok {
+			continue
+		}
+		t := TurnJSON{Event: e.ID, Capture: cid, Added: []json.RawMessage{}}
+		l := s.legJSON(&x.Client)
+		if l.Request.Messages == nil {
+			t.Unread = l.Request.MessagesError
+			turns = append(turns, t)
+			continue
+		}
+		var req struct {
+			Messages []json.RawMessage `json:"messages"`
+		}
+		if err := json.Unmarshal(l.Request.Messages, &req); err != nil {
+			t.Unread = err.Error()
+			turns = append(turns, t)
+			continue
+		}
+		if before, ok := seen[e.Model]; ok {
+			if len(req.Messages) >= before {
+				t.Offset = before
+			} else {
+				t.Restarted = true
+			}
+		}
+		t.Added = req.Messages[t.Offset:]
+		if l.Response != nil && l.Response.Messages != nil {
+			t.Answer = l.Response.Messages
+		}
+		next := len(req.Messages)
+		if t.Answer != nil {
+			next++
+		}
+		seen[e.Model] = next
+		turns = append(turns, t)
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "turns": turns})
 }

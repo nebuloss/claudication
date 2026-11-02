@@ -210,5 +210,6 @@ export const READS = {
   captures: ['captures'],
   running: ['running'],
   chats: ['chats', 'requests'],
+  chat: ['chats', 'requests', 'captures'],
   notices: ['accounts', 'quota', 'pool', 'models', 'clients', 'requests', 'settings', 'uptime', 'inbox'],
 } as const satisfies Record<string, readonly Topic[]>

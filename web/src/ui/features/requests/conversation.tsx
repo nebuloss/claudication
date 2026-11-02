@@ -11,7 +11,17 @@ import { Chip, Muted, Overline } from '../../primitives'
  * Long parts are folded: an agent's request is mostly its tools, its system
  * prompt and tool output, and the turn someone came to read is the last one.
  */
-export function Conversation({ value }: { value: unknown }) {
+export function Conversation({
+  value,
+  start = 0,
+  open = false,
+}: {
+  value: unknown
+  /** How many turns came before these, for numbering: a chat's turn shows only what it added. */
+  start?: number
+  /** Every turn unfolded: a chat's turn, which is only what is new. */
+  open?: boolean
+}) {
   const v = obj(value)
   if (v === null) return <Muted>Nothing to show.</Muted>
 
@@ -52,9 +62,9 @@ export function Conversation({ value }: { value: unknown }) {
       {messages.map((m, i) => {
         const msg = obj(m)
         // Every turn but the last few folded: the latest is what was asked.
-        const late = i >= messages.length - 2
+        const late = open || i >= messages.length - 2
         return (
-          <Turn key={i} role={str(msg?.role)} content={msg?.content} folded={!late} index={i + 1} />
+          <Turn key={i} role={str(msg?.role)} content={msg?.content} folded={!late} index={start + i + 1} />
         )
       })}
     </div>

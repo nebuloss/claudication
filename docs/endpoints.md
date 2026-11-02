@@ -34,6 +34,7 @@
 | `GET,DELETE /admin/captures?key=`             | admin | Recorded content held, or clearing it.     |
 | `GET /admin/captures/{id}`, `…/har`           | admin | One recorded request, or it as HAR.        |
 | `GET /admin/captures/export?key=`             | admin | Everything held, as HAR.                   |
+| `GET /admin/chats/{id}/transcript`            | admin | What each recorded request of a chat added.|
 
 Model discovery is pinned by the contract: `GET /v1/models?limit=1000`, a
 3-second timeout, **any redirect counts as failure**, and Claude Code keeps only

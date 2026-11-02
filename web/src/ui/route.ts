@@ -8,6 +8,9 @@
  *   /accounts/<id>                      one account's overview
  *   /accounts/<id>/<page>               its traffic and its settings, side by side
  *   /clients … the same shape, for clients
+ *   /clients/<id>/chats/<chat>          one chat of a client's, its requests
+ *                                       read forwards; ?request=<row> opens
+ *                                       on one of them
  *   /traffic                           the gateway's load: the last hour, and
  *                                       its requests by outcome over days
  *   /traffic/<page>                    its traffic by model, by client, by
@@ -170,6 +173,19 @@ export function pathOf(...parts: string[]): string {
 export const accountHref = (id: string) => pathOf('accounts', id)
 export const clientHref = (id: string) => pathOf('clients', id)
 
+/** Where one chat of a client's lives, open on one of its requests when given. */
+export const chatHref = (client: string, chat: string, request?: number) =>
+  pathOf('clients', client, 'chats', chat) + (request !== undefined ? `?request=${String(request)}` : '')
+
+/**
+ * A chat id as a crumb names it: its start, which is unique across anything
+ * one gateway sees. Its title is on its page; the trail is drawn before that
+ * is read.
+ */
+export function shortChat(id: string): string {
+  return id.length <= 14 ? id : `${id.slice(0, 13)}…`
+}
+
 const known = (list: readonly Section[], id: string | undefined) =>
   id !== undefined && list.some((s) => s.id === id)
 
@@ -181,7 +197,7 @@ const known = (list: readonly Section[], id: string | undefined) =>
  * are not kept: a bookmark of one lands on the overview.
  */
 export function canonical(pathname: string): string {
-  const [top, a, b] = segments(pathname)
+  const [top, a, b, c] = segments(pathname)
   if (top === undefined) return '/'
   switch (top) {
     case 'overview':
@@ -192,6 +208,8 @@ export function canonical(pathname: string): string {
       // The item's overview is its own path; /overview under it, and any
       // page that is not one, land there.
       if (!known(pagesOf(top), b)) return pathOf(top, a)
+      // A chat is a client's, and has a page of its own under its Chats.
+      if (top === 'clients' && b === 'chats' && c !== undefined && c !== '') return pathOf(top, a, b, c)
       return pathOf(top, a, b!)
     }
     // Its overview is its own path; a page it does not have lands there.
@@ -334,7 +352,7 @@ const sectionIcon = (tab: (typeof TABS)[number]): IconName | undefined => ('icon
  * item's step is its overview, so no level is named twice.
  */
 export function trailOf(pathname: string, name: Namer): NavLink[] {
-  const [top, id, page] = segments(pathname)
+  const [top, id, page, chat] = segments(pathname)
   const out: NavLink[] = [ROOT_CRUMB]
   const tab = TABS.find((t) => t.id === tabOf(pathname))!
   if (tab.id === 'overview') return out
@@ -345,6 +363,7 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
     out.push({ href: pathOf(top), label: tab.label, icon: sectionIcon(tab), siblings: { kind: 'sections' } })
     out.push({ href: base, label: name(top, id), siblings: { kind: top, page } })
     if (page !== undefined) out.push({ href: `${base}/${page}`, label: label(pagesOf(top), page) })
+    if (page === 'chats' && chat !== undefined) out.push({ href: chatHref(id, chat), label: shortChat(chat) })
     return out
   }
   out.push({

@@ -91,7 +91,7 @@ export default function App() {
   const path = usePath()
   const here = pathOf(...path)
   const tab = tabOf(here)
-  const [, item = '', page = ''] = path
+  const [, item = '', page = '', sub = ''] = path
   // The trail and the rail name an account or a key once its page has said
   // what it is called.
   useNames()
@@ -276,7 +276,7 @@ export default function App() {
                 (item === '' ? (
                   <Clients />
                 ) : (
-                  <ClientPage key={item} id={item} page={pageIdOf(CLIENT_PAGES, page)} config={config.data} />
+                  <ClientPage key={item} id={item} page={pageIdOf(CLIENT_PAGES, page)} chat={sub} config={config.data} />
                 ))}
               {tab === 'traffic' && <Traffic page={pageIdOf(TRAFFIC_PAGES, item)} />}
               {tab === 'settings' && (

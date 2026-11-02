@@ -1003,6 +1003,22 @@ export interface CaptureLeg {
   response: CaptureMessage | null
 }
 
+/** What one recorded request of a chat added to it (GET /admin/chats/{id}/transcript). */
+export interface ChatTurn {
+  event: number
+  capture: number
+  /** How many messages came before the added ones. */
+  offset: number
+  /** It carried fewer messages than the turn before it: compacted, restarted, or a side request. */
+  restarted?: boolean
+  /** The messages new in it, in Anthropic Messages. */
+  added: unknown[]
+  /** Its answer, as one Messages message. */
+  answer?: unknown
+  /** Why it could not be read as a conversation. */
+  unread?: string
+}
+
 export interface CaptureExchange extends CaptureSummary {
   client: CaptureLeg
   upstream: CaptureLeg[]

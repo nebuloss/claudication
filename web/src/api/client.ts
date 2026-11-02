@@ -17,6 +17,7 @@
 import { HttpTransport, path, sessionExpiry } from './transport'
 import type {
   CaptureExchange,
+  ChatTurn,
   CaptureStatus,
   CaptureSummary,
   Account,
@@ -412,6 +413,10 @@ const traffic = {
 
   /** One conversation's latest requests, oldest first — the drill-down behind a row. */
   chat: (id: string, signal?: AbortSignal) => http.get<ChatDetail>(path`/admin/chats/${id}`, signal),
+
+  /** What each of its recorded requests added to it: the chat as a transcript. */
+  chatTranscript: (id: string, signal?: AbortSignal) =>
+    http.get<{ id: string; turns: ChatTurn[] }>(path`/admin/chats/${id}/transcript`, signal),
 
   /** A title typed by hand, held against automatic renames. */
   setChatTitle: (id: string, title: string) =>
