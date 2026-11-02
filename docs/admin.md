@@ -40,10 +40,26 @@ lists scroll in a box of their own and draw only what is in view;
 `?request=<row>` opens them on one request, which is where a request's dialog
 links with *Open in its chat*. The chat's crumb lists the client's other
 chats.
-It is held in memory only
-(`internal/service/capture`): never in the database or a backup, cleared by a
-restart or an update, credentials taken out of every header, each body cut at
-8 MB and 256 MB held in all, the oldest dropped first.
+It is held in memory
+(`internal/service/capture`), credentials taken out of every header, each body
+cut at 8 MB and 256 MB held in all, the oldest dropped first, and never in the
+database or a backup. By default a restart or an update clears it.
+
+**Keeping recordings on disk.** With `capture.retention-days` above 0 (at most
+`usage.retention-days`), each recorded request is also kept on disk once it has
+its request log row, and read back from there after a restart or a deploy,
+exactly as it passed: every leg, header, body and the timing of each streamed
+part. It is kept in a file of its own beside the database
+(`capture-v1.db`, `internal/store/recordings`), sealed under keys derived from
+the gateway's own, so the file alone is unreadable without `secret.key`. It is
+never in a backup, and a restore discards it. Each body is cut where its content says and
+each piece stored once, so a conversation resent on every turn costs about
+what each turn added, whatever its API or provider. It is written in the
+background, never on a request's way, and dropped rather than waited for when
+the writer is behind or the disk has under 100 MiB free; pruned every ten
+minutes to its retention and to `capture.disk-budget` (200 MiB by default),
+oldest first. The recording switch itself is not kept: a deploy stops a
+recording in progress, and what it recorded stays.
 
 **Traffic** — the last hour live; where the traffic went, by model, by client
 and by account, each with its traffic over days above its table; and the

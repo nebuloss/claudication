@@ -129,8 +129,8 @@ export function RequestDetail({
           </div>
         )}
 
-        {/* Only while its client was being recorded, and only until the
-            gateway restarts or needs the room. */}
+        {/* Only while its client was being recorded, and only while it is
+            held in memory or kept on disk (capture.retention-days). */}
         {row.capture !== undefined && row.capture > 0 && (
           <div>
             <Overline as="div">Content</Overline>

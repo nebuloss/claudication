@@ -349,7 +349,7 @@ function ChatTranscript({
       <Note>
         None of this chat&rsquo;s requests was recorded: switch on <strong>Record content</strong> on the{' '}
         <AppLink href={clientHref(client)}>client&rsquo;s overview</AppLink>, and its next turns read here. A recording
-        is held in memory and lost when the gateway restarts.
+        is held in memory, and kept on disk too where the gateway is set to keep them (capture.retention-days).
       </Note>
     )
   }

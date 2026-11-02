@@ -34,13 +34,14 @@ var layers = map[string]int{
 	"internal/live":             0,
 	"configs":                   0, // the committed client files, embedded
 
-	"internal/store":         1,
-	"internal/config":        1,
-	"internal/provider":      1,
-	"internal/relay/passes":  1,
-	"internal/api/anthropic": 1,
-	"internal/api/openai":    1,
-	"internal/api/gemini":    1,
+	"internal/store":            1,
+	"internal/store/recordings": 1,
+	"internal/config":           1,
+	"internal/provider":         1,
+	"internal/relay/passes":     1,
+	"internal/api/anthropic":    1,
+	"internal/api/openai":       1,
+	"internal/api/gemini":       1,
 
 	"internal/pool":                 2,
 	"internal/provider/anthropic":   2,

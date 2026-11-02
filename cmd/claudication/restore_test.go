@@ -196,3 +196,22 @@ func TestRestoreRefusesWhatIsNotABackup(t *testing.T) {
 		t.Error("backup missing config: want an error")
 	}
 }
+
+// Recordings are never in a backup, and those on disk belonged to the
+// database a restore replaces: restoring discards them, every version's.
+func TestRestoreDiscardsStoredRecordings(t *testing.T) {
+	dest, cfg := stateDir(t)
+	for _, f := range []string{"capture-v1.db", "capture-v1.db-wal", "capture-v0.db"} {
+		if err := os.WriteFile(filepath.Join(dest, f), []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive := writeArchive(t, map[string]string{"claudication.db": "db-bytes", "secret.key": "key-bytes"})
+	if _, err := captureStdout(t, func() error { return cmdRestore([]string{"-config", cfg, archive}) }); err != nil {
+		t.Fatal(err)
+	}
+	left, _ := filepath.Glob(filepath.Join(dest, "capture-v*"))
+	if len(left) != 0 {
+		t.Errorf("left after a restore: %v", left)
+	}
+}

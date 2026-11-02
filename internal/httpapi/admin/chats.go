@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"claudication/internal/httpapi/httpx"
+	"claudication/internal/service/capture"
 	"claudication/internal/store"
 )
 
@@ -116,7 +118,7 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 	// conversion. store.UsageEvent carries no JSON tags, so returning it raw
 	// would put Go field names on the wire and give this one endpoint a
 	// vocabulary of its own.
-	captured := s.capture.ForEvents()
+	captured := s.capture.Recorded(r.Context(), eventIDs(events))
 	titles, err := s.store.ChatTitles(r.Context(), []string{id})
 	if err != nil {
 		s.log.Warn("could not read the chat's title", "err", err, "chat", id)
@@ -124,7 +126,9 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 	out := make([]RequestJSON, 0, len(events))
 	for _, e := range events {
 		row := s.toRequestJSON(e)
-		row.Capture = captured[e.ID]
+		if captured[e.ID] {
+			row.Capture = e.ID
+		}
 		row.ChatTitle = titles[id]
 		out = append(out, row)
 	}
@@ -141,9 +145,10 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 // TurnJSON is what one recorded request of a chat added to it: the messages
 // new since the chat's previous turn on its model, and the answer.
 type TurnJSON struct {
-	// Event is the request's row, and Capture its recording.
-	Event   int64  `json:"event"`
-	Capture uint64 `json:"capture"`
+	// Event is the request's row, and Capture its recording: the same id,
+	// since a recording is known by its row's.
+	Event   int64 `json:"event"`
+	Capture int64 `json:"capture"`
 	// Offset is how many messages came before the added ones, which numbers
 	// them as the conversation does.
 	Offset int `json:"offset"`
@@ -183,31 +188,47 @@ func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.KindInternal, "could not read the chat")
 		return
 	}
-	captured := s.capture.ForEvents()
+	captured := s.capture.Recorded(r.Context(), eventIDs(events))
 	seen := map[string]int{}
 	turns := []TurnJSON{}
+	// A recording, held or read back from disk; one that cannot be read is
+	// left out, as one that was never made is.
+	recording := func(event int64) *capture.Exchange {
+		x, err := s.capture.ByEvent(r.Context(), event)
+		if err != nil {
+			if !errors.Is(err, capture.ErrNotRecorded) {
+				s.log.Warn("could not read a recording", "event", event, "err", err)
+			}
+			return nil
+		}
+		return x
+	}
 	for _, e := range events {
-		cid, ok := captured[e.ID]
-		if !ok {
+		if !captured[e.ID] {
 			continue
 		}
-		x, ok := s.capture.Get(cid)
-		if !ok {
-			continue
-		}
-		t := TurnJSON{Event: e.ID, Capture: cid, Added: []json.RawMessage{}}
+		t := TurnJSON{Event: e.ID, Capture: e.ID, Added: []json.RawMessage{}}
 		var count turnCount
 		var messages []json.RawMessage
+		var ok bool
 		if within(e.ID) {
+			x := recording(e.ID)
+			if x == nil {
+				continue
+			}
 			l := s.legJSON(&x.Client)
 			messages, count = readTurn(l)
-			s.counts.put(cid, count)
+			s.counts.put(e.ID, count)
 			if count.unread == "" && l.Response != nil && l.Response.Messages != nil {
 				t.Answer = l.Response.Messages
 			}
-		} else if count, ok = s.counts.get(cid); !ok {
+		} else if count, ok = s.counts.get(e.ID); !ok {
+			x := recording(e.ID)
+			if x == nil {
+				continue
+			}
 			_, count = readTurn(s.legJSON(&x.Client))
-			s.counts.put(cid, count)
+			s.counts.put(e.ID, count)
 		}
 		if count.unread != "" {
 			t.Unread = count.unread
@@ -262,29 +283,29 @@ func readTurn(l LegJSON) ([]json.RawMessage, turnCount) {
 	}
 }
 
-// turnCounts remembers each recording's count, so a chat paged in windows
-// reads each recording into Messages once rather than on every window: a
-// recording never changes. Bounded by starting over, which only costs the
+// turnCounts remembers each recording's count by its request log row, so a
+// chat paged in windows reads each recording into Messages once rather than
+// on every window: a recording never changes, held or stored. Bounded by starting over, which only costs the
 // reading again.
 type turnCounts struct {
 	mu sync.Mutex
-	m  map[uint64]turnCount
+	m  map[int64]turnCount
 }
 
 const maxTurnCounts = 20000
 
-func (c *turnCounts) get(id uint64) (turnCount, bool) {
+func (c *turnCounts) get(id int64) (turnCount, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	t, ok := c.m[id]
 	return t, ok
 }
 
-func (c *turnCounts) put(id uint64, t turnCount) {
+func (c *turnCounts) put(id int64, t turnCount) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.m == nil || len(c.m) >= maxTurnCounts {
-		c.m = map[uint64]turnCount{}
+		c.m = map[int64]turnCount{}
 	}
 	c.m[id] = t
 }

@@ -78,6 +78,7 @@ type Config struct {
 	Limits         LimitsConfig      `yaml:"limits"`
 	Passthrough    PassthroughConfig `yaml:"passthrough"`
 	Usage          UsageConfig       `yaml:"usage"`
+	Capture        CaptureConfig     `yaml:"capture"`
 	Shutdown       ShutdownConfig    `yaml:"shutdown"`
 	// MemoryLimit is the memory this process may use, like "512MiB": the
 	// container's limit, on a host where the container cannot see it — a
@@ -156,6 +157,39 @@ type UsageConfig struct {
 	PollWatched Duration `yaml:"poll-watched"`
 }
 
+// CaptureConfig is whether what an operator records of a client is kept on
+// disk, and how much of it (internal/store/recordings). Off by default: a
+// recording is everything a client sent and was answered, and kept only in
+// memory it is gone at the next restart.
+type CaptureConfig struct {
+	// RetentionDays is how long recordings are kept on disk. 0 keeps them in
+	// memory only. Never longer than usage.retention-days: a recording is
+	// known by its request log row, and one whose row is gone is reached
+	// from nowhere.
+	RetentionDays int `yaml:"retention-days"`
+	// DiskBudget bounds the file they are kept in, like "200MiB"; the oldest
+	// go first past it.
+	DiskBudget string `yaml:"disk-budget"`
+}
+
+// MinCaptureBudget is the smallest disk budget: below it a single long
+// recording would not fit.
+const MinCaptureBudget = 16 << 20
+
+// Enabled reports whether recordings are kept on disk.
+func (c CaptureConfig) Enabled() bool { return c.RetentionDays > 0 }
+
+// Retention is how long they are kept.
+func (c CaptureConfig) Retention() time.Duration {
+	return time.Duration(c.RetentionDays) * 24 * time.Hour
+}
+
+// Budget is the disk budget in bytes.
+func (c CaptureConfig) Budget() int64 {
+	n, _ := memlimit.ParseSize(c.DiskBudget)
+	return n
+}
+
 // MinUsagePoll is the fastest either poll may run. Below it the upstream is
 // being asked faster than its own figures move.
 const MinUsagePoll = 10 * time.Second
@@ -216,6 +250,7 @@ func Defaults() Config {
 			PollIdle:      Duration(5 * time.Minute),
 			PollWatched:   Duration(20 * time.Second),
 		},
+		Capture:       CaptureConfig{DiskBudget: "200MiB"},
 		Shutdown:      ShutdownConfig{Grace: Duration(120 * time.Second)},
 		ModelsCatalog: "https://models.dev/api.json",
 	}
@@ -331,6 +366,24 @@ func (c Config) validate() error {
 	if c.Shutdown.Grace.D() <= 0 {
 		return errors.New("shutdown.grace must be positive")
 	}
+	if c.Capture.RetentionDays < 0 {
+		return errors.New("capture.retention-days must be 0 (memory only) or more")
+	}
+	if c.Capture.Enabled() {
+		// A recording is kept under its request log row: with none, nothing
+		// would ever be kept, and one outliving its row is reached from nowhere.
+		if !c.Usage.Enabled() {
+			return errors.New("capture.retention-days needs usage.retention-days: a recording is kept under its request's row")
+		}
+		if c.Capture.RetentionDays > c.Usage.RetentionDays {
+			return errors.New("capture.retention-days must not exceed usage.retention-days")
+		}
+		if n, err := memlimit.ParseSize(c.Capture.DiskBudget); err != nil {
+			return fmt.Errorf("capture.disk-budget: %w", err)
+		} else if n < MinCaptureBudget {
+			return errors.New("capture.disk-budget must be at least 16MiB")
+		}
+	}
 	for _, p := range c.TrustedProxies {
 		if strings.TrimSpace(p) == "" {
 			return errors.New("trusted-proxies contains an empty entry")
@@ -341,6 +394,10 @@ func (c Config) validate() error {
 
 // DBPath is the SQLite file inside the state directory.
 func (c Config) DBPath() string { return filepath.Join(c.StateDir, "claudication.db") }
+
+// CapturePath is the file recordings are kept in, named for its format's
+// version (internal/store/recordings, FileName).
+func (c Config) CapturePath(name string) string { return filepath.Join(c.StateDir, name) }
 
 // EnsureStateDir creates the state directory and proves it is writable.
 //

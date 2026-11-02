@@ -128,6 +128,20 @@ usage:
   poll-idle: "5m"
   poll-watched: "20s"
 
+# Content recorded of a client (its page's Record content switch): kept in
+# memory always, and on disk too while retention-days is above 0 — sealed
+# under the gateway's key, in a file of its own beside the database
+# (capture-v1.db), never in a backup. Each body is stored as it passed, cut by
+# its content so a conversation resent on every turn is stored about once.
+# Never longer than usage.retention-days: a recording is kept under its
+# request's row.
+capture:
+  # How long recordings are kept on disk. 0 keeps them in memory only.
+  retention-days: 0
+  # The most kept on disk; the oldest go first past it. Writing also stops
+  # while the disk has under 100 MiB free.
+  disk-budget: "200MiB"
+
 # Lane A forwards request bodies unchanged, with exactly one exception.
 passthrough:
   # Anthropic's subscription backend refuses opus and sonnet unless Claude

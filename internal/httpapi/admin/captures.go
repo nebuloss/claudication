@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -61,24 +62,33 @@ func (s *Admin) handleCaptures(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleClearCaptures drops what is held, for one client or all.
+// handleClearCaptures drops what is held and stored, for one client or all.
 func (s *Admin) handleClearCaptures(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("key")
-	s.capture.Clear(key)
+	if err := s.capture.Clear(r.Context(), key); err != nil {
+		httpx.Internal(w, s.log, "clear the stored recordings", err)
+		return
+	}
 	s.log.Info("recorded content cleared", "key", key)
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// loadCapture is the recording of the request log row the path names: held,
+// or read back from disk.
 func (s *Admin) loadCapture(w http.ResponseWriter, r *http.Request) (*capture.Exchange, bool) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	event, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such recording")
 		return nil, false
 	}
-	x, ok := s.capture.Get(id)
-	if !ok {
+	x, err := s.capture.ByEvent(r.Context(), event)
+	if errors.Is(err, capture.ErrNotRecorded) {
 		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound,
-			"no such recording: it was dropped to make room, cleared, or lost when the gateway restarted")
+			"no such recording: it was dropped to make room, cleared, past its retention, or held in memory only and lost when the gateway restarted")
+		return nil, false
+	}
+	if err != nil {
+		httpx.Internal(w, s.log, "read the recording", err)
 		return nil, false
 	}
 	return x, true
@@ -99,7 +109,7 @@ func (s *Admin) handleCaptureHAR(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.writeHAR(w, []*capture.Exchange{x}, fmt.Sprintf("claudication-%d.har", x.ID))
+	s.writeHAR(w, []*capture.Exchange{x}, fmt.Sprintf("claudication-%d.har", x.Event))
 }
 
 // handleExportCaptures downloads what is held, for one client or all, as HAR.

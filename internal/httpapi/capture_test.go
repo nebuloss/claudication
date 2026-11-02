@@ -69,7 +69,7 @@ func TestRecordingAClientsContent(t *testing.T) {
 		t.Errorf("summary = %+v", x)
 	}
 
-	status, body = call(t, abase, http.MethodGet, fmt.Sprintf("/admin/captures/%d", x.ID), "", ck)
+	status, body = call(t, abase, http.MethodGet, fmt.Sprintf("/admin/captures/%d", x.Event), "", ck)
 	if status != http.StatusOK {
 		t.Fatalf("capture: %d %s", status, body)
 	}
@@ -127,11 +127,11 @@ func TestRecordingAClientsContent(t *testing.T) {
 
 	// The log's row says it has a recording.
 	status, body = call(t, abase, http.MethodGet, "/admin/requests?limit=5", "", ck)
-	if status != http.StatusOK || !bytes.Contains(body, []byte(fmt.Sprintf(`"capture":%d`, x.ID))) {
-		t.Errorf("requests: %d %s, want a row naming capture %d", status, body, x.ID)
+	if status != http.StatusOK || !bytes.Contains(body, []byte(fmt.Sprintf(`"capture":%d`, x.Event))) {
+		t.Errorf("requests: %d %s, want a row naming capture %d", status, body, x.Event)
 	}
 
-	status, body = call(t, abase, http.MethodGet, fmt.Sprintf("/admin/captures/%d/har", x.ID), "", ck)
+	status, body = call(t, abase, http.MethodGet, fmt.Sprintf("/admin/captures/%d/har", x.Event), "", ck)
 	var har struct {
 		Log struct {
 			Entries []json.RawMessage `json:"entries"`
@@ -173,7 +173,7 @@ func TestRecordedGeminiReadsAsAConversation(t *testing.T) {
 		t.Fatalf("held %d, want 2", len(held))
 	}
 	for _, x := range held {
-		status, body := call(t, abase, http.MethodGet, fmt.Sprintf("/admin/captures/%d", x.ID), "", ck)
+		status, body := call(t, abase, http.MethodGet, fmt.Sprintf("/admin/captures/%d", x.Event), "", ck)
 		if status != http.StatusOK {
 			t.Fatalf("capture: %d %s", status, body)
 		}

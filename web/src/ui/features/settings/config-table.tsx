@@ -20,6 +20,7 @@ const GROUPS: Record<string, string> = {
   limits: 'Limits',
   passthrough: 'Relay',
   usage: 'Usage history',
+  capture: 'Recordings',
   shutdown: 'Shutdown',
 }
 

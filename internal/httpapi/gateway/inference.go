@@ -151,6 +151,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		if conversation == "" {
 			conversation = p.ConversationID(r.Header, body)
 		}
+		rec.Chat(conversation)
 
 		// The request as it goes upstream: as it came, to an upstream that
 		// speaks the caller's dialect; translated, to one that does not.

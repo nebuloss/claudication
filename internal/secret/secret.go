@@ -10,7 +10,10 @@ package secret
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -28,6 +31,8 @@ const (
 
 type Sealer struct {
 	aead cipher.AEAD
+	// key is kept to derive purpose keys from (Derive, Hasher).
+	key []byte
 }
 
 // Load resolves the instance key from the environment, or from stateDir,
@@ -37,6 +42,10 @@ func Load(stateDir string) (*Sealer, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newSealer(key)
+}
+
+func newSealer(key []byte) (*Sealer, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("init cipher: %w", err)
@@ -45,7 +54,66 @@ func Load(stateDir string) (*Sealer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init GCM: %w", err)
 	}
-	return &Sealer{aead: aead}, nil
+	return &Sealer{aead: aead, key: key}, nil
+}
+
+// derived is a key for one purpose, from the instance key: HKDF-SHA256 with
+// the purpose as its info, so no two purposes share a key.
+func (s *Sealer) derived(purpose string) ([]byte, error) {
+	k, err := hkdf.Key(sha256.New, s.key, nil, "claudication "+purpose, keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("derive a key for %s: %w", purpose, err)
+	}
+	return k, nil
+}
+
+// Derive is a sealer of its own for one purpose — recorded content, say —
+// so what it seals cannot be opened as a credential, nor a credential as it.
+func (s *Sealer) Derive(purpose string) (*Sealer, error) {
+	k, err := s.derived(purpose)
+	if err != nil {
+		return nil, err
+	}
+	return newSealer(k)
+}
+
+// Hasher is a keyed hash for one purpose: HMAC-SHA256 truncated to 16 bytes.
+// Keyed, so that two equal contents share a hash without a hash revealing a
+// content anyone could guess and hash themselves.
+func (s *Sealer) Hasher(purpose string) (func([]byte) []byte, error) {
+	k, err := s.derived(purpose)
+	if err != nil {
+		return nil, err
+	}
+	return func(b []byte) []byte {
+		m := hmac.New(sha256.New, k)
+		m.Write(b)
+		return m.Sum(nil)[:16]
+	}, nil
+}
+
+// SealBytes encrypts plaintext bound to aad, returning nonce||ciphertext.
+// The aad is not stored: opening needs the same, which ties a sealed value
+// to where it belongs (its hash, its row).
+func (s *Sealer) SealBytes(plaintext, aad []byte) ([]byte, error) {
+	nonce := make([]byte, s.aead.NonceSize(), s.aead.NonceSize()+len(plaintext)+s.aead.Overhead())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("generate nonce: %w", err)
+	}
+	return s.aead.Seal(nonce, nonce, plaintext, aad), nil
+}
+
+// OpenBytes reverses SealBytes.
+func (s *Sealer) OpenBytes(sealed, aad []byte) ([]byte, error) {
+	n := s.aead.NonceSize()
+	if len(sealed) < n {
+		return nil, errors.New("sealed value is too short")
+	}
+	out, err := s.aead.Open(nil, sealed[:n], sealed[n:], aad)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt: %w (wrong instance key?)", err)
+	}
+	return out, nil
 }
 
 func resolveKey(stateDir string) ([]byte, error) {

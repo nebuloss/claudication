@@ -8,12 +8,14 @@
 // handles, the prompts and the code and whatever was pasted into them, and it
 // is kept only while someone is looking.
 //
-// Everything is in memory and nothing is written down. The database never
-// sees content, a backup never holds it, and a restart or a handover (a
-// deploy) forgets it — the recording with it, so a new worker never records
-// on a switch nobody set on it. What is held is bounded twice: each body is
-// cut at BodyCap, and the exchanges together at the budget, the oldest going
-// first.
+// Everything is held in memory, bounded twice: each body is cut at BodyCap,
+// and the exchanges together at the budget, the oldest going first. The
+// database never sees content and a backup never holds it. By default a
+// restart or a handover (a deploy) forgets it; with capture.retention-days
+// set, each recorded request is also kept on disk once it has its request log
+// row (persist.go) — sealed, in a file of its own, within a disk budget — and
+// read back from there once memory has let it go. The recording switch itself
+// is never kept: a new worker never records on a switch nobody set on it.
 //
 // One exchange is one request from a client: its own leg, as it came and as
 // it was answered, and one upstream leg per attempt the relay made — a retry
@@ -22,13 +24,17 @@
 package capture
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"claudication/internal/live"
+	"claudication/internal/store/recordings"
 )
 
 const (
@@ -56,12 +62,17 @@ type Capture struct {
 	// byID finds a held exchange. Not a search over held: ids are given out
 	// when a request starts and held is in the order requests finish, so two
 	// that overlap are out of id order there.
-	byID   map[uint64]*Exchange
-	used   int64
-	budget int64
-	next   uint64
-	hub    *live.Hub
-	now    func() time.Time
+	byID map[uint64]*Exchange
+	// byEvent finds one by its request log row: the id a recording is
+	// known by outside this process, on disk and in every link.
+	byEvent map[int64]*Exchange
+	// persist keeps recordings on disk, when the gateway is set to.
+	persist *persister
+	used    int64
+	budget  int64
+	next    uint64
+	hub     *live.Hub
+	now     func() time.Time
 }
 
 // New returns a recorder holding at most budget bytes; zero or less is the
@@ -70,7 +81,10 @@ func New(budget int64) *Capture {
 	if budget <= 0 {
 		budget = DefaultBudget
 	}
-	return &Capture{until: map[string]time.Time{}, byID: map[uint64]*Exchange{}, budget: budget, now: time.Now}
+	return &Capture{
+		until: map[string]time.Time{}, byID: map[uint64]*Exchange{}, byEvent: map[int64]*Exchange{},
+		budget: budget, now: time.Now,
+	}
 }
 
 // Announce tells h of every change from now on.
@@ -175,16 +189,33 @@ func (c *Capture) commit(x *Exchange) {
 	c.mu.Lock()
 	c.held = append(c.held, x)
 	c.byID[x.ID] = x
+	if x.Event != 0 {
+		c.byEvent[x.Event] = x
+	}
 	c.used += size
 	x.bytes = size
 	for c.used > c.budget && len(c.held) > 1 {
+		c.forget(c.held[0])
 		c.used -= c.held[0].bytes
-		delete(c.byID, c.held[0].ID)
 		c.held[0] = nil
 		c.held = c.held[1:]
 	}
+	p := c.persist
 	c.mu.Unlock()
 	c.hub.Changed(live.Captures)
+	// A recording with no request log row has no id to be kept under; it
+	// stays in memory only.
+	if p != nil && x.Event != 0 {
+		p.offer(x)
+	}
+}
+
+// forget takes an exchange out of the indexes; under c.mu.
+func (c *Capture) forget(x *Exchange) {
+	delete(c.byID, x.ID)
+	if c.byEvent[x.Event] == x {
+		delete(c.byEvent, x.Event)
+	}
 }
 
 // Summary is one exchange in a list: enough to find it, none of its content.
@@ -247,22 +278,58 @@ func (c *Capture) Exchanges(keyID string) []*Exchange {
 	return out
 }
 
-// ForEvents maps request log rows to the exchanges recorded for them, for
-// the log to say which it can show the content of.
-func (c *Capture) ForEvents() map[int64]uint64 {
+// Recorded is which of these request log rows have a recording, held or
+// stored: for a list of requests to say which it can show the content of.
+func (c *Capture) Recorded(ctx context.Context, events []int64) map[int64]bool {
+	out := map[int64]bool{}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := make(map[int64]uint64, len(c.held))
-	for _, x := range c.held {
-		if x.Event != 0 {
-			out[x.Event] = x.ID
+	for _, e := range events {
+		if _, ok := c.byEvent[e]; ok {
+			out[e] = true
 		}
+	}
+	p := c.persist
+	c.mu.Unlock()
+	if p == nil || len(out) == len(events) {
+		return out
+	}
+	stored, err := p.db.Has(ctx, events)
+	if err != nil {
+		p.log.Warn("could not read which requests have stored recordings", "err", err)
+		return out
+	}
+	for e := range stored {
+		out[e] = true
 	}
 	return out
 }
 
-// Clear drops what is held for a key, or everything when keyID is empty.
-func (c *Capture) Clear(keyID string) {
+// ErrNotRecorded is a request with no recording held or stored.
+var ErrNotRecorded = errors.New("no recording of that request")
+
+// ByEvent is a request's recording by its request log row: held in memory,
+// or read back from disk exactly as it was recorded.
+func (c *Capture) ByEvent(ctx context.Context, event int64) (*Exchange, error) {
+	c.mu.Lock()
+	x, ok := c.byEvent[event]
+	p := c.persist
+	c.mu.Unlock()
+	if ok {
+		return x, nil
+	}
+	if p == nil {
+		return nil, ErrNotRecorded
+	}
+	x, err := p.load(ctx, event)
+	if errors.Is(err, recordings.ErrNotFound) {
+		return nil, ErrNotRecorded
+	}
+	return x, err
+}
+
+// Clear drops what is held and stored for a key, or everything when keyID is
+// empty.
+func (c *Capture) Clear(ctx context.Context, keyID string) error {
 	c.mu.Lock()
 	kept := c.held[:0]
 	c.used = 0
@@ -271,15 +338,20 @@ func (c *Capture) Clear(keyID string) {
 			kept = append(kept, x)
 			c.used += x.bytes
 		} else {
-			delete(c.byID, x.ID)
+			c.forget(x)
 		}
 	}
 	for i := len(kept); i < len(c.held); i++ {
 		c.held[i] = nil
 	}
 	c.held = kept
+	p := c.persist
 	c.mu.Unlock()
 	c.hub.Changed(live.Captures)
+	if p != nil {
+		return p.db.Clear(ctx, keyID)
+	}
+	return nil
 }
 
 // Status is the recorder as a whole, for the admin UI.
@@ -289,19 +361,75 @@ type Status struct {
 	Budget int64 `json:"budget"`
 	// Recording is when each recording key's recording ends.
 	Recording map[string]time.Time `json:"recording"`
+	// Stored is what is kept on disk, when recordings are.
+	Stored *StoredStatus `json:"stored,omitempty"`
 }
 
-// Status reports what is held and who is being recorded.
+// StoredStatus is the recordings kept on disk.
+type StoredStatus struct {
+	recordings.Usage
+	// Written is how many this process stored, and Dropped how many it did
+	// not: the queue full, the disk nearly full, or a write failed.
+	Written int64 `json:"written"`
+	Dropped int64 `json:"dropped"`
+}
+
+// Status reports what is held and who is being recorded, and what is
+// stored — read after the lock is let go, so no request waits on the disk.
 func (c *Capture) Status() Status {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	rec := map[string]time.Time{}
 	for k := range c.until {
 		if u := c.untilLocked(k); !u.IsZero() {
 			rec[k] = u
 		}
 	}
-	return Status{Held: len(c.held), Used: c.used, Budget: c.budget, Recording: rec}
+	out := Status{Held: len(c.held), Used: c.used, Budget: c.budget, Recording: rec}
+	p := c.persist
+	c.mu.Unlock()
+	if p != nil {
+		u, err := p.db.Usage(context.Background())
+		if err != nil {
+			p.log.Warn("could not read the stored recordings' usage", "err", err)
+		}
+		out.Stored = &StoredStatus{Usage: u, Written: p.stored.Load(), Dropped: p.drops.Load()}
+	}
+	return out
+}
+
+// RunPruner keeps the stored recordings within keep and budget, every
+// interval until stop closes. Only the worker serving runs it; its first round
+// also removes the files an earlier release's format left (recordings,
+// RemoveOthers), by when the worker before it has finished.
+func (c *Capture) RunPruner(stop <-chan struct{}, every, keep time.Duration, budget int64) {
+	c.mu.Lock()
+	p := c.persist
+	c.mu.Unlock()
+	if p == nil {
+		return
+	}
+	first := true
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+		}
+		if first {
+			first = false
+			recordings.RemoveOthers(filepath.Dir(p.db.Path()))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		n, err := p.db.Prune(ctx, keep, budget)
+		cancel()
+		if err != nil {
+			p.log.Warn("could not prune stored recordings", "err", err)
+		} else if n > 0 {
+			p.log.Info("pruned stored recordings", "removed", n)
+		}
+	}
 }
 
 // secretHeaders are the credentials a recorded header set must not carry: the

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"claudication/internal/config"
+	"claudication/internal/store/recordings"
 )
 
 // The two files that are the gateway.
@@ -253,6 +254,9 @@ func cmdRestore(args []string) error {
 	for _, suffix := range []string{"-wal", "-shm"} {
 		_ = os.Remove(dbPath + suffix)
 	}
+	// Recordings are not in a backup, and those on disk belonged to the
+	// database just replaced: their rows are not its rows.
+	recordings.RemoveAll(cfg.StateDir)
 
 	fmt.Printf("Restored into %s\n", cfg.StateDir)
 	fmt.Println("Start the gateway and sign in as before.")

@@ -109,8 +109,11 @@ func TestAnExchange(t *testing.T) {
 	if s.Status != 201 || s.Event != 42 || s.Attempts != 2 || s.Model != "claude-sonnet-5" {
 		t.Errorf("summary = %+v", s)
 	}
-	if got := c.ForEvents()[42]; got != s.ID {
-		t.Errorf("event 42 maps to %d, want %d", got, s.ID)
+	if !c.Recorded(t.Context(), []int64{42, 43})[42] {
+		t.Error("event 42 is not reported recorded")
+	}
+	if x, err := c.ByEvent(t.Context(), 42); err != nil || x.ID != s.ID {
+		t.Errorf("by event 42 = %v, %v", x, err)
 	}
 	got, _ := c.Get(s.ID)
 	if h := got.Client.Request.Header.Get("Authorization"); h != Redacted {
@@ -185,7 +188,7 @@ func TestBounds(t *testing.T) {
 	if held[0].ID != 4 || held[1].ID != 5 {
 		t.Errorf("kept %d and %d, want the newest", held[0].ID, held[1].ID)
 	}
-	c.Clear("k")
+	_ = c.Clear(t.Context(), "k")
 	if st := c.Status(); st.Held != 0 || st.Used != 0 {
 		t.Errorf("after clearing: %+v", st)
 	}
@@ -206,7 +209,7 @@ func TestOverlappingExchangesAreFound(t *testing.T) {
 			t.Errorf("exchange %d not found", x.ID)
 		}
 	}
-	c.Clear("k")
+	_ = c.Clear(t.Context(), "k")
 	if _, ok := c.Get(a.ID); ok {
 		t.Error("a cleared exchange is still found")
 	}

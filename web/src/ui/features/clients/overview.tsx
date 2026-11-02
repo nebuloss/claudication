@@ -37,7 +37,7 @@ export function ClientOverview({
   return (
     <>
       <SetupCard client={client} types={types} config={config} onChanged={onChanged} />
-      <SettingsCard client={client} onChanged={onChanged} />
+      <SettingsCard client={client} onChanged={onChanged} keptDays={config?.recordings_kept_days ?? 0} />
       <DeleteCard client={client} />
     </>
   )
@@ -54,7 +54,16 @@ export function ClientOverview({
  * its model names carry what its API needs — so they are facts to read, not
  * settings, and a card restating them said nothing the header did not.
  */
-function SettingsCard({ client: c, onChanged }: { client: Client; onChanged: () => void }) {
+function SettingsCard({
+  client: c,
+  onChanged,
+  keptDays,
+}: {
+  client: Client
+  onChanged: () => void
+  /** How long recordings are kept on disk; 0 in memory only. */
+  keptDays: number
+}) {
   const { busy, error, run } = useAction()
   const k = c.wire
 
@@ -132,6 +141,7 @@ function SettingsCard({ client: c, onChanged }: { client: Client; onChanged: () 
           busy={busy !== ''}
           onChange={(on) => void switchRecording(on)}
           clientId={c.id}
+          keptDays={keptDays}
         />
 
         {/* Off until the operator says so: with it, a model decides what this
@@ -187,19 +197,24 @@ function DeleteCard({ client: c }: { client: Client }) {
 
 /**
  * Recording the client's content (internal/service/capture): on for an hour
- * at a time, then off by itself, and forgotten when the gateway restarts.
- * Each recorded request opens from the request log with what it carried.
+ * at a time, then off by itself. Held in memory, and kept on disk for as long
+ * as this gateway is set to keep recordings (capture.retention-days), which
+ * the switch says before it is turned on. Each recorded request opens from
+ * the request log with what it carried.
  */
 function RecordSwitch({
   until,
   busy,
   onChange,
   clientId,
+  keptDays,
 }: {
   until: string | undefined
   busy: boolean
   onChange: (on: boolean) => void
   clientId: string
+  /** How long recordings are kept on disk; 0 in memory only. */
+  keptDays: number
 }) {
   const now = useNow(15_000)
   const ends = until === undefined ? 0 : new Date(until).getTime()
@@ -210,7 +225,11 @@ function RecordSwitch({
       onChange={onChange}
       disabled={busy}
       label="Record content — keep what its requests carry, and what they were answered, for an hour"
-      info="Each request is kept as the client sent it, as the gateway sent it upstream, and both answers, credentials taken out. In memory only: never written to disk or a backup, and lost when the gateway restarts or is updated. Open a request in the log to read it; download it as HAR for developer tools."
+      info={`Each request is kept as the client sent it, as the gateway sent it upstream, and both answers, credentials taken out. ${
+        keptDays > 0
+          ? `Kept on disk for ${String(keptDays)} ${keptDays === 1 ? 'day' : 'days'}, sealed under the gateway's key and never in a backup, so it outlives a restart or an update (capture.retention-days).`
+          : 'In memory only: never written to disk or a backup, and lost when the gateway restarts or is updated (capture.retention-days keeps it on disk).'
+      } Open a request in the log to read it; download it as HAR for developer tools.`}
     >
       {on && (
         <Note>

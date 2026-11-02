@@ -169,3 +169,51 @@ func TestRejectsMalformedEnvKey(t *testing.T) {
 		})
 	}
 }
+
+// A key derived for a purpose seals and opens bytes bound to their aad,
+// deterministically from the instance key, and cannot open what the instance
+// key sealed, nor be opened by it.
+func TestDerivedKeys(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.Derive("recordings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := d.SealBytes([]byte("a turn"), []byte("row 7"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := d.OpenBytes(sealed, []byte("row 7")); err != nil || string(got) != "a turn" {
+		t.Fatalf("round trip = %q, %v", got, err)
+	}
+	if _, err := d.OpenBytes(sealed, []byte("row 8")); err == nil {
+		t.Error("opened with another row's aad")
+	}
+	if _, err := s.OpenBytes(sealed, []byte("row 7")); err == nil {
+		t.Error("the instance key opened what a derived key sealed")
+	}
+	again, _ := Load(dir)
+	d2, _ := again.Derive("recordings")
+	if got, err := d2.OpenBytes(sealed, []byte("row 7")); err != nil || string(got) != "a turn" {
+		t.Errorf("a key derived again does not open it: %v", err)
+	}
+	other, _ := s.Derive("something else")
+	if _, err := other.OpenBytes(sealed, []byte("row 7")); err == nil {
+		t.Error("another purpose's key opened it")
+	}
+
+	h, err := s.Hasher("chunks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h2, _ := again.Hasher("chunks")
+	h3, _ := s.Hasher("other")
+	a, b, c := h([]byte("x")), h2([]byte("x")), h3([]byte("x"))
+	if len(a) != 16 || string(a) != string(b) || string(a) == string(c) {
+		t.Errorf("hashes: %x %x %x — want 16 bytes, equal for one purpose, different across", a, b, c)
+	}
+}

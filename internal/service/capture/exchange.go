@@ -24,6 +24,8 @@ type Exchange struct {
 	Status   int
 	Model    string
 	Provider string
+	// Conversation is the chat it belongs to, when its client named one.
+	Conversation string
 
 	// Client is the client's leg: its request as the gateway read it, and
 	// the answer as the client was sent it.
@@ -34,6 +36,21 @@ type Exchange struct {
 	mu       sync.Mutex
 	finished bool
 	bytes    int64
+	// stored is an exchange read back from disk rather than held.
+	stored bool
+}
+
+// Stored is whether it was read back from disk.
+func (x *Exchange) Stored() bool { return x != nil && x.stored }
+
+// Chat notes the chat it belongs to.
+func (x *Exchange) Chat(conversation string) {
+	if x == nil {
+		return
+	}
+	x.mu.Lock()
+	x.Conversation = conversation
+	x.mu.Unlock()
 }
 
 // Leg is one request and its answer, on one side of the gateway.

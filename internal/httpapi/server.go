@@ -52,6 +52,7 @@ import (
 	chatgpt "claudication/internal/provider/openai"
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
+	"claudication/internal/secret"
 	accountsvc "claudication/internal/service/accounts"
 	"claudication/internal/service/availability"
 	"claudication/internal/service/capture"
@@ -63,6 +64,7 @@ import (
 	"claudication/internal/service/uptime"
 	usagesvc "claudication/internal/service/usage"
 	"claudication/internal/store"
+	"claudication/internal/store/recordings"
 	"claudication/internal/version"
 )
 
@@ -111,6 +113,9 @@ type Server struct {
 	// capture is what is recorded of the clients an operator is watching:
 	// in memory only, and forgotten by a restart.
 	capture *capture.Capture
+	// recordings is where recordings are kept on disk, when
+	// capture.retention-days asks for it; nil otherwise.
+	recordings *recordings.DB
 	// trimmer counts relayed requests in flight and hands idle heap back to
 	// the system once a burst is over. See internal/memlimit.
 	trimmer *memlimit.Trimmer
@@ -436,6 +441,9 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	s.running.Announce(s.hub)
 	s.capture = capture.New(0)
 	s.capture.Announce(s.hub)
+	if cfg.Capture.Enabled() {
+		s.keepRecordings(log)
+	}
 	s.inflight.OnChange(func() { s.hub.Changed(live.Running) })
 	defer s.buildAvailability()
 	s.models = modelsvc.New(modelsvc.Deps{
@@ -849,6 +857,9 @@ func (s *Server) matchInherited(inherited map[string]net.Listener) error {
 
 // Serve is Run, with the sockets and the signals of a handover.
 func (s *Server) Serve(ctx context.Context, h Handoff) error {
+	// After everything accepted is answered, so a recording finished in the
+	// drain is kept too.
+	defer s.closeRecordings()
 	if h.Listeners != nil {
 		if err := s.matchInherited(h.Listeners); err != nil {
 			return err
@@ -891,6 +902,9 @@ func (s *Server) Serve(ctx context.Context, h Handoff) error {
 	go s.anonLimiter.RunSweeper(s.stopSweeper, time.Minute, 10*time.Minute)
 	go s.budgets.RunSweeper(s.stopSweeper, 10*time.Minute, time.Hour)
 	go s.recorder.RunPruner(s.stopSweeper, 24*time.Hour)
+	if s.recordings != nil {
+		go s.capture.RunPruner(s.stopSweeper, 10*time.Minute, s.cfg.Capture.Retention(), s.cfg.Capture.Budget())
+	}
 	go s.hub.Run(s.stopSweeper)
 	// The poller stops as soon as this process stops taking requests, on a
 	// handover as on a stop: two processes polling the same accounts would
@@ -1117,4 +1131,48 @@ func (s *Server) scanUnchecked(ctx context.Context) {
 			s.availability.Scan(a.ID)
 		}
 	}
+}
+
+// keepRecordings opens the file recordings are kept in and has the recorder
+// write to it. Any failure leaves recordings in memory only, as without it:
+// keeping them is never a reason not to serve, and never one to refuse a
+// handover — the file is named for its format (recordings.FileName), so a
+// worker of a release that changed it opens a file of its own.
+func (s *Server) keepRecordings(log *slog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// The key the database's credentials are sealed with; recordings are
+	// sealed with keys derived from it for themselves alone.
+	sealer, err := secret.Load(s.cfg.StateDir)
+	if err != nil {
+		log.Warn("recordings kept in memory only", "err", err)
+		return
+	}
+	db, err := recordings.Open(ctx, s.cfg.CapturePath(recordings.FileName(recordings.Version)), s.hub)
+	if err != nil {
+		log.Warn("recordings kept in memory only", "err", err)
+		return
+	}
+	if err := s.capture.Persist(ctx, db, sealer, log); err != nil {
+		db.Close()
+		log.Warn("recordings kept in memory only", "err", err)
+		return
+	}
+	s.recordings = db
+	log.Info("keeping recordings on disk", "file", db.Path(),
+		"retention_days", s.cfg.Capture.RetentionDays, "budget", s.cfg.Capture.DiskBudget)
+}
+
+// closeRecordings writes what is still queued, then closes the file.
+func (s *Server) closeRecordings() {
+	if s.recordings == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s.capture.Close(ctx)
+	if err := s.recordings.Close(); err != nil {
+		s.log.Warn("closing the recordings file", "err", err)
+	}
+	s.recordings = nil
 }

@@ -558,6 +558,8 @@ export interface GatewayConfig {
   mcp_enabled: boolean
   /** Whether the gateway checks each account's models itself. */
   model_checks_enabled: boolean
+  /** How long recorded content is kept on disk; 0 while it is kept in memory only. */
+  recordings_kept_days?: number
 }
 
 /** What /health answers on every listener, unauthenticated. */

@@ -161,6 +161,11 @@ somewhere you would keep a password.
 `restore` refuses to overwrite an existing database unless given `-force`. Stop
 the gateway before restoring.
 
+Recorded content kept on disk (`capture-v*.db`, when `capture.retention-days`
+is set) is deliberately left out of a backup: it is a client's prompts and
+answers, kept for days, not state the gateway needs. A restore discards it,
+since its recordings belonged to the database being replaced.
+
 ## Building from source
 
 Go 1.26+ and Node for the UI. The binary is static (`CGO_ENABLED=0`) because

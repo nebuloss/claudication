@@ -110,7 +110,7 @@ type RequestJSON struct {
 	ChatTitle string `json:"chat_title,omitempty"`
 	// Capture is the recording of its content, when one is held
 	// (GET /admin/captures/{id}).
-	Capture uint64 `json:"capture,omitempty"`
+	Capture int64  `json:"capture,omitempty"`
 	At      string `json:"at"`
 	// KeyID and KeyName are the client that sent it — a client owns one key,
 	// so its id is the key's — kept as an id so the row narrows to the client
@@ -240,12 +240,14 @@ func (s *Admin) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Warn("could not read the page's chat titles", "err", err)
 	}
-	captured := s.capture.ForEvents()
+	captured := s.capture.Recorded(r.Context(), eventIDs(events))
 	out := make([]RequestJSON, 0, len(events))
 	for _, e := range events {
 		row := s.toRequestJSON(e)
 		row.ChatTitle = titles[e.ConversationID]
-		row.Capture = captured[e.ID]
+		if captured[e.ID] {
+			row.Capture = e.ID
+		}
 		out = append(out, row)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
@@ -470,11 +472,22 @@ func (s *Admin) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row := s.toRequestJSON(e)
-	row.Capture = s.capture.ForEvents()[e.ID]
+	if s.capture.Recorded(r.Context(), []int64{e.ID})[e.ID] {
+		row.Capture = e.ID
+	}
 	if e.ConversationID != "" {
 		if titles, err := s.store.ChatTitles(r.Context(), []string{e.ConversationID}); err == nil {
 			row.ChatTitle = titles[e.ConversationID]
 		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, row)
+}
+
+// eventIDs are the rows' ids, for asking which have recordings.
+func eventIDs(events []store.UsageEvent) []int64 {
+	out := make([]int64, len(events))
+	for i, e := range events {
+		out[i] = e.ID
+	}
+	return out
 }

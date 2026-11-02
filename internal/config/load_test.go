@@ -148,6 +148,13 @@ func TestValidationErrors(t *testing.T) {
 		"bad yaml":            {"listen: [\n", "parse"},
 		"duration not string": {"shutdown:\n  grace: {a: 1}\n", "duration"},
 		"duration nonsense":   {"shutdown:\n  grace: \"soon\"\n", "invalid duration"},
+		// A recording is kept under its request's row: none without rows,
+		// none outliving them, and room for at least one long one.
+		"capture without usage":   {"usage:\n  retention-days: 0\ncapture:\n  retention-days: 7\n", "usage.retention-days"},
+		"capture outliving usage": {"usage:\n  retention-days: 7\ncapture:\n  retention-days: 30\n", "must not exceed"},
+		"negative capture":        {"capture:\n  retention-days: -1\n", "capture.retention-days"},
+		"bad capture budget":      {"capture:\n  retention-days: 7\n  disk-budget: \"lots\"\n", "capture.disk-budget"},
+		"tiny capture budget":     {"capture:\n  retention-days: 7\n  disk-budget: \"1MiB\"\n", "capture.disk-budget"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

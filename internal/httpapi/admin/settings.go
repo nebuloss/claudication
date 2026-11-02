@@ -32,6 +32,9 @@ func (s *Admin) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		"mcp_enabled":     s.mcp.On(),
 		// Whether the gateway checks models itself (internal/service/availability).
 		"model_checks_enabled": s.modelChecks.On(),
+		// How long recordings are kept on disk, 0 while in memory only: what
+		// the record switch tells an operator before they turn it on.
+		"recordings_kept_days": s.recordingsKeptDays(),
 	})
 }
 
@@ -137,4 +140,14 @@ func (s *Admin) switchHandler(sw *settings.Switch, what, field string) http.Hand
 		s.log.Warn(what+" switched", "enabled", *body.Enabled)
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{field: sw.On()})
 	}
+}
+
+// recordingsKeptDays is how long recordings are kept on disk: the configured
+// retention while the recorder is keeping them, 0 when it is not — off, or
+// the file could not be opened.
+func (s *Admin) recordingsKeptDays() int {
+	if !s.capture.Persisting() {
+		return 0
+	}
+	return s.cfg.Capture.RetentionDays
 }

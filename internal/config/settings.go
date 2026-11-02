@@ -114,6 +114,13 @@ var definitions = []struct {
 		"The same while this UI is open. One upstream call per account per tick, on your own subscriptions; at least 10s.",
 		func(c Config) string { return c.Usage.PollWatched.D().String() }, nil},
 
+	{"capture.retention-days", "",
+		"How long recorded content is kept on disk, sealed. 0 keeps it in memory only, lost at a restart. At most usage.retention-days.",
+		func(c Config) string { return strconv.Itoa(c.Capture.RetentionDays) }, nil},
+	{"capture.disk-budget", "",
+		"The most recorded content kept on disk, e.g. 200MiB; the oldest go first past it.",
+		func(c Config) string { return c.Capture.DiskBudget }, nil},
+
 	{"memory-limit", "",
 		"Memory this process may use, e.g. 512MiB. Needed where the container cannot see its own limit; empty detects it where it can.",
 		func(c Config) string { return c.MemoryLimit }, nil},
