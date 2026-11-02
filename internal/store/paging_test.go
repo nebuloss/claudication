@@ -19,7 +19,7 @@ func pagingFixture(t *testing.T, n int) (*Store, time.Time) {
 	base := time.Now().UTC().Truncate(time.Second)
 	for i := range n {
 		// Oldest first, so row ids ascend with time the way real traffic does.
-		if err := st.RecordUsage(context.Background(), UsageEvent{
+		if _, err := st.RecordUsage(context.Background(), UsageEvent{
 			At: base.Add(time.Duration(i) * time.Second), KeyID: "k1", KeyName: "one",
 			Model: "claude-haiku-4-5", Path: "/v1/messages", Status: 200,
 			InputTokens: i,
@@ -108,7 +108,7 @@ func TestNewRowsDoNotDisturbAPageBoundary(t *testing.T) {
 
 	// Ten more requests are served before the operator asks for page two.
 	for i := range 10 {
-		if err := st.RecordUsage(ctx, UsageEvent{
+		if _, err := st.RecordUsage(ctx, UsageEvent{
 			At: base.Add(time.Duration(100+i) * time.Second), KeyID: "k1",
 			Path: "/v1/messages", Status: 200, InputTokens: 1000 + i,
 		}); err != nil {
@@ -148,7 +148,7 @@ func TestPagingWithIdenticalTimestamps(t *testing.T) {
 
 	at := time.Now().UTC().Truncate(time.Second)
 	for i := range 10 {
-		if err := st.RecordUsage(ctx, UsageEvent{
+		if _, err := st.RecordUsage(ctx, UsageEvent{
 			At: at, KeyID: "k1", Path: "/v1/messages", Status: 200, InputTokens: i,
 		}); err != nil {
 			t.Fatal(err)

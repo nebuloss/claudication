@@ -44,6 +44,9 @@ type ClientJSON struct {
 	// AgentManage is its "Agent may manage this client" switch: whether its
 	// own agent may change it through the MCP server (internal/httpapi/agent).
 	AgentManage bool `json:"agent_manage"`
+	// RecordingUntil is when recording its content ends, while it is on
+	// (internal/service/capture).
+	RecordingUntil *time.Time `json:"recording_until,omitempty"`
 	// DisabledAt is when it was switched off, when it is.
 	DisabledAt string `json:"disabled_at,omitempty"`
 	// ConfiguredAt is when it was first set up with its key; from then on
@@ -106,6 +109,9 @@ func (s *Admin) clientJSON(ctx context.Context, c store.Client, key KeyJSON) Cli
 	}
 	if c.ConfiguredAt != nil {
 		out.ConfiguredAt = c.ConfiguredAt.UTC().Format(time.RFC3339)
+	}
+	if u := s.capture.Until(c.ID); !u.IsZero() {
+		out.RecordingUntil = &u
 	}
 	out.Install = s.install.StateOf(c.ID)
 	out.Update = s.install.UpdateStateOf(c.ID)

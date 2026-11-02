@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"claudication/internal/relay"
 	"claudication/internal/relay/passes"
 	"claudication/internal/request"
+	"claudication/internal/service/capture"
 	"claudication/internal/service/clients"
 	modelsvc "claudication/internal/service/models"
 	"claudication/internal/service/titles"
@@ -62,6 +64,16 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			return
 		}
 
+		// Recorded, when an operator asked to see this client's content
+		// (internal/service/capture): the request as read, every attempt the
+		// relay makes, and what the client is answered — refusals too. Nil,
+		// and so nothing at all, for every other request. Finished last, once
+		// everything below has written its last byte and the log its row.
+		key, _ := httpx.APIKey(r.Context())
+		rec := s.capture.Begin(key.ID, key.Name, route, p.ID(), r, body)
+		defer rec.Finish()
+		w = rec.Writer(w)
+
 		// The caller's request as it came, read for its model before anything
 		// is translated: which upstream serves it is decided by that model,
 		// and a request going to an upstream that speaks its dialect is not
@@ -86,7 +98,6 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// always was: which tool a client's key was used from. And how it was
 		// run, where it says (Claude Code's entrypoint), since nothing else
 		// tells a headless chat from an interactive one.
-		key, _ := httpx.APIKey(r.Context())
 		// Open until the answer is done, refusals included: what the
 		// client's Limits page shows it doing now.
 		defer s.inflight.Begin(key.ID)()
@@ -94,6 +105,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		surface := clients.Surface(r.UserAgent())
 		dest := s.models.Route(r.Context(), key, requested)
 		model, slot := dest.Model, dest.Slot
+		rec.Served(model, dest.Provider)
 
 		// A model a direct-mode client has switched off, refused before
 		// anything is spent and recorded under the key, because it is a client
@@ -104,7 +116,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		if !key.NamesSlots() && requested != "" && !key.Allows(requested) {
 			ev := rejection(r, key, http.StatusForbidden, "model not allowed for this client")
 			ev.Model, ev.Path = requested, route
-			s.recorder.Record(ev, 0)
+			s.record(rec, ev, 0)
 			p.WriteError(w, http.StatusForbidden, api.KindPermission,
 				"this client may not use model "+requested+
 					"; an administrator can switch it on on the client's Models page")
@@ -116,7 +128,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			if dest.Slot == "" {
 				ev.VirtualModel = requested
 			}
-			s.recorder.Record(ev, 0)
+			s.record(rec, ev, 0)
 			p.WriteError(w, http.StatusNotFound, api.KindNotFound, dest.Why)
 			return
 		}
@@ -149,7 +161,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			if ex, err = s.translate(p, body, target); err != nil {
 				ev := rejection(r, key, http.StatusBadRequest, err.Error())
 				ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Slot, route
-				s.recorder.Record(ev, 0)
+				s.record(rec, ev, 0)
 				p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, err.Error())
 				return
 			}
@@ -159,7 +171,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// nothing (internal/api/anthropic, counttokens.go).
 		if a, ok := ex.(api.Answerer); ok {
 			status := a.Answer(w)
-			s.recorder.Record(store.UsageEvent{
+			s.record(rec, store.UsageEvent{
 				At: time.Now(), KeyID: key.ID, KeyName: key.Name, Provider: dest.Provider,
 				Model: model, VirtualModel: slot, Path: route, Status: status,
 				ConversationID: conversation, Client: client, Surface: surface, IP: httpx.ClientIP(r.Context()),
@@ -175,7 +187,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			why := unreachable(p, up, dest, requested)
 			ev := rejection(r, key, http.StatusBadRequest, why)
 			ev.Model, ev.VirtualModel, ev.Path = dest.Model, dest.Slot, route
-			s.recorder.Record(ev, 0)
+			s.record(rec, ev, 0)
 			p.WriteError(w, http.StatusBadRequest, api.KindInvalidRequest, why)
 			return
 		}
@@ -229,6 +241,9 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		// The client's own image-fitting switch, for the passes. Read with the
 		// key, like its other switches; the Anthropic pipeline alone acts on it.
 		ctx = passes.WithFitImages(ctx, key.FitImages)
+		if rec != nil {
+			ctx = relay.WithTap(ctx, upstreamTap{rec: rec, dialect: up.Native})
+		}
 		// A family is served by the version the account leased has, which
 		// only the pool knows, per attempt: the pool is handed the versions,
 		// and the relay this, to name that version in the body and fit the
@@ -330,6 +345,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		if res.Model != "" {
 			model = res.Model
 		}
+		rec.Served(model, firstNonEmpty(res.Provider, dest.Provider))
 
 		// The protocol's last word, before anything else answers. A dialect
 		// whose stream must end in a terminal event gets to send one here even
@@ -339,7 +355,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 		if res.Err != nil && res.Status == 0 {
 			// Nothing reached the client, but something was attempted and it
 			// is the failures that are worth having a record of.
-			s.recorder.Record(store.UsageEvent{
+			s.record(rec, store.UsageEvent{
 				At: started, KeyID: key.ID, KeyName: key.Name,
 				AccountID: res.AccountID, AccountEmail: res.AccountEmail, Provider: res.Provider,
 				Model: model, VirtualModel: slot, Path: route, Status: 0, Streaming: streaming,
@@ -350,7 +366,7 @@ func (s *Gateway) inference(p api.Protocol, route string) http.HandlerFunc {
 			return
 		}
 
-		s.recorder.Record(store.UsageEvent{
+		s.record(rec, store.UsageEvent{
 			At: started, KeyID: key.ID, KeyName: key.Name,
 			AccountID: res.AccountID, AccountEmail: res.AccountEmail, Provider: res.Provider,
 			Model: model, VirtualModel: slot, Path: route, Status: res.Status, Streaming: streaming,
@@ -600,4 +616,27 @@ func unreachable(p api.Protocol, up Upstream, dest modelsvc.Route, requested str
 		msg += "; ask for a model this API can reach"
 	}
 	return msg
+}
+
+// record files a request in the log, and ties its recording, if it has one,
+// to the row.
+func (s *Gateway) record(rec *capture.Exchange, e store.UsageEvent, budget int64) {
+	rec.Logged(s.recorder.Record(e, budget))
+}
+
+// upstreamTap records each attempt the relay makes in the dialect its
+// upstream speaks, which the relay itself does not know.
+type upstreamTap struct {
+	rec     *capture.Exchange
+	dialect string
+}
+
+func (t upstreamTap) Sent(account string, req *http.Request, body []byte) {
+	t.rec.Sent(t.dialect, account, req, body)
+}
+
+func (t upstreamTap) Failed(err error) { t.rec.Failed(err) }
+
+func (t upstreamTap) Answered(status int, header http.Header, body io.ReadCloser) io.ReadCloser {
+	return t.rec.Answered(status, header, body)
 }

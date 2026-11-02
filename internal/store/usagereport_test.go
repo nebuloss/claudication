@@ -26,7 +26,7 @@ func TestFreshSchema(t *testing.T) {
 
 	// Time to first token goes in and comes back out, on both reads.
 	at := time.Now().UTC()
-	if err := st.RecordUsage(context.Background(), UsageEvent{
+	if _, err := st.RecordUsage(context.Background(), UsageEvent{
 		At: at, Model: "m", Path: "/v1/messages", Status: 200, Streaming: true,
 		ConversationID: "chat", Duration: 9 * time.Second, FirstToken: 1234 * time.Millisecond,
 	}); err != nil {
@@ -78,7 +78,7 @@ func TestTotalsMatchesTheReport(t *testing.T) {
 		if i%7 == 0 {
 			e.Error = "overloaded_error: Overloaded"
 		}
-		if err := st.RecordUsage(ctx, e); err != nil {
+		if _, err := st.RecordUsage(ctx, e); err != nil {
 			t.Fatalf("RecordUsage: %v", err)
 		}
 	}

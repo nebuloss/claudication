@@ -29,7 +29,7 @@ func record(t *testing.T, st *Store, e UsageEvent) {
 	if e.Path == "" {
 		e.Path = "/v1/messages"
 	}
-	if err := st.RecordUsage(ctx, e); err != nil {
+	if _, err := st.RecordUsage(ctx, e); err != nil {
 		t.Fatalf("RecordUsage: %v", err)
 	}
 	if err := rememberName(ctx, st.db, nameKey, e.KeyID, e.KeyName); err != nil {

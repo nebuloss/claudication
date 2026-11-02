@@ -13,7 +13,7 @@ import (
 // spend files usage against a key as if requests had been served.
 func spend(t *testing.T, st *store.Store, keyID string, tokens int, at time.Time) {
 	t.Helper()
-	if err := st.RecordUsage(context.Background(), store.UsageEvent{
+	if _, err := st.RecordUsage(context.Background(), store.UsageEvent{
 		At: at, KeyID: keyID, KeyName: "test",
 		Model: "claude-haiku-4-5", Path: "/v1/messages", Status: 200,
 		InputTokens: tokens,

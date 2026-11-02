@@ -29,7 +29,7 @@ func TestPruningReclaimsDiskSpace(t *testing.T) {
 	// Enough rows that the file is meaningfully larger than empty.
 	old := time.Now().Add(-90 * 24 * time.Hour)
 	for i := range 4000 {
-		if err := st.RecordUsage(ctx, UsageEvent{
+		if _, err := st.RecordUsage(ctx, UsageEvent{
 			At: old, KeyID: "k1", KeyName: "one",
 			AccountID: "a1", AccountEmail: "a@example.com",
 			Model: "claude-opus-5", Path: "/v1/messages", Status: 200,
@@ -85,7 +85,7 @@ func TestVacuumIsSafeOnACompactDatabase(t *testing.T) {
 	}
 
 	// And the database still works afterwards.
-	if err := st.RecordUsage(ctx, UsageEvent{
+	if _, err := st.RecordUsage(ctx, UsageEvent{
 		At: time.Now(), Model: "claude-haiku-4-5", Path: "/v1/messages", Status: 200,
 	}); err != nil {
 		t.Errorf("the database is unusable after a vacuum: %v", err)

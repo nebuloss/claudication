@@ -54,6 +54,7 @@ import (
 	"claudication/internal/relay/passes"
 	accountsvc "claudication/internal/service/accounts"
 	"claudication/internal/service/availability"
+	"claudication/internal/service/capture"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
@@ -107,6 +108,9 @@ type Server struct {
 	// running is the requests being served now, which the gateway notes and
 	// the request log shows.
 	running *usagesvc.Running
+	// capture is what is recorded of the clients an operator is watching:
+	// in memory only, and forgotten by a restart.
+	capture *capture.Capture
 	// trimmer counts relayed requests in flight and hands idle heap back to
 	// the system once a burst is over. See internal/memlimit.
 	trimmer *memlimit.Trimmer
@@ -385,7 +389,7 @@ func (s *Server) buildServices(ctx context.Context) *titles.Titler {
 			anthropic.ID: {Relay: s.relay, Path: ups[anthropic.ID].Paths["/v1/messages"]},
 			chatgpt.ID:   {Relay: openaiRelay, Path: ups[chatgpt.ID].Paths["/v1/responses"], Responses: true},
 		},
-		Record: s.recorder.Record,
+		Record: func(e store.UsageEvent, budget int64) { s.recorder.Record(e, budget) },
 		Log:    log,
 	})
 }
@@ -430,6 +434,8 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	// API, which reads it.
 	s.running = &usagesvc.Running{}
 	s.running.Announce(s.hub)
+	s.capture = capture.New(0)
+	s.capture.Announce(s.hub)
 	s.inflight.OnChange(func() { s.hub.Changed(live.Running) })
 	defer s.buildAvailability()
 	s.models = modelsvc.New(modelsvc.Deps{
@@ -443,7 +449,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 	s.gateway = gateway.New(gateway.Deps{
 		Config: cfg, Log: log, Store: st,
 		KeyLimiter: s.keyLimiter, AnonLimiter: s.anonLimiter, Budgets: s.budgets,
-		Recorder: s.recorder, Running: s.running, Pool: s.pool, Upstreams: s.upstreams(), Titles: titler,
+		Recorder: s.recorder, Capture: s.capture, Running: s.running, Pool: s.pool, Upstreams: s.upstreams(), Titles: titler,
 		Trimmer: s.trimmer, Enabled: s.serving, Protocols: s.protocols, InFlight: s.inflight,
 		Install: installs, Models: s.models,
 	})
@@ -456,7 +462,7 @@ func (s *Server) buildHandlers(titler *titles.Titler) {
 		AnonLimiter: s.anonLimiter, Budgets: s.budgets,
 		TrustedProxies: s.trustedProxies, StartedAt: time.Now(),
 		Models: s.models, Install: installs, Availability: s.availability, ModelChecks: s.modelChecks,
-		Running: s.running, Hub: s.hub, Uptime: s.uptime,
+		Running: s.running, Hub: s.hub, Uptime: s.uptime, Capture: s.capture,
 	})
 	s.web = web.New(web.Deps{Log: log, Files: webdist})
 	// The MCP server, behind the gateway's own key check and answering with

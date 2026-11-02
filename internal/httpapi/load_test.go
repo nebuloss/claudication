@@ -560,7 +560,7 @@ func seedHistory(t *testing.T, st *store.Store, n int) {
 			defer wg.Done()
 			for i := 0; i < per; i++ {
 				k := w*per + i
-				_ = st.RecordUsage(context.Background(), store.UsageEvent{
+				_, _ = st.RecordUsage(context.Background(), store.UsageEvent{
 					At:             now.Add(-time.Duration(k) * 30 * 24 * time.Hour / time.Duration(n)),
 					KeyID:          "k" + strconv.Itoa(k%3),
 					KeyName:        "key" + strconv.Itoa(k%3),

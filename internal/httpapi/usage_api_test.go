@@ -34,7 +34,7 @@ func seedHistory3(t *testing.T, st *store.Store) {
 		{At: now.Add(-3 * time.Minute), Path: "/v1/messages", Status: 401, Rejected: true,
 			Error: "missing API key", IP: "10.0.0.9", Client: "curl"},
 	} {
-		if err := st.RecordUsage(context.Background(), e); err != nil {
+		if _, err := st.RecordUsage(context.Background(), e); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -323,7 +323,7 @@ func TestExportCrossesPages(t *testing.T) {
 	now := time.Now()
 	const n = admin.ExportPage + 37
 	for i := 0; i < n; i++ {
-		if err := st.RecordUsage(context.Background(), store.UsageEvent{
+		if _, err := st.RecordUsage(context.Background(), store.UsageEvent{
 			At: now.Add(-time.Duration(i) * time.Second), Path: "/v1/messages", Status: 200,
 			Model: fmt.Sprintf("m-%d", i), Rejected: i%2 == 1,
 		}); err != nil {

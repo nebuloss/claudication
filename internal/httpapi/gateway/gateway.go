@@ -18,6 +18,7 @@ import (
 	"claudication/internal/memlimit"
 	"claudication/internal/pool"
 	"claudication/internal/relay"
+	"claudication/internal/service/capture"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
 	modelsvc "claudication/internal/service/models"
@@ -39,6 +40,7 @@ type Gateway struct {
 	budgets     *limits.Budgets
 	inflight    *limits.InFlight
 	recorder    *usagesvc.Recorder
+	capture     *capture.Capture
 	running     *usagesvc.Running
 	pool        *pool.Pool
 	upstreams   map[string]Upstream
@@ -73,6 +75,8 @@ type Deps struct {
 	// InFlight counts each key's open requests, for the client's Limits page.
 	InFlight *limits.InFlight
 	Recorder *usagesvc.Recorder
+	// Capture records the content of the clients an operator is watching.
+	Capture *capture.Capture
 	// Running is the requests being served now, for the request log.
 	Running *usagesvc.Running
 	Pool    *pool.Pool
@@ -115,7 +119,7 @@ func New(d Deps) *Gateway {
 	return &Gateway{
 		cfg: d.Config, log: d.Log, store: d.Store,
 		keyLimiter: d.KeyLimiter, anonLimiter: d.AnonLimiter, budgets: d.Budgets, inflight: d.InFlight,
-		recorder: d.Recorder, running: d.Running, pool: d.Pool, upstreams: d.Upstreams, titles: d.Titles,
+		recorder: d.Recorder, capture: d.Capture, running: d.Running, pool: d.Pool, upstreams: d.Upstreams, titles: d.Titles,
 		trimmer: d.Trimmer, enabled: d.Enabled, protocols: d.Protocols,
 		install: d.Install, models: d.Models,
 	}

@@ -18,7 +18,7 @@ import (
 
 // Store is where history lives. The database is one.
 type Store interface {
-	RecordUsage(ctx context.Context, e store.UsageEvent) error
+	RecordUsage(ctx context.Context, e store.UsageEvent) (int64, error)
 	PruneUsage(ctx context.Context, keep time.Duration) (int64, error)
 	PruneChatTitles(ctx context.Context) (int64, error)
 	PruneNames(ctx context.Context) (int64, error)
@@ -56,15 +56,16 @@ func (r *Recorder) log() *slog.Logger {
 	return r.Log
 }
 
-// Record files one request.
+// Record files one request, and returns its row's id: zero when nothing was
+// filed.
 //
 // It runs with its own context because the request's is cancelled the moment
 // the client hangs up — which is exactly when a failed stream is most worth
 // recording. budget is the key's ceiling, so an unlimited key skips the
 // tracker entirely rather than taking its lock to find nothing to update.
-func (r *Recorder) Record(e store.UsageEvent, budget int64) {
+func (r *Recorder) Record(e store.UsageEvent, budget int64) int64 {
 	if !r.Enabled() {
-		return
+		return 0
 	}
 	// A code the caller set is the gateway's own (a client that hung up);
 	// any other error is an upstream's, for its provider to classify.
@@ -74,9 +75,10 @@ func (r *Recorder) Record(e store.UsageEvent, budget int64) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := r.Store.RecordUsage(ctx, e); err != nil {
+	id, err := r.Store.RecordUsage(ctx, e)
+	if err != nil {
 		r.log().Warn("could not record usage", "err", err)
-		return
+		return 0
 	}
 	// Credit the budget tracker with what this cost, so the cached figure keeps
 	// up between refreshes rather than letting a burst through on a reading
@@ -85,6 +87,7 @@ func (r *Recorder) Record(e store.UsageEvent, budget int64) {
 	if budget > 0 && e.KeyID != "" && r.Budgets != nil {
 		r.Budgets.Add(e.KeyID, e.Tokens())
 	}
+	return id
 }
 
 // Prune drops history older than the retention, and the chat titles and the

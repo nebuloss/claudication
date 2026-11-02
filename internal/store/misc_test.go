@@ -469,7 +469,7 @@ func TestClosedStoreReportsErrors(t *testing.T) {
 	_, _, checks["Setting"] = st.Setting(ctx, "k")
 	_, checks["Settings"] = st.Settings(ctx)
 	checks["SetSetting"] = st.SetSetting(ctx, "k", "v")
-	checks["RecordUsage"] = st.RecordUsage(ctx, UsageEvent{At: time.Now()})
+	_, checks["RecordUsage"] = st.RecordUsage(ctx, UsageEvent{At: time.Now()})
 	_, checks["Totals"] = st.Totals(ctx, since)
 	_, checks["Usage"] = st.Usage(ctx, since)
 	_, checks["RequestFacets"] = st.RequestFacets(ctx, 10)

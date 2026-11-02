@@ -27,7 +27,7 @@ func TestSnapshotIsCompleteWhileWritesContinue(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := range 200 {
-		if err := st.RecordUsage(ctx, UsageEvent{
+		if _, err := st.RecordUsage(ctx, UsageEvent{
 			At: time.Now(), KeyID: "k1", Path: "/v1/messages", Status: 200, InputTokens: i,
 		}); err != nil {
 			t.Fatal(err)
@@ -44,7 +44,7 @@ func TestSnapshotIsCompleteWhileWritesContinue(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				_ = st.RecordUsage(ctx, UsageEvent{
+				_, _ = st.RecordUsage(ctx, UsageEvent{
 					At: time.Now(), KeyID: "k2", Path: "/v1/messages", Status: 200,
 				})
 			}

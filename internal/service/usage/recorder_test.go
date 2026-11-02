@@ -21,14 +21,14 @@ type fakeStore struct {
 	pruneRows   int64
 }
 
-func (f *fakeStore) RecordUsage(_ context.Context, e store.UsageEvent) error {
+func (f *fakeStore) RecordUsage(_ context.Context, e store.UsageEvent) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.recordErr != nil {
-		return f.recordErr
+		return 0, f.recordErr
 	}
 	f.recorded = append(f.recorded, e)
-	return nil
+	return int64(len(f.recorded)), nil
 }
 
 func (f *fakeStore) PruneUsage(_ context.Context, keep time.Duration) (int64, error) {

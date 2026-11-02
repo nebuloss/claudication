@@ -228,7 +228,7 @@ func TestAccountListReportsWhatTheOperatorActsOn(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RecordUsage(ctx, store.UsageEvent{
+	if _, err := st.RecordUsage(ctx, store.UsageEvent{
 		At: time.Now(), AccountID: first.ID, Path: "/v1/messages", Status: 200,
 		InputTokens: 100, OutputTokens: 20, CacheReadTokens: 5,
 	}); err != nil {

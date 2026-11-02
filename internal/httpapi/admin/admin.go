@@ -18,6 +18,7 @@ import (
 	"claudication/internal/provider"
 	accountsvc "claudication/internal/service/accounts"
 	"claudication/internal/service/availability"
+	"claudication/internal/service/capture"
 	"claudication/internal/service/clients"
 	"claudication/internal/service/install"
 	"claudication/internal/service/limits"
@@ -57,6 +58,7 @@ type Admin struct {
 	hub            *live.Hub
 	reads          readCache
 	uptime         *uptime.Sampler
+	capture        *capture.Capture
 }
 
 // Deps is what an Admin is built from. Every field is required.
@@ -100,6 +102,8 @@ type Deps struct {
 	// Uptime is the availability history, whose recent incidents are
 	// notices.
 	Uptime *uptime.Sampler
+	// Capture is the clients' recorded content.
+	Capture *capture.Capture
 }
 
 // Models is what the admin screens read of the gateway's model list: the same
@@ -154,7 +158,7 @@ func New(d Deps) *Admin {
 		trustedProxies: d.TrustedProxies, startedAt: d.StartedAt,
 		sessions: newSessions(), models: d.Models, install: d.Install,
 		availability: d.Availability, modelChecks: d.ModelChecks, running: d.Running,
-		hub: d.Hub, uptime: d.Uptime,
+		hub: d.Hub, uptime: d.Uptime, capture: d.Capture,
 	}
 }
 
@@ -217,6 +221,8 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/clients/{id}/fit-images", admin(s.handleSetClientFitImages))
 	mux.Handle("PUT /admin/clients/{id}/accent", admin(s.handleSetClientAccent))
 	mux.Handle("POST /admin/clients/{id}/agent-manage", admin(s.handleSetClientAgentManage))
+	mux.Handle("POST /admin/clients/{id}/capture", admin(s.handleSetClientCapture))
+	mux.Handle("DELETE /admin/clients/{id}/capture", admin(s.handleStopClientCapture))
 	mux.Handle("GET /admin/clients/{id}/files", admin(s.handleClientFiles))
 	mux.Handle("POST /admin/clients/{id}/slots", admin(s.handleAddSlot))
 	mux.Handle("PUT /admin/clients/{id}/slots/{slot}", admin(s.handleSetSlot))
@@ -265,4 +271,11 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 	mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
 	mux.Handle("GET /admin/requests/export", admin(s.handleExportRequests))
+
+	// What was recorded of the clients being watched (captures.go).
+	mux.Handle("GET /admin/captures", admin(s.handleCaptures))
+	mux.Handle("DELETE /admin/captures", admin(s.handleClearCaptures))
+	mux.Handle("GET /admin/captures/export", admin(s.handleExportCaptures))
+	mux.Handle("GET /admin/captures/{id}", admin(s.handleCapture))
+	mux.Handle("GET /admin/captures/{id}/har", admin(s.handleCaptureHAR))
 }

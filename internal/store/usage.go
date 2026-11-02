@@ -167,7 +167,7 @@ func (e UsageEvent) failed() bool {
 // A failure the classifier left unnamed — it reads the error text, and a 500
 // with no body has none — is filed as no_answer or other, so error_code is
 // set exactly when the request failed and sqlIsError can be that one column.
-func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
+func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) (int64, error) {
 	defer s.changed(live.Requests)
 	if e.ErrorCode == "" && e.failed() {
 		e.ErrorCode = "other"
@@ -175,7 +175,7 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 			e.ErrorCode = "no_answer"
 		}
 	}
-	_, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO usage_events (at, kind, key_id, account_id, provider, model, alias, path,
 		                           conversation_id, client, surface, ip, status, streaming,
 		                           input_tokens, output_tokens,
@@ -188,9 +188,15 @@ func (s *Store) RecordUsage(ctx context.Context, e UsageEvent) error {
 		e.Duration.Milliseconds(), e.FirstToken.Milliseconds(), e.ErrorCode, e.Error,
 	)
 	if err != nil {
-		return fmt.Errorf("record usage: %w", err)
+		return 0, fmt.Errorf("record usage: %w", err)
 	}
-	return nil
+	// The row's id, for what is kept about the request beside it (a
+	// recording of its content, internal/service/capture).
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, nil
+	}
+	return id, nil
 }
 
 // usageEventColumns is every column a UsageEvent is read back from, in the

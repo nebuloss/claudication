@@ -252,6 +252,10 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 	var held pool.Lease
 	defer func() { held.Release() }()
 
+	// What an operator recording this client is shown; nothing when no one
+	// is, which is every request but those.
+	tap := tapOf(req.Context())
+
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		res.Attempts = attempt
 
@@ -296,6 +300,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 			res.Err = err
 			return res
 		}
+		tap.Sent(lease.Account.Email, upstreamReq, sent)
 		// Per attempt, so a stalled one can be torn down without touching the
 		// caller's own context.
 		attemptCtx, cancelAttempt := context.WithCancel(req.Context())
@@ -316,6 +321,7 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 		// the request outlives the call through resp.Request.
 		upstreamReq.GetBody = nil
 		if err != nil {
+			tap.Failed(err)
 			cancelAttempt()
 			// A cancelled client is not the account's fault.
 			if errors.Is(err, context.Canceled) || req.Context().Err() != nil {
@@ -327,6 +333,8 @@ func (r *Relay) Do(w http.ResponseWriter, req *http.Request, upstreamPath string
 			res.Err = err
 			continue
 		}
+
+		resp.Body = tap.Answered(resp.StatusCode, resp.Header, resp.Body)
 
 		kind, retryable := pool.ClassifyStatus(resp.StatusCode)
 		if retryable && attempt < maxAttempts {

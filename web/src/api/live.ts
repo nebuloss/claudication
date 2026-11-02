@@ -16,6 +16,7 @@ export const TOPICS = [
   'settings',
   'uptime',
   'inbox',
+  'captures',
 ] as const
 
 export type Topic = (typeof TOPICS)[number]

@@ -22,7 +22,7 @@ func TestWindowStartingOnAWholeSecond(t *testing.T) {
 		since,                              // on the boundary: counted
 		since.Add(500 * time.Millisecond),  // inside the first second
 	} {
-		if err := st.RecordUsage(ctx, UsageEvent{At: at, KeyID: "k", InputTokens: 10}); err != nil {
+		if _, err := st.RecordUsage(ctx, UsageEvent{At: at, KeyID: "k", InputTokens: 10}); err != nil {
 			t.Fatal(err)
 		}
 	}

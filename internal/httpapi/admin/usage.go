@@ -107,7 +107,10 @@ type RequestJSON struct {
 	// ChatTitle is the title of the chat it belongs to, when the chat has one:
 	// what the log shows its chat id as on hover.
 	ChatTitle string `json:"chat_title,omitempty"`
-	At        string `json:"at"`
+	// Capture is the recording of its content, when one is held
+	// (GET /admin/captures/{id}).
+	Capture uint64 `json:"capture,omitempty"`
+	At      string `json:"at"`
 	// KeyID and KeyName are the client that sent it — a client owns one key,
 	// so its id is the key's — kept as an id so the row narrows to the client
 	// whatever it is called now. Empty on a request refused before it named
@@ -236,10 +239,12 @@ func (s *Admin) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Warn("could not read the page's chat titles", "err", err)
 	}
+	captured := s.capture.ForEvents()
 	out := make([]RequestJSON, 0, len(events))
 	for _, e := range events {
 		row := s.toRequestJSON(e)
 		row.ChatTitle = titles[e.ConversationID]
+		row.Capture = captured[e.ID]
 		out = append(out, row)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{

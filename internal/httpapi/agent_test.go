@@ -429,7 +429,7 @@ func TestMCPNameChat(t *testing.T) {
 		// A refusal names whatever chat it likes, and proves nothing.
 		{At: at, KeyID: c.ID, Path: "/v1/responses", Status: 429, ConversationID: "sess-theirs", Rejected: true},
 	} {
-		if err := st.RecordUsage(ctx, e); err != nil {
+		if _, err := st.RecordUsage(ctx, e); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -487,7 +487,7 @@ func TestMCPCustomClientsChat(t *testing.T) {
 	_, st, url := mcpServer(t)
 	ctx := context.Background()
 	c, plain := newClient(t, st, "sdk", "custom", nil)
-	if err := st.RecordUsage(ctx, store.UsageEvent{At: time.Now(), KeyID: c.ID, Path: "/v1/messages", Status: 200,
+	if _, err := st.RecordUsage(ctx, store.UsageEvent{At: time.Now(), KeyID: c.ID, Path: "/v1/messages", Status: 200,
 		ConversationID: "ses_sdk1", Model: "claude-sonnet-5", InputTokens: 1}); err != nil {
 		t.Fatal(err)
 	}

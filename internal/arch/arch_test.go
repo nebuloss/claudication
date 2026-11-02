@@ -50,6 +50,7 @@ var layers = map[string]int{
 	"internal/service/availability": 2,
 	"internal/service/usage":        2,
 	"internal/service/uptime":       2,
+	"internal/service/capture":      2,
 	"internal/service/clientconfig": 2,
 
 	"internal/relay": 3,

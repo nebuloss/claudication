@@ -43,6 +43,9 @@ const (
 	Uptime Topic = "uptime"
 	// Inbox: the notifications marked read.
 	Inbox Topic = "inbox"
+	// Captures: a client's content recording switched on or off, and each
+	// exchange it recorded (internal/service/capture).
+	Captures Topic = "captures"
 )
 
 // Topics are every topic, in the order the UI lists them, each with the
@@ -64,6 +67,7 @@ var Topics = []struct {
 	{Settings, 0},
 	{Uptime, 10 * time.Second},
 	{Inbox, 0},
+	{Captures, 2 * time.Second},
 }
 
 // Tick is how often the hub announces what changed.

@@ -25,7 +25,7 @@ func recordTurns(t *testing.T, st *Store, chat string, start time.Time, turns []
 			path = "/v1/messages"
 		}
 		// Cache reads carry most of a cached prompt; the rule adds all three.
-		if err := st.RecordUsage(context.Background(), UsageEvent{
+		if _, err := st.RecordUsage(context.Background(), UsageEvent{
 			At: start.Add(time.Duration(i) * time.Minute), ConversationID: chat,
 			Model: tr.model, Path: path, Status: status,
 			InputTokens: 10, CacheReadTokens: tr.prompt - 110, CacheWriteTokens: 100,

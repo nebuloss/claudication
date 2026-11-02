@@ -338,7 +338,7 @@ func TestSlotUsageAndKeyRequests(t *testing.T) {
 		if rejected {
 			in, out = 0, 0
 		}
-		if err := st.RecordUsage(ctx, UsageEvent{At: at, KeyID: key, AccountID: account, Provider: "anthropic",
+		if _, err := st.RecordUsage(ctx, UsageEvent{At: at, KeyID: key, AccountID: account, Provider: "anthropic",
 			VirtualModel: slot, Model: model, Path: path, Status: 200, InputTokens: in, OutputTokens: out,
 			Rejected: rejected}); err != nil {
 			t.Fatal(err)
@@ -438,7 +438,7 @@ func TestKeyActivity(t *testing.T) {
 		{At: now.Add(-48 * time.Hour), KeyID: c.ID, Path: "/v1/messages", Status: 200, InputTokens: 1000},
 		{At: now.Add(-time.Second), KeyID: "someone", Path: "/v1/messages", Status: 200, InputTokens: 7},
 	} {
-		if err := st.RecordUsage(ctx, e); err != nil {
+		if _, err := st.RecordUsage(ctx, e); err != nil {
 			t.Fatal(err)
 		}
 	}

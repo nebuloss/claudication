@@ -29,7 +29,7 @@ func TestChatContextOverTheAPI(t *testing.T) {
 		{"claude-opus-5", 60_000}, // compacted
 		{"claude-opus-5", 150_000},
 	} {
-		if err := st.RecordUsage(context.Background(), store.UsageEvent{
+		if _, err := st.RecordUsage(context.Background(), store.UsageEvent{
 			At: start.Add(time.Duration(i) * time.Minute), ConversationID: "ses_1",
 			Client: "crush", Model: tr.model, Path: "/v1/messages", Status: 200,
 			InputTokens: 10, CacheReadTokens: tr.prompt - 10,
