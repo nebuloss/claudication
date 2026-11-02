@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { api, type GatewayConfig } from '../../../api/client'
 import { useLoader } from '../../hooks'
-import { type ClientPageId } from '../../route'
+import { CLIENT_PAGES, PAGE_ICONS, type ClientPageId } from '../../route'
 import { DetailHeader } from '../detail'
 import { ChatsPage } from '../chats'
 import { ChatView } from '../chats/chat'
@@ -115,6 +115,14 @@ export function ClientPage({
           </Figures>
         }
         freshness={{ updatedAt, refreshing }}
+        section={
+          overview
+            ? undefined
+            : {
+                label: chat !== '' ? 'Chat' : (CLIENT_PAGES.find((p) => p.id === page)?.label ?? ''),
+                icon: PAGE_ICONS[page],
+              }
+        }
       />
       <ErrorBanner error={error} />
       {pages[page]()}

@@ -7,7 +7,7 @@ import { AccountUsage } from './usage'
 import { AccountSwitch } from './index'
 import { api, type Account } from '../../../api/client'
 import { useLoader } from '../../hooks'
-import { navigate, pathOf, type AccountPageId } from '../../route'
+import { ACCOUNT_PAGES, PAGE_ICONS, navigate, pathOf, type AccountPageId } from '../../route'
 import { planLabel, providerLabel, providerOf } from '../../providers'
 import {
   AppLink,
@@ -164,6 +164,11 @@ export default function AccountPage({
           </>
         }
         freshness={{ updatedAt, refreshing }}
+        section={
+          page === ''
+            ? undefined
+            : { label: ACCOUNT_PAGES.find((p) => p.id === page)?.label ?? '', icon: PAGE_ICONS[page] }
+        }
       />
 
       <ErrorBanner error={error} />
