@@ -4,7 +4,7 @@ import { READS } from '../../../api/live'
 import { ProviderMark } from '../../brands'
 import { ago, relative } from '../../format'
 import { useLoader } from '../../hooks'
-import { Button, ICON, IconButton, Modal, Muted, Tip, follow, type IconName } from '../../primitives'
+import { Button, ICON, Modal, Muted, Spinner, Tip, follow, type IconName } from '../../primitives'
 import { useSession } from '../../session'
 import { toneContainer, type Tone } from '../../styles/tone'
 
@@ -116,18 +116,24 @@ function NoticeRow({
           {body}
         </a>
       )}
-      <span className="p-2">
-        <IconButton
-          label={read ? 'Mark as unread' : 'Mark as read'}
-          busy={busy}
+      {/* Borderless, as the row's chevron is: an envelope ticked to mark it
+          read, the unread envelope to put it back. */}
+      <Tip tip={read ? 'Mark as unread' : 'Mark as read'}>
+        <button
+          type="button"
+          aria-label={read ? 'Mark as unread' : 'Mark as read'}
+          aria-busy={busy || undefined}
           onClick={() => {
             setBusy(true)
             void onMark([n.id], !read).finally(() => setBusy(false))
           }}
+          className={`state-layer mt-2.5 mr-2 grid size-9 shrink-0 place-items-center rounded-md3-full text-on-surface-variant ${
+            busy ? 'pointer-events-none' : ''
+          }`}
         >
-          <path d={ICON[read ? 'unread' : 'done']} />
-        </IconButton>
-      </span>
+          {busy ? <Spinner className="size-5" /> : <Glyph icon={read ? 'unread' : 'read'} className="size-5" />}
+        </button>
+      </Tip>
     </li>
   )
 }
@@ -205,7 +211,7 @@ function NoticeCenter({ notices, onClose }: { notices: Notice[]; onClose: () => 
               <Button
                 variant="text"
                 size="sm"
-                icon="doneAll"
+                icon="read"
                 busy={marking}
                 onClick={() => {
                   setMarking(true)
