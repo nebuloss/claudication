@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { api, type RequestFacets } from '../../../api/client'
 import {
   Button,
+  Sentinel,
   ButtonLink,
   Empty,
   ErrorBanner,
@@ -287,6 +288,15 @@ function RecentRequests({
               onNarrow={(field, value) => onNarrow(filter.only(field, value))}
             />
           ))}
+          {/* The next page, as the table is scrolled to its end: inside the
+              table's own scroll box, so it is that box's end that loads it
+              and not the page's. Load more below stays, for a keyboard. */}
+          <Sentinel
+            row
+            onReach={log.more}
+            version={data.length}
+            disabled={log.cursor === '' || log.loadingMore || log.loading}
+          />
         </Table>
       )}
 

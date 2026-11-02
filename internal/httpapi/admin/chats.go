@@ -3,7 +3,9 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"claudication/internal/httpapi/httpx"
@@ -152,7 +154,9 @@ type TurnJSON struct {
 
 // handleChatTranscript answers what each recorded request of a chat added
 // to it, oldest first: the chat read as a transcript, from the recordings
-// still held (internal/service/capture).
+// still held (internal/service/capture). ?from= and ?to= (request log row
+// ids, inclusive) narrow it to the window a page is showing; the turns before
+// the window are still counted, since what a turn added depends on them.
 //
 // A client resends the whole conversation every turn, so a request's own
 // body is mostly the turns before it. What is new is what follows the
@@ -163,6 +167,11 @@ type TurnJSON struct {
 // subagents — run beside the main thread on other models.
 func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	q := r.URL.Query()
+	from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
+	to, _ := strconv.ParseInt(q.Get("to"), 10, 64)
+	within := func(event int64) bool { return (from == 0 || event >= from) && (to == 0 || event <= to) }
+
 	events, err := s.store.ChatEvents(r.Context(), id, 0)
 	if err != nil {
 		s.log.Error("chat events", "err", err, "chat", id)
@@ -182,37 +191,95 @@ func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		t := TurnJSON{Event: e.ID, Capture: cid, Added: []json.RawMessage{}}
-		l := s.legJSON(&x.Client)
-		if l.Request.Messages == nil {
-			t.Unread = l.Request.MessagesError
-			turns = append(turns, t)
-			continue
+		var count turnCount
+		var messages []json.RawMessage
+		if within(e.ID) {
+			l := s.legJSON(&x.Client)
+			messages, count = readTurn(l)
+			s.counts.put(cid, count)
+			if count.unread == "" && l.Response != nil && l.Response.Messages != nil {
+				t.Answer = l.Response.Messages
+			}
+		} else if count, ok = s.counts.get(cid); !ok {
+			_, count = readTurn(s.legJSON(&x.Client))
+			s.counts.put(cid, count)
 		}
-		var req struct {
-			Messages []json.RawMessage `json:"messages"`
-		}
-		if err := json.Unmarshal(l.Request.Messages, &req); err != nil {
-			t.Unread = err.Error()
-			turns = append(turns, t)
+		if count.unread != "" {
+			t.Unread = count.unread
+			if within(e.ID) {
+				turns = append(turns, t)
+			}
 			continue
 		}
 		if before, ok := seen[e.Model]; ok {
-			if len(req.Messages) >= before {
+			if count.messages >= before {
 				t.Offset = before
 			} else {
 				t.Restarted = true
 			}
 		}
-		t.Added = req.Messages[t.Offset:]
-		if l.Response != nil && l.Response.Messages != nil {
-			t.Answer = l.Response.Messages
-		}
-		next := len(req.Messages)
-		if t.Answer != nil {
+		next := count.messages
+		if count.answered {
 			next++
 		}
 		seen[e.Model] = next
-		turns = append(turns, t)
+		if within(e.ID) {
+			t.Added = messages[t.Offset:]
+			turns = append(turns, t)
+		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "turns": turns})
+}
+
+// turnCount is what the transcript needs of a turn outside its window: how
+// many messages it carried, whether it was answered, or why it could not be
+// read.
+type turnCount struct {
+	messages int
+	answered bool
+	unread   string
+}
+
+// readTurn reads a client's leg as one turn: its messages, and its count.
+func readTurn(l LegJSON) ([]json.RawMessage, turnCount) {
+	if l.Request.Messages == nil {
+		return nil, turnCount{unread: l.Request.MessagesError}
+	}
+	var req struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(l.Request.Messages, &req); err != nil {
+		return nil, turnCount{unread: err.Error()}
+	}
+	return req.Messages, turnCount{
+		messages: len(req.Messages),
+		answered: l.Response != nil && l.Response.Messages != nil,
+	}
+}
+
+// turnCounts remembers each recording's count, so a chat paged in windows
+// reads each recording into Messages once rather than on every window: a
+// recording never changes. Bounded by starting over, which only costs the
+// reading again.
+type turnCounts struct {
+	mu sync.Mutex
+	m  map[uint64]turnCount
+}
+
+const maxTurnCounts = 20000
+
+func (c *turnCounts) get(id uint64) (turnCount, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.m[id]
+	return t, ok
+}
+
+func (c *turnCounts) put(id uint64, t turnCount) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil || len(c.m) >= maxTurnCounts {
+		c.m = map[uint64]turnCount{}
+	}
+	c.m[id] = t
 }

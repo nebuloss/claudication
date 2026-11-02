@@ -60,6 +60,8 @@ type Admin struct {
 	uptime         *uptime.Sampler
 	capture        *capture.Capture
 	normalize      Normalizer
+	// counts is each recording's turn count, for a chat's transcript.
+	counts turnCounts
 }
 
 // Deps is what an Admin is built from. Every field is required.

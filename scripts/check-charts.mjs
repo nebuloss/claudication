@@ -546,6 +546,24 @@ console.log('\n— RequestLogPager: polling must not undo paging —')
   check('and the paging cursor is kept', later.cursor, 'c2')
 }
 
+console.log('\n— window-range: what a long list draws —')
+{
+  const { openWindow, followWindow, widen } = await import(`${OUT}/primitives/window-range.js`)
+  check('a list opens on its last page', openWindow(100, 20), [80, 100])
+  check('a short list opens whole', openWindow(5, 20), [0, 5])
+  check('a focus opens the page around it', openWindow(100, 20, 50), [40, 60])
+  check('a focus near the start keeps a full page', openWindow(100, 20, 3), [0, 20])
+  check('a focus near the end keeps a full page', openWindow(100, 20, 98), [80, 100])
+  check('a focus not in the list is ignored', openWindow(100, 20, -1), [80, 100])
+  check('a window at the end follows it as rows arrive', followWindow([80, 100], 100, 103, 20), [80, 103])
+  check('one scrolled back stays put', followWindow([40, 60], 100, 103, 20), [40, 60])
+  check('one past a shrunk list is pulled inside it', followWindow([40, 60], 100, 30, 20), [29, 30])
+  check('an empty list arriving opens afresh, on its focus', followWindow([0, 0], 0, 100, 20, 50), [40, 60])
+  check('widening at the start', widen([40, 60], 100, 20, 'start'), [20, 60])
+  check('never before the first row', widen([10, 30], 100, 20, 'start'), [0, 30])
+  check('widening at the end, never past the last', widen([70, 90], 100, 20, 'end'), [70, 100])
+}
+
 console.log('\n— commitTitle: what Enter in a title being renamed does —')
 {
   const { commitTitle, MAX_NAME } = await import(`${OUT}/primitives/title-edit.js`)

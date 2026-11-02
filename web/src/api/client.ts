@@ -415,8 +415,11 @@ const traffic = {
   chat: (id: string, signal?: AbortSignal) => http.get<ChatDetail>(path`/admin/chats/${id}`, signal),
 
   /** What each of its recorded requests added to it: the chat as a transcript. */
-  chatTranscript: (id: string, signal?: AbortSignal) =>
-    http.get<{ id: string; turns: ChatTurn[] }>(path`/admin/chats/${id}/transcript`, signal),
+  chatTranscript: (id: string, from: number, to: number, signal?: AbortSignal) =>
+    http.get<{ id: string; turns: ChatTurn[] }>(
+      `${path`/admin/chats/${id}/transcript`}?from=${String(from)}&to=${String(to)}`,
+      signal,
+    ),
 
   /** A title typed by hand, held against automatic renames. */
   setChatTitle: (id: string, title: string) =>

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type ChatTurn, type RequestRow } from '../../../api/client'
 import { READS } from '../../../api/live'
 import { useLoader } from '../../hooks'
 import { millis, timeOfDay } from '../../format'
 import { clientHref } from '../../route'
-import { AppLink, Button, Card, ErrorState, Loading, Muted, Note, Stack } from '../../primitives'
+import { AppLink, Button, Card, ErrorState, Loading, Muted, Note, Stack, Windowed } from '../../primitives'
 import ChatContextDetail from './context'
 import { Conversation } from '../requests/conversation'
 import { RequestDetail } from '../requests/detail'
@@ -21,15 +21,34 @@ import { StatusChip } from '../requests/row'
  *
  * ?request=<row> opens on one of them, which is how the request log's
  * dialog sends someone to the request's place in its chat.
+ *
+ * A chat runs to hundreds of requests, so only a window of them is drawn —
+ * the latest, or the ones around the request asked for — widened as the
+ * reader scrolls to either edge (Windowed), and only that window's turns are
+ * read from their recordings. Turns read once are kept while the page is
+ * open: a recording never changes.
  */
 export function ChatView({ client, id }: { client: string; id: string }) {
   const focus = Number(new URLSearchParams(window.location.search).get('request') ?? '') || 0
   const chat = useLoader((signal) => api.traffic.chat(id, signal), { deps: [id], on: READS.chat })
-  const transcript = useLoader((signal) => api.traffic.chatTranscript(id, signal), { deps: [id], on: READS.chat })
   const [shown, setShown] = useState<RequestRecord | null>(null)
-
-  const turns = useMemo(() => new Map((transcript.data?.turns ?? []).map((t) => [t.event, t])), [transcript.data])
   const rows = chat.data?.requests ?? []
+
+  // The window drawn, as the rows' ids at its two ends; its turns are read
+  // for it, and only when it holds a recorded request.
+  const [range, setRange] = useState<[number, number]>([0, 0])
+  const onRange = useCallback((start: number, end: number) => setRange([start, end]), [])
+  const inWindow = rows.slice(range[0], range[1])
+  const from = inWindow[0]?.id ?? 0
+  const to = inWindow[inWindow.length - 1]?.id ?? 0
+  const wanted = inWindow.some((r) => (r.capture ?? 0) > 0)
+  const transcript = useLoader(
+    (signal) => (wanted ? api.traffic.chatTranscript(id, from, to, signal) : Promise.resolve({ id, turns: [] })),
+    { deps: [id, from, to, wanted], on: READS.chat },
+  )
+  const kept = useRef(new Map<number, ChatTurn>())
+  for (const t of transcript.data?.turns ?? []) kept.current.set(t.event, t)
+  const turns = kept.current
 
   // Once, when the rows first arrive: later refreshes leave the scroll where
   // the operator has taken it.
@@ -76,17 +95,21 @@ export function ChatView({ client, id }: { client: string; id: string }) {
         </Stack>
       </Card>
 
-      <div className="space-y-2">
-        {rows.map((row) => (
+      <Windowed
+        items={rows}
+        keyOf={(row) => String(row.id)}
+        noun="requests"
+        focus={focus === 0 ? undefined : rows.findIndex((r) => r.id === focus)}
+        onRange={onRange}
+        render={(row) => (
           <Turn
-            key={row.id}
             row={row}
             turn={turns.get(row.id)}
             focused={row.id === focus}
             onOpen={() => setShown(new RequestRecord(row))}
           />
-        ))}
-      </div>
+        )}
+      />
 
       {shown !== null && <RequestDetail record={shown} onClose={() => setShown(null)} inChat />}
     </Stack>

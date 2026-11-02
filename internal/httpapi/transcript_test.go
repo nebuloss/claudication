@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -57,6 +58,29 @@ func TestRecordedChatReadsAsATranscript(t *testing.T) {
 	for i, turn := range got.Turns {
 		if !bytes.Contains(turn.Answer, []byte(`"text":"hi"`)) {
 			t.Errorf("turn %d answer = %s", i+1, turn.Answer)
+		}
+	}
+
+	// A window of the chat: only its turns come back, numbered as the whole
+	// chat numbers them — the turn before it still counted.
+	var rows struct {
+		Requests []struct {
+			ID int64 `json:"id"`
+		} `json:"requests"`
+	}
+	_, body = call(t, abase, http.MethodGet, "/admin/chats/chat-1", "", ck)
+	if err := json.Unmarshal(body, &rows); err != nil || len(rows.Requests) != 2 {
+		t.Fatalf("chat rows: %v %s", err, body)
+	}
+	last := rows.Requests[1].ID
+	for range 2 { // the second read takes the first turn's count from the cache
+		status, body = call(t, abase, http.MethodGet, fmt.Sprintf("/admin/chats/chat-1/transcript?from=%d", last), "", ck)
+		got.Turns = nil
+		if status != http.StatusOK || json.Unmarshal(body, &got) != nil || len(got.Turns) != 1 {
+			t.Fatalf("window: %d %s", status, body)
+		}
+		if w := got.Turns[0]; w.Offset != 2 || len(w.Added) != 1 || !bytes.Contains(w.Added[0], []byte("second question")) {
+			t.Errorf("window's turn = offset %d, %s", w.Offset, w.Added)
 		}
 	}
 }
