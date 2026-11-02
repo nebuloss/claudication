@@ -287,7 +287,12 @@ func (s *Admin) handleOAuthComplete(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// The attempt stays live, so a corrected paste can be retried without
 		// walking through the consent screen again.
-		s.log.Warn("token exchange failed", "err", err)
+		// The shape of what was pasted, never the code: a refused code that is
+		// not plain base64url, or carried no state, was mangled on its way
+		// here, and nothing else in the log can say so.
+		s.log.Warn("token exchange failed", "err", err,
+			"paste_len", len(body.RedirectURL), "paste_url", strings.Contains(body.RedirectURL, "://"),
+			"code_len", len(code), "code_plain", plainCode(code), "state_pasted", returnedState != "")
 		httpx.WriteError(w, http.StatusBadGateway, "exchange_failed", err.Error())
 		return
 	}
@@ -394,4 +399,18 @@ func (s *Admin) handBack(prov provider.Accounts, refreshToken, why string) {
 	if err := prov.Revoke(ctx, s.httpClient, refreshToken); err != nil {
 		s.log.Warn("could not revoke an unwanted grant; it will lapse on its own", "why", why, "err", err)
 	}
+}
+
+// plainCode reports whether an authorization code holds only the characters
+// a code is made of: base64url, and the dot and tilde OAuth allows.
+func plainCode(code string) bool {
+	for _, r := range code {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '-', r == '_', r == '.', r == '~':
+		default:
+			return false
+		}
+	}
+	return true
 }

@@ -61,13 +61,15 @@ const (
 	// subset is what the consent screen rejects as "Invalid request format" —
 	// notably user:sessions:claude_code, which the claude.ai flow expects.
 	//
-	// Built in the client as the deduplicated union of
+	// Built in the client (2.1.316, Kdo) as the deduplicated union of
 	//   [org:create_api_key, user:profile]
 	// and
 	//   [user:profile, user:inference, user:sessions:claude_code,
 	//    user:mcp_servers, user:file_upload]
+	// plus user:plugins, which the production config has always added
+	// (PLUGINS_SCOPE_REGISTERED) since 2.1.273, 2026-09-15.
 	anthropicScopes = "org:create_api_key user:profile user:inference " +
-		"user:sessions:claude_code user:mcp_servers user:file_upload"
+		"user:sessions:claude_code user:mcp_servers user:file_upload user:plugins"
 )
 
 // AuthURL builds the URL the operator opens in a browser, for the
@@ -152,8 +154,11 @@ func postToken(ctx context.Context, client *http.Client, tokenURL string, body a
 	if err != nil {
 		return oauth.Result{}, fmt.Errorf("build token request: %w", err)
 	}
+	// The headers the client's token POSTs carry: axios's defaults (Dt is the
+	// bare instance, 1.15.2 in Claude Code 2.1.316) and the content type.
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("User-Agent", "axios/1.15.2")
 
 	// Never follow a redirect on a token exchange.
 	//
@@ -245,14 +250,17 @@ func postToken(ctx context.Context, client *http.Client, tokenURL string, body a
 // successful exchange, so a refused one can be offered again; the second
 // host's answer is the one returned, with the first's beside it.
 func ExchangeCode(ctx context.Context, client *http.Client, code, verifier, state, redirectURI string) (oauth.Result, error) {
-	body := map[string]string{
-		"code":          code,
-		"grant_type":    "authorization_code",
-		"client_id":     ClientID,
-		"redirect_uri":  redirectURI,
-		"code_verifier": verifier,
-		"state":         state,
-	}
+	// A struct, not a map, so the fields go in the client's order (qos:
+	// grant_type, code, redirect_uri, client_id, code_verifier, state); a map
+	// would be sorted.
+	body := struct {
+		GrantType    string `json:"grant_type"`
+		Code         string `json:"code"`
+		RedirectURI  string `json:"redirect_uri"`
+		ClientID     string `json:"client_id"`
+		CodeVerifier string `json:"code_verifier"`
+		State        string `json:"state"`
+	}{"authorization_code", code, redirectURI, ClientID, verifier, state}
 	res, first := postToken(ctx, client, anthropicExchangeURL, body)
 	if first == nil || ctx.Err() != nil {
 		return res, first
