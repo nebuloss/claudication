@@ -95,7 +95,10 @@ update commands and the MCP server's `update_config` carry it.
    links to them rather than repeating them. Change a stanza there, nowhere
    else.
 5. `scripts/probe-codex.py` replays a real Codex request against a live gateway
-   and judges the answer the way Codex does.
+   and judges the answer the way Codex does. `scripts/probe-chatgpt.py` and
+   `scripts/probe-antigravity.py` measure the ChatGPT and Antigravity
+   backends directly, without the gateway; both sign in on their own and are
+   run by hand.
 
 One package per surface under `internal/api/`, with its own translation beside
 it. A dialect's mapping is only defensible next to the evidence for it, and the
@@ -124,15 +127,24 @@ it costs hours every time someone meets it fresh.
 
 ## Commands
 
-    make check        # fmt-check, vet, test, typecheck, test-web, web build — what CI runs
+    make check        # fmt-check, vet, test, test-sh, typecheck, test-web, web build — what CI runs
     make build        # binary at dist/claudication, UI embedded
     make test         # Go tests only, with -race (needs cgo)
     make test-norace  # the same without cgo, for musl or scratch toolchains
     make test-web     # the chart scales and the UI's pure modules, under node
+    make test-sh      # sh -n on install.sh and deploy.sh, then install.sh's update logic against stubs
     make typecheck    # tsc over web/ — vite strips types without checking them
     make repro        # build twice and prove the bytes match; CI runs it too
+    make unit         # regenerate deploy/claudication.service from install.sh — never edit it by hand
 
-One Go test: `go test ./internal/relay/passes -run TestName -race -count=1`.
+The editing machine has no C compiler, so `-race` (and with it `make test`
+and `make check`) cannot run there; only `make test-norace`, `make typecheck`
+and `make test-web` can. `scripts/remote.sh` mirrors the working tree,
+uncommitted changes included, to the build machine and runs `make check`
+there; `scripts/remote.sh make repro` runs any other command in that copy.
+
+One Go test: `go test ./internal/relay/passes -run TestName -race -count=1`
+(drop `-race` on the editing machine).
 
 The Makefile pins `GOTOOLCHAIN` to the `go` directive in `go.mod`, so a plain
 `go` command may resolve a different compiler than `make` does. CI also fails
@@ -166,6 +178,12 @@ instead of reaching the real API (`go doc ./internal/testenv`).
   `bg-surface-container`, `state-layer`), not raw colours.
 
 ## Deploying
+
+`scripts/deploy.sh [ref]` is the one way to put a build on a gateway host: it
+builds the pushed ref (HEAD by default) on the build machine from the remote
+repository, so push first, and hands it to `install.sh`'s guarded upgrade.
+Never copy or swap a binary by hand — doing that on 2026-09-24 left the gateway
+down.
 
 `scripts/install.sh` installs or updates a systemd or OpenRC service and writes
 `/etc/claudication/config.yaml` on first run. An update is a handover, not a
