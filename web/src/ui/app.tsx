@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
 import AccountPage from './features/accounts/page'
 import Traffic from './features/traffic'
@@ -13,6 +13,7 @@ import { SessionProvider } from './session'
 import {
   ACCOUNT_PAGES,
   TRAFFIC_PAGES,
+  CHAT_PAGES,
   CLIENT_PAGES,
   SECTION_LINKS,
   SETTINGS_PAGES,
@@ -23,6 +24,7 @@ import {
   reloadOnNextNavigation,
   tabOf,
   trailOf,
+  type ChatPageId,
   type NavLink,
   type Siblings,
 } from './route'
@@ -92,12 +94,10 @@ export default function App() {
   const path = usePath()
   const here = pathOf(...path)
   const tab = tabOf(here)
-  const [, item = '', page = '', sub = ''] = path
+  const [, item = '', page = '', sub = '', subPage = ''] = path
   // The trail and the rail name an account or a key once its page has said
   // what it is called.
   useNames()
-  // The client's chats, for the rail on one chat's page.
-  const chats = useChatLinks(path, state.phase === 'in')
   // The configuration, loaded once for the whole signed-in app and handed to
   // Settings, which renders it and reloads it after a switch.
   //
@@ -202,7 +202,7 @@ export default function App() {
   // One value for the header, the nav and the page, so the tab underline stays
   // over its tab when the measure changes.
   const measure = MEASURE
-  const level = navLevel(here, chats)
+  const level = navLevel(here)
   const trail = trailOf(here, nameOf)
 
   return (
@@ -279,7 +279,14 @@ export default function App() {
                 (item === '' ? (
                   <Clients />
                 ) : (
-                  <ClientPage key={item} id={item} page={pageIdOf(CLIENT_PAGES, page)} chat={sub} config={config.data} />
+                  <ClientPage
+                    key={item}
+                    id={item}
+                    page={pageIdOf(CLIENT_PAGES, page)}
+                    chat={sub}
+                    chatPage={pageIdOf(CHAT_PAGES, subPage)}
+                    config={config.data}
+                  />
                 ))}
               {tab === 'traffic' && <Traffic page={pageIdOf(TRAFFIC_PAGES, item)} />}
               {tab === 'settings' && (
@@ -307,6 +314,20 @@ export default function App() {
  */
 async function siblingsOf(s: Siblings): Promise<NavLink[]> {
   if (s.kind === 'sections') return SECTION_LINKS
+  if (s.kind === 'chats') {
+    // The client's chats of the last week, the latest first, each on the
+    // page of it the trail is on.
+    const chats = (await api.traffic.chats(7, { key: s.client })).report?.chats ?? []
+    return [...chats]
+      .sort((a, b) => new Date(b.last).getTime() - new Date(a.last).getTime())
+      .map((c) => {
+        if (c.title !== '') nameItem('chats', c.id, c.title)
+        return {
+          href: chatHref(s.client, c.id, s.page as ChatPageId | undefined),
+          label: c.title !== '' ? c.title : nameOf('chats', c.id),
+        }
+      })
+  }
   const at = (id: string) => (s.page !== undefined ? pathOf(s.kind, id, s.page) : pathOf(s.kind, id))
   if (s.kind === 'accounts') {
     const { accounts } = await api.accounts.list()
@@ -338,39 +359,5 @@ function Version() {
   const { data } = useLoader<OverviewData>((signal) => api.gateway.overview(signal))
   if (data === null) return null
   return <VersionTag>{data.version}</VersionTag>
-}
-
-/** How many of a client's chats a chat's page lists beside it. */
-const RAIL_CHATS = 15
-
-/**
- * On a chat's page, the client's latest chats, for the rail to list beside
- * it: the level below the client's pages is its chats. Read only there, and
- * named as their rows name them; each one's title is remembered for the trail
- * and the page's title too.
- */
-function useChatLinks(path: string[], signedIn: boolean): NavLink[] | undefined {
-  const [top, client = '', page, chat = ''] = path
-  const on = signedIn && top === 'clients' && page === 'chats' && chat !== ''
-  const { data } = useLoader((signal) => (on ? api.traffic.chats(7, { key: client }, signal) : Promise.resolve(null)), {
-    deps: [on, client],
-    on: READS.chats,
-  })
-  const rows = useMemo(
-    () =>
-      [...(data?.report?.chats ?? [])]
-        .sort((a, b) => new Date(b.last).getTime() - new Date(a.last).getTime())
-        .slice(0, RAIL_CHATS),
-    [data],
-  )
-  useEffect(() => {
-    for (const c of rows) if (c.title !== '') nameItem('chats', c.id, c.title)
-  }, [rows])
-  if (!on) return undefined
-  return rows.map((c) => ({
-    href: chatHref(client, c.id),
-    label: c.title !== '' ? c.title : nameOf('chats', c.id),
-    icon: 'chats' as const,
-  }))
 }
 

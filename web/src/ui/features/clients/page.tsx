@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import { api, type GatewayConfig } from '../../../api/client'
 import { useLoader } from '../../hooks'
-import { CLIENT_PAGES, PAGE_ICONS, type ClientPageId } from '../../route'
+import { CHAT_PAGES, CLIENT_PAGES, PAGE_ICONS, type ChatPageId, type ClientPageId } from '../../route'
 import { nameOf } from '../../names'
 import { DetailHeader } from '../detail'
 import { ChatsPage } from '../chats'
-import { ChatView } from '../chats/chat'
+import { ChatPage } from '../chats/chat'
 import RequestsPanel from '../requests'
 import { KeyModels } from '../models/switches'
 import { Card, Empty, ErrorBanner, Figures, Loading, Note, Page } from '../../primitives'
@@ -29,12 +29,14 @@ export function ClientPage({
   id,
   page,
   chat = '',
+  chatPage = '',
   config,
 }: {
   id: string
   page: ClientPageId
-  /** One chat of its own, on its Chats page. */
+  /** One chat of its own, on its Chats page, and which page of the chat. */
   chat?: string
+  chatPage?: ChatPageId | ''
   /** The gateway's configuration, for the address its files name. */
   config: GatewayConfig | null
 }) {
@@ -66,7 +68,11 @@ export function ClientPage({
     '': () => <ClientOverview client={client} types={types} config={config} onChanged={changed} />,
     usage: () => <ClientUsage client={client} onChanged={changed} />,
     chats: () =>
-      chat !== '' ? <ChatView key={chat} client={client.id} id={chat} /> : <ChatsPage scope={{ key: client.id }} />,
+      chat !== '' ? (
+        <ChatPage key={chat} client={client.id} id={chat} page={chatPage} />
+      ) : (
+        <ChatsPage scope={{ key: client.id }} />
+      ),
     requests: () => <RequestsPanel scope={{ key: client.id }} />,
     models: () => <ClientModels client={client} config={config} onChanged={changed} />,
   }
@@ -120,8 +126,13 @@ export function ClientPage({
           overview
             ? undefined
             : {
-                label: chat !== '' ? nameOf('chats', chat) : (CLIENT_PAGES.find((p) => p.id === page)?.label ?? ''),
-                icon: PAGE_ICONS[page],
+                label:
+                  chat === ''
+                    ? (CLIENT_PAGES.find((p) => p.id === page)?.label ?? '')
+                    : chatPage === ''
+                      ? nameOf('chats', chat)
+                      : (CHAT_PAGES.find((p) => p.id === chatPage)?.label ?? ''),
+                icon: PAGE_ICONS[chat !== '' && chatPage !== '' ? chatPage : page],
               }
         }
       />

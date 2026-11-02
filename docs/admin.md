@@ -30,12 +30,16 @@ answers, each part of a stream timed. A recorded request opens from the
 request log with a Content section: each body as a conversation — read into
 Anthropic Messages, the form every API is translated through, so Claude Code,
 Codex and gemini-cli read alike — or raw, and downloadable as HAR for browser
-developer tools, Charles or Fiddler. A chat's own page
-(`/clients/<id>/chats/<chat>`, from its name in the client's Chats) reads it
-forwards: each request with what it added to
-the conversation — the messages new since the turn before, and its answer —
-so a recorded chat reads as a transcript. `?request=<row>` opens it on one
-request, which is where a request's dialog links with *Open in its chat*.
+developer tools, Charles or Fiddler. A chat has pages of
+its own, from its name in the client's Chats: its overview
+(`/clients/<id>/chats/<chat>`) — its figures, the models it ran on by the
+names it asked by, and its context curve — then **Requests**, every request a
+line each, and **Transcript**, each recorded request as what it added to the
+conversation — the messages new since the turn before — and its answer. Both
+lists scroll in a box of their own and draw only what is in view;
+`?request=<row>` opens them on one request, which is where a request's dialog
+links with *Open in its chat*. The chat's crumb lists the client's other
+chats.
 It is held in memory only
 (`internal/service/capture`): never in the database or a backup, cleared by a
 restart or an update, credentials taken out of every header, each body cut at

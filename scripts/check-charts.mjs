@@ -303,15 +303,18 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('and only under Chats', canonical('/clients/c1/usage/sess-1'), '/clients/c1/usage')
   check('a chat is a step of the trail', trail('/clients/c1/chats/sess-1'),
     ['Overview', 'Clients', 'clients:c1', 'Chats', 'chats:sess-1'])
-  // Its rail is a level down: back to the client's Chats, the chats beside it.
+  // A chat is an item with pages: back to the client's Chats, its pages beside it.
   const chatLvl = navLevel('/clients/c1/chats/sess-1')
   check('a chat goes back to its Chats', [chatLvl.back.href, chatLvl.back.label], ['/clients/c1/chats', 'Chats'])
-  check('and is current itself', chatLvl.current, '/clients/c1/chats/sess-1')
-  check('with no chats read yet it is the one entry', chatLvl.items.map((i) => i.href), ['/clients/c1/chats/sess-1'])
-  const others = [{ href: '/clients/c1/chats/sess-2', label: 'two' }, { href: '/clients/c1/chats/sess-1', label: 'one' }]
-  check('the chats read are listed as they came', navLevel('/clients/c1/chats/sess-1', others).items.map((i) => i.label), ['two', 'one'])
-  check('one not among them goes first', navLevel('/clients/c1/chats/sess-9', others).items.map((i) => i.href),
-    ['/clients/c1/chats/sess-9', '/clients/c1/chats/sess-2', '/clients/c1/chats/sess-1'])
+  check('its pages are its entries', chatLvl.items.map((i) => i.href),
+    ['/clients/c1/chats/sess-1/requests', '/clients/c1/chats/sess-1/transcript'])
+  check('on its overview no entry is current', chatLvl.current, '/clients/c1/chats/sess-1')
+  check('a chat page is canonical', canonical('/clients/c1/chats/sess-1/transcript'), '/clients/c1/chats/sess-1/transcript')
+  check('a page it does not have is its overview', canonical('/clients/c1/chats/sess-1/usage'), '/clients/c1/chats/sess-1')
+  check('a chat page is a step of the trail', trail('/clients/c1/chats/sess-1/requests'),
+    ['Overview', 'Clients', 'clients:c1', 'Chats', 'chats:sess-1', 'Requests'])
+  check('its crumb offers the client\'s chats, on the same page',
+    trailOf('/clients/c1/chats/sess-1/requests', name)[4].siblings, { kind: 'chats', client: 'c1', page: 'requests' })
 }
 
 console.log('\n— client specs: a slot\'s binding is one menu value —')

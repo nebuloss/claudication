@@ -42,7 +42,7 @@ export function RequestDetail({
   // client's, so only for a request that names both.
   const chat =
     !inChat && row.conversation_id !== undefined && row.conversation_id !== '' && row.key_id !== undefined && row.key_id !== ''
-      ? chatHref(row.key_id, row.conversation_id, row.id)
+      ? chatHref(row.key_id, row.conversation_id, (row.capture ?? 0) > 0 ? 'transcript' : 'requests', row.id)
       : ''
   return (
     // Wider with a recording: its bodies are code, and read best unwrapped.

@@ -1,70 +1,53 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type ChatTurn, type RequestRow } from '../../../api/client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { api, type ChatDetail, type ChatTurn, type RequestRow } from '../../../api/client'
 import { READS } from '../../../api/live'
 import { useLoader } from '../../hooks'
-import { millis, timeOfDay } from '../../format'
-import { clientHref } from '../../route'
+import { between, compact, dateTime, millis, timeOfDay } from '../../format'
+import { chatHref, clientHref, type ChatPageId } from '../../route'
 import { nameItem } from '../../names'
-import { AppLink, Button, ErrorState, Loading, Muted, Note, Stack, Switch, VirtualList } from '../../primitives'
+import {
+  AppLink,
+  Button,
+  Card,
+  ErrorState,
+  Loading,
+  Muted,
+  Note,
+  Stack,
+  Stat,
+  StatGrid,
+  VirtualList,
+} from '../../primitives'
+import ChatContextDetail from './context'
 import { Conversation } from '../requests/conversation'
 import { RequestDetail } from '../requests/detail'
 import { RequestRecord } from '../requests/record'
 import { StatusChip } from '../requests/row'
 
 /**
- * One chat of a client's, read forwards:
- * each of its requests, oldest first. A request recorded while its client
- * was being recorded (internal/service/capture) shows what it added to the
- * conversation — the messages new since the turn before, and its answer —
- * so a recorded chat reads as a transcript; one that was not is a line with
- * its outcome. Every request opens its full record, as in the request log.
+ * One chat of a client's, as an item with pages of its own (route.ts,
+ * CHAT_PAGES):
  *
- * ?request=<row> opens on one of them, which is how the request log's
- * dialog sends someone to the request's place in its chat.
+ *   /clients/<id>/chats/<chat>             what it is: its figures, the
+ *                                           models it ran on by the names it
+ *                                           asked by, and its context curve
+ *   …/requests                             every request, a line each
+ *   …/transcript                           the recorded ones, as what each
+ *                                           added to the conversation
  *
- * A chat runs to hundreds of requests, so they are one scrolling list that
- * draws only the rows in view (VirtualList), opened at the latest or at the
- * request asked for, and only the drawn rows' turns are read from their
- * recordings. Turns read once are kept while the page is open: a recording
- * never changes. The Transcript switch above it shows or hides what each
- * turn said, leaving the requests as one line each to scan.
+ * The two lists are one scrolling box each that draws only the rows in view
+ * (VirtualList), opened at the latest or at ?request=<row>, which is how the
+ * request log's dialog sends someone to a request's place in its chat.
  */
-export function ChatView({ client, id }: { client: string; id: string }) {
-  const focus = Number(new URLSearchParams(window.location.search).get('request') ?? '') || 0
+export function ChatPage({ client, id, page }: { client: string; id: string; page: ChatPageId | '' }) {
   const chat = useLoader((signal) => api.traffic.chat(id, signal), { deps: [id], on: READS.chat })
-  const [shown, setShown] = useState<RequestRecord | null>(null)
   const rows = chat.data?.requests ?? []
-  const [transcript, setTranscript] = useState(readTranscriptSwitch)
-  const switchTranscript = (on: boolean) => {
-    setTranscript(on)
-    try {
-      localStorage.setItem(TRANSCRIPT_KEY, on ? '1' : '0')
-    } catch {
-      // Remembered where the browser allows it; the switch works either way.
-    }
-  }
-
-  // The window drawn, as the rows' ids at its two ends; its turns are read
-  // for it, and only when it holds a recorded request.
-  const [range, setRange] = useState<[number, number]>([0, 0])
-  const onRange = useCallback((start: number, end: number) => setRange([start, end]), [])
-  const inWindow = rows.slice(range[0], range[1])
-  const from = inWindow[0]?.id ?? 0
-  const to = inWindow[inWindow.length - 1]?.id ?? 0
-  const wanted = transcript && inWindow.some((r) => (r.capture ?? 0) > 0)
-  const read = useLoader(
-    (signal) => (wanted ? api.traffic.chatTranscript(id, from, to, signal) : Promise.resolve({ id, turns: [] })),
-    { deps: [id, from, to, wanted], on: READS.chat },
-  )
-  const kept = useRef(new Map<number, ChatTurn>())
-  for (const t of read.data?.turns ?? []) kept.current.set(t.event, t)
-  const turns = kept.current
 
   // Named for the header, the trail and the rail, which are drawn above it.
-  const named = rows.find((r) => r.chat_title !== undefined && r.chat_title !== '')?.chat_title ?? ''
+  const title = rows.find((r) => r.chat_title !== undefined && r.chat_title !== '')?.chat_title ?? ''
   useEffect(() => {
-    if (named !== '') nameItem('chats', id, named)
-  }, [id, named])
+    if (title !== '') nameItem('chats', id, title)
+  }, [id, title])
 
   if (chat.loading && chat.data === null) return <Loading>Reading the chat…</Loading>
   if (chat.data === null) {
@@ -76,81 +59,222 @@ export function ChatView({ client, id }: { client: string; id: string }) {
       />
     )
   }
+  if (page === 'requests') return <ChatRequests rows={rows} />
+  if (page === 'transcript') return <ChatTranscript client={client} id={id} rows={rows} />
+  return <ChatOverview client={client} id={id} detail={chat.data} title={title} />
+}
 
-  const title = rows.find((r) => r.chat_title !== undefined && r.chat_title !== '')?.chat_title ?? ''
+/** The request asked for by ?request=, or 0. */
+function focusOf(): number {
+  return Number(new URLSearchParams(window.location.search).get('request') ?? '') || 0
+}
+
+function tokensOf(r: RequestRow): number {
+  return r.input_tokens + r.output_tokens + r.cache_tokens
+}
+
+/** One model a chat ran on, by the name it was asked by. */
+type ModelUse = { asked: string; model: string; provider: string; requests: number; tokens: number }
+
+/**
+ * What the chat is: its figures, the models it ran on — each by the name the
+ * client asked for, which is the client's own binding, and the real model
+ * that served — and how its context grew. All of it from the chat's rows.
+ */
+function ChatOverview({
+  client,
+  id,
+  detail,
+  title,
+}: {
+  client: string
+  id: string
+  detail: ChatDetail
+  title: string
+}) {
+  const rows = detail.requests
   const recorded = rows.filter((r) => (r.capture ?? 0) > 0).length
+  const failed = rows.filter((r) => r.status === 0 || r.status >= 400).length
+  const sum = (f: (r: RequestRow) => number) => rows.reduce((n, r) => n + f(r), 0)
+  const first = rows[0]?.at ?? ''
+  const last = rows[rows.length - 1]?.at ?? ''
+  const ctx = detail.context
+
+  const models = useMemo(() => {
+    const by = new Map<string, ModelUse>()
+    for (const r of rows) {
+      const model = r.model ?? ''
+      const asked = r.virtual_model ?? ''
+      const key = `${asked}\u0000${model}`
+      const u = by.get(key) ?? { asked, model, provider: r.provider ?? '', requests: 0, tokens: 0 }
+      u.requests++
+      u.tokens += tokensOf(r)
+      by.set(key, u)
+    }
+    return [...by.values()].sort((a, b) => b.tokens - a.tokens)
+  }, [rows])
 
   return (
     <Stack>
-      {/* The header above names the chat; this is what it is beyond its name. */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <Muted>
           {title === '' && 'Unnamed · '}
-          <code className="break-all">{id}</code> · {rows.length} {rows.length === 1 ? 'request' : 'requests'}
-          {recorded > 0 && `, ${String(recorded)} recorded`}
+          <code className="break-all">{id}</code>
         </Muted>
         <AppLink href={`${clientHref(client)}/chats`}>All chats</AppLink>
       </div>
-      {recorded === 0 && (
+
+      <StatGrid>
+        <Stat
+          label="Requests"
+          value={<AppLink href={chatHref(client, id, 'requests')}>{rows.length}</AppLink>}
+          hint={failed > 0 ? `${String(failed)} failed` : 'none failed'}
+          tone={failed > 0 ? 'warn' : undefined}
+        />
+        <Stat
+          label="Tokens"
+          value={compact(sum(tokensOf))}
+          hint={`${compact(sum((r) => r.input_tokens))} in · ${compact(sum((r) => r.output_tokens))} out · ${compact(sum((r) => r.cache_tokens))} cached`}
+        />
+        <Stat
+          label="Context"
+          value={ctx.model !== '' ? compact(ctx.now) : '—'}
+          hint={
+            ctx.model !== ''
+              ? `peak ${compact(ctx.peak)} · ${ctx.compactions > 0 ? `${String(ctx.compactions)}× compacted` : 'never compacted'}`
+              : 'no request succeeded'
+          }
+        />
+        <Stat
+          label="Span"
+          value={first !== '' ? between(first, last) : '—'}
+          hint={first !== '' ? `${dateTime(first)} → ${timeOfDay(last)}` : undefined}
+        />
+      </StatGrid>
+
+      <Card title="Models">
+        {models.length === 0 ? (
+          <Muted>No request named a model.</Muted>
+        ) : (
+          <div className="divide-y divide-outline-variant">
+            {models.map((m) => (
+              <div key={`${m.asked}/${m.model}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 text-sm">
+                {/* The name the client asked by, which its binding turned into
+                    the model that served; a direct name is the model itself. */}
+                {m.asked !== '' && m.asked !== m.model && (
+                  <>
+                    <code className="text-on-surface">{m.asked}</code>
+                    <Muted as="span">→</Muted>
+                  </>
+                )}
+                <code className="text-on-surface">{m.model || '—'}</code>
+                {m.provider !== '' && <Muted as="span">{m.provider}</Muted>}
+                <span className="flex-grow" />
+                <span className="tabular-nums text-on-surface">{m.requests}</span>
+                <Muted as="span">{m.requests === 1 ? 'request' : 'requests'}</Muted>
+                <span className="tabular-nums text-on-surface">{compact(m.tokens)}</span>
+                <Muted as="span">tokens</Muted>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Context">
+        <ChatContextDetail id={id} colour="var(--color-primary)" />
+      </Card>
+
+      {recorded > 0 ? (
+        <Muted>
+          {recorded} of its requests were recorded:{' '}
+          <AppLink href={chatHref(client, id, 'transcript')}>read the transcript</AppLink>.
+        </Muted>
+      ) : (
         <Note>
-          None of these requests was recorded, so what they said is not here: switch on{' '}
-          <strong>Record content</strong> on the <AppLink href={clientHref(client)}>client&rsquo;s overview</AppLink>{' '}
-          and its next turns read as a transcript.
+          None of its requests was recorded, so what they said is not here: switch on <strong>Record content</strong>{' '}
+          on the <AppLink href={clientHref(client)}>client&rsquo;s overview</AppLink> and its next turns read as a
+          transcript.
         </Note>
       )}
-
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <Switch
-            checked={transcript}
-            onChange={switchTranscript}
-            label="Transcript"
-            disabled={recorded === 0}
-          />
-          <Muted as="span" size="xs">
-            {recorded === 0
-              ? 'Nothing recorded to show.'
-              : transcript
-                ? 'What each recorded request added, and its answer.'
-                : 'One line per request.'}
-          </Muted>
-        </div>
-        {rows.length > 0 && (
-          <VirtualList
-            items={rows}
-            keyOf={rowKey}
-            label="The chat's requests"
-            estimate={transcript && recorded > 0 ? 160 : 52}
-            focus={focus === 0 ? undefined : rows.findIndex((r) => r.id === focus)}
-            onRange={onRange}
-            render={(row) => (
-              <Turn
-                row={row}
-                turn={transcript ? turns.get(row.id) : undefined}
-                focused={row.id === focus}
-                onOpen={() => setShown(new RequestRecord(row))}
-              />
-            )}
-          />
-        )}
-      </div>
-
-      {shown !== null && <RequestDetail record={shown} onClose={() => setShown(null)} inChat />}
     </Stack>
   )
 }
 
 const rowKey = (row: RequestRow) => String(row.id)
 
-/** Where the Transcript switch is remembered, per browser. */
-const TRANSCRIPT_KEY = 'claudication.chat.transcript'
+/** Every request of the chat, a line each, oldest first. */
+function ChatRequests({ rows }: { rows: RequestRow[] }) {
+  const [shown, setShown] = useState<RequestRecord | null>(null)
+  const focus = focusOf()
+  return (
+    <>
+      <VirtualList
+        items={rows}
+        keyOf={rowKey}
+        label="The chat's requests"
+        estimate={52}
+        focus={focus === 0 ? undefined : rows.findIndex((r) => r.id === focus)}
+        render={(row) => (
+          <Turn row={row} focused={row.id === focus} onOpen={() => setShown(new RequestRecord(row))} />
+        )}
+      />
+      {shown !== null && <RequestDetail record={shown} onClose={() => setShown(null)} inChat />}
+    </>
+  )
+}
 
-function readTranscriptSwitch(): boolean {
-  try {
-    return localStorage.getItem(TRANSCRIPT_KEY) !== '0'
-  } catch {
-    return true
+/**
+ * The recorded requests of the chat, each as what it added to the
+ * conversation and its answer. Only the turns of the rows drawn are read from
+ * their recordings, and each is kept once read: a recording never changes.
+ */
+function ChatTranscript({ client, id, rows }: { client: string; id: string; rows: RequestRow[] }) {
+  const [shown, setShown] = useState<RequestRecord | null>(null)
+  const focus = focusOf()
+  const recorded = useMemo(() => rows.filter((r) => (r.capture ?? 0) > 0), [rows])
+
+  const [range, setRange] = useState<[number, number]>([0, 0])
+  const onRange = useCallback((start: number, end: number) => setRange([start, end]), [])
+  const inWindow = recorded.slice(range[0], range[1])
+  const from = inWindow[0]?.id ?? 0
+  const to = inWindow[inWindow.length - 1]?.id ?? 0
+  const read = useLoader(
+    (signal) => (from !== 0 ? api.traffic.chatTranscript(id, from, to, signal) : Promise.resolve({ id, turns: [] })),
+    { deps: [id, from, to], on: READS.chat },
+  )
+  const kept = useRef(new Map<number, ChatTurn>())
+  for (const t of read.data?.turns ?? []) kept.current.set(t.event, t)
+
+  if (recorded.length === 0) {
+    return (
+      <Note>
+        None of this chat&rsquo;s requests was recorded: switch on <strong>Record content</strong> on the{' '}
+        <AppLink href={clientHref(client)}>client&rsquo;s overview</AppLink>, and its next turns read here. A recording
+        is held in memory and lost when the gateway restarts.
+      </Note>
+    )
   }
+  return (
+    <>
+      <VirtualList
+        items={recorded}
+        keyOf={rowKey}
+        label="The chat's transcript"
+        estimate={200}
+        focus={focus === 0 ? undefined : recorded.findIndex((r) => r.id === focus)}
+        onRange={onRange}
+        render={(row) => (
+          <Turn
+            row={row}
+            turn={kept.current.get(row.id)}
+            focused={row.id === focus}
+            onOpen={() => setShown(new RequestRecord(row))}
+          />
+        )}
+      />
+      {shown !== null && <RequestDetail record={shown} onClose={() => setShown(null)} inChat />}
+    </>
+  )
 }
 
 function Turn({
@@ -160,15 +284,13 @@ function Turn({
   onOpen,
 }: {
   row: RequestRow
-  turn: ChatTurn | undefined
+  turn?: ChatTurn
   focused: boolean
   onOpen: () => void
 }) {
   const record = new RequestRecord(row)
   return (
-    <section
-      className={`rounded-md3-l bg-surface-container p-3 ${focused ? 'ring-2 ring-inset ring-primary' : ''}`}
-    >
+    <section className={`rounded-md3-l bg-surface-container p-3 ${focused ? 'ring-2 ring-inset ring-primary' : ''}`}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <span className="tabular-nums text-on-surface-variant">{timeOfDay(row.at, 'second')}</span>
         <StatusChip record={record} />
