@@ -216,12 +216,12 @@ check('an account has no chats: a chat is a client\'s', canonical('/accounts/a1/
 check('a client has', canonical('/clients/c1/chats'), '/clients/c1/chats')
 check('and its usage, limits beside it', canonical('/clients/c1/usage'), '/clients/c1/usage')
 check('an unknown page is its overview', canonical('/clients/c1/nonesuch'), '/clients/c1')
-check('gateway is its own overview', canonical('/gateway'), '/gateway')
-check('its tables are pages', canonical('/gateway/models'), '/gateway/models')
-check('the request log too', canonical('/gateway/requests'), '/gateway/requests')
-check('chats are not on gateway', canonical('/gateway/chats'), '/gateway')
+check('traffic is its own overview', canonical('/traffic'), '/traffic')
+check('its tables are pages', canonical('/traffic/models'), '/traffic/models')
+check('the request log too', canonical('/traffic/requests'), '/traffic/requests')
+check('chats are not on traffic', canonical('/traffic/chats'), '/traffic')
 // Its overview is its own path, not a page named overview under it.
-check('nor an overview page', canonical('/gateway/overview'), '/gateway')
+check('nor an overview page', canonical('/traffic/overview'), '/traffic')
 // Ids are encoded once, whatever they hold.
 check('an id is kept encoded', canonical('/clients/a%2Fb'), '/clients/a%2Fb')
 check('and decoded when read', segments('/clients/a%2Fb/usage'), ['clients', 'a/b', 'usage'])
@@ -232,7 +232,7 @@ check('a page names its screen', tab('/accounts/8189e5dc/connection'), 'accounts
 check('a client page too', tab('/clients/c1/requests'), 'clients')
 // Round trip: every canonical path is its own canonical form.
 {
-  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/gateway/models', '/gateway/accounts', '/gateway/requests', '/settings', '/settings/models']
+  const fixed = ['/', '/accounts', '/accounts/x', '/accounts/x/usage', '/clients/x/models', '/traffic/models', '/traffic/accounts', '/traffic/requests', '/settings', '/settings/models']
   check('canonical paths are fixed points', fixed.map((p) => canonical(p)), fixed)
 }
 
@@ -245,13 +245,13 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
 
   check('the top level has no way up', lvl('/').back, undefined)
   // The overview is the root itself, reached by the trail's first step.
-  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'Clients', 'Gateway', 'Settings'])
+  check('it lists the screens', lvl('/').items.map((i) => i.label), ['Accounts', 'Clients', 'Traffic', 'Settings'])
   check('a list is on the top level', lvl('/clients').current, '/clients')
-  check('gateway opens on its overview', hrefs(lvl('/'))[2], '/gateway')
-  check('gateway lists its four pages', hrefs(lvl('/gateway/clients')), [
-    '/gateway/models', '/gateway/clients', '/gateway/accounts', '/gateway/requests',
+  check('traffic opens on its overview', hrefs(lvl('/'))[2], '/traffic')
+  check('traffic lists its four pages', hrefs(lvl('/traffic/clients')), [
+    '/traffic/models', '/traffic/clients', '/traffic/accounts', '/traffic/requests',
   ])
-  check('and the page open is current', lvl('/gateway/clients').current, '/gateway/clients')
+  check('and the page open is current', lvl('/traffic/clients').current, '/traffic/clients')
   check('an account lists its pages in a client\'s order', hrefs(lvl('/accounts/a1/usage')), [
     '/accounts/a1/usage', '/accounts/a1/models',
     '/accounts/a1/requests', '/accounts/a1/connection', '/accounts/a1/advanced',
@@ -262,17 +262,17 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   check('on its overview none is current', lvl('/accounts/a1').current, '/accounts/a1')
   check('a setting is current like any page', lvl('/clients/c1/models').current, '/clients/c1/models')
   check('and goes back to the list, drawn as it', lvl('/clients/c1/usage').back, { href: '/clients', label: 'Clients', icon: 'clients' })
-  check('a section goes back to the overview, named so', lvl('/gateway/models').back, { href: '/', label: 'Overview', icon: 'home' })
+  check('a section goes back to the overview, named so', lvl('/traffic/models').back, { href: '/', label: 'Overview', icon: 'home' })
   // A crumb offers its siblings: the sections, or the other items on the same page.
-  check('a section crumb offers the sections', trailOf(canonical('/gateway/models'), name)[1].siblings, { kind: 'sections' })
+  check('a section crumb offers the sections', trailOf(canonical('/traffic/models'), name)[1].siblings, { kind: 'sections' })
   check('an item crumb offers the others, on its page',
     trailOf(canonical('/accounts/a1/models'), name)[2].siblings, { kind: 'accounts', page: 'models' })
-  // Settings lists its pages, as Gateway does, with the way back.
+  // Settings lists its pages, as Traffic does, with the way back.
   check('settings opens on its general view from the top level', hrefs(lvl('/'))[3], '/settings')
   check('settings lists its pages', hrefs(lvl('/settings/models')), ['/settings/models', '/settings/configuration', '/settings/diagnostics'])
   // Every entry of every rail leads with a glyph: a page added to a section
   // without one in PAGE_ICONS would be the one bare row.
-  for (const path of ['/', '/accounts/a1/usage', '/clients/c1/usage', '/gateway/models', '/settings/models']) {
+  for (const path of ['/', '/accounts/a1/usage', '/clients/c1/usage', '/traffic/models', '/settings/models']) {
     check(`every entry under ${path} has an icon`, lvl(path).items.filter((i) => i.icon === undefined).map((i) => i.label), [])
   }
   check('the page open is current', lvl('/settings/models').current, '/settings/models')
@@ -286,16 +286,16 @@ check('a client page too', tab('/clients/c1/requests'), 'clients')
   // and the item's do not.
   check('only the section crumb has an icon',
     trailOf(canonical('/accounts/a1/usage'), name).map((c) => c.icon ?? ''), ['', 'accounts', '', ''])
-  check('a gateway page too', trailOf(canonical('/gateway/requests'), name).map((c) => c.icon ?? ''), ['', 'gateway', ''])
+  check('a traffic page too', trailOf(canonical('/traffic/requests'), name).map((c) => c.icon ?? ''), ['', 'traffic', ''])
   check('a list', trail('/clients'), ['Overview', 'Clients'])
   check('settings is its own step', trail('/settings'), ['Overview', 'Settings'])
   check('a settings page', trail('/settings/models'), ['Overview', 'Settings', 'Models'])
   check('a client is its name, not its name then Overview', trail('/clients/c1'), ['Overview', 'Clients', 'clients:c1'])
   check('a page of an account', trail('/accounts/a1/connection'), ['Overview', 'Accounts', 'accounts:a1', 'Connection'])
-  check('a gateway page', trail('/gateway/requests'), ['Overview', 'Gateway', 'Requests'])
-  // Its overview is Gateway itself, so the trail stops there.
-  check('gateway is its own step', trail('/gateway'), ['Overview', 'Gateway'])
-  check('nothing is current on its overview', lvl('/gateway').current, '/gateway')
+  check('a traffic page', trail('/traffic/requests'), ['Overview', 'Traffic', 'Requests'])
+  // Its overview is Traffic itself, so the trail stops there.
+  check('traffic is its own step', trail('/traffic'), ['Overview', 'Traffic'])
+  check('nothing is current on its overview', lvl('/traffic').current, '/traffic')
   check('the item step is its overview', trailOf('/clients/c1/usage', name)[2].href, '/clients/c1')
 }
 
@@ -509,7 +509,7 @@ console.log('\nâ€” RequestFilter: the URL is the filter, and survives the trip â
   check('one account opens its own Requests page',
     requestsHref({ account: ['acc 1'], status: 'failed' }), '/accounts/acc%201/requests?status=failed')
   check('one client too', requestsHref({ key: ['k'] }), '/clients/k/requests')
-  check('both stay on Gateway', requestsHref({ key: ['k'], account: ['a'] }), '/gateway/requests?key=k&account=a')
+  check('both stay on Traffic', requestsHref({ key: ['k'], account: ['a'] }), '/traffic/requests?key=k&account=a')
   const scope = { key: 'k' }
   const scoped = RequestFilter.of({ model: ['m'] }).scopedTo(scope)
   check('a scope is applied', scoped.values('key'), ['k'])

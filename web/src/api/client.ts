@@ -383,7 +383,7 @@ const traffic = {
 
   /**
    * Every client's traffic by account, model name and model, and each
-   * client's share of the windows: Gateway's Models, Clients and Accounts
+   * client's share of the windows: Traffic's Models, Clients and Accounts
    * tables are all folded from these rows.
    */
   slots: async (days: number, signal?: AbortSignal) => {

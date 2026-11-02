@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Accounts from './features/accounts'
 import AccountPage from './features/accounts/page'
-import Gateway from './features/gateway'
+import Traffic from './features/traffic'
 import Clients, { ClientPage } from './features/clients'
 import Overview from './features/overview'
 import Settings from './features/settings'
@@ -12,7 +12,7 @@ import { nameOf, useNames } from './names'
 import { SessionProvider } from './session'
 import {
   ACCOUNT_PAGES,
-  GATEWAY_PAGES,
+  TRAFFIC_PAGES,
   CLIENT_PAGES,
   SECTION_LINKS,
   SETTINGS_PAGES,
@@ -55,7 +55,7 @@ type State =
   | { phase: 'in'; session: Session }
 
 // Every page is a path, and the path is the tree: route.ts lists it, and
-// completes a path that names a branch (/gateway) to the branch's first page.
+// completes a path that names a branch (/traffic) to the branch's first page.
 
 /**
  * Screens that earn more than the reading width.
@@ -278,7 +278,7 @@ export default function App() {
                 ) : (
                   <ClientPage key={item} id={item} page={pageIdOf(CLIENT_PAGES, page)} config={config.data} />
                 ))}
-              {tab === 'gateway' && <Gateway page={pageIdOf(GATEWAY_PAGES, item)} />}
+              {tab === 'traffic' && <Traffic page={pageIdOf(TRAFFIC_PAGES, item)} />}
               {tab === 'settings' && (
                 <Settings
                   page={pageIdOf(SETTINGS_PAGES, item)}

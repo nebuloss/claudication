@@ -6,11 +6,11 @@ import { PerMinute } from '../usage/live'
 import { READS } from '../../../api/live'
 
 /**
- * Gateway's own page: its load this last hour, before the pages under it
+ * Traffic's own page: its load this last hour, before the pages under it
  * break the traffic down; the requests by outcome are on Requests, above the
  * log they lead into, and whether it has been up is on the Overview.
  */
-export default function GatewayOverview() {
+export default function TrafficOverview() {
   return (
     <Stack>
       <LastHour />

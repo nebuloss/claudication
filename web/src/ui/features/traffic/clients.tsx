@@ -2,7 +2,7 @@ import type { SubscriptionShare } from '../../../api/client'
 import { Muted } from '../../primitives'
 import { PROVIDERS, providerLabel } from '../../providers'
 import { ClientTable, type ShareColumn } from '../usage/tables'
-import { GatewayUsage } from './slots'
+import { TrafficUsage } from './slots'
 
 /**
  * Usage by client across the gateway: the same table as an account's Usage
@@ -10,9 +10,9 @@ import { GatewayUsage } from './slots'
  * provider's pooled windows — the estimate its own page shows — and unfolded
  * to the model names and models it used.
  */
-export default function GatewayClients() {
+export default function TrafficClients() {
   return (
-    <GatewayUsage by="key">
+    <TrafficUsage by="key">
       {({ rows, shares }) => {
         const columns = poolColumns(shares)
         return (
@@ -31,7 +31,7 @@ export default function GatewayClients() {
           </>
         )
       }}
-    </GatewayUsage>
+    </TrafficUsage>
   )
 }
 

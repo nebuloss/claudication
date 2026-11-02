@@ -7,7 +7,7 @@ import { Outcomes } from './outcomes'
  * log keeps its filters in the query string, so a link to a filtered log
  * lands here.
  */
-export default function GatewayRequests() {
+export default function TrafficRequests() {
   return (
     <Stack>
       <Outcomes />

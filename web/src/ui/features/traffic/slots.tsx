@@ -7,7 +7,7 @@ import { Traffic, type Dimension } from '../usage/traffic'
 import { READS } from '../../../api/live'
 
 /**
- * The windows Gateway is read over: a week, a fortnight, a month — one
+ * The windows Traffic is read over: a week, a fortnight, a month — one
  * picker per page, driving its chart and its table together, so the lines
  * and the rows under them are the same days.
  *
@@ -21,13 +21,13 @@ export const WINDOWS = [7, 14, 30] as const
 /** Open on a week: what a table of where the traffic went is usually asked over. */
 export const DEFAULT_DAYS = 7
 
-export type GatewaySlots = { rows: SlotUse[]; shares: Record<string, SubscriptionShare> }
+export type TrafficSlots = { rows: SlotUse[]; shares: Record<string, SubscriptionShare> }
 
 /** What the chart's lines are, as its title names them. */
 const NOUN: Record<Exclude<Dimension, 'status'>, string> = { model: 'model', key: 'client', account: 'account' }
 
 /**
- * One of Gateway's breakdowns: the traffic over the window by the same names
+ * One of Traffic's breakdowns: the traffic over the window by the same names
  * as the table, in a card with the window picker and the freshness, then the
  * table in a card of its own (TableCard), drawn by the page from the
  * gateway-wide rows — as the request log sits under its outcomes. The
@@ -40,7 +40,7 @@ const NOUN: Record<Exclude<Dimension, 'status'>, string> = { model: 'model', key
  * `always` is for a page that has rows to show with no traffic at all — the
  * accounts, each with its windows — so an idle week is not an empty page.
  */
-export function GatewayUsage({
+export function TrafficUsage({
   by,
   always = false,
   children,
@@ -48,7 +48,7 @@ export function GatewayUsage({
   /** The breakdown the chart draws: the names the table lists. */
   by: Exclude<Dimension, 'status'>
   always?: boolean
-  children: (data: GatewaySlots, days: number) => ReactNode
+  children: (data: TrafficSlots, days: number) => ReactNode
 }) {
   const [days, setDays] = useState<number>(DEFAULT_DAYS)
   const { data, error, loading, reload, refreshing, updatedAt } = useLoader(

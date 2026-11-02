@@ -7,7 +7,7 @@ import { planLabel, providerLabel } from '../../providers'
 import { byTokens, emptyRollup, rollup, type Rollup } from '../usage/rollup'
 import { ClientTable, ShareNote, TokenSplit, UsageTable, accountShareColumns } from '../usage/tables'
 import { QuotaGauges } from '../accounts/quota-meter'
-import { GatewayUsage } from './slots'
+import { TrafficUsage } from './slots'
 import { READS } from '../../../api/live'
 import { MarkTile, ProviderMark } from '../../brands'
 
@@ -25,7 +25,7 @@ type AccountUse = Rollup & { account?: Account; name: string }
  * account since removed is listed by the name its history kept, for as long
  * as it has traffic in the window.
  */
-export default function GatewayAccounts() {
+export default function TrafficAccounts() {
   const list = useLoader((signal) => api.accounts.list(signal), { on: READS.accounts })
   const accounts = list.data?.accounts ?? null
   if (accounts === null) {
@@ -36,7 +36,7 @@ export default function GatewayAccounts() {
     )
   }
   return (
-    <GatewayUsage by="account" always={accounts.length > 0}>
+    <TrafficUsage by="account" always={accounts.length > 0}>
       {({ rows, shares }) => {
         const used = new Map(rollup(rows, (r) => r.account_id ?? '').map((u) => [u.id, u]))
         const out: AccountUse[] = accounts.map((a) => ({
@@ -105,7 +105,7 @@ export default function GatewayAccounts() {
           />
         )
       }}
-    </GatewayUsage>
+    </TrafficUsage>
   )
 }
 

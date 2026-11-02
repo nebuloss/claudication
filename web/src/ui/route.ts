@@ -8,9 +8,9 @@
  *   /accounts/<id>                      one account's overview
  *   /accounts/<id>/<page>               its traffic and its settings, side by side
  *   /clients … the same shape, for clients
- *   /gateway                           the gateway's load: the last hour, and
+ *   /traffic                           the gateway's load: the last hour, and
  *                                       its requests by outcome over days
- *   /gateway/<page>                    its traffic by model, by client, by
+ *   /traffic/<page>                    its traffic by model, by client, by
  *                                       account, and the request log
  *   /settings/<page>                    the gateway's own settings: General
  *                                       (the gateway switch, the admin
@@ -18,7 +18,7 @@
  *
  * So a link, a bookmark and Back all land on a page, never on "whatever
  * sub-tab was open last". Each level's overview is the level itself — the
- * root, an account's own path, /gateway — rather than a page named Overview
+ * root, an account's own path, /traffic — rather than a page named Overview
  * under it, so the trail never says Overview twice over.
  *
  * Pure: string in, string out, no window. Kept apart from the hooks because
@@ -47,7 +47,7 @@ export const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'accounts', label: 'Accounts', icon: 'accounts' },
   { id: 'clients', label: 'Clients', icon: 'clients' },
-  { id: 'gateway', label: 'Gateway', icon: 'gateway' },
+  { id: 'traffic', label: 'Traffic', icon: 'traffic' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ] as const satisfies readonly (Section & { icon?: IconName })[]
 export type Tab = (typeof TABS)[number]['id']
@@ -118,16 +118,16 @@ export function pagesOf(kind: 'accounts' | 'clients'): readonly ItemPage[] {
  * the last hour live and the outcomes over days, filterable by client,
  * provider, account and outcome. Chats are a client's and are on its page.
  *
- * Gateway's own path is its overview, as an account's is: the load as it
+ * Traffic's own path is its overview, as an account's is: the load as it
  * happens. These are the pages under it, each a breakdown of that load.
  */
-export const GATEWAY_PAGES = [
+export const TRAFFIC_PAGES = [
   { id: 'models', label: 'Models' },
   { id: 'clients', label: 'Clients' },
   { id: 'accounts', label: 'Accounts' },
   { id: 'requests', label: 'Requests' },
 ] as const satisfies readonly Section[]
-export type GatewayPageId = (typeof GATEWAY_PAGES)[number]['id']
+export type TrafficPageId = (typeof TRAFFIC_PAGES)[number]['id']
 
 /**
  * The gateway's own settings, a page each, General first and where
@@ -138,7 +138,7 @@ export type GatewayPageId = (typeof GATEWAY_PAGES)[number]['id']
  * is long, read-only, and read least.
  */
 // Settings' own path is its general view — the gateway's switch, the MCP
-// server's, the admin account — as Gateway's is its load: a page named
+// server's, the admin account — as Traffic's is its load: a page named
 // General under it was the trail saying Settings twice.
 export const SETTINGS_PAGES = [
   { id: 'models', label: 'Models' },
@@ -195,8 +195,8 @@ export function canonical(pathname: string): string {
       return pathOf(top, a, b!)
     }
     // Its overview is its own path; a page it does not have lands there.
-    case 'gateway':
-      return known(GATEWAY_PAGES, a) ? pathOf('gateway', a!) : pathOf('gateway')
+    case 'traffic':
+      return known(TRAFFIC_PAGES, a) ? pathOf('traffic', a!) : pathOf('traffic')
     // A page each; /settings itself, and any page it does not have, open
     // on General.
     case 'settings':
@@ -299,11 +299,11 @@ export function navLevel(pathname: string): NavLevel {
       current: page === undefined ? base : `${base}/${page}`,
     }
   }
-  if (top === 'gateway') {
-    // On its overview, no entry: the overview is Gateway itself.
+  if (top === 'traffic') {
+    // On its overview, no entry: the overview is Traffic itself.
     return {
       back: HOME,
-      items: links('/gateway', GATEWAY_PAGES),
+      items: links('/traffic', TRAFFIC_PAGES),
       current: id === undefined ? pathOf(top) : pathOf(top, id),
     }
   }
@@ -353,8 +353,8 @@ export function trailOf(pathname: string, name: Namer): NavLink[] {
     icon: sectionIcon(tab),
     siblings: { kind: 'sections' },
   })
-  if (top === 'gateway' && id !== undefined) {
-    out.push({ href: pathOf(top, id), label: label(GATEWAY_PAGES, id) })
+  if (top === 'traffic' && id !== undefined) {
+    out.push({ href: pathOf(top, id), label: label(TRAFFIC_PAGES, id) })
   }
   if (top === 'settings' && id !== undefined) {
     out.push({ href: pathOf(top, id), label: label(SETTINGS_PAGES, id) })

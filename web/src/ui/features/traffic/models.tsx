@@ -3,7 +3,7 @@ import { smallPercent } from '../../format'
 import { providerTitle } from '../../clients/specs'
 import { byTokens, percentOf, rollup, tokensOf, type Rollup } from '../usage/rollup'
 import { ClientTable, TokenSplit, UsageTable } from '../usage/tables'
-import { GatewayUsage } from './slots'
+import { TrafficUsage } from './slots'
 
 type ModelUse = Rollup & { model: string; provider: string }
 
@@ -17,9 +17,9 @@ type ModelUse = Rollup & { model: string; provider: string }
  * models. The model with its provider, because two providers can serve a
  * model of the same name and they are separate budgets.
  */
-export default function GatewayModels() {
+export default function TrafficModels() {
   return (
-    <GatewayUsage by="model">
+    <TrafficUsage by="model">
       {({ rows }) => {
         const models: ModelUse[] = rollup(rows, (r) => JSON.stringify([r.provider, r.model]))
           .map((u) => ({ ...u, model: u.rows[0]!.model, provider: u.rows[0]!.provider }))
@@ -55,6 +55,6 @@ export default function GatewayModels() {
           />
         )
       }}
-    </GatewayUsage>
+    </TrafficUsage>
   )
 }
