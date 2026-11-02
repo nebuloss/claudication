@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { api, type ChatTurn, type RequestRow } from '../../../api/client'
 import { READS } from '../../../api/live'
 import { useLoader } from '../../hooks'
 import { millis, timeOfDay } from '../../format'
 import { clientHref } from '../../route'
-import { AppLink, Button, Card, ErrorState, Loading, Muted, Note, Stack, Windowed } from '../../primitives'
+import { AppLink, Button, Card, ErrorState, Loading, Muted, Note, Stack, Switch, VirtualList } from '../../primitives'
 import ChatContextDetail from './context'
 import { Conversation } from '../requests/conversation'
 import { RequestDetail } from '../requests/detail'
@@ -22,17 +22,27 @@ import { StatusChip } from '../requests/row'
  * ?request=<row> opens on one of them, which is how the request log's
  * dialog sends someone to the request's place in its chat.
  *
- * A chat runs to hundreds of requests, so only a window of them is drawn —
- * the latest, or the ones around the request asked for — widened as the
- * reader scrolls to either edge (Windowed), and only that window's turns are
- * read from their recordings. Turns read once are kept while the page is
- * open: a recording never changes.
+ * A chat runs to hundreds of requests, so they are one scrolling list that
+ * draws only the rows in view (VirtualList), opened at the latest or at the
+ * request asked for, and only the drawn rows' turns are read from their
+ * recordings. Turns read once are kept while the page is open: a recording
+ * never changes. The Transcript switch above it shows or hides what each
+ * turn said, leaving the requests as one line each to scan.
  */
 export function ChatView({ client, id }: { client: string; id: string }) {
   const focus = Number(new URLSearchParams(window.location.search).get('request') ?? '') || 0
   const chat = useLoader((signal) => api.traffic.chat(id, signal), { deps: [id], on: READS.chat })
   const [shown, setShown] = useState<RequestRecord | null>(null)
   const rows = chat.data?.requests ?? []
+  const [transcript, setTranscript] = useState(readTranscriptSwitch)
+  const switchTranscript = (on: boolean) => {
+    setTranscript(on)
+    try {
+      localStorage.setItem(TRANSCRIPT_KEY, on ? '1' : '0')
+    } catch {
+      // Remembered where the browser allows it; the switch works either way.
+    }
+  }
 
   // The window drawn, as the rows' ids at its two ends; its turns are read
   // for it, and only when it holds a recorded request.
@@ -41,22 +51,14 @@ export function ChatView({ client, id }: { client: string; id: string }) {
   const inWindow = rows.slice(range[0], range[1])
   const from = inWindow[0]?.id ?? 0
   const to = inWindow[inWindow.length - 1]?.id ?? 0
-  const wanted = inWindow.some((r) => (r.capture ?? 0) > 0)
-  const transcript = useLoader(
+  const wanted = transcript && inWindow.some((r) => (r.capture ?? 0) > 0)
+  const read = useLoader(
     (signal) => (wanted ? api.traffic.chatTranscript(id, from, to, signal) : Promise.resolve({ id, turns: [] })),
     { deps: [id, from, to, wanted], on: READS.chat },
   )
   const kept = useRef(new Map<number, ChatTurn>())
-  for (const t of transcript.data?.turns ?? []) kept.current.set(t.event, t)
+  for (const t of read.data?.turns ?? []) kept.current.set(t.event, t)
   const turns = kept.current
-
-  // Once, when the rows first arrive: later refreshes leave the scroll where
-  // the operator has taken it.
-  const arrived = rows.length > 0
-  useEffect(() => {
-    if (focus === 0 || !arrived) return
-    document.getElementById(`request-${String(focus)}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-  }, [focus, arrived])
 
   if (chat.loading && chat.data === null) return <Loading>Reading the chat…</Loading>
   if (chat.data === null) {
@@ -95,25 +97,58 @@ export function ChatView({ client, id }: { client: string; id: string }) {
         </Stack>
       </Card>
 
-      <Windowed
-        items={rows}
-        keyOf={(row) => String(row.id)}
-        noun="requests"
-        focus={focus === 0 ? undefined : rows.findIndex((r) => r.id === focus)}
-        onRange={onRange}
-        render={(row) => (
-          <Turn
-            row={row}
-            turn={turns.get(row.id)}
-            focused={row.id === focus}
-            onOpen={() => setShown(new RequestRecord(row))}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Switch
+            checked={transcript}
+            onChange={switchTranscript}
+            label="Transcript"
+            disabled={recorded === 0}
+          />
+          <Muted as="span" size="xs">
+            {recorded === 0
+              ? 'Nothing recorded to show.'
+              : transcript
+                ? 'What each recorded request added, and its answer.'
+                : 'One line per request.'}
+          </Muted>
+        </div>
+        {rows.length > 0 && (
+          <VirtualList
+            items={rows}
+            keyOf={rowKey}
+            label="The chat's requests"
+            estimate={transcript && recorded > 0 ? 160 : 52}
+            focus={focus === 0 ? undefined : rows.findIndex((r) => r.id === focus)}
+            onRange={onRange}
+            render={(row) => (
+              <Turn
+                row={row}
+                turn={transcript ? turns.get(row.id) : undefined}
+                focused={row.id === focus}
+                onOpen={() => setShown(new RequestRecord(row))}
+              />
+            )}
           />
         )}
-      />
+      </div>
 
       {shown !== null && <RequestDetail record={shown} onClose={() => setShown(null)} inChat />}
     </Stack>
   )
+}
+
+const rowKey = (row: RequestRow) => String(row.id)
+
+/** Where the Transcript switch is remembered, per browser. */
+const TRANSCRIPT_KEY = 'claudication.chat.transcript'
+
+function readTranscriptSwitch(): boolean {
+  try {
+    return localStorage.getItem(TRANSCRIPT_KEY) !== '0'
+  } catch {
+    return true
+  }
 }
 
 function Turn({
@@ -130,9 +165,7 @@ function Turn({
   const record = new RequestRecord(row)
   return (
     <section
-      id={`request-${String(row.id)}`}
-      // Clear of the app bar when scrolled to.
-      className={`scroll-mt-24 rounded-md3-l bg-surface-container p-3 ${focused ? 'ring-2 ring-primary' : ''}`}
+      className={`rounded-md3-l bg-surface-container p-3 ${focused ? 'ring-2 ring-inset ring-primary' : ''}`}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <span className="tabular-nums text-on-surface-variant">{timeOfDay(row.at, 'second')}</span>
