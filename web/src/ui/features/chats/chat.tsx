@@ -5,14 +5,13 @@ import { useLoader } from '../../hooks'
 import { millis, timeOfDay } from '../../format'
 import { clientHref } from '../../route'
 import { AppLink, Button, Card, ErrorState, Loading, Muted, Note, Stack, Switch, VirtualList } from '../../primitives'
-import ChatContextDetail from './context'
 import { Conversation } from '../requests/conversation'
 import { RequestDetail } from '../requests/detail'
 import { RequestRecord } from '../requests/record'
 import { StatusChip } from '../requests/row'
 
 /**
- * One chat of a client's, read forwards: its context over its turns, then
+ * One chat of a client's, read forwards:
  * each of its requests, oldest first. A request recorded while its client
  * was being recorded (internal/service/capture) shows what it added to the
  * conversation — the messages new since the turn before, and its answer —
@@ -85,7 +84,6 @@ export function ChatView({ client, id }: { client: string; id: string }) {
             <code className="break-all">{id}</code> · {rows.length} {rows.length === 1 ? 'request' : 'requests'}
             {recorded > 0 && `, ${String(recorded)} recorded`}
           </Muted>
-          <ChatContextDetail id={id} colour="var(--color-primary)" />
           {recorded === 0 && (
             <Note>
               None of these requests was recorded, so what they said is not here: switch on{' '}

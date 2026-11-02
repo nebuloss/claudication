@@ -32,7 +32,7 @@ Anthropic Messages, the form every API is translated through, so Claude Code,
 Codex and gemini-cli read alike — or raw, and downloadable as HAR for browser
 developer tools, Charles or Fiddler. A chat's own page
 (`/clients/<id>/chats/<chat>`, from its name in the client's Chats) reads it
-forwards: its context over its turns, then each request with what it added to
+forwards: each request with what it added to
 the conversation — the messages new since the turn before, and its answer —
 so a recorded chat reads as a transcript. `?request=<row>` opens it on one
 request, which is where a request's dialog links with *Open in its chat*.
