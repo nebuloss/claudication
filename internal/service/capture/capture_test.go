@@ -190,3 +190,24 @@ func TestBounds(t *testing.T) {
 		t.Errorf("after clearing: %+v", st)
 	}
 }
+
+// Two requests that overlap finish in the other order from the one they
+// started in, and both are found: the held list is in finishing order, the
+// ids in starting order.
+func TestOverlappingExchangesAreFound(t *testing.T) {
+	c := New(0)
+	c.Record("k", time.Hour)
+	a := c.Begin("k", "", "/r", "anthropic", request(t, "/r"), []byte("a"))
+	b := c.Begin("k", "", "/r", "anthropic", request(t, "/r"), []byte("b"))
+	b.Finish()
+	a.Finish()
+	for _, x := range []*Exchange{a, b} {
+		if got, ok := c.Get(x.ID); !ok || got != x {
+			t.Errorf("exchange %d not found", x.ID)
+		}
+	}
+	c.Clear("k")
+	if _, ok := c.Get(a.ID); ok {
+		t.Error("a cleared exchange is still found")
+	}
+}

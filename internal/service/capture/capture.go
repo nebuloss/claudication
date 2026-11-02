@@ -24,7 +24,6 @@ package capture
 import (
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -51,9 +50,13 @@ const (
 // Capture is the gateway's recorder: which clients are being recorded, and
 // what was recorded for them.
 type Capture struct {
-	mu     sync.Mutex
-	until  map[string]time.Time
-	held   []*Exchange // oldest first
+	mu    sync.Mutex
+	until map[string]time.Time
+	held  []*Exchange // in the order they finished, oldest first
+	// byID finds a held exchange. Not a search over held: ids are given out
+	// when a request starts and held is in the order requests finish, so two
+	// that overlap are out of id order there.
+	byID   map[uint64]*Exchange
 	used   int64
 	budget int64
 	next   uint64
@@ -67,7 +70,7 @@ func New(budget int64) *Capture {
 	if budget <= 0 {
 		budget = DefaultBudget
 	}
-	return &Capture{until: map[string]time.Time{}, budget: budget, now: time.Now}
+	return &Capture{until: map[string]time.Time{}, byID: map[uint64]*Exchange{}, budget: budget, now: time.Now}
 }
 
 // Announce tells h of every change from now on.
@@ -171,10 +174,12 @@ func (c *Capture) commit(x *Exchange) {
 	size := x.size()
 	c.mu.Lock()
 	c.held = append(c.held, x)
+	c.byID[x.ID] = x
 	c.used += size
 	x.bytes = size
 	for c.used > c.budget && len(c.held) > 1 {
 		c.used -= c.held[0].bytes
+		delete(c.byID, c.held[0].ID)
 		c.held[0] = nil
 		c.held = c.held[1:]
 	}
@@ -224,11 +229,8 @@ func (c *Capture) List(keyID string) []Summary {
 func (c *Capture) Get(id uint64) (*Exchange, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	i := sort.Search(len(c.held), func(i int) bool { return c.held[i].ID >= id })
-	if i < len(c.held) && c.held[i].ID == id {
-		return c.held[i], true
-	}
-	return nil, false
+	x, ok := c.byID[id]
+	return x, ok
 }
 
 // Exchanges is every exchange held for a key, or for every key, oldest
@@ -268,6 +270,8 @@ func (c *Capture) Clear(keyID string) {
 		if keyID != "" && x.KeyID != keyID {
 			kept = append(kept, x)
 			c.used += x.bytes
+		} else {
+			delete(c.byID, x.ID)
 		}
 	}
 	for i := len(kept); i < len(c.held); i++ {
