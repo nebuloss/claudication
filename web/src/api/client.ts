@@ -388,6 +388,9 @@ const gateway = {
 
 /** What went through the gateway: the usage report, the chats, the request log. */
 const traffic = {
+  /** One request of the log, by its id: what a link to it opens. */
+  request: (id: number, signal?: AbortSignal) => http.get<RequestRow>(`/admin/requests/${String(id)}`, signal),
+
   /** The usage report, gateway-wide or narrowed to one account or one key. */
   usage: (days?: number, scope: UsageScope = {}, signal?: AbortSignal) =>
     http.get<Usage>(`/admin/usage${scopedQuery(days, scope)}`, signal),

@@ -10,7 +10,7 @@
  *   /clients … the same shape, for clients
  *   /clients/<id>/chats/<chat>          one chat of a client's: its overview
  *   /clients/<id>/chats/<chat>/<page>   its requests, and its transcript;
- *                                       ?request=<row> opens on one of them
+ *                                       ?at=<row> opens on one of them
  *   /traffic                           the gateway's load: the last hour, and
  *                                       its requests by outcome over days
  *   /traffic/<page>                    its traffic by model, by client, by
@@ -187,7 +187,7 @@ export const clientHref = (id: string) => pathOf('clients', id)
 /** Where one chat of a client's lives, or one of its pages, open on one of its requests when given. */
 export const chatHref = (client: string, chat: string, page?: ChatPageId, request?: number) =>
   (page !== undefined ? pathOf('clients', client, 'chats', chat, page) : pathOf('clients', client, 'chats', chat)) +
-  (request !== undefined ? `?request=${String(request)}` : '')
+  (request !== undefined ? `?at=${String(request)}` : '')
 
 
 const known = (list: readonly Section[], id: string | undefined) =>

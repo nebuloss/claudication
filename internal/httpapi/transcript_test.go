@@ -73,6 +73,19 @@ func TestRecordedChatReadsAsATranscript(t *testing.T) {
 		t.Fatalf("chat rows: %v %s", err, body)
 	}
 	last := rows.Requests[1].ID
+
+	// One request by its id, as a link to its dialog reads it: the log's row,
+	// its recording named.
+	status, body = call(t, abase, http.MethodGet, fmt.Sprintf("/admin/requests/%d", last), "", ck)
+	if status != http.StatusOK || !bytes.Contains(body, []byte(fmt.Sprintf(`"id":%d`, last))) ||
+		!bytes.Contains(body, []byte(`"capture":`)) || !bytes.Contains(body, []byte(`"conversation_id":"chat-1"`)) {
+		t.Errorf("request %d: %d %s", last, status, body)
+	}
+	for _, missing := range []string{"999999", "nope"} {
+		if status, _ := call(t, abase, http.MethodGet, "/admin/requests/"+missing, "", ck); status != http.StatusNotFound {
+			t.Errorf("request %s: %d, want 404", missing, status)
+		}
+	}
 	for range 2 { // the second read takes the first turn's count from the cache
 		status, body = call(t, abase, http.MethodGet, fmt.Sprintf("/admin/chats/chat-1/transcript?from=%d", last), "", ck)
 		got.Turns = nil

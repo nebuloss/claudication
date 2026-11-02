@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { api } from '../../../api/client'
 import { millis } from '../../format'
 import { Banner, Chip, CopyButton, KeyValue, Modal, Muted, Overline, Stack, Verbatim } from '../../primitives'
 import { chatHref } from '../../route'
 import { ButtonLink } from '../../primitives'
 import { RecordedContent } from './content'
-import type { RequestRecord } from './record'
+import { RequestRecord } from './record'
 import { StatusChip } from './row'
 
 /** An identifier, in the face that makes one readable. */
@@ -63,6 +64,8 @@ export function RequestDetail({
               Open in its chat
             </ButtonLink>
           )}
+          {/* This page with this dialog open, to send or come back to. */}
+          <CopyButton label="Copy link" value={requestLink(row.id)} />
           <CopyButton label="Copy record" value={record.asText()} />
         </div>
 
@@ -140,3 +143,56 @@ export function RequestDetail({
     </Modal>
   )
 }
+
+/** The query parameter a request's dialog is kept in. */
+const PARAM = 'request'
+
+function setParam(id: number | null) {
+  const u = new URL(window.location.href)
+  if (id === null) u.searchParams.delete(PARAM)
+  else u.searchParams.set(PARAM, String(id))
+  window.history.replaceState(window.history.state, '', u.pathname + u.search + u.hash)
+}
+
+/** This page with one request's dialog open: what its Copy link copies. */
+export function requestLink(id: number): string {
+  const u = new URL(window.location.href)
+  u.searchParams.set(PARAM, String(id))
+  return u.toString()
+}
+
+/**
+ * The request a list shows in its dialog, kept in the URL as ?request=<id>, so
+ * the dialog can be linked to: a link opens the page with it open, read by its
+ * id whether or not it is among the rows the page has, and closing it takes
+ * it out of the URL. Replaced rather than pushed, so Back leaves the page
+ * rather than closing dialogs one by one.
+ */
+export function useShownRequest() {
+  const [shown, setShown] = useState<RequestRecord | null>(null)
+  useEffect(() => {
+    const id = Number(new URLSearchParams(window.location.search).get(PARAM) ?? '') || 0
+    if (id === 0) return
+    const ctl = new AbortController()
+    api.traffic.request(id, ctl.signal).then(
+      (row) => setShown(new RequestRecord(row)),
+      () => {
+        // Pruned or never there: the page, without a dialog that cannot open.
+        if (!ctl.signal.aborted) setParam(null)
+      },
+    )
+    return () => ctl.abort()
+  }, [])
+  return {
+    shown,
+    open: (r: RequestRecord) => {
+      setShown(r)
+      setParam(r.row.id)
+    },
+    close: () => {
+      setShown(null)
+      setParam(null)
+    },
+  }
+}
+

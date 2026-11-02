@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -448,4 +449,32 @@ func (s *Admin) handleOverview(w http.ResponseWriter, r *http.Request) {
 	// question as whether it has accounts: they may all be cooling down.
 	out["ready"] = len(status.Serving) > 0
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// handleRequest answers one row of the request log, as the log has it: what a
+// link to one request — ?request=<id> on any page that lists them — opens.
+func (s *Admin) handleRequest(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound, "no such request")
+		return
+	}
+	e, err := s.store.UsageEventByID(r.Context(), id)
+	if errors.Is(err, store.ErrRequestNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, httpx.KindNotFound,
+			"no such request: it may have been pruned past usage.retention-days")
+		return
+	}
+	if err != nil {
+		httpx.Internal(w, s.log, "read the request", err)
+		return
+	}
+	row := s.toRequestJSON(e)
+	row.Capture = s.capture.ForEvents()[e.ID]
+	if e.ConversationID != "" {
+		if titles, err := s.store.ChatTitles(r.Context(), []string{e.ConversationID}); err == nil {
+			row.ChatTitle = titles[e.ConversationID]
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, row)
 }

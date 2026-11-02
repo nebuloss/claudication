@@ -31,6 +31,7 @@ export function VirtualList<T>({
   focus,
   label,
   onRange,
+  fill = false,
 }: {
   items: readonly T[]
   keyOf: (item: T) => string
@@ -46,11 +47,18 @@ export function VirtualList<T>({
   /** What the list is, for a screen reader. */
   label: string
   onRange?: (start: number, end: number) => void
+  /**
+   * As tall as what is left of the window, so the page itself does not
+   * scroll and the list is the one thing that does; `height` is then only
+   * its first guess.
+   */
+  fill?: boolean
 }) {
   const box = useRef<HTMLDivElement>(null)
   const sizes = useRef(new Map<string, number>())
   const [, remeasured] = useReducer((n: number) => n + 1, 0)
   const [view, setView] = useState({ top: 0, height: 0 })
+  const [fitted, setFitted] = useState<number | null>(null)
 
   const keys = useMemo(() => items.map(keyOf), [items, keyOf])
   const index = useMemo(() => new Map(keys.map((k, i) => [k, i])), [keys])
@@ -149,6 +157,28 @@ export function VirtualList<T>({
 
   useEffect(() => onRange?.(start, end), [start, end, onRange])
 
+  // Filling the window: the box takes back whatever the page overflows by,
+  // or grows into what it leaves, on opening and whenever the window or
+  // the page around it changes size.
+  useLayoutEffect(() => {
+    if (!fill) return
+    const fit = () => {
+      const el = box.current
+      if (el === null) return
+      const over = document.documentElement.scrollHeight - window.innerHeight
+      const h = Math.max(240, Math.floor(el.getBoundingClientRect().height - over))
+      setFitted((was) => (was !== null && Math.abs(was - h) < 2 ? was : h))
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit)
+    ro?.observe(document.body)
+    return () => {
+      window.removeEventListener('resize', fit)
+      ro?.disconnect()
+    }
+  }, [fill])
+
   return (
     <div
       ref={box}
@@ -157,7 +187,7 @@ export function VirtualList<T>({
       role="list"
       aria-label={label}
       className="relative overflow-y-auto overscroll-contain rounded-md3-l outline-none focus-visible:ring-2 focus-visible:ring-primary"
-      style={{ height }}
+      style={{ height: fitted !== null ? `${String(fitted)}px` : height }}
     >
       <div className="relative" style={{ height: total }}>
         {items.slice(start, end).map((it, i) => {

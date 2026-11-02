@@ -277,6 +277,7 @@ func (s *Admin) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/requests", admin(s.handleRecentRequests))
 	mux.Handle("GET /admin/requests/facets", admin(s.handleRequestFacets))
 	mux.Handle("GET /admin/requests/export", admin(s.handleExportRequests))
+	mux.Handle("GET /admin/requests/{id}", admin(s.handleRequest))
 
 	// What was recorded of the clients being watched (captures.go).
 	mux.Handle("GET /admin/captures", admin(s.handleCaptures))

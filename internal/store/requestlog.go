@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -254,4 +256,21 @@ func (s *Store) RecentUsage(ctx context.Context, limit int, after UsageCursor, f
 		next = UsageCursor{}
 	}
 	return out, next, nil
+}
+
+// ErrRequestNotFound is a request log row that is not there: never was, or
+// pruned past retention.
+var ErrRequestNotFound = errors.New("no such request")
+
+// UsageEventByID is one row of the request log, for a link to it.
+func (s *Store) UsageEventByID(ctx context.Context, id int64) (UsageEvent, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+usageEventColumns+` FROM usage_events WHERE id = ?`, id)
+	e, err := scanUsageEvent(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UsageEvent{}, ErrRequestNotFound
+	}
+	if err != nil {
+		return UsageEvent{}, fmt.Errorf("request %d: %w", id, err)
+	}
+	return e, nil
 }

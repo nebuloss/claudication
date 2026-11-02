@@ -17,7 +17,7 @@ import {
 import { FacetList, Facets } from './facet-menu'
 import { RequestFilter, type RequestScope, type SetField } from './filter'
 import { RequestRecord, type Sort, type SortKey } from './record'
-import { RequestDetail } from './detail'
+import { RequestDetail, useShownRequest } from './detail'
 import { RequestRowView } from './row'
 import { RunningRowView, runningMatches, useRunning } from './running'
 import { useRequestLog } from './use-request-log'
@@ -109,7 +109,7 @@ function RecentRequests({
   /** Whose running requests head the table: a client's id, '' for all, null for none. */
   running: string | null
 }) {
-  const [shown, setShown] = useState<RequestRecord | null>(null)
+  const { shown, open, close } = useShownRequest()
   const [sort, setSort] = useState<Sort>({ key: 'at', dir: 'desc' })
   const [facetData, setFacetData] = useState<RequestFacets | null>(null)
   const facets = useMemo(() => new Facets(facetData), [facetData])
@@ -284,7 +284,7 @@ function RecentRequests({
             <RequestRowView
               key={`${r.row.at}-${i}`}
               record={r}
-              onOpen={() => setShown(r)}
+              onOpen={() => open(r)}
               onNarrow={(field, value) => onNarrow(filter.only(field, value))}
             />
           ))}
@@ -337,7 +337,7 @@ function RecentRequests({
         </div>
       )}
 
-      {shown !== null && <RequestDetail record={shown} onClose={() => setShown(null)} />}
+      {shown !== null && <RequestDetail record={shown} onClose={close} />}
     </>
   )
 }

@@ -14,6 +14,7 @@ import {
   Loading,
   Muted,
   Note,
+  saveAs,
   Stack,
   Stat,
   StatGrid,
@@ -21,7 +22,7 @@ import {
 } from '../../primitives'
 import ChatContextDetail from './context'
 import { Conversation } from '../requests/conversation'
-import { RequestDetail } from '../requests/detail'
+import { RequestDetail, useShownRequest } from '../requests/detail'
 import { RequestRecord } from '../requests/record'
 import { StatusChip } from '../requests/row'
 
@@ -37,8 +38,9 @@ import { StatusChip } from '../requests/row'
  *                                           added to the conversation
  *
  * The two lists are one scrolling box each that draws only the rows in view
- * (VirtualList), opened at the latest or at ?request=<row>, which is how the
- * request log's dialog sends someone to a request's place in its chat.
+ * (VirtualList) filling the window, opened at the latest or at ?at=<row>,
+ * which is how a request's dialog sends someone to its place in its chat. A
+ * request opens its dialog on a click, at ?request=<row> as in any list.
  */
 export function ChatPage({ client, id, page }: { client: string; id: string; page: ChatPageId | '' }) {
   const chat = useLoader((signal) => api.traffic.chat(id, signal), { deps: [id], on: READS.chat })
@@ -61,14 +63,29 @@ export function ChatPage({ client, id, page }: { client: string; id: string; pag
     )
   }
   const thread = threadOf(chat.data)
-  if (page === 'requests') return <ChatRequests rows={rows} thread={thread} />
+  if (page === 'requests') return <ChatRequests id={id} rows={rows} thread={thread} />
   if (page === 'transcript') return <ChatTranscript client={client} id={id} rows={rows} thread={thread} />
   return <ChatOverview client={client} id={id} detail={chat.data} title={title} />
 }
 
-/** The request asked for by ?request=, or 0. */
+/** The request asked for by ?at=, or 0. */
 function focusOf(): number {
-  return Number(new URLSearchParams(window.location.search).get('request') ?? '') || 0
+  return Number(new URLSearchParams(window.location.search).get('at') ?? '') || 0
+}
+
+/** A list's rows as a file, under it. */
+function Download({ count, noun, onSave }: { count: number; noun: string; onSave: () => void }) {
+  return (
+    <div className="flex items-center gap-3 pt-3">
+      <Muted as="span" size="xs">
+        {count} {noun}
+      </Muted>
+      <span className="flex-grow" />
+      <Button variant="text" size="sm" icon="download" onClick={onSave}>
+        Download JSON
+      </Button>
+    </div>
+  )
 }
 
 /**
@@ -260,8 +277,8 @@ function ChatOverview({
 const rowKey = (row: RequestRow) => String(row.id)
 
 /** Every request of the chat, a line each, oldest first. */
-function ChatRequests({ rows, thread }: { rows: RequestRow[]; thread: Map<number, Place> }) {
-  const [shown, setShown] = useState<RequestRecord | null>(null)
+function ChatRequests({ id, rows, thread }: { id: string; rows: RequestRow[]; thread: Map<number, Place> }) {
+  const { shown, open, close } = useShownRequest()
   const focus = focusOf()
   return (
     <>
@@ -270,17 +287,23 @@ function ChatRequests({ rows, thread }: { rows: RequestRow[]; thread: Map<number
         keyOf={rowKey}
         label="The chat's requests"
         estimate={52}
+        fill
         focus={focus === 0 ? undefined : rows.findIndex((r) => r.id === focus)}
         render={(row) => (
           <Turn
             row={row}
             place={thread.get(row.id)}
-            focused={row.id === focus}
-            onOpen={() => setShown(new RequestRecord(row))}
+            focused={row.id === focus || row.id === shown?.row.id}
+            onOpen={() => open(new RequestRecord(row))}
           />
         )}
       />
-      {shown !== null && <RequestDetail record={shown} onClose={() => setShown(null)} inChat />}
+      <Download
+        count={rows.length}
+        noun={rows.length === 1 ? 'request' : 'requests'}
+        onSave={() => saveAs(`chat-${id}-requests.json`, JSON.stringify(rows, null, 2))}
+      />
+      {shown !== null && <RequestDetail record={shown} onClose={close} inChat />}
     </>
   )
 }
@@ -301,9 +324,13 @@ function ChatTranscript({
   rows: RequestRow[]
   thread: Map<number, Place>
 }) {
-  const [shown, setShown] = useState<RequestRecord | null>(null)
+  const { shown, open, close } = useShownRequest()
   const focus = focusOf()
   const recorded = useMemo(() => rows.filter((r) => (r.capture ?? 0) > 0), [rows])
+  // The whole transcript, read when it is downloaded: the page reads only
+  // what is in view.
+  const save = () =>
+    void api.traffic.chatTranscript(id, 0, 0).then((t) => saveAs(`chat-${id}-transcript.json`, JSON.stringify(t, null, 2)))
 
   const [range, setRange] = useState<[number, number]>([0, 0])
   const onRange = useCallback((start: number, end: number) => setRange([start, end]), [])
@@ -333,6 +360,7 @@ function ChatTranscript({
         keyOf={rowKey}
         label="The chat's transcript"
         estimate={200}
+        fill
         focus={focus === 0 ? undefined : recorded.findIndex((r) => r.id === focus)}
         onRange={onRange}
         render={(row) => (
@@ -340,12 +368,13 @@ function ChatTranscript({
             row={row}
             place={thread.get(row.id)}
             turn={kept.current.get(row.id)}
-            focused={row.id === focus}
-            onOpen={() => setShown(new RequestRecord(row))}
+            focused={row.id === focus || row.id === shown?.row.id}
+            onOpen={() => open(new RequestRecord(row))}
           />
         )}
       />
-      {shown !== null && <RequestDetail record={shown} onClose={() => setShown(null)} inChat />}
+      <Download count={recorded.length} noun="recorded" onSave={save} />
+      {shown !== null && <RequestDetail record={shown} onClose={close} inChat />}
     </>
   )
 }
@@ -375,23 +404,25 @@ function Turn({
           <span className="h-px flex-1 bg-tertiary/50" />
         </div>
       )}
-    <section className={`rounded-md3-l bg-surface-container p-3 ${focused ? 'ring-2 ring-inset ring-primary' : ''}`}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+    <section className={`rounded-md3-l bg-surface-container ${focused ? 'ring-2 ring-inset ring-primary' : ''}`}>
+      {/* The request's line opens it, as a row of the request log does; the
+          turn's own folds under it are theirs. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="state-layer flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md3-l p-3 text-left text-sm"
+      >
         <span className="tabular-nums text-on-surface-variant">{timeOfDay(row.at, 'second')}</span>
         <StatusChip record={record} />
-        {/* Only a model beside the main thread is named: the chat's own is
-            on its overview, and a switch is the divider above. */}
-        {place?.side === true && <Chip>{record.modelLabel}</Chip>}
+        <span className={place?.side === true ? 'text-on-surface-variant' : 'text-on-surface'}>
+          {record.modelLabel}
+        </span>
         <Muted as="span">
           {record.tokensShort} · {millis(row.duration_ms)}
         </Muted>
-        <span className="flex-grow" />
-        <Button variant="text" size="sm" onClick={onOpen}>
-          Details
-        </Button>
-      </div>
+      </button>
       {turn !== undefined && (
-        <div className="mt-3 space-y-3">
+        <div className="space-y-3 px-3 pb-3">
           {turn.unread !== undefined && turn.unread !== '' ? (
             <Muted>Recorded, but not readable as a conversation: {turn.unread}. Details has it raw.</Muted>
           ) : (
