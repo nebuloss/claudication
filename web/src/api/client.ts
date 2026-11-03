@@ -17,6 +17,7 @@
 import { HttpTransport, path, sessionExpiry } from './transport'
 import type {
   CaptureExchange,
+  ChatThread,
   ChatTurn,
   CaptureStatus,
   CaptureSummary,
@@ -388,6 +389,13 @@ const gateway = {
 
 /** What went through the gateway: the usage report, the chats, the request log. */
 const traffic = {
+  /** A chat's threads, and which each recorded request is on (by row id). */
+  chatThreads: (id: string, signal?: AbortSignal) =>
+    http.get<{ threads: ChatThread[]; thread_of: Record<string, number> }>(
+      `${path`/admin/chats/${id}/transcript`}?threads=only`,
+      signal,
+    ),
+
   /** One request of the log, by its id: what a link to it opens. */
   request: (id: number, signal?: AbortSignal) => http.get<RequestRow>(`/admin/requests/${String(id)}`, signal),
 
@@ -419,7 +427,7 @@ const traffic = {
 
   /** What each of its recorded requests added to it: the chat as a transcript. */
   chatTranscript: (id: string, from: number, to: number, signal?: AbortSignal) =>
-    http.get<{ id: string; turns: ChatTurn[] }>(
+    http.get<{ id: string; turns: ChatTurn[]; threads: ChatThread[] }>(
       `${path`/admin/chats/${id}/transcript`}?from=${String(from)}&to=${String(to)}`,
       signal,
     ),

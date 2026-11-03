@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -142,19 +144,55 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// A chat is one session as its client names it, and a session is not one
+// conversation. Measured with Claude Code 2.1.317 through the gateway
+// (2026-11-03): a session that launched a subagent sent the main thread's
+// requests and the subagent's under the one X-Claude-Code-Session-Id, on the
+// same model, interleaved in time — the main thread at 2 then 4 messages, the
+// subagent at 2, 5, 7, 9, each from a first message and a system prompt of its
+// own. Read as one sequence they are nonsense: the subagent's first request
+// carried fewer messages than the main thread's before it.
+//
+// So a chat is read as threads. A thread is the requests whose first message
+// is the same — the conversation's root, which every turn resends unchanged —
+// read from the request in Messages, the form every API is translated
+// through, with every cache marker taken out, since a client moves those
+// between turns. Nothing in it is any client's: Claude Code marks a subagent's
+// requests (cc_is_subagent in its billing header), and no other client does.
+//
+// The main thread is the one carrying the chat's largest prompt, as its
+// context is (internal/store, ContextOf), and any other with its system prompt
+// is the main thread too: a compaction replaces the conversation, root and
+// all, under the same instructions. Every other thread ran beside it — a
+// subagent, a title asked of a small model — and is named as one beside it,
+// in the order they began.
+
+// ThreadJSON is one thread of a chat.
+type ThreadJSON struct {
+	// ID numbers it within the chat: 1 is the main thread's first, the rest
+	// in the order they began.
+	ID    int    `json:"id"`
+	Label string `json:"label"`
+	Main  bool   `json:"main"`
+	// Requests is how many of the chat's recorded requests are on it.
+	Requests int `json:"requests"`
+}
+
 // TurnJSON is what one recorded request of a chat added to it: the messages
-// new since the chat's previous turn on its model, and the answer.
+// new since the turn before it on its thread, and the answer.
 type TurnJSON struct {
 	// Event is the request's row, and Capture its recording: the same id,
 	// since a recording is known by its row's.
 	Event   int64 `json:"event"`
 	Capture int64 `json:"capture"`
+	// Thread is the thread it is on (ThreadJSON.ID), 0 when it could not be
+	// read.
+	Thread int `json:"thread"`
 	// Offset is how many messages came before the added ones, which numbers
 	// them as the conversation does.
 	Offset int `json:"offset"`
 	// Restarted is a request that carried fewer messages than the turn
-	// before it on its model: the client compacted or started over, or it is
-	// a side request on the same model. Its messages are all shown.
+	// before it on its thread. Its messages are all shown.
 	Restarted bool              `json:"restarted,omitempty"`
 	Added     []json.RawMessage `json:"added"`
 	Answer    json.RawMessage   `json:"answer,omitempty"`
@@ -162,25 +200,28 @@ type TurnJSON struct {
 	Unread string `json:"unread,omitempty"`
 }
 
-// handleChatTranscript answers what each recorded request of a chat added
-// to it, oldest first: the chat read as a transcript, from the recordings
-// still held (internal/service/capture). ?from= and ?to= (request log row
-// ids, inclusive) narrow it to the window a page is showing; the turns before
-// the window are still counted, since what a turn added depends on them.
+// handleChatTranscript answers a chat's threads, which thread each of its
+// recorded requests is on, and what each added to its thread, oldest first:
+// the chat read as transcripts, from the recordings held or stored
+// (internal/service/capture). ?from= and ?to= (request log row ids, inclusive)
+// narrow the turns to the window a page is showing; the threads, and the
+// turns before the window, are still read, since what a turn added depends
+// on them. ?threads=only answers the threads alone.
 //
 // A client resends the whole conversation every turn, so a request's own
-// body is mostly the turns before it. What is new is what follows the
-// previous request on the same model, its answer included — counted, not
-// compared: Claude Code moves its cache markers between turns, so the same
-// message is not the same bytes twice, and the count is what holds. Each
-// model is followed on its own, since a client's side requests — titles,
-// subagents — run beside the main thread on other models.
+// body is mostly the turns before it. What is new is what follows the turn
+// before it on its thread, its answer included — counted, not compared: Claude
+// Code moves its cache markers between turns, so the same message is not the
+// same bytes twice, and the count is what holds.
 func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	q := r.URL.Query()
 	from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
 	to, _ := strconv.ParseInt(q.Get("to"), 10, 64)
-	within := func(event int64) bool { return (from == 0 || event >= from) && (to == 0 || event <= to) }
+	only := q.Get("threads") == "only"
+	within := func(event int64) bool {
+		return !only && (from == 0 || event >= from) && (to == 0 || event <= to)
+	}
 
 	events, err := s.store.ChatEvents(r.Context(), id, 0)
 	if err != nil {
@@ -189,8 +230,6 @@ func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	captured := s.capture.Recorded(r.Context(), eventIDs(events))
-	seen := map[string]int{}
-	turns := []TurnJSON{}
 	// A recording, held or read back from disk; one that cannot be read is
 	// left out, as one that was never made is.
 	recording := func(event int64) *capture.Exchange {
@@ -203,67 +242,157 @@ func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
 		}
 		return x
 	}
+
+	// First, every recorded request read for its thread and count: from the
+	// cache, or its recording.
+	type read struct {
+		event    store.UsageEvent
+		count    turnCount
+		messages []json.RawMessage
+		answer   json.RawMessage
+	}
+	var all []read
 	for _, e := range events {
 		if !captured[e.ID] {
 			continue
 		}
-		t := TurnJSON{Event: e.ID, Capture: e.ID, Added: []json.RawMessage{}}
-		var count turnCount
-		var messages []json.RawMessage
-		var ok bool
+		rd := read{event: e}
 		if within(e.ID) {
 			x := recording(e.ID)
 			if x == nil {
 				continue
 			}
 			l := s.legJSON(&x.Client)
-			messages, count = readTurn(l)
-			s.counts.put(e.ID, count)
-			if count.unread == "" && l.Response != nil && l.Response.Messages != nil {
-				t.Answer = l.Response.Messages
+			rd.messages, rd.count = readTurn(l)
+			if rd.count.unread == "" && l.Response != nil && l.Response.Messages != nil {
+				rd.answer = l.Response.Messages
 			}
-		} else if count, ok = s.counts.get(e.ID); !ok {
+			s.counts.put(e.ID, rd.count)
+		} else if c, ok := s.counts.get(e.ID); ok {
+			rd.count = c
+		} else {
 			x := recording(e.ID)
 			if x == nil {
 				continue
 			}
-			_, count = readTurn(s.legJSON(&x.Client))
-			s.counts.put(e.ID, count)
+			_, rd.count = readTurn(s.legJSON(&x.Client))
+			s.counts.put(e.ID, rd.count)
 		}
-		if count.unread != "" {
-			t.Unread = count.unread
-			if within(e.ID) {
+		all = append(all, rd)
+	}
+
+	// Then the threads: by root, the main one by its largest prompt and its
+	// system prompt.
+	type thread struct {
+		id       int
+		system   string
+		peak     int64
+		requests int
+	}
+	byRoot := map[string]*thread{}
+	var order []*thread
+	for _, rd := range all {
+		if rd.count.unread != "" {
+			continue
+		}
+		t, ok := byRoot[rd.count.root]
+		if !ok {
+			t = &thread{system: rd.count.system}
+			byRoot[rd.count.root] = t
+			order = append(order, t)
+		}
+		t.requests++
+		t.peak = max(t.peak, rd.event.PromptTokens())
+	}
+	var main *thread
+	for _, t := range order {
+		if main == nil || t.peak > main.peak {
+			main = t
+		}
+	}
+	threads := []ThreadJSON{}
+	side := 0
+	// The main thread's first, then the rest as they began.
+	numbered := func(t *thread, isMain bool) {
+		t.id = len(threads) + 1
+		label := "Main"
+		if !isMain {
+			side++
+			label = "Side thread " + strconv.Itoa(side)
+		} else if len(threads) > 0 {
+			label = "Main, continued"
+		}
+		threads = append(threads, ThreadJSON{ID: t.id, Label: label, Main: isMain, Requests: t.requests})
+	}
+	isMain := func(t *thread) bool { return main != nil && (t == main || (t.system != "" && t.system == main.system)) }
+	for _, t := range order {
+		if isMain(t) {
+			numbered(t, true)
+		}
+	}
+	for _, t := range order {
+		if !isMain(t) {
+			numbered(t, false)
+		}
+	}
+
+	// Last, each turn against the one before it on its thread.
+	seen := map[int]int{}
+	turns := []TurnJSON{}
+	for _, rd := range all {
+		t := TurnJSON{Event: rd.event.ID, Capture: rd.event.ID, Added: []json.RawMessage{}}
+		if rd.count.unread != "" {
+			t.Unread = rd.count.unread
+			if within(rd.event.ID) {
 				turns = append(turns, t)
 			}
 			continue
 		}
-		if before, ok := seen[e.Model]; ok {
-			if count.messages >= before {
+		t.Thread = byRoot[rd.count.root].id
+		if before, ok := seen[t.Thread]; ok {
+			if rd.count.messages >= before {
 				t.Offset = before
 			} else {
 				t.Restarted = true
 			}
 		}
-		next := count.messages
-		if count.answered {
+		next := rd.count.messages
+		if rd.count.answered {
 			next++
 		}
-		seen[e.Model] = next
-		if within(e.ID) {
-			t.Added = messages[t.Offset:]
+		seen[t.Thread] = next
+		if within(rd.event.ID) {
+			t.Added = rd.messages[t.Offset:]
+			t.Answer = rd.answer
 			turns = append(turns, t)
 		}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "turns": turns})
+	out := map[string]any{"id": id, "threads": threads}
+	if only {
+		// Which thread each recorded request is on, for a list of them to say.
+		of := map[string]int{}
+		for _, rd := range all {
+			if th, ok := byRoot[rd.count.root]; ok && rd.count.unread == "" {
+				of[strconv.FormatInt(rd.event.ID, 10)] = th.id
+			}
+		}
+		out["thread_of"] = of
+	} else {
+		out["turns"] = turns
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 // turnCount is what the transcript needs of a turn outside its window: how
-// many messages it carried, whether it was answered, or why it could not be
-// read.
+// many messages it carried, whether it was answered, its thread's root and
+// system prompt, or why it could not be read.
 type turnCount struct {
 	messages int
 	answered bool
 	unread   string
+	// root and system identify its thread: hashes of its first message and
+	// its system prompt, cache markers taken out.
+	root, system string
 }
 
 // readTurn reads a client's leg as one turn: its messages, and its count.
@@ -272,15 +401,52 @@ func readTurn(l LegJSON) ([]json.RawMessage, turnCount) {
 		return nil, turnCount{unread: l.Request.MessagesError}
 	}
 	var req struct {
+		System   json.RawMessage   `json:"system"`
 		Messages []json.RawMessage `json:"messages"`
 	}
 	if err := json.Unmarshal(l.Request.Messages, &req); err != nil {
 		return nil, turnCount{unread: err.Error()}
 	}
-	return req.Messages, turnCount{
+	c := turnCount{
 		messages: len(req.Messages),
 		answered: l.Response != nil && l.Response.Messages != nil,
+		system:   partHash(req.System),
 	}
+	if len(req.Messages) > 0 {
+		c.root = partHash(req.Messages[0])
+	}
+	return req.Messages, c
+}
+
+// partHash is a hash of a part of a request with its cache markers taken
+// out: the same text resent with its marker moved is the same part.
+func partHash(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		sum := sha256.Sum256(raw)
+		return hex.EncodeToString(sum[:8])
+	}
+	b, _ := json.Marshal(withoutCacheMarkers(v))
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:8])
+}
+
+func withoutCacheMarkers(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		delete(t, "cache_control")
+		for k, x := range t {
+			t[k] = withoutCacheMarkers(x)
+		}
+	case []any:
+		for i, x := range t {
+			t[i] = withoutCacheMarkers(x)
+		}
+	}
+	return v
 }
 
 // turnCounts remembers each recording's count by its request log row, so a

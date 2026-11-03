@@ -145,7 +145,9 @@ export function VirtualList<T>({
     if (el === null || !placed.current) return
     let want = el.scrollTop
     if (following.current) {
-      want = el.scrollHeight - el.clientHeight
+      // The list's own end, not the box's scroll height: a row drawn taller
+      // than its estimate is clipped until it is measured, so the two agree.
+      want = total - el.clientHeight
     } else if (anchor.current !== null) {
       const i = index.get(anchor.current.key)
       if (i !== undefined) want = offsets[i]! + anchor.current.into
@@ -189,7 +191,11 @@ export function VirtualList<T>({
       className="relative overflow-y-auto overscroll-contain rounded-md3-l outline-none focus-visible:ring-2 focus-visible:ring-primary"
       style={{ height: fitted !== null ? `${String(fitted)}px` : height }}
     >
-      <div className="relative" style={{ height: total }}>
+      {/* Clipped to the list's height: a row taller than its estimate must not
+          spill past it before it is measured, or the box's scroll height would
+          change with what is drawn, and following the end would chase it —
+          drawing other rows, changing it again — without end. */}
+      <div className="relative overflow-hidden" style={{ height: total }}>
         {items.slice(start, end).map((it, i) => {
           const key = keys[start + i]!
           return (

@@ -1013,8 +1013,22 @@ export interface CaptureLeg {
   response: CaptureMessage | null
 }
 
+/**
+ * One thread of a chat: the requests sharing a first message. The main one
+ * carries the chat's largest prompt; the rest ran beside it — a subagent, a
+ * title asked of a small model.
+ */
+export interface ChatThread {
+  id: number
+  label: string
+  main: boolean
+  requests: number
+}
+
 /** What one recorded request of a chat added to it (GET /admin/chats/{id}/transcript). */
 export interface ChatTurn {
+  /** The thread it is on (ChatThread.id); 0 when it could not be read. */
+  thread: number
   event: number
   capture: number
   /** How many messages came before the added ones. */

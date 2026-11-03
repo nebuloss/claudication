@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ChatDetail, type ChatTurn, type RequestRow } from '../../../api/client'
+import { api, type ChatDetail, type ChatThread, type ChatTurn, type RequestRow } from '../../../api/client'
 import { READS } from '../../../api/live'
 import { useLoader } from '../../hooks'
 import { between, compact, dateTime, millis, timeOfDay } from '../../format'
@@ -15,6 +15,7 @@ import {
   Muted,
   Note,
   saveAs,
+  Segmented,
   Stack,
   Stat,
   StatGrid,
@@ -45,6 +46,9 @@ import { StatusChip } from '../requests/row'
 export function ChatPage({ client, id, page }: { client: string; id: string; page: ChatPageId | '' }) {
   const chat = useLoader((signal) => api.traffic.chat(id, signal), { deps: [id], on: READS.chat })
   const rows = chat.data?.requests ?? []
+  // Its threads, read from its recordings: none when nothing was recorded.
+  const threadsRead = useLoader((signal) => api.traffic.chatThreads(id, signal), { deps: [id], on: READS.chat })
+  const threads = useMemo(() => threadsOf(threadsRead.data), [threadsRead.data])
 
   // Named for the header, the trail and the rail, which are drawn above it.
   const title = rows.find((r) => r.chat_title !== undefined && r.chat_title !== '')?.chat_title ?? ''
@@ -63,9 +67,29 @@ export function ChatPage({ client, id, page }: { client: string; id: string; pag
     )
   }
   const thread = threadOf(chat.data)
-  if (page === 'requests') return <ChatRequests id={id} rows={rows} thread={thread} />
-  if (page === 'transcript') return <ChatTranscript client={client} id={id} rows={rows} thread={thread} />
-  return <ChatOverview client={client} id={id} detail={chat.data} title={title} />
+  if (page === 'requests') return <ChatRequests id={id} rows={rows} thread={thread} threads={threads} />
+  if (page === 'transcript') {
+    return <ChatTranscript client={client} id={id} rows={rows} thread={thread} threads={threads} />
+  }
+  return <ChatOverview client={client} id={id} detail={chat.data} title={title} threads={threads} />
+}
+
+/**
+ * A chat's threads (admin, chats.go): the main one and those beside it, and
+ * which thread each recorded request is on. A request not recorded is on none
+ * the gateway can tell.
+ */
+type Threads = { list: ChatThread[]; of: Map<number, ChatThread> }
+
+function threadsOf(data: { threads: ChatThread[]; thread_of: Record<string, number> } | null): Threads {
+  const list = data?.threads ?? []
+  const byId = new Map(list.map((t) => [t.id, t]))
+  const of = new Map<number, ChatThread>()
+  for (const [event, id] of Object.entries(data?.thread_of ?? {})) {
+    const t = byId.get(id)
+    if (t !== undefined) of.set(Number(event), t)
+  }
+  return { list, of }
 }
 
 /** The request asked for by ?at=, or 0. */
@@ -140,11 +164,13 @@ function ChatOverview({
   id,
   detail,
   title,
+  threads,
 }: {
   client: string
   id: string
   detail: ChatDetail
   title: string
+  threads: Threads
 }) {
   const rows = detail.requests
   const recorded = rows.filter((r) => (r.capture ?? 0) > 0).length
@@ -254,6 +280,26 @@ function ChatOverview({
         )}
       </Card>
 
+      {/* Only when there is more than the main thread to tell apart. */}
+      {threads.list.length > 1 && (
+        <Card title="Threads">
+          <div className="divide-y divide-outline-variant">
+            {threads.list.map((t) => (
+              <div key={t.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 text-sm">
+                <span className="text-on-surface">{t.label}</span>
+                {!t.main && <Muted as="span">beside the main thread: a subagent, or a title asked of a small model</Muted>}
+                <span className="flex-grow" />
+                <span className="tabular-nums text-on-surface">{t.requests}</span>
+                <Muted as="span">recorded {t.requests === 1 ? 'request' : 'requests'}</Muted>
+              </div>
+            ))}
+          </div>
+          <Muted size="xs">
+            A thread is the requests that resend the same first message. Only recorded requests can be told apart.
+          </Muted>
+        </Card>
+      )}
+
       <Card title="Context">
         <ChatContextDetail id={id} colour="var(--color-primary)" />
       </Card>
@@ -277,7 +323,17 @@ function ChatOverview({
 const rowKey = (row: RequestRow) => String(row.id)
 
 /** Every request of the chat, a line each, oldest first. */
-function ChatRequests({ id, rows, thread }: { id: string; rows: RequestRow[]; thread: Map<number, Place> }) {
+function ChatRequests({
+  id,
+  rows,
+  thread,
+  threads,
+}: {
+  id: string
+  rows: RequestRow[]
+  thread: Map<number, Place>
+  threads: Threads
+}) {
   const { shown, open, close } = useShownRequest()
   const focus = focusOf()
   return (
@@ -293,6 +349,7 @@ function ChatRequests({ id, rows, thread }: { id: string; rows: RequestRow[]; th
           <Turn
             row={row}
             place={thread.get(row.id)}
+            on={threads.of.get(row.id)}
             focused={row.id === focus || row.id === shown?.row.id}
             onOpen={() => open(new RequestRecord(row))}
           />
@@ -318,15 +375,25 @@ function ChatTranscript({
   id,
   rows,
   thread,
+  threads,
 }: {
   client: string
   id: string
   rows: RequestRow[]
   thread: Map<number, Place>
+  threads: Threads
 }) {
   const { shown, open, close } = useShownRequest()
   const focus = focusOf()
-  const recorded = useMemo(() => rows.filter((r) => (r.capture ?? 0) > 0), [rows])
+  // One thread at a time, or all of them in the order they ran.
+  const [only, setOnly] = useState('all')
+  const recorded = useMemo(
+    () =>
+      rows.filter(
+        (r) => (r.capture ?? 0) > 0 && (only === 'all' || String(threads.of.get(r.id)?.id ?? '') === only),
+      ),
+    [rows, only, threads],
+  )
   // The whole transcript, read when it is downloaded: the page reads only
   // what is in view.
   const save = () =>
@@ -338,7 +405,7 @@ function ChatTranscript({
   const from = inWindow[0]?.id ?? 0
   const to = inWindow[inWindow.length - 1]?.id ?? 0
   const read = useLoader(
-    (signal) => (from !== 0 ? api.traffic.chatTranscript(id, from, to, signal) : Promise.resolve({ id, turns: [] })),
+    (signal) => (from !== 0 ? api.traffic.chatTranscript(id, from, to, signal) : Promise.resolve({ id, turns: [], threads: [] })),
     { deps: [id, from, to], on: READS.chat },
   )
   const kept = useRef(new Map<number, ChatTurn>())
@@ -355,7 +422,25 @@ function ChatTranscript({
   }
   return (
     <>
+      {threads.list.length > 1 && (
+        <div className="mb-3">
+          <Segmented
+            label="Which thread"
+            value={only}
+            onChange={setOnly}
+            options={[
+              { id: 'all', label: 'Every thread, as they ran', content: 'All' },
+              ...threads.list.map((t) => ({
+                id: String(t.id),
+                label: `${t.label}: ${String(t.requests)} recorded`,
+                content: t.label,
+              })),
+            ]}
+          />
+        </div>
+      )}
       <VirtualList
+        key={only}
         items={recorded}
         keyOf={rowKey}
         label="The chat's transcript"
@@ -367,6 +452,7 @@ function ChatTranscript({
           <Turn
             row={row}
             place={thread.get(row.id)}
+            on={threads.of.get(row.id)}
             turn={kept.current.get(row.id)}
             focused={row.id === focus || row.id === shown?.row.id}
             onOpen={() => open(new RequestRecord(row))}
@@ -382,12 +468,15 @@ function ChatTranscript({
 function Turn({
   row,
   place,
+  on,
   turn,
   focused,
   onOpen,
 }: {
   row: RequestRow
   place?: Place
+  /** The thread it is on, when it was recorded. */
+  on?: ChatThread
   turn?: ChatTurn
   focused: boolean
   onOpen: () => void
@@ -420,6 +509,8 @@ function Turn({
         <Muted as="span">
           {record.tokensShort} · {millis(row.duration_ms)}
         </Muted>
+        {/* Named only beside the main thread: that is the one a chat is. */}
+        {on !== undefined && !on.main && <Chip>{on.label}</Chip>}
       </button>
       {turn !== undefined && (
         <div className="space-y-3 px-3 pb-3">
