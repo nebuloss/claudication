@@ -4,6 +4,7 @@ import GatewaySwitch from './gateway-switch'
 import McpSettings from './mcp'
 import ModelChecks from './model-checks'
 import ModelSettings from './models'
+import Recordings from './recordings'
 import Security from './security'
 import { type GatewayConfig, type Session } from '../../../api/client'
 import { type SettingsPageId } from '../../route'
@@ -13,7 +14,7 @@ import { Card, Empty, Loading, Page } from '../../primitives'
  * Settings: the gateway's own (route.ts, SETTINGS_PAGES).
  *
  *   /settings      whether the gateway serves, the MCP server's switch and
- *                  address, and the admin account
+ *                  address, recorded content, and the admin account
  *   Models         whether the gateway checks models itself; each
  *                  provider's mode, its families and who serves which
  *   Configuration  the configuration as loaded, read-only
@@ -70,6 +71,7 @@ export default function Settings({
           {configured('MCP server', (d) => (
             <McpSettings config={d} onChanged={() => void onConfigChanged()} />
           ))}
+          <Recordings keptDays={data?.recordings_kept_days ?? 0} />
           <Security session={session} onChanged={onSessionChanged} onDeleted={onSessionChanged} />
         </>
       )}

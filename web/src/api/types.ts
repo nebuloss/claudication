@@ -975,11 +975,25 @@ export interface CaptureSummary {
 }
 
 export interface CaptureStatus {
+  /** What memory holds: how many, their bytes, and what it may hold. */
   held: number
   used: number
   budget: number
   /** When each recording key's recording ends. */
   recording: Record<string, string>
+  /** What is kept on disk, when recordings are (capture.retention-days). */
+  stored?: {
+    /** The file's size, and what its parts take, each shared one counted once. */
+    bytes: number
+    content: number
+    recordings: number
+    oldest?: string
+    /** Since the gateway started: stored, and not stored (the disk nearly full, the queue full). */
+    written: number
+    dropped: number
+    /** capture.disk-budget, 0 until the pruner has started. */
+    budget: number
+  }
 }
 
 /** A body: its text, or its bytes in base64 when they are not text. */

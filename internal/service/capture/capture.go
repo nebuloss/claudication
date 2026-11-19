@@ -435,6 +435,9 @@ type StoredStatus struct {
 	// not: the queue full, the disk nearly full, or a write failed.
 	Written int64 `json:"written"`
 	Dropped int64 `json:"dropped"`
+	// Budget is what the file is kept within (capture.disk-budget), 0 until
+	// the pruner has started.
+	Budget int64 `json:"budget"`
 }
 
 // Status reports what is held and who is being recorded, and what is
@@ -455,7 +458,7 @@ func (c *Capture) Status() Status {
 		if err != nil {
 			p.log.Warn("could not read the stored recordings' usage", "err", err)
 		}
-		out.Stored = &StoredStatus{Usage: u, Written: p.stored.Load(), Dropped: p.drops.Load()}
+		out.Stored = &StoredStatus{Usage: u, Written: p.stored.Load(), Dropped: p.drops.Load(), Budget: p.budget.Load()}
 	}
 	return out
 }
@@ -471,6 +474,7 @@ func (c *Capture) RunPruner(stop <-chan struct{}, every, keep time.Duration, bud
 	if p == nil {
 		return
 	}
+	p.budget.Store(budget)
 	first := true
 	t := time.NewTicker(every)
 	defer t.Stop()

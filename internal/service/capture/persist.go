@@ -64,6 +64,8 @@ type persister struct {
 	queued atomic.Int64
 	drops  atomic.Int64
 	stored atomic.Int64
+	// budget is what the pruner keeps the file within, once it runs.
+	budget atomic.Int64
 	// lastSkip rate-limits the warning of a write skipped for want of space.
 	lastSkip atomic.Int64
 }
