@@ -5,14 +5,14 @@
 // Lowest first:
 //
 //	0  leaves         version logging memlimit secret oauth request anthropicwire
-//	                  geminiwire api mcp service/limits service/settings
+//	                  geminiwire api mcp live service/limits service/settings
 //	                  service/install service/clients configs
 //	                  testenv handover
-//	1  records        store config provider relay/passes api/anthropic
-//	                  api/openai api/gemini
+//	1  records        store store/recordings config provider relay/passes
+//	                  api/anthropic api/openai api/gemini
 //	2  accounts       pool provider/anthropic provider/openai provider/google
 //	                  service/accounts service/availability service/usage
-//	                  service/uptime
+//	                  service/uptime service/capture
 //	                  service/clientconfig
 //	3  relay          relay
 //	4  services       service/titles service/models
@@ -28,7 +28,11 @@
 //
 // configs is the one package outside internal/ and cmd/: the committed client
 // files, embedded from where they sit (go:embed reaches only below the file
-// naming it). mcp is the Model Context Protocol's wire, which knows nothing of
+// naming it). live is how a change reaches the admin UI: every write marks a
+// topic, below everything that writes. store/recordings is recorded content
+// kept on disk, a file of its own beside the store's, and service/capture the
+// recorder that fills it; the relay knows it only as a relay.Tap on a
+// request's context. mcp is the Model Context Protocol's wire, which knows nothing of
 // the gateway; httpapi/agent is the gateway's MCP server built on it, and
 // service/clientconfig writes a client's files from the committed ones, for
 // the admin page and the agent alike.

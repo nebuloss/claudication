@@ -56,6 +56,16 @@ change to state a screen shows marks a topic, and a tab's one event stream
 tells its panels to read again ([`docs/data-architecture.md`](docs/data-architecture.md)).
 A new write marks its topic, or `TestEveryWriteMarksATopic` fails.
 
+An operator can record a client's content (`go doc
+./internal/service/capture`): every leg of each request, bytes as they
+passed, held in memory and — with `capture.retention-days` — kept on disk in
+a file of its own (`internal/store/recordings`), cut by content so a resent
+conversation is stored once, sealed, never in a backup. A recording is known
+by its request log row. The relay sees it only as a `relay.Tap` on the
+request's context, which watches and never changes a byte. A chat is read as
+threads — the requests resending the same first message, a subagent beside
+the main thread under one session id — in `internal/httpapi/admin/chats.go`.
+
 A typed client's files are written by the gateway alone
 (`internal/service/clientconfig`, from `configs/clients/*`, embedded by the
 `configs` package): the admin page shows what it returns, and the install and
