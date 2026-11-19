@@ -109,25 +109,30 @@ func (s *Admin) handleCaptureHAR(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.writeHAR(w, []*capture.Exchange{x}, fmt.Sprintf("claudication-%d.har", x.Event))
+	s.writeHAR(w, capture.Each([]*capture.Exchange{x}), fmt.Sprintf("claudication-%d.har", x.Event))
 }
 
 // handleExportCaptures downloads what is held, for one client or all, as HAR.
 func (s *Admin) handleExportCaptures(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("key")
 	name := "claudication-" + time.Now().UTC().Format("20060102-150405") + ".har"
-	s.writeHAR(w, s.capture.Exchanges(key), name)
-}
-
-func (s *Admin) writeHAR(w http.ResponseWriter, xs []*capture.Exchange, name string) {
-	b, err := capture.HAR(xs, "claudication", version.Version)
+	next, err := s.capture.Export(r.Context(), key)
 	if err != nil {
-		httpx.Internal(w, s.log, "write the HAR", err)
+		httpx.Internal(w, s.log, "read the stored recordings", err)
 		return
 	}
+	s.writeHAR(w, next, name)
+}
+
+// writeHAR writes exchanges as a HAR file to download, as they are read. Once
+// the first bytes are out the status is sent, so a failure part-way can only
+// be logged: the file ends short and will not parse, which says so.
+func (s *Admin) writeHAR(w http.ResponseWriter, next func() (*capture.Exchange, error), name string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	_, _ = w.Write(b)
+	if err := capture.WriteHAR(w, next, "claudication", version.Version); err != nil {
+		s.log.Warn("HAR export ended early", "file", name, "err", err)
+	}
 }
 
 // Normalizer reads one leg's request and answer, each in its dialect, into

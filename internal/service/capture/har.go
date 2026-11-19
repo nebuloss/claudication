@@ -3,6 +3,8 @@ package capture
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -11,27 +13,68 @@ import (
 	"unicode/utf8"
 )
 
-// HAR writes exchanges as an HTTP Archive (HAR 1.2): the format browsers'
+// WriteHAR writes exchanges as an HTTP Archive (HAR 1.2): the format browsers'
 // developer tools, Charles, Fiddler and Insomnia all open. Each exchange is
 // two or more entries — the client's leg, then each upstream attempt — tied
 // together by the _claudication field every entry carries, which also holds
 // what HAR has no place for: the leg, the dialect, the account, whether a
 // body was cut, and when each part of a streamed answer arrived.
-func HAR(xs []*Exchange, creator, version string) ([]byte, error) {
-	entries := []harEntry{}
-	for _, x := range xs {
-		entries = append(entries, harLeg(x, &x.Client, "client", 0))
+//
+// One exchange at a time, as next hands them over in the order they began,
+// and written as it comes: an export of a client recorded for days is
+// gigabytes of bodies read back from disk, and was once one buffer holding
+// all of them. next returns nil when there are no more.
+func WriteHAR(w io.Writer, next func() (*Exchange, error), creator, version string) error {
+	head, _ := json.Marshal(map[string]string{"name": creator, "version": version})
+	if _, err := fmt.Fprintf(w, "{\"log\":{\"version\":\"1.2\",\"creator\":%s,\"entries\":[", head); err != nil {
+		return err
+	}
+	first := true
+	entry := func(e harEntry) error {
+		b, err := json.Marshal(e)
+		if err != nil {
+			return err
+		}
+		if !first {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		first = false
+		_, err = w.Write(b)
+		return err
+	}
+	for {
+		x, err := next()
+		if err != nil {
+			return err
+		}
+		if x == nil {
+			break
+		}
+		if err := entry(harLeg(x, &x.Client, "client", 0)); err != nil {
+			return err
+		}
 		for i, l := range x.Upstream {
-			entries = append(entries, harLeg(x, l, "upstream", i+1))
+			if err := entry(harLeg(x, l, "upstream", i+1)); err != nil {
+				return err
+			}
 		}
 	}
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].at.Before(entries[j].at) })
-	doc := map[string]any{"log": map[string]any{
-		"version": "1.2",
-		"creator": map[string]string{"name": creator, "version": version},
-		"entries": entries,
-	}}
-	return json.MarshalIndent(doc, "", "  ")
+	_, err := io.WriteString(w, "]}}")
+	return err
+}
+
+// Each is next over a list in hand.
+func Each(xs []*Exchange) func() (*Exchange, error) {
+	return func() (*Exchange, error) {
+		if len(xs) == 0 {
+			return nil, nil
+		}
+		x := xs[0]
+		xs = xs[1:]
+		return x, nil
+	}
 }
 
 type harEntry struct {
@@ -42,8 +85,6 @@ type harEntry struct {
 	Cache    struct{}       `json:"cache"`
 	Timings  map[string]any `json:"timings"`
 	Own      map[string]any `json:"_claudication"`
-
-	at time.Time
 }
 
 func harLeg(x *Exchange, l *Leg, leg string, attempt int) harEntry {
@@ -118,7 +159,6 @@ func harLeg(x *Exchange, l *Leg, leg string, attempt int) harEntry {
 	}
 	return harEntry{
 		Started:  l.Started.UTC().Format(time.RFC3339Nano),
-		at:       l.Started,
 		Time:     total,
 		Request:  request,
 		Response: response,

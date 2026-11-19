@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -276,6 +277,68 @@ func (c *Capture) Exchanges(keyID string) []*Exchange {
 		}
 	}
 	return out
+}
+
+// Export hands over a client's recordings, or every client's when keyID is
+// empty, one at a time and oldest first: what is held in memory and what is
+// stored on disk, each once — a recording that is both is read from memory.
+// For an export that has to read days of recordings back without holding them
+// together.
+func (c *Capture) Export(ctx context.Context, keyID string) (func() (*Exchange, error), error) {
+	c.mu.Lock()
+	held := map[int64]*Exchange{}
+	var unrowed []*Exchange
+	for _, x := range c.held {
+		if keyID != "" && x.KeyID != keyID {
+			continue
+		}
+		if x.Event == 0 {
+			unrowed = append(unrowed, x)
+		} else {
+			held[x.Event] = x
+		}
+	}
+	p := c.persist
+	c.mu.Unlock()
+
+	events := make([]int64, 0, len(held))
+	for e := range held {
+		events = append(events, e)
+	}
+	if p != nil {
+		stored, err := p.db.Events(ctx, keyID)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range stored {
+			if _, ok := held[e]; !ok {
+				events = append(events, e)
+			}
+		}
+	}
+	// Request log rows are numbered as requests end, which is near enough
+	// to the order they began for an export; the ones with no row go first.
+	slices.Sort(events)
+	return func() (*Exchange, error) {
+		if len(unrowed) > 0 {
+			x := unrowed[0]
+			unrowed = unrowed[1:]
+			return x, nil
+		}
+		for len(events) > 0 {
+			e := events[0]
+			events = events[1:]
+			if x, ok := held[e]; ok {
+				return x, nil
+			}
+			x, err := p.load(ctx, e)
+			if errors.Is(err, recordings.ErrNotFound) {
+				continue // pruned since the list was read
+			}
+			return x, err
+		}
+		return nil, nil
+	}, nil
 }
 
 // Recorded is which of these request log rows have a recording, held or

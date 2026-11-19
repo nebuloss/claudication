@@ -155,3 +155,44 @@ func TestAnotherKeyEmptiesTheFile(t *testing.T) {
 		t.Error("a recording sealed under another key is still reported")
 	}
 }
+
+// An export is what is stored and what is held, each recording once, oldest
+// first: a recording from before a restart comes from the file, one of this
+// process from memory.
+func TestExportReadsTheFileAndMemory(t *testing.T) {
+	dir := t.TempDir()
+	db := openFile(t, dir)
+	c := persisting(t, dir, db)
+	c.Record("k", time.Hour)
+	turn(t, c, 3, []byte("before the restart"))
+	c.Close(t.Context())
+
+	c = persisting(t, dir, db)
+	c.Record("k", time.Hour)
+	turn(t, c, 5, []byte("after it"))
+	c.Close(t.Context()) // stored now too: still exported once
+
+	exported := func(key string) []int64 {
+		next, err := c.Export(t.Context(), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var events []int64
+		for {
+			x, err := next()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if x == nil {
+				return events
+			}
+			events = append(events, x.Event)
+		}
+	}
+	if got := exported("k"); len(got) != 2 || got[0] != 3 || got[1] != 5 {
+		t.Errorf("exported %v, want [3 5]", got)
+	}
+	if got := exported("another"); len(got) != 0 {
+		t.Errorf("another key's export = %v", got)
+	}
+}

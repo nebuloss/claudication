@@ -262,6 +262,29 @@ func (d *DB) Has(ctx context.Context, events []int64) (map[int64]bool, error) {
 	return out, nil
 }
 
+// Events are the request log rows with a stored recording, of one client's
+// key or of every one when keyID is empty, oldest first.
+func (d *DB) Events(ctx context.Context, keyID string) ([]int64, error) {
+	q, args := `SELECT event FROM recordings ORDER BY at, event`, []any{}
+	if keyID != "" {
+		q, args = `SELECT event FROM recordings WHERE key_id = ? ORDER BY at, event`, []any{keyID}
+	}
+	rows, err := d.read.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("recordings: %w", err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var e int64
+		if err := rows.Scan(&e); err != nil {
+			return nil, fmt.Errorf("recordings: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // Get is one stored recording, without its chunks (Chunks reads them).
 func (d *DB) Get(ctx context.Context, event int64) (Recording, error) {
 	r := Recording{Event: event}

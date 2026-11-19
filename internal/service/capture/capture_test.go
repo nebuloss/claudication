@@ -142,10 +142,11 @@ func TestAnExchange(t *testing.T) {
 		t.Errorf("second attempt's answer = %q", second.Response.Body.Bytes())
 	}
 
-	har, err := HAR(c.Exchanges(""), "claudication", "test")
-	if err != nil {
+	var buf bytes.Buffer
+	if err := WriteHAR(&buf, Each(c.Exchanges("")), "claudication", "test"); err != nil {
 		t.Fatal(err)
 	}
+	har := buf.Bytes()
 	var doc struct {
 		Log struct {
 			Entries []struct {
