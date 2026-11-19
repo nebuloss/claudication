@@ -85,7 +85,14 @@ function AccountClients({ accountId }: { accountId: string }) {
       <ClientTable
         rows={rows}
         provider={false}
-        shares={shared ? accountShareColumns((id) => shares[id]) : []}
+        shares={
+          shared
+            ? accountShareColumns(
+                (id) => shares[id],
+                Object.values(shares).some((s) => s.five_hour !== undefined),
+              )
+            : []
+        }
         sort={(x, y) =>
           // By the share of the windows, the 7-day one first: that is the
           // question the page is opened to answer, and it is the window

@@ -175,10 +175,12 @@ function ShareCell({ parts }: { parts: SharePart[] }) {
 
 /** The 5-hour and 7-day columns of one account's shares, read off per client. */
 export function accountShareColumns(
-  share: (clientId: string) => { five_hour: number; seven_day: number } | undefined,
+  share: (clientId: string) => { five_hour?: number; seven_day: number } | undefined,
+  /** Whether the account has a 5-hour window: without one, no column for it. */
+  fiveHour = true,
 ): ShareColumn[] {
   return [
-    { label: '5-hour share', parts: (id) => [{ points: share(id)?.five_hour }] },
+    ...(fiveHour ? [{ label: '5-hour share', parts: (id: string) => [{ points: share(id)?.five_hour }] }] : []),
     { label: '7-day share', parts: (id) => [{ points: share(id)?.seven_day }] },
   ]
 }

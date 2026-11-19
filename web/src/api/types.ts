@@ -203,18 +203,22 @@ export interface ApiKey {
 
 /** One key's estimated use of the subscription; see the server's keyshare.go. */
 export interface SubscriptionShare {
-  five_hour: number
+  /**
+   * Absent when no account reports a 5-hour window — a subscription without a
+   * session limit — rather than a 0 that reads as unused. The same below.
+   */
+  five_hour?: number
   seven_day: number
   /** The same, per provider's pool of accounts: Claude's and ChatGPT's are separate budgets. */
-  providers: { provider: string; five_hour: number; seven_day: number; accounts: number }[]
+  providers: { provider: string; five_hour?: number; seven_day: number; accounts: number }[]
   accounts: {
     account_id: string
     email: string
     /** What the account is called: its name, or its address. */
     name: string
     provider: string
-    /** Percentage points of this account's window. */
-    five_hour: number
+    /** Percentage points of this account's window; absent when it has no 5-hour window. */
+    five_hour?: number
     seven_day: number
     /** The key's fraction of the gateway's weighted traffic to this account. */
     five_hour_share: number
@@ -875,7 +879,8 @@ export interface AccountShare {
   account_id: string
   email: string
   provider: string
-  five_hour: number
+  /** Absent when the account has no 5-hour window. */
+  five_hour?: number
   seven_day: number
   five_hour_share: number
   seven_day_share: number

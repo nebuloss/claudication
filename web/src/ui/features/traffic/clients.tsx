@@ -56,8 +56,10 @@ function poolColumns(shares: Record<string, SubscriptionShare>): ShareColumn[] {
       who: providers.length > 1 ? providerLabel(p) : undefined,
       points: shares[id]?.providers.find((x) => x.provider === p)?.[window],
     }))
+  // No 5-hour column where no pool has the window.
+  const fiveHour = Object.values(shares).some((s) => s.providers.some((p) => p.five_hour !== undefined))
   return [
-    { label: '5-hour share', parts: (id) => parts(id, 'five_hour') },
+    ...(fiveHour ? [{ label: '5-hour share', parts: (id: string) => parts(id, 'five_hour') }] : []),
     { label: '7-day share', parts: (id) => parts(id, 'seven_day') },
   ]
 }

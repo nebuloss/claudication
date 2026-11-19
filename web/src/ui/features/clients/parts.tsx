@@ -39,8 +39,13 @@ export function SubscriptionCell({ share }: { share: SubscriptionShare | undefin
   if (share === undefined) return <Muted as="span" size="xs">—</Muted>
   return (
     <span className="whitespace-nowrap text-xs tabular-nums text-on-surface">
-      <span className="text-on-surface-variant">5h</span> {smallPercent(share.five_hour)}
-      <span className="mx-1.5 text-on-surface-variant">·</span>
+      {/* No 5-hour figure where no account has the window. */}
+      {share.five_hour !== undefined && (
+        <>
+          <span className="text-on-surface-variant">5h</span> {smallPercent(share.five_hour)}
+          <span className="mx-1.5 text-on-surface-variant">·</span>
+        </>
+      )}
       <span className="text-on-surface-variant">7d</span> {smallPercent(share.seven_day)}
     </span>
   )
@@ -55,12 +60,16 @@ export function SubscriptionCard({ share }: { share: SubscriptionShare }) {
     <Card title="Share of the subscriptions" info={<p>{SUBSCRIPTION_NOTE}</p>}>
       <StatGrid>
         {(share.providers ?? []).flatMap((p) => [
-          <Stat
-            key={`${p.provider}-5h`}
-            label={`${providerTitle(p.provider)} 5-hour`}
-            value={smallPercent(p.five_hour)}
-            hint={`of ${p.accounts} account${p.accounts === 1 ? '' : 's'}`}
-          />,
+          ...(p.five_hour === undefined
+            ? []
+            : [
+                <Stat
+                  key={`${p.provider}-5h`}
+                  label={`${providerTitle(p.provider)} 5-hour`}
+                  value={smallPercent(p.five_hour)}
+                  hint={`of ${p.accounts} account${p.accounts === 1 ? '' : 's'}`}
+                />,
+              ]),
           <Stat
             key={`${p.provider}-7d`}
             label={`${providerTitle(p.provider)} 7-day`}
@@ -87,10 +96,16 @@ export function SubscriptionCard({ share }: { share: SubscriptionShare }) {
                   </Muted>
                 </Td>
                 <Td label="5-hour window" nums align="end">
-                  {smallPercent(a.five_hour)}{' '}
-                  <Muted as="span" size="xs">
-                    ({Math.round(a.five_hour_share * 100)}% of its traffic here)
-                  </Muted>
+                  {a.five_hour === undefined ? (
+                    <Muted as="span">no 5-hour window</Muted>
+                  ) : (
+                    <>
+                      {smallPercent(a.five_hour)}{' '}
+                      <Muted as="span" size="xs">
+                        ({Math.round(a.five_hour_share * 100)}% of its traffic here)
+                      </Muted>
+                    </>
+                  )}
                 </Td>
                 <Td label="7-day window" nums align="end">
                   {smallPercent(a.seven_day)}{' '}

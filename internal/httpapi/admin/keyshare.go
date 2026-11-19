@@ -23,9 +23,11 @@ import (
 type SubscriptionShare struct {
 	// FiveHour and SevenDay are percent of the whole pool's capacity in that
 	// window: the per-account figures summed and divided by the accounts that
-	// report a utilisation. One full account of two is 50.
-	FiveHour float64 `json:"five_hour"`
-	SevenDay float64 `json:"seven_day"`
+	// report the window. One full account of two is 50. FiveHour is absent
+	// when no account reports a 5-hour window — a subscription without a
+	// session limit — rather than a 0 that reads as unused.
+	FiveHour *float64 `json:"five_hour,omitempty"`
+	SevenDay float64  `json:"seven_day"`
 	// Accounts is where it came from, for the key's own page.
 	Accounts []AccountShare `json:"accounts"`
 	// Providers is the same per provider: the share of the pool of Claude
@@ -37,10 +39,12 @@ type SubscriptionShare struct {
 // ProviderShare is one key's estimated use of one provider's pooled
 // subscription, in percent of that pool, as SubscriptionShare's figures are.
 type ProviderShare struct {
-	Provider string  `json:"provider"`
-	FiveHour float64 `json:"five_hour"`
-	SevenDay float64 `json:"seven_day"`
-	Accounts int     `json:"accounts"`
+	Provider string `json:"provider"`
+	// FiveHour is absent when none of the provider's accounts reports a
+	// 5-hour window.
+	FiveHour *float64 `json:"five_hour,omitempty"`
+	SevenDay float64  `json:"seven_day"`
+	Accounts int      `json:"accounts"`
 }
 
 // AccountShare is one key on one account.
@@ -50,9 +54,10 @@ type AccountShare struct {
 	// Name is what the account is called: its name, or its address.
 	Name     string `json:"name"`
 	Provider string `json:"provider"`
-	// FiveHour and SevenDay are percentage points of this account's window.
-	FiveHour float64 `json:"five_hour"`
-	SevenDay float64 `json:"seven_day"`
+	// FiveHour and SevenDay are percentage points of this account's window;
+	// FiveHour is absent when the account reports no 5-hour window.
+	FiveHour *float64 `json:"five_hour,omitempty"`
+	SevenDay float64  `json:"seven_day"`
 	// The key's fraction of this gateway's weighted traffic on the account in
 	// each window, which the points above are this fraction of.
 	FiveHourShare float64 `json:"five_hour_share"`
@@ -65,6 +70,8 @@ type accountWindows struct {
 	provider         string
 	util5, util7     float64
 	weight5, weight7 map[string]float64
+	// has5 is whether the account reports a 5-hour window at all.
+	has5 bool
 }
 
 // ShareOf is one client's estimated share of the subscriptions now, as its
@@ -90,16 +97,29 @@ func shareOf(keyID string, accounts []accountWindows) SubscriptionShare {
 	if len(accounts) == 0 {
 		return out
 	}
-	pools := map[string]*ProviderShare{}
+	// Each window over the accounts that report it: a subscription with no
+	// session limit is no part of the 5-hour pool, not an idle part of it.
+	type pool struct {
+		accounts, with5 int
+		five, seven     float64
+	}
+	pools := map[string]*pool{}
+	var order []string
+	with5 := 0
 	for _, a := range accounts {
 		p := pools[a.provider]
 		if p == nil {
-			p = &ProviderShare{Provider: a.provider}
+			p = &pool{}
 			pools[a.provider] = p
-			out.Providers = append(out.Providers, ProviderShare{Provider: a.provider})
+			order = append(order, a.provider)
 		}
-		p.Accounts++
+		p.accounts++
+		if a.has5 {
+			p.with5++
+			with5++
+		}
 	}
+	var five, seven float64
 	for _, a := range accounts {
 		f5 := fraction(a.weight5, keyID)
 		f7 := fraction(a.weight7, keyID)
@@ -108,24 +128,33 @@ func shareOf(keyID string, accounts []accountWindows) SubscriptionShare {
 		}
 		s := AccountShare{
 			AccountID: a.id, Email: a.email, Name: a.name, Provider: a.provider,
-			FiveHourShare: f5, SevenDayShare: f7,
-			FiveHour: f5 * a.util5, SevenDay: f7 * a.util7,
+			FiveHourShare: f5, SevenDayShare: f7, SevenDay: f7 * a.util7,
 		}
-		out.FiveHour += s.FiveHour
-		out.SevenDay += s.SevenDay
-		pools[a.provider].FiveHour += s.FiveHour
-		pools[a.provider].SevenDay += s.SevenDay
+		if a.has5 {
+			s.FiveHour = ptr(f5 * a.util5)
+			five += *s.FiveHour
+			pools[a.provider].five += *s.FiveHour
+		}
+		seven += s.SevenDay
+		pools[a.provider].seven += s.SevenDay
 		out.Accounts = append(out.Accounts, s)
 	}
-	out.FiveHour /= float64(len(accounts))
-	out.SevenDay /= float64(len(accounts))
-	for i := range out.Providers {
-		p := pools[out.Providers[i].Provider]
-		out.Providers[i] = ProviderShare{Provider: p.Provider, Accounts: p.Accounts,
-			FiveHour: p.FiveHour / float64(p.Accounts), SevenDay: p.SevenDay / float64(p.Accounts)}
+	if with5 > 0 {
+		out.FiveHour = ptr(five / float64(with5))
+	}
+	out.SevenDay = seven / float64(len(accounts))
+	for _, name := range order {
+		p := pools[name]
+		ps := ProviderShare{Provider: name, Accounts: p.accounts, SevenDay: p.seven / float64(p.accounts)}
+		if p.with5 > 0 {
+			ps.FiveHour = ptr(p.five / float64(p.with5))
+		}
+		out.Providers = append(out.Providers, ps)
 	}
 	return out
 }
+
+func ptr(v float64) *float64 { return &v }
 
 func fraction(weights map[string]float64, keyID string) float64 {
 	var total float64
@@ -162,7 +191,8 @@ func (s *Admin) subscriptionWindows(ctx context.Context) ([]accountWindows, erro
 		if !q.Known() {
 			continue
 		}
-		w := accountWindows{id: a.ID, email: a.Email, name: a.DisplayName(), provider: a.Provider, util5: max(q.FiveHourUtil, 0), util7: max(q.SevenDayUtil, 0)}
+		w := accountWindows{id: a.ID, email: a.Email, name: a.DisplayName(), provider: a.Provider,
+			util5: max(q.FiveHourUtil, 0), util7: max(q.SevenDayUtil, 0), has5: q.FiveHourUtil >= 0}
 		if w.weight5, err = s.store.KeyWeights(ctx, a.ID, windowStart(q.FiveHourReset, 5*time.Hour, now)); err != nil {
 			return nil, err
 		}

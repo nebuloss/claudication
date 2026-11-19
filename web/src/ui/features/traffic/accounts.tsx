@@ -92,7 +92,11 @@ export default function TrafficAccounts() {
                     rows={u.rows}
                     detail={false}
                     provider={false}
-                    shares={shared ? accountShareColumns(share) : []}
+                    shares={
+                      shared
+                        ? accountShareColumns(share, u.rows.some((r) => share(r.client_id)?.five_hour !== undefined))
+                        : []
+                    }
                   />
                   {shared && (
                     <div className="mt-2">

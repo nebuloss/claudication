@@ -61,10 +61,14 @@ export function headline(quota: Quota): Headline[] {
     const fullest = limits.reduce((a, b) => (b.percent > a.percent ? b : a))
     return [{ seconds: fullest.window_seconds ?? 0, window: new QuotaWindow(fullest.percent, fullest.severity) }]
   }
-  return [
-    { seconds: FIVE_HOURS_S, window: new QuotaWindow(quota.five_hour_util, quota.five_hour_status) },
-    { seconds: SEVEN_DAYS_S, window: new QuotaWindow(quota.seven_day_util, quota.seven_day_status) },
+  const both = [
+    { seconds: FIVE_HOURS_S, util: quota.five_hour_util, window: new QuotaWindow(quota.five_hour_util, quota.five_hour_status) },
+    { seconds: SEVEN_DAYS_S, util: quota.seven_day_util, window: new QuotaWindow(quota.seven_day_util, quota.seven_day_status) },
   ]
+  // Once read, only the windows the account has: a subscription without a
+  // session limit has no 5-hour window, and an empty gauge for it read as
+  // one unused. Never read, both, each saying so.
+  return (windowed ? both.filter((h) => h.util >= 0) : both).map(({ seconds, window }) => ({ seconds, window }))
 }
 
 function Gauge({ label, window: w }: { label: string; window: QuotaWindow }) {
@@ -102,20 +106,25 @@ function usageRows(quota: Quota): UsageRow[] {
       active: l.is_active,
     }))
   }
-  return [
+  const rows = [
     {
       title: windowTitle(FIVE_HOURS_S),
       window: new QuotaWindow(quota.five_hour_util, quota.five_hour_status),
       resets: quota.five_hour_reset,
       active: false,
+      util: quota.five_hour_util,
     },
     {
       title: windowTitle(SEVEN_DAYS_S),
       window: new QuotaWindow(quota.seven_day_util, quota.seven_day_status),
       resets: quota.seven_day_reset,
       active: false,
+      util: quota.seven_day_util,
     },
   ]
+  // As the gauges: once either window is read, only the ones the account has.
+  const windowed = rows.some((r) => r.util >= 0)
+  return (windowed ? rows.filter((r) => r.util >= 0) : rows).map(({ util: _util, ...r }) => r)
 }
 
 /** What a row says after its title, the page's hint and the bubble alike. */

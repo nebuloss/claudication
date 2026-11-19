@@ -45,6 +45,25 @@ func TestQuotaMarksMissingWindowsUnknown(t *testing.T) {
 	}
 }
 
+// A plan without a session limit — Anthropic removed it from some
+// subscriptions in November 2026 — lists no "session" row, and has no 5-hour
+// window whatever the five_hour field still says; its week is read as before.
+func TestNoSessionLimitIsNoFiveHourWindow(t *testing.T) {
+	u := AccountUsage{
+		FiveHour: &UsageWindow{Utilization: 0},
+		SevenDay: &UsageWindow{Utilization: 45},
+		Limits:   []UsageLimit{{Kind: "weekly_all", Percent: 45}},
+	}
+	q := pool.StoredQuota(u.Usage())
+	if q.FiveHourUtil != -1 || q.SevenDayUtil != 45 || !q.Known() {
+		t.Errorf("figures: %+v, want no 5-hour window and the week", q)
+	}
+	// A response with no rows at all is read as it always was.
+	if q := pool.StoredQuota(AccountUsage{FiveHour: &UsageWindow{Utilization: 12}}.Usage()); q.FiveHourUtil != 12 {
+		t.Errorf("without rows the 5-hour window was dropped: %+v", q)
+	}
+}
+
 func TestParseUsageTimeToleratesNothingAndNonsense(t *testing.T) {
 	for _, v := range []*string{nil, strp(""), strp("yesterday")} {
 		if got := parseUsageTime(v); !got.IsZero() {
