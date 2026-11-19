@@ -87,16 +87,19 @@ export function CopyButton({
   value,
   label = 'Copy',
   failure,
+  size = 'md',
 }: {
   value: string
   label?: string
+  /** 'sm' beside other small actions: a dialog's header row. */
+  size?: 'md' | 'sm'
   /** What the failure says instead, when there is a better way out than selecting the value. */
   failure?: ReactNode
 }) {
   const c = useCopy(value)
   return (
     <>
-      <Button variant="tonal" icon={c.copied ? 'done' : 'copy'} onClick={() => void c.copy()}>
+      <Button variant="tonal" size={size} icon={c.copied ? 'done' : 'copy'} onClick={() => void c.copy()}>
         {c.copied ? 'Copied' : label}
       </Button>
       {c.failed && (

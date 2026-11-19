@@ -59,14 +59,18 @@ export function RequestDetail({
                 : 'forwarded to the upstream'}
           </Muted>
           <span className="flex-grow" />
-          {chat !== '' && (
-            <ButtonLink href={chat} variant="text" size="sm" icon="chats" navigate>
-              Open in its chat
-            </ButtonLink>
-          )}
-          {/* This page with this dialog open, to send or come back to. */}
-          <CopyButton label="Copy link" value={requestLink(row.id)} />
-          <CopyButton label="Copy record" value={record.asText()} />
+          {/* One group, which wraps under the status as a whole rather than
+              a button at a time. */}
+          <div className="flex shrink-0 items-center gap-2">
+            {chat !== '' && (
+              <ButtonLink href={chat} variant="text" size="sm" icon="chats" navigate>
+                Open in its chat
+              </ButtonLink>
+            )}
+            {/* This page with this dialog open, to send or come back to. */}
+            <CopyButton size="sm" label="Copy link" value={requestLink(row.id)} />
+            <CopyButton size="sm" label="Copy record" value={record.asText()} />
+          </div>
         </div>
 
         {row.error_kind === 'content_check' && (
