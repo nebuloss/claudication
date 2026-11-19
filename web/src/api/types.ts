@@ -362,6 +362,8 @@ export interface ChatDetail {
   /** The latest requests, oldest first. */
   requests: RequestRow[]
   context: ChatContext
+  /** Requests their recordings put on a thread beside the main one: not in the context. */
+  beside_main?: number[]
 }
 
 export interface ChatReport {

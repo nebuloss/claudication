@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -134,13 +135,33 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 		row.ChatTitle = titles[id]
 		out = append(out, row)
 	}
+	// Where requests were recorded, the ones on a thread beside the main one
+	// are not the conversation's context, whatever model they ran on.
+	beside := s.besideMain(r.Context(), events, captured)
+	main := events
+	if len(beside) > 0 {
+		main = make([]store.UsageEvent, 0, len(events))
+		for _, e := range events {
+			if !beside[e.ID] {
+				main = append(main, e)
+			}
+		}
+	}
+	besideIDs := make([]int64, 0, len(beside))
+	for _, e := range events {
+		if beside[e.ID] {
+			besideIDs = append(besideIDs, e.ID)
+		}
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,
 		"id":       id,
 		"requests": out,
 		// Over the requests returned, with the times it compacted, so the
 		// chart marks the same falls the list counts.
-		"context": store.ContextOf(events),
+		"context": store.ContextOf(main),
+		// The requests left out of it for being on a side thread.
+		"beside_main": besideIDs,
 	})
 }
 
@@ -160,12 +181,19 @@ func (s *Admin) handleChat(w http.ResponseWriter, r *http.Request) {
 // between turns. Nothing in it is any client's: Claude Code marks a subagent's
 // requests (cc_is_subagent in its billing header), and no other client does.
 //
-// The main thread is the one carrying the chat's largest prompt, as its
-// context is (internal/store, ContextOf), and any other with its system prompt
+// The main thread is the first with more than one request: the conversation
+// a person started, since a subagent is launched from one of its turns and so
+// always begins after it, and a title or a quick check is a single request.
+// It was the thread with the largest prompt, which a subagent reading a large
+// repository took from a main thread still short. A chat with no such thread
+// falls back to that rule. Any other thread with the main one's system prompt
 // is the main thread too: a compaction replaces the conversation, root and
-// all, under the same instructions. Every other thread ran beside it — a
-// subagent, a title asked of a small model — and is named as one beside it,
-// in the order they began.
+// all, under the same instructions. Every other thread ran beside it and is
+// named as one beside it, in the order they began.
+//
+// A recording started part-way through a chat can begin on a subagent's
+// requests; the rule then names it main until the main thread's own resume.
+// Nothing in what is recorded tells the two apart for every client.
 
 // ThreadJSON is one thread of a chat.
 type ThreadJSON struct {
@@ -281,8 +309,66 @@ func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
 		all = append(all, rd)
 	}
 
-	// Then the threads: by root, the main one by its largest prompt and its
-	// system prompt.
+	// Then the threads.
+	counts := make([]turnCount, len(all))
+	prompts := make([]int64, len(all))
+	for i, rd := range all {
+		counts[i], prompts[i] = rd.count, rd.event.PromptTokens()
+	}
+	threads, threadIDs := groupThreads(counts, prompts)
+
+	// Last, each turn against the one before it on its thread.
+	seen := map[int]int{}
+	turns := []TurnJSON{}
+	for i, rd := range all {
+		t := TurnJSON{Event: rd.event.ID, Capture: rd.event.ID, Added: []json.RawMessage{}}
+		if rd.count.unread != "" {
+			t.Unread = rd.count.unread
+			if within(rd.event.ID) {
+				turns = append(turns, t)
+			}
+			continue
+		}
+		t.Thread = threadIDs[i]
+		if before, ok := seen[t.Thread]; ok {
+			if rd.count.messages >= before {
+				t.Offset = before
+			} else {
+				t.Restarted = true
+			}
+		}
+		next := rd.count.messages
+		if rd.count.answered {
+			next++
+		}
+		seen[t.Thread] = next
+		if within(rd.event.ID) {
+			t.Added = rd.messages[t.Offset:]
+			t.Answer = rd.answer
+			turns = append(turns, t)
+		}
+	}
+	out := map[string]any{"id": id, "threads": threads}
+	if only {
+		// Which thread each recorded request is on, for a list of them to say.
+		of := map[string]int{}
+		for i, rd := range all {
+			if threadIDs[i] != 0 {
+				of[strconv.FormatInt(rd.event.ID, 10)] = threadIDs[i]
+			}
+		}
+		out["thread_of"] = of
+	} else {
+		out["turns"] = turns
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// groupThreads reads a chat's recorded requests, oldest first, into its
+// threads (the rule above), and says which thread each request is on: 0 for
+// one that could not be read. prompts are each request's prompt, the
+// fallback's measure.
+func groupThreads(counts []turnCount, prompts []int64) ([]ThreadJSON, []int) {
 	type thread struct {
 		id       int
 		system   string
@@ -291,23 +377,31 @@ func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
 	}
 	byRoot := map[string]*thread{}
 	var order []*thread
-	for _, rd := range all {
-		if rd.count.unread != "" {
+	for i, c := range counts {
+		if c.unread != "" {
 			continue
 		}
-		t, ok := byRoot[rd.count.root]
+		t, ok := byRoot[c.root]
 		if !ok {
-			t = &thread{system: rd.count.system}
-			byRoot[rd.count.root] = t
+			t = &thread{system: c.system}
+			byRoot[c.root] = t
 			order = append(order, t)
 		}
 		t.requests++
-		t.peak = max(t.peak, rd.event.PromptTokens())
+		t.peak = max(t.peak, prompts[i])
 	}
 	var main *thread
 	for _, t := range order {
-		if main == nil || t.peak > main.peak {
+		if t.requests > 1 {
 			main = t
+			break
+		}
+	}
+	if main == nil {
+		for _, t := range order {
+			if main == nil || t.peak > main.peak {
+				main = t
+			}
 		}
 	}
 	threads := []ThreadJSON{}
@@ -335,52 +429,51 @@ func (s *Admin) handleChatTranscript(w http.ResponseWriter, r *http.Request) {
 			numbered(t, false)
 		}
 	}
+	ids := make([]int, len(counts))
+	for i, c := range counts {
+		if c.unread == "" {
+			ids[i] = byRoot[c.root].id
+		}
+	}
+	return threads, ids
+}
 
-	// Last, each turn against the one before it on its thread.
-	seen := map[int]int{}
-	turns := []TurnJSON{}
-	for _, rd := range all {
-		t := TurnJSON{Event: rd.event.ID, Capture: rd.event.ID, Added: []json.RawMessage{}}
-		if rd.count.unread != "" {
-			t.Unread = rd.count.unread
-			if within(rd.event.ID) {
-				turns = append(turns, t)
-			}
+// besideMain is which of a chat's requests its recordings put on a thread
+// beside the main one: a subagent, which can run on the main thread's own
+// model, where telling it apart by model, as the context's figures do without
+// recordings (internal/store, ContextOf), cannot. Read from the counts kept
+// for the transcript, or the recording once.
+func (s *Admin) besideMain(ctx context.Context, events []store.UsageEvent, captured map[int64]bool) map[int64]bool {
+	var counts []turnCount
+	var prompts []int64
+	var ids []int64
+	for _, e := range events {
+		if !captured[e.ID] {
 			continue
 		}
-		t.Thread = byRoot[rd.count.root].id
-		if before, ok := seen[t.Thread]; ok {
-			if rd.count.messages >= before {
-				t.Offset = before
-			} else {
-				t.Restarted = true
+		c, ok := s.counts.get(e.ID)
+		if !ok {
+			x, err := s.capture.ByEvent(ctx, e.ID)
+			if err != nil {
+				continue
 			}
+			_, c = readTurn(s.legJSON(&x.Client))
+			s.counts.put(e.ID, c)
 		}
-		next := rd.count.messages
-		if rd.count.answered {
-			next++
-		}
-		seen[t.Thread] = next
-		if within(rd.event.ID) {
-			t.Added = rd.messages[t.Offset:]
-			t.Answer = rd.answer
-			turns = append(turns, t)
+		counts, prompts, ids = append(counts, c), append(prompts, e.PromptTokens()), append(ids, e.ID)
+	}
+	threads, of := groupThreads(counts, prompts)
+	main := map[int]bool{}
+	for _, t := range threads {
+		main[t.ID] = t.Main
+	}
+	out := map[int64]bool{}
+	for i, id := range ids {
+		if of[i] != 0 && !main[of[i]] {
+			out[id] = true
 		}
 	}
-	out := map[string]any{"id": id, "threads": threads}
-	if only {
-		// Which thread each recorded request is on, for a list of them to say.
-		of := map[string]int{}
-		for _, rd := range all {
-			if th, ok := byRoot[rd.count.root]; ok && rd.count.unread == "" {
-				of[strconv.FormatInt(rd.event.ID, 10)] = th.id
-			}
-		}
-		out["thread_of"] = of
-	} else {
-		out["turns"] = turns
-	}
-	httpx.WriteJSON(w, http.StatusOK, out)
+	return out
 }
 
 // turnCount is what the transcript needs of a turn outside its window: how

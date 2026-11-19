@@ -95,8 +95,11 @@ export default function ChatContextDetail({
 function curve(data: ChatDetail | null): { points: Point[]; marks: number[]; switches: number[] } {
   if (data === null || data.context.model === '') return { points: [], marks: [], switches: [] }
   const main = data.context.main_models ?? [data.context.model]
+  // A request its recording put on a side thread is not the conversation,
+  // on whatever model it ran.
+  const beside = new Set(data.beside_main ?? [])
   const rows = data.requests.filter(
-    (r) => r.status === 200 && r.path !== INTERNAL_PATH && main.includes(r.model ?? ''),
+    (r) => r.status === 200 && r.path !== INTERNAL_PATH && main.includes(r.model ?? '') && !beside.has(r.id),
   )
   const points = rows.map((r) => ({ at: r.at, prompt: prompt(r) }))
 
