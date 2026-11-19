@@ -59,15 +59,22 @@ background, never on a request's way, and dropped rather than waited for when
 the writer is behind or the disk has under 100 MiB free; pruned every ten
 minutes to its retention and to `capture.disk-budget` (200 MiB by default),
 oldest first. The recording switch itself is not kept: a deploy stops a
-recording in progress, and what it recorded stays.
+recording in progress, and what it recorded stays. **Settings** shows what is
+recorded and stored against the budget, and clears all of it.
+
+What it costs depends on what the turns add. Measured on 2026-11-19, a
+Claude Code session reading code with a subagent — 23 requests, 5.6 MB as
+they passed — stored 1.07 MB, about 47 KB a request, since every tool result
+is new; a ten-turn chat with short answers stored 2.4 KB a turn. At the
+default budget that is some four thousand requests of the first kind.
 
 **Traffic** — the last hour live; where the traffic went, by model, by client
 and by account, each with its traffic over days above its table; and the
 requests: their outcomes over days above the request log, every client's,
 with the upstream's own error text, paged back as far as retention keeps it.
 
-**Settings** — a page each: **General**, the Gateway switch and the admin
-password and sessions; **Models**, how each provider's models are offered (by
+**Settings** — a page each: **General**, the Gateway switch, recorded content
+and the admin password and sessions; **Models**, how each provider's models are offered (by
 family, the default, or every model), which version each family serves (the
 latest, per account, or one for the gateway) and which account serves which; **MCP**, the MCP server's switch and address;
 **Configuration**, the configuration as loaded; **Diagnostics**, how changes
